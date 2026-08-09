@@ -490,8 +490,20 @@
     },
     {
       "parameters": {
+        "url": "={{ ($('Validate Compose Result').item.json.thumbnail_path || '').replace('/app/outputs', 'https://compose-lf.example.cloud/outputs') }}",
+        "options": { "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "b1a00001-0000-4000-8000-00000000002e",
+      "name": "Download Thumbnail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6620, 220],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "=https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={{ $json.id || $json.uploadId }}",
+        "url": "=https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={{ $('YouTube: Upload').item.json.id || $('YouTube: Upload').item.json.uploadId }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "youTubeOAuth2Api",
         "sendBody": true,
@@ -503,7 +515,7 @@
       "name": "Set Thumbnail",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [6620, 380],
+      "position": [6840, 380],
       "credentials": { "youTubeOAuth2Api": { "id": "YT_CRED", "name": "YouTube account" } },
       "continueOnFail": true
     },
@@ -593,7 +605,8 @@
     "If Under Max Poll Attempts": { "main": [ [ { "node": "Wait Before Poll", "type": "main", "index": 0 } ], [ { "node": "Fail: Compose Timeout", "type": "main", "index": 0 } ] ] },
     "Validate Compose Result": { "main": [ [ { "node": "Download Final Video", "type": "main", "index": 0 } ] ] },
     "Download Final Video": { "main": [ [ { "node": "YouTube: Upload", "type": "main", "index": 0 } ] ] },
-    "YouTube: Upload": { "main": [ [ { "node": "Set Thumbnail", "type": "main", "index": 0 } ] ] },
+    "YouTube: Upload": { "main": [ [ { "node": "Download Thumbnail", "type": "main", "index": 0 } ] ] },
+    "Download Thumbnail": { "main": [ [ { "node": "Set Thumbnail", "type": "main", "index": 0 } ] ] },
     "Set Thumbnail": { "main": [ [ { "node": "Disclose AI-Generated Content", "type": "main", "index": 0 } ] ] },
     "Disclose AI-Generated Content": { "main": [ [ { "node": "Log Run", "type": "main", "index": 0 } ] ] },
     "Log Run": { "main": [ [ { "node": "Cleanup: Delete Local Render", "type": "main", "index": 0 } ] ] }

@@ -33,10 +33,19 @@ const MOTION_ASSETS_DIR = process.env.MOTION_ASSETS_DIR || path.join(__dirname, 
 const REMOTION_DIR = path.join(__dirname, "remotion");
 const TOPIC_HISTORY_PATH = process.env.TOPIC_HISTORY_PATH || path.join(__dirname, "topic_history.json");
 const TOPIC_HISTORY_MAX = 90;
+const RUN_LOG_PATH = process.env.RUN_LOG_PATH || path.join(path.dirname(TOPIC_HISTORY_PATH), "run_log.jsonl");
 
 const TARGET_W = 1080;
 const TARGET_H = 1920;
 const FPS = 30;
+
+// Long-form scaling knobs:
+// - COMPOSE_CONCURRENCY bounds how many scenes build in parallel (default 3);
+//   40-50 scenes built all-at-once with the Ken-Burns upscale OOMs the 6GB box.
+// - KENBURNS_UPSCALE is the pre-zoompan upscale height (default 3500 for long-form,
+//   down from 6000) to cut per-process RAM while keeping sub-pixel headroom.
+const COMPOSE_CONCURRENCY = Math.max(1, parseInt(process.env.COMPOSE_CONCURRENCY || "3", 10));
+const KENBURNS_UPSCALE = Math.max(2200, parseInt(process.env.KENBURNS_UPSCALE || "3500", 10));
 
 // Detect video encoder hardware support (libx264 fallback)
 const V_ENCODER = process.env.USE_NVENC ? "h264_nvenc" : "libx264";
@@ -66,10 +75,18 @@ const DEFAULT_OUTRO_LINE = "Comment, like, share, and follow";
 // Endpoints: Topic History
 // ---------------------------------------------------------------------------
 
+// Per-niche history files so Geography and Historical Mysteries dedup
+// independently. ?niche=<niche> selects the file; unknown/blank -> "default".
+function historyPathFor(niche) {
+  const safe = String(niche || "default").replace(/[^a-z0-9_-]/gi, "") || "default";
+  return path.join(path.dirname(TOPIC_HISTORY_PATH), `topic_history_${safe}.json`);
+}
+
 app.get("/topic-history", async (req, res) => {
   try {
-    if (!fs.existsSync(TOPIC_HISTORY_PATH)) return res.json({ topics: [] });
-    const raw = await fsp.readFile(TOPIC_HISTORY_PATH, "utf8");
+    const p = historyPathFor(req.query.niche);
+    if (!fs.existsSync(p)) return res.json({ topics: [] });
+    const raw = await fsp.readFile(p, "utf8");
     return res.json({ topics: JSON.parse(raw) });
   } catch (err) {
     console.error("Failed to read topic history:", err);
@@ -82,18 +99,19 @@ app.post("/topic-history", async (req, res) => {
     const { topic, hook } = req.body;
     if (!topic) return res.status(400).json({ success: false, error: "topic is required" });
 
+    const p = historyPathFor(req.query.niche);
     let topics = [];
-    if (fs.existsSync(TOPIC_HISTORY_PATH)) {
-      topics = JSON.parse(await fsp.readFile(TOPIC_HISTORY_PATH, "utf8"));
+    if (fs.existsSync(p)) {
+      topics = JSON.parse(await fsp.readFile(p, "utf8"));
     }
     topics.push({ topic, hook: hook || null, created_at: new Date().toISOString() });
     if (topics.length > TOPIC_HISTORY_MAX) {
       topics = topics.slice(topics.length - TOPIC_HISTORY_MAX);
     }
-    // TOPIC_HISTORY_PATH may live in a mounted data dir (/app/data); ensure
-    // the parent exists so the write works regardless of how the app is run.
-    await fsp.mkdir(path.dirname(TOPIC_HISTORY_PATH), { recursive: true });
-    await fsp.writeFile(TOPIC_HISTORY_PATH, JSON.stringify(topics, null, 2));
+    // The data dir (/app/data) is a mounted named volume; ensure it exists so
+    // the write works regardless of how the app is run.
+    await fsp.mkdir(path.dirname(p), { recursive: true });
+    await fsp.writeFile(p, JSON.stringify(topics, null, 2));
     return res.json({ success: true, count: topics.length });
   } catch (err) {
     console.error("Failed to write topic history:", err);
@@ -176,6 +194,73 @@ function ffprobeDuration(filePath) {
       resolve(data.format.duration);
     });
   });
+}
+
+// Bounded-concurrency map that never throws mid-flight: returns Promise.allSettled
+// -shaped results ({status,value|reason}) in input order, running at most `limit`
+// tasks at once. Long-form has 40-50 scenes; building them all in parallel (the
+// old allSettled) OOMs the 6GB box, so we cap the pool.
+async function mapSettledWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { status: "fulfilled", value: await fn(items[i], i) };
+      } catch (e) {
+        results[i] = { status: "rejected", reason: e };
+      }
+    }
+  }
+  const n = Math.min(Math.max(1, limit), items.length || 1);
+  await Promise.all(Array.from({ length: n }, worker));
+  return results;
+}
+
+// House-style gradient still for a degraded scene (Fal generation failed upstream).
+// Keeps the video complete + audio-synced instead of failing the whole run.
+function pickGradientBackground() {
+  const dir = path.join(MOTION_ASSETS_DIR, "backgrounds");
+  for (const c of ["gradient_charcoal.png", "card_left.png", "card_right.png"]) {
+    const p = path.join(dir, c);
+    if (fs.existsSync(p)) return p;
+  }
+  try {
+    const files = fs.readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
+    if (files.length) return path.join(dir, files[0]);
+  } catch (e) { /* fall through */ }
+  throw new Error("no gradient background asset available for placeholder");
+}
+
+// Render a 1280x720 thumbnail PNG: background image (or gradient), a darkened
+// bottom band for legibility, and the punchy thumbnail text in Inter-Black with
+// the niche accent color. Identical template across niches (only image + accent
+// differ) so the A/B comparison isn't confounded by thumbnail construction.
+async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath) {
+  let bgPath;
+  if (imageUrl) {
+    bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
+    try { await downloadFile(imageUrl, bgPath); } catch (e) { bgPath = pickGradientBackground(); }
+  } else {
+    bgPath = pickGradientBackground();
+  }
+  const fontPath = path.join(MOTION_ASSETS_DIR, "fonts", "Inter-Black.ttf");
+  const safeFont = fontPath.replace(/\\/g, "/").replace(/:/g, "\\:");
+  const txt = String(text || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").trim().slice(0, 48);
+  const accentHex = "0x" + String(accent || "#FFFFFF").replace(/^#/, "");
+  const vf = [
+    "scale=1280:720:force_original_aspect_ratio=increase",
+    "crop=1280:720",
+    "eq=contrast=1.08:saturation=1.15",
+    "drawbox=x=0:y=468:w=1280:h=252:color=black@0.55:t=fill",
+    `drawtext=fontfile='${safeFont}':text='${txt}':fontcolor=${accentHex}:fontsize=76:borderw=5:bordercolor=black:x=(w-text_w)/2:y=545`,
+  ].join(",");
+  await run(
+    ffmpeg().input(bgPath).outputOptions(["-vf", vf, "-frames:v", "1"]).output(outPath)
+  );
+  return outPath;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +460,7 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
       // from a source close to the output size makes the per-frame crop
       // window round to whole pixels unevenly, which reads as flicker/
       // vibration. The extra sub-pixel headroom eliminates that jitter.
-      `[0:v]scale=-2:6000,zoompan=z=${finalZoom}:x=${xExpr}:y='ih*0.02*(1-cos(PI*on/${totalFrames}))/2':d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${fps}[zoomed]`,
+      `[0:v]scale=-2:${KENBURNS_UPSCALE},zoompan=z=${finalZoom}:x=${xExpr}:y='ih*0.02*(1-cos(PI*on/${totalFrames}))/2':d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${fps}[zoomed]`,
       `[zoomed]${gradeFilter}[graded]`,
       `[graded]unsharp=5:5:0.4:5:5:0.0[final]`,
     ];
@@ -750,14 +835,12 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
     console.log(`[job ${jobId}] Composing ${scenes.length} scenes (mood: ${mood})`);
 
-    // ===== PHASE 1: Build individual scenes in parallel =====
-    // Use allSettled, not all: if one scene throws, all() rejects
-    // immediately while sibling scenes' ffmpeg processes keep running - and
-    // the job's finally block then deletes tmpDir out from under them,
-    // producing confusing "No such file" errors and orphaned processes.
-    // Wait for every scene to settle first, then fail with a clear message.
-    const settled = await Promise.allSettled(
-      scenes.map(async (scene, i) => {
+    // ===== PHASE 1: Build individual scenes with bounded concurrency =====
+    // A bounded pool (COMPOSE_CONCURRENCY) rather than all-at-once: 40-50 scenes
+    // each running a large zoompan would otherwise OOM the 6GB container. Settled
+    // (not throw-fast) so one bad scene doesn't orphan siblings mid-render.
+    const startedAt = Date.now();
+    const settled = await mapSettledWithConcurrency(scenes, COMPOSE_CONCURRENCY, async (scene, i) => {
         const audioPath = path.join(tmpDir, `voice_${i}.mp3`);
         if (scene?.audio?.audio_base64) {
           await writeBase64(scene.audio.audio_base64, audioPath);
@@ -769,6 +852,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
         const duration = await ffprobeDuration(audioPath);
         const outPath = path.join(tmpDir, `scene_${i}_final.mp4`);
+        let degraded = false;
 
         const isTemplate = scene?.visual_source === "template";
         const isStockVideo = !isTemplate && !!scene?.video_url;
@@ -782,21 +866,28 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           await buildStockVideoScene(stockVideoPath, audioPath, duration, outPath, i, mood);
         } else {
           const imageUrls = scene?.images;
-          if (!Array.isArray(imageUrls) || !imageUrls.length) {
-            throw new Error(`Scene ${i}: missing images array (and no video_url)`);
+          let imagePaths;
+          if (Array.isArray(imageUrls) && imageUrls.length) {
+            imagePaths = await Promise.all(
+              imageUrls.map(async (url, j) => {
+                const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);
+                return await downloadFile(url, p);
+              })
+            );
+          } else {
+            // Degraded scene: Fal generation failed upstream (n8n flags _degraded
+            // and sends no images). Use a house-style gradient still so the video
+            // stays complete + audio-synced instead of failing the whole run.
+            degraded = true;
+            imagePaths = [pickGradientBackground()];
+            console.warn(`[job ${jobId}] scene ${i} degraded - using gradient placeholder`);
           }
-          const imagePaths = await Promise.all(
-            imageUrls.map(async (url, j) => {
-              const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);
-              return await downloadFile(url, p);
-            })
-          );
 
           // Hybrid: animate the hook (first) and payoff scenes into real
           // motion clips; keep the middle as Ken-Burns stills. Any failure
           // (no key, model error, timeout) falls back to the still so a bad
-          // clip never breaks the video.
-          const animate = FAL_VIDEO_ENABLED && FAL_KEY && (i === 0 || i === emphasisIdx);
+          // clip never breaks the video. Never animate a gradient placeholder.
+          const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && (i === 0 || i === emphasisIdx);
           let animated = false;
           if (animate) {
             try {
@@ -814,8 +905,8 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           }
         }
 
-        return { path: outPath, duration };
-      })
+        return { path: outPath, duration, degraded };
+      }
     );
 
     const failures = settled
@@ -828,6 +919,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     const sceneResults = settled.map((r) => r.value);
     const scenePaths = sceneResults.map((r) => r.path);
     const durations = sceneResults.map((r) => r.duration);
+    const degradedScenes = sceneResults.filter((r) => r.degraded).length;
 
     // ===== PHASE 2: Concatenate scenes (hard cuts) =====
     const concatPath = path.join(tmpDir, "concat.mp4");
@@ -965,8 +1057,23 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     await run(finalCmd);
 
     await fsp.copyFile(finalPath, outputFullPath);
-    console.log(`[job ${jobId}] Done -> ${outputFullPath}`);
-    return { success: true, output_path: outputFullPath, job_id: jobId };
+
+    // Thumbnail: render a 1280x720 PNG from the passed thumbnail image + text.
+    // Optional - a render failure never fails the video (falls back to auto-frame).
+    let thumbnailPath = null;
+    if (reqBody.thumbnail) {
+      try {
+        const thumbFull = path.join(OUTPUT_DIR, `thumb_${jobId}.png`);
+        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull);
+        thumbnailPath = thumbFull;
+      } catch (e) {
+        console.warn(`[job ${jobId}] thumbnail render failed (${e.message}) - continuing without a custom thumbnail`);
+      }
+    }
+
+    const renderTimeSec = Math.round((Date.now() - startedAt) / 1000);
+    console.log(`[job ${jobId}] Done -> ${outputFullPath} (${renderTimeSec}s, ${degradedScenes} degraded scenes)`);
+    return { success: true, output_path: outputFullPath, thumbnail_path: thumbnailPath, render_time_sec: renderTimeSec, degraded_scenes: degradedScenes, job_id: jobId };
 
   } catch (err) {
     console.error(`[job ${jobId}] FAILED:`, err);
@@ -1015,5 +1122,47 @@ app.get("/compose-status/:jobId", (req, res) => {
   return res.json({ status: "processing" });
 });
 
+// Delete a finished render (and its thumbnail) from OUTPUT_DIR. The workflow
+// passes the video filename stem, e.g. "long_<jobId>".
+app.delete("/cleanup/:id", async (req, res) => {
+  try {
+    const stem = String(req.params.id).replace(/[^a-zA-Z0-9_-]/g, "");
+    const jobId = stem.replace(/^long_/, "");
+    const targets = [...new Set([`${stem}.mp4`, `long_${jobId}.mp4`, `thumb_${jobId}.png`])];
+    let removed = 0;
+    for (const name of targets) {
+      const p = path.join(OUTPUT_DIR, name);
+      if (fs.existsSync(p)) { await fsp.rm(p, { force: true }); removed++; }
+    }
+    return res.json({ success: true, removed });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Per-run metrics for the niche A/B. Appended as JSONL to the persistent data
+// volume; GET returns all runs for later revenue-per-run analysis.
+app.post("/run-log", async (req, res) => {
+  try {
+    await fsp.mkdir(path.dirname(RUN_LOG_PATH), { recursive: true });
+    await fsp.appendFile(RUN_LOG_PATH, JSON.stringify({ ...req.body, logged_at: new Date().toISOString() }) + "\n");
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to append run log:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/run-log", async (req, res) => {
+  try {
+    if (!fs.existsSync(RUN_LOG_PATH)) return res.json({ runs: [] });
+    const lines = (await fsp.readFile(RUN_LOG_PATH, "utf8")).split("\n").filter(Boolean);
+    const runs = lines.map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+    return res.json({ runs });
+  } catch (err) {
+    return res.status(500).json({ runs: [], error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Studio compose engine listening on :${PORT}`));
+app.listen(PORT, () => console.log(`Long-form compose engine listening on :${PORT}`));
