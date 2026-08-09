@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+.DS_Store
+outputs/
+topic_history.json
+/tmp/
+*.mp4
+!compose/motion-assets/**/*.mov

@@ -1,0 +1,65 @@
+# Long-form stack. Namespaced 'yt-longform' with offset host ports and lf_-prefixed
+# volumes so it can run on the SAME Ubuntu server as the Shorts stack without
+# colliding on ports (5678/4000) or sharing named volumes (topic history, outputs).
+# On a dedicated host, you can revert the "5679:"/"4001:" host ports to 5678/4000.
+name: yt-longform
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    restart: unless-stopped
+    ports:
+      - "5679:5678"          # host 5679 -> container 5678 (Shorts uses 5678)
+    environment:
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_SECURE_COOKIE=false
+      # Set to your long-form-specific subdomain (see README §3), NOT the Shorts one.
+      - WEBHOOK_URL=https://n8n-lf.example.cloud/
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=Europe/Berlin
+      - TZ=Europe/Berlin
+    volumes:
+      - lf_n8n_data:/home/node/.n8n
+
+  compose:
+    build: ./compose
+    restart: unless-stopped
+    ports:
+      - "4001:4000"          # host 4001 -> container 4000 (Shorts uses 4000)
+    environment:
+      - OUTPUT_DIR=/app/outputs
+      - TOPIC_HISTORY_PATH=/app/data/topic_history.json
+      - NODE_OPTIONS=--max-old-space-size=4096
+      # Long-form scene-concurrency cap (used by the upcoming compose.js edit): bound
+      # parallel ffmpeg/zoompan builds so 40-50 scenes don't OOM the 6GB container.
+      - COMPOSE_CONCURRENCY=3
+      # Fal AI image generation key. Add as a repo/environment secret named FAL_KEY.
+      - FAL_KEY=${FAL_KEY:-}
+      # Hybrid image->video (hook/payoff animation) stays OFF by default (see compose.js).
+      - FAL_VIDEO_ENABLED=${FAL_VIDEO_ENABLED:-}
+      - FAL_VIDEO_MODEL=${FAL_VIDEO_MODEL:-fal-ai/ltx-video/image-to-video}
+    volumes:
+      # All app-writable paths are named volumes (immune to git clean on deploy),
+      # prefixed lf_ so they never share state with the Shorts stack.
+      - lf_outputs:/app/outputs      # ephemeral rendered videos, cleaned up per job
+      - lf_data:/app/data            # persistent per-niche topic-history dedup state
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4000/topic-history"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    # Remotion rendering is memory-intensive (Chromium frame rendering); long-form
+    # renders are longer, so keep the 6GB ceiling and rely on COMPOSE_CONCURRENCY.
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+        reservations:
+          memory: 2G
+
+volumes:
+  lf_n8n_data:
+  lf_data:
+  lf_outputs:

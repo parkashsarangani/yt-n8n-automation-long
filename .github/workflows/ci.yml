@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  docker-build:
+    name: Docker Build (validate)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build compose image (no push)
+        run: |
+          docker build -t compose:pr-${{ github.event.pull_request.number }} ./compose
