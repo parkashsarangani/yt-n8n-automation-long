@@ -17,19 +17,19 @@ TTS, B-roll volume, render scaling — so it lives on its own.
 the source of truth for the node graph, prompt templates, retry/failure semantics,
 the thumbnail step, and the per-run cost logging.
 
-Build order: (1) `n8n/long-form.json` workflow · (2) the two `compose/compose.js`
+Build order: (1) `n8n/long-workflow.json` workflow · (2) the two `long-compose/compose.js`
 edits (scene-concurrency cap, Ken-Burns upscale reduction) · (3) 3-video pilot to
 validate retention + pipeline reliability · (4) full interleaved A/B run.
 
 ## Architecture (long-form specifics)
 
 ```
-n8n (orchestration) — long-form.json
+n8n (orchestration) — long-workflow.json
   ├─ Claude — niche-seeded topic → blueprint → per-act script loop (avoids truncation)
   │           → editorial pass → dedicated visual-plan enrichment
   ├─ ElevenLabs — per-section TTS with previous_text/next_text for voice continuity
   ├─ Fal flux/dev — 40–80 AI images (search_terms → prompt; fallback_terms; gradient placeholder)
-  ├─ compose (this repo) — hybrid Remotion + FFmpeg assembly (vendored from the Shorts compositor,
+  ├─ long-compose (this repo) — hybrid Remotion + FFmpeg assembly (vendored from the Shorts compositor,
   │           with a scene-concurrency cap + raised async poll budget for 10-min renders)
   ├─ Thumbnail — dedicated 16:9 Fal image + templated text overlay (identical template per niche,
   │           for A/B validity), set via YouTube thumbnails.set
@@ -52,13 +52,13 @@ See the spec and the project notes for the full experiment design.
 ```
 n8n/
   long-form-mvp-spec.md        - build spec (READ FIRST): nodes, prompts, retry/failure, thumbnail, logging
-  long-form.json               - the n8n workflow (to be generated from the spec)
-compose/                       - vendored video-composition service (self-contained)
+  long-workflow.json               - the n8n workflow (to be generated from the spec)
+long-compose/                       - vendored video-composition service (self-contained)
   compose.js                     - async job API + hybrid Remotion/FFmpeg pipeline
   Dockerfile, package.json
   remotion/                      - studio motion graphics + caption/thumbnail compositions
   motion-assets/                 - fonts, icons, backgrounds, sfx (see LICENSES.md)
-docker-compose.yml             - deploys n8n + compose (namespaced 'yt-longform'; ports offset to co-exist with Shorts)
+docker-compose.yml             - deploys n8n + long-compose (namespaced 'yt-longform'; ports offset to co-exist with Shorts)
 ```
 
 ## Setup
@@ -78,8 +78,8 @@ docker-compose.yml             - deploys n8n + compose (namespaced 'yt-longform'
 docker compose up -d --build
 ```
 
-The compose service and n8n are **namespaced and port-offset** (n8n on host `5679`,
-compose on host `4001`, volumes prefixed `lf_`) so this stack can run on the same
+The long-compose service and n8n are **namespaced and port-offset** (n8n on host `5679`,
+long-compose on host `4001`, volumes prefixed `long_`) so this stack can run on the same
 Ubuntu server as the Shorts stack without colliding on ports or sharing state.
 If you run it on a separate host, revert the port offsets in `docker-compose.yml`.
 
@@ -91,7 +91,7 @@ Point long-form-specific subdomains at this stack (e.g. `n8n-lf.<domain>` →
 
 ### 4. Import the workflow
 
-Import `n8n/long-form.json` into n8n, reconnect each credential, and set the niche
+Import `n8n/long-workflow.json` into n8n, reconnect each credential, and set the niche
 input parameter (`geography` | `historical_mysteries`) per run.
 
 ## Licensing

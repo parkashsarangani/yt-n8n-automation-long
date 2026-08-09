@@ -1,7 +1,7 @@
 # Third-Party Asset Licenses
 
 This repo bundles a small number of real, licensed design assets used by the
-`compose` motion-graphics templates. They are not original work by
+`long-compose` motion-graphics templates. They are not original work by
 this project and retain their original licenses.
 
 ## Fonts — Inter

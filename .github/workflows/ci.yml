@@ -11,6 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build compose image (no push)
+      - name: Build long-compose image (no push)
         run: |
-          docker build -t compose:pr-${{ github.event.pull_request.number }} ./compose
+          docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose

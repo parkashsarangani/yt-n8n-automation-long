@@ -1,7 +1,7 @@
 # Long-form MVP — build spec (script-gen + enrichment)
 
 Status: build spec for review. Flat model (1 scene = 1 beat = 1 TTS call = 1 Fal image = 1 alignment),
-~40–50 scenes, ~1,200–1,500 words. Reuses the Shorts `/compose` service with two edits (see §7).
+~40–50 scenes, ~1,200–1,500 words. Vendors the Shorts compositor as `long-compose/` with two edits (see §7).
 Visual source = Fal `flux/dev` (unchanged from Shorts; NOT Pexels).
 
 Empirical placeholders pending channel data: view-count CV `TBD-from-channel-data`,
@@ -10,7 +10,7 @@ revenue/views landslide-only (see the A/B protocol in chat).
 
 ---
 
-## 1. Node graph (`long-form.json`)
+## 1. Node graph (`long-workflow.json`)
 
 ```
 Trigger (Manual + Schedule ≤1/day)
@@ -188,7 +188,7 @@ Changes from the Shorts validator:
 
 ---
 
-## 7. Compose edits (in shorts-compose/compose.js — two only)
+## 7. Compose edits (in long-compose/compose.js — two only)
 
 1. **Scene concurrency cap.** Replace the unbounded `Promise.allSettled(scenes.map(...))` with a bounded pool
    (limit 2–3, env `COMPOSE_CONCURRENCY`). At 40–50 scenes × 6000px zoompan the current code OOMs the 6GB box.
@@ -208,7 +208,7 @@ request-stitching. `buildGaplessVoice` still does the final sample-accurate join
 
 ---
 
-## 9. Run-log record (Log Run node → new `/run-log` on compose service, appended to shorts_data)
+## 9. Run-log record (Log Run node → new `/run-log` on compose service, appended to long_data)
 
 ```json
 {

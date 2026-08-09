@@ -1,7 +1,7 @@
 {
-  "name": "shorts-compose",
+  "name": "long-compose",
   "version": "2.0.0",
-  "description": "Hybrid Remotion + FFmpeg composition service for studio-grade YouTube Shorts — Remotion for motion graphics and captions, FFmpeg for stock scenes, audio mixing, and final encoding.",
+  "description": "Hybrid Remotion + FFmpeg composition service for studio-grade YouTube long-form — Remotion for motion graphics and captions, FFmpeg for stock scenes, audio mixing, and final encoding.",
   "main": "compose.js",
   "scripts": {
     "start": "node compose.js",

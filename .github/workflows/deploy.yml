@@ -22,13 +22,13 @@ jobs:
         env:
           # fal.ai key for hybrid image->video (hook/payoff animation). Add it
           # as a repo/environment secret named FAL_KEY. If the secret is unset,
-          # this is empty and compose skips animation (falls back to stills).
+          # this is empty and long-compose skips animation (falls back to stills).
           FAL_KEY: ${{ secrets.FAL_KEY }}
         run: |
           set -e
 
-          echo "=== Stopping existing compose (if running) ==="
-          docker compose down compose || true
+          echo "=== Stopping existing long-compose (if running) ==="
+          docker compose down long-compose || true
           # Also kill any orphan container holding port 4000
           docker ps -q --filter "publish=4001" | xargs -r docker stop || true
 
@@ -36,11 +36,11 @@ jobs:
           # are named volumes now, so nothing needs a host dir under the git
           # checkout - and clean:true can no longer break a bind mount.
 
-          echo "=== Building compose ==="
-          docker compose build --no-cache compose
+          echo "=== Building long-compose ==="
+          docker compose build --no-cache long-compose
 
           echo "=== Deploying ==="
-          docker compose up -d compose
+          docker compose up -d long-compose
 
       - name: Health check
         run: |
@@ -51,11 +51,11 @@ jobs:
           until curl -sf http://localhost:4001/topic-history > /dev/null 2>&1; do
             RETRY=$((RETRY + 1))
             if [ $RETRY -ge $MAX_RETRY ]; then
-              echo "ERROR: compose failed to start after 60s"
-              docker compose logs --tail=50 compose
+              echo "ERROR: long-compose failed to start after 60s"
+              docker compose logs --tail=50 long-compose
               exit 1
             fi
-            echo "Waiting for compose to be ready... ($RETRY/$MAX_RETRY)"
+            echo "Waiting for long-compose to be ready... ($RETRY/$MAX_RETRY)"
             sleep 5
           done
           echo "Health check passed"
@@ -71,7 +71,7 @@ jobs:
             nodes,
             connections,
             settings: {executionOrder: (.settings.executionOrder // "v1")}
-          }' n8n/long-form.json > /tmp/workflow_deploy.json
+          }' n8n/long-workflow.json > /tmp/workflow_deploy.json
 
           HTTP_STATUS=$(curl -s -o /tmp/n8n_response.json -w "%{http_code}" \
             -X PUT "http://localhost:5679/api/v1/workflows/${{ vars.N8N_WORKFLOW_ID }}" \

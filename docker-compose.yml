@@ -1,4 +1,4 @@
-# Long-form stack. Namespaced 'yt-longform' with offset host ports and lf_-prefixed
+# Long-form stack. Namespaced 'yt-longform' with offset host ports and long_-prefixed
 # volumes so it can run on the SAME Ubuntu server as the Shorts stack without
 # colliding on ports (5678/4000) or sharing named volumes (topic history, outputs).
 # On a dedicated host, you can revert the "5679:"/"4001:" host ports to 5678/4000.
@@ -20,10 +20,10 @@ services:
       - GENERIC_TIMEZONE=Europe/Berlin
       - TZ=Europe/Berlin
     volumes:
-      - lf_n8n_data:/home/node/.n8n
+      - long_n8n_data:/home/node/.n8n
 
-  compose:
-    build: ./compose
+  long-compose:
+    build: ./long-compose
     restart: unless-stopped
     ports:
       - "4001:4000"          # host 4001 -> container 4000 (Shorts uses 4000)
@@ -41,9 +41,9 @@ services:
       - FAL_VIDEO_MODEL=${FAL_VIDEO_MODEL:-fal-ai/ltx-video/image-to-video}
     volumes:
       # All app-writable paths are named volumes (immune to git clean on deploy),
-      # prefixed lf_ so they never share state with the Shorts stack.
-      - lf_outputs:/app/outputs      # ephemeral rendered videos, cleaned up per job
-      - lf_data:/app/data            # persistent per-niche topic-history dedup state
+      # prefixed long_ so they never share state with the Shorts stack.
+      - long_outputs:/app/outputs      # ephemeral rendered videos, cleaned up per job
+      - long_data:/app/data            # persistent per-niche topic-history dedup state
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:4000/topic-history"]
       interval: 30s
@@ -60,6 +60,6 @@ services:
           memory: 2G
 
 volumes:
-  lf_n8n_data:
-  lf_data:
-  lf_outputs:
+  long_n8n_data:
+  long_data:
+  long_outputs:

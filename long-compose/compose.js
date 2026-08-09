@@ -2,7 +2,7 @@
  * compose.js
  * -----------------------------------------------------------------------
  * Express endpoint: POST /compose
- * Studio-grade short-form video compositor (TikTok/Reels/Shorts)
+ * Studio-grade long-form video compositor (YouTube long-form)
  * Hybrid architecture: Remotion for templates/captions + ffmpeg for
  * stock scenes, audio mixing, transitions, and final encoding.
  * -----------------------------------------------------------------------
@@ -106,7 +106,7 @@ app.post("/topic-history", async (req, res) => {
 // ---------------------------------------------------------------------------
 
 function newTmpDir() {
-  const dir = path.join(os.tmpdir(), "shorts-" + crypto.randomUUID());
+  const dir = path.join(os.tmpdir(), "long-" + crypto.randomUUID());
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -889,7 +889,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
     // ===== PHASE 5: Final composite — video + captions + music + SFX =====
     const finalPath = path.join(tmpDir, "final.mp4");
-    const outputFileName = `short_${jobId}.mp4`;
+    const outputFileName = `long_${jobId}.mp4`;
     const outputFullPath = path.join(OUTPUT_DIR, outputFileName);
     await fsp.mkdir(OUTPUT_DIR, { recursive: true });
 
