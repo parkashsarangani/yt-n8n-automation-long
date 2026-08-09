@@ -1,0 +1,604 @@
+{
+  "name": "YT Long-form Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1a00001-0000-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 400]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "cronExpression", "expression": "0 15 * * *" } ] }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000002",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 560]
+    },
+    {
+      "parameters": {
+        "assignments": { "assignments": [ { "id": "niche-1", "name": "niche", "value": "geography", "type": "string" } ] },
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000003",
+      "name": "Set Niche Param",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const CONFIG = {\n  geography: {\n    topicSeed: \"geography — why places are the way they are: borders, terrain, climate, cities, trade, why-is-X-shaped-like-that. Recognizable countries/landmarks preferred.\",\n    visualStyle: \"vivid explanatory geography documentary, aerial and satellite feel, rich natural color\",\n    captionStyle: \"neutral\", voiceId: \"UgBBYS2sOqTuMpoF3BR0\", tone: \"curious, clear, explanatory\", accent: \"#2E86DE\",\n  },\n  historical_mysteries: {\n    topicSeed: \"historical mysteries — unexplained disappearances, lost places, unsolved events, famous figures with a hidden gap in the record. Recognizable names/events preferred.\",\n    visualStyle: \"mysterious historical documentary, dramatic low-key lighting, aged and cinematic\",\n    captionStyle: \"serious\", voiceId: \"UgBBYS2sOqTuMpoF3BR0\", tone: \"ominous, intriguing, story-driven\", accent: \"#E67E22\",\n  },\n};\nconst niche = $json.niche || 'geography';\nconst cfg = CONFIG[niche];\nif (!cfg) throw new Error(`Unknown niche \"${niche}\" — must be one of ${Object.keys(CONFIG).join(', ')}`);\nreturn { json: { niche, ...cfg } };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000004",
+      "name": "Resolve Niche Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 480]
+    },
+    {
+      "parameters": {
+        "url": "=https://compose-lf.example.cloud/topic-history?niche={{ $json.niche }}",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000005",
+      "name": "Get Topic History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 480],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Resolve Niche Config').item.json;\nconst raw = $input.first().json;\nconst topics = Array.isArray(raw.topics) ? raw.topics : [];\nreturn { json: { ...cfg, topics, scriptAttempt: 0, lastErrors: [] } };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000006",
+      "name": "Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"claude-opus-4-8\", max_tokens: 3072, thinking: { type: \"adaptive\" }, output_config: { effort: \"high\" }, messages: [{ role: \"user\", content: \"You are the head writer for a long-form YouTube channel (8-10 minute videos) in the \" + $json.niche + \" niche. \" + $json.topicSeed + \"\\n\\nSTEP 1 - pick a topic NOT closely resembling any already used: \" + JSON.stringify(($json.topics||[]).map(t=>t.topic)) + \". Start from a recognizable subject; the angle is a surprising, specific, groundable truth about it. No medical/health topics (hard exclusion).\\n\\nSTEP 2 - design the SKELETON, not the full script. Plan the ending first: the hook, the payoff/kicker that ENDS the video, and one one-tap engagement question woven in around the two-thirds mark. Structure: intro hook (~30-40s) -> 3-5 acts, each escalating (BUT/THEREFORE, never AND-THEN) -> payoff -> short spoken outro (drives shares, not a repeat of the mid question).\\n\" + (($json.lastErrors||[]).length ? (\"\\nYour PREVIOUS attempt failed validation: \" + JSON.stringify($json.lastErrors) + \" - fix these.\\n\") : \"\") + \"\\nOutput ONLY JSON: {\\\"topic\\\": string, \\\"title\\\": string (<=70 chars, stakes+emotion, withhold the resolution), \\\"hook\\\": string, \\\"outro_line\\\": string (8-16 words), \\\"comment_hook\\\": string (one-tap question), \\\"thumbnail_text\\\": string (<=5 words, punchy, withholds the resolution), \\\"thumbnail_concept\\\": string (one striking single subject for a 16:9 frame - no readable text, no real faces), \\\"seo_description\\\": string, \\\"tags\\\": array of 8-15 strings, \\\"caption_style\\\": \\\"\" + $json.captionStyle + \"\\\", \\\"acts\\\": [{\\\"act_index\\\": number, \\\"act_title\\\": string, \\\"premise\\\": string, \\\"target_words\\\": number}]}\\n\\nRespond with ONLY the JSON object, starting with { and ending with }.\" }] }) }}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000007",
+      "name": "Claude: Blueprint + Topic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 480],
+      "credentials": { "httpHeaderAuth": { "id": "CLAUDE_CRED", "name": "claude" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nif (r.error) throw new Error('Claude API error: ' + JSON.stringify(r.error));\nconst textBlock = (r.content||[]).find(b => b.type === 'text');\nlet raw = (textBlock && textBlock.text) ? textBlock.text.trim() : '';\nif (!raw) throw new Error('Blueprint returned no text');\nif (r.stop_reason === 'max_tokens') throw new Error('Blueprint truncated (max_tokens) - raise max_tokens');\nif (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'').trim();\nfunction extract(s){const a=s.indexOf('{');if(a<0)return null;let d=0,q=false,e=false;for(let i=a;i<s.length;i++){const c=s.charCodeAt(i);if(q){if(e)e=false;else if(c===92)e=true;else if(c===34)q=false;}else if(c===34)q=true;else if(c===123)d++;else if(c===125){d--;if(d===0)return s.slice(a,i+1);}}return null;}\nfunction tp(s){try{const v=JSON.parse(s);return (v&&typeof v==='object')?v:undefined;}catch(e){return undefined;}}\nconst bp = tp(raw) || tp(extract(raw));\nif (!bp || !Array.isArray(bp.acts) || !bp.acts.length) throw new Error('Blueprint JSON invalid: ' + raw.slice(0,300));\nconst usage = r.usage || {};\nreturn { json: { ...$('Prep').item.json, blueprint: bp, acts: bp.acts, priorSummaries: [], scenes: [], nextIndex: 0, claudeIn: (usage.input_tokens||0), claudeOut: (usage.output_tokens||0) } };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000008",
+      "name": "Parse Blueprint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 480]
+    },
+    {
+      "parameters": { "fieldToSplitOut": "acts", "options": {} },
+      "id": "b1a00001-0000-4000-8000-000000000009",
+      "name": "Split Out Acts",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1540, 480]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "b1a00001-0000-4000-8000-00000000000a",
+      "name": "Loop Over Acts",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1760, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const st = $('Parse Blueprint').item.json; const bp = st.blueprint; const acc = $('Accumulate').all().map(i=>i.json).filter(x=>x && x.act_index!=null); const priors = acc.map(a=>`Act ${a.act_index}: ${a.act_summary}`); const nextIndex = acc.reduce((m,a)=>Math.max(m, ...(a.scenes||[]).map(s=>s.scene_index+1)), 0); const act = $json; return JSON.stringify({ model: \"claude-opus-4-8\", max_tokens: 3072, thinking: { type: \"adaptive\" }, output_config: { effort: \"high\" }, messages: [{ role: \"user\", content: \"You are writing ONE act of a long-form \" + st.niche + \" video. Voice: \" + st.tone + \" - a smart friend telling a gripping story, reacting to the material, never a textbook.\\n\\nWrite ONLY this act's scenes, continuing seamlessly (don't repeat prior acts; deepen them). Each scene = one narration beat of ~25-40 words, and every scene must re-hook (micro-cliffhanger / raised stake / question the next scene answers). Hit ~\" + (act.target_words||300) + \" words. If this act contains the two-thirds mark, weave in this question naturally: \" + (bp.comment_hook||'') + \"\\n\\nFor EACH scene also output its visual plan (concrete concepts for an AI image model):\\n- search_terms: 3-6 concrete photographable subjects literally in THIS scene's narration (objects/places/actions, never abstractions), visually distinct from adjacent scenes.\\n- visual_style: 2-4 words (default \\\"\" + st.visualStyle + \"\\\").\\n- fallback_terms: 2-4 broader backups.\\nNEVER put readable text, numbers, documents, screens, currency, logos, or faces of real named people in a visual term.\\n\\nOutput ONLY JSON: {\\\"act_index\\\": \" + act.act_index + \", \\\"scenes\\\": [{\\\"scene_index\\\": number (continue from \" + nextIndex + \"), \\\"point\\\": string, \\\"narration\\\": string, \\\"search_terms\\\": array, \\\"visual_style\\\": string, \\\"fallback_terms\\\": array}], \\\"act_summary\\\": string}\\n\\nBlueprint: \" + JSON.stringify(bp) + \"\\nActs already written (summaries): \" + JSON.stringify(priors) + \"\\nWrite act: \" + JSON.stringify(act) + \"\\n\\nRespond with ONLY the JSON object.\" }] }); })() }}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "b1a00001-0000-4000-8000-00000000000b",
+      "name": "Claude: Write Act",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1980, 560],
+      "credentials": { "httpHeaderAuth": { "id": "CLAUDE_CRED", "name": "claude" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nif (r.error) throw new Error('Claude API error: ' + JSON.stringify(r.error));\nconst tb = (r.content||[]).find(b=>b.type==='text');\nlet raw = (tb && tb.text) ? tb.text.trim() : '';\nif (r.stop_reason === 'max_tokens') throw new Error('Act truncated (max_tokens)');\nif (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\\s*/i,'').replace(/```\\s*$/,'').trim();\nfunction extract(s){const a=s.indexOf('{');if(a<0)return null;let d=0,q=false,e=false;for(let i=a;i<s.length;i++){const c=s.charCodeAt(i);if(q){if(e)e=false;else if(c===92)e=true;else if(c===34)q=false;}else if(c===34)q=true;else if(c===123)d++;else if(c===125){d--;if(d===0)return s.slice(a,i+1);}}return null;}\nfunction tp(s){try{const v=JSON.parse(s);return (v&&typeof v==='object')?v:undefined;}catch(e){return undefined;}}\nconst act = tp(raw) || tp(extract(raw));\nif (!act || !Array.isArray(act.scenes)) throw new Error('Act JSON invalid: ' + raw.slice(0,300));\nconst u = r.usage || {};\nact._in = (u.input_tokens||0); act._out = (u.output_tokens||0);\nreturn { json: act };"
+      },
+      "id": "b1a00001-0000-4000-8000-00000000000c",
+      "name": "Accumulate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "const st = $('Parse Blueprint').item.json;\nconst acc = $('Accumulate').all().map(i=>i.json).sort((a,b)=>a.act_index-b.act_index);\nlet scenes = [];\nfor (const a of acc) for (const s of (a.scenes||[])) scenes.push(s);\nscenes.sort((a,b)=>a.scene_index-b.scene_index);\n// append spoken outro scene (narrated share CTA over a kinetic_text card)\nconst maxIdx = scenes.reduce((m,s)=>Math.max(m, Number(s.scene_index)||0), -1);\nconst outroLine = (st.blueprint.outro_line || 'If this got you, send it to someone who needs to see it.').trim();\nscenes.push({ scene_index: maxIdx+1, point: 'outro', narration: outroLine, visual_source: 'template', template_name: 'kinetic_text', template_data: { line: 'Like, Share, Follow', is_outro: true } });\nconst claudeIn = st.claudeIn + acc.reduce((s,a)=>s+(a._in||0),0);\nconst claudeOut = st.claudeOut + acc.reduce((s,a)=>s+(a._out||0),0);\nreturn { json: { ...st, blueprint: st.blueprint, scenes, claudeIn, claudeOut } };"
+      },
+      "id": "b1a00001-0000-4000-8000-00000000000d",
+      "name": "Assemble Full Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const st = $input.first().json;\nconst bp = st.blueprint || {};\nconst scenes = st.scenes || [];\nconst errors = [];\nconst content = scenes.filter(s => !(s.template_data && s.template_data.is_outro));\nif (content.length < 20) errors.push({stage:'structure', msg:`only ${content.length} content scenes (need >=20)`});\nif (content.length > 70) errors.push({stage:'structure', msg:`too many scenes (${content.length})`});\nlet words = 0;\nconst noText = /(readable|legible|\\btext\\b|document|receipt|screen|\\bUI\\b|currency|banknote|logo|\\bsign\\b|caption|number)/i;\ncontent.forEach((s,i) => {\n  if (!s.narration || s.narration.trim().length < 5) errors.push({stage:'structure', msg:`scene ${i} narration too short`});\n  words += (s.narration||'').trim().split(/\\s+/).filter(Boolean).length;\n  const terms = [].concat(s.search_terms||[], s.fallback_terms||[]);\n  if (!Array.isArray(s.search_terms) || s.search_terms.length < 3 || s.search_terms.length > 6) errors.push({stage:'structure', msg:`scene ${i} search_terms must be 3-6`});\n  if (!Array.isArray(s.fallback_terms) || s.fallback_terms.length < 2 || s.fallback_terms.length > 4) errors.push({stage:'structure', msg:`scene ${i} fallback_terms must be 2-4`});\n  if (!s.visual_style) errors.push({stage:'structure', msg:`scene ${i} missing visual_style`});\n  for (const t of terms) if (noText.test(String(t))) { errors.push({stage:'structure', msg:`scene ${i} visual term \"${t}\" would need readable text/UI - rewrite`}); break; }\n});\nif (words > 2000) errors.push({stage:'structure', msg:`narration ${words} words exceeds 2000 hard cap`});\nif (words < 1000) errors.push({stage:'structure', msg:`narration ${words} words below 1000`});\nconst medical = /\\b(disease|illness|symptom|diagnos|treatment|medication|surgery|surgical|cancer|tumor|infection|syndrome|disorder|therapy|prescription|patient|clinical|vaccine|antibiotic)\\b/i;\nconst scan = [bp.hook, bp.title, ...content.map(s=>s.narration||'')].join(' ');\nif (medical.test(scan)) errors.push({stage:'topic', msg:'medical/health content detected - retry with different topic'});\nif (errors.length) return { json: { ...st, _scriptValid: false, _validationErrors: errors } };\nreturn { json: { ...st, hook: bp.hook, title: bp.title, comment_hook: bp.comment_hook, outro_line: bp.outro_line, thumbnail_text: bp.thumbnail_text, thumbnail_concept: bp.thumbnail_concept, seo_description: bp.seo_description, tags: bp.tags, caption_style: bp.caption_style, script_word_count: words, num_scenes: content.length, _scriptValid: true } };"
+      },
+      "id": "b1a00001-0000-4000-8000-00000000000e",
+      "name": "Validate Final Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 480]
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 }, "conditions": [ { "leftValue": "={{ $json._scriptValid }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } } ], "combinator": "and" },
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-00000000000f",
+      "name": "If Script Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2860, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const st = $('Parse Blueprint').item.json;\nconst prev = st.scriptAttempt || 0;\nconst errors = ($input.first().json._validationErrors)||[];\nconsole.log(`Script validation failed on attempt ${prev+1}:`, JSON.stringify(errors));\nreturn { json: { ...$('Prep').item.json, scriptAttempt: prev+1, lastErrors: errors } };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000010",
+      "name": "Increment Attempt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, 700]
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 }, "conditions": [ { "leftValue": "={{ $json.scriptAttempt }}", "rightValue": 3, "operator": { "type": "number", "operation": "lt" } } ], "combinator": "and" },
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000011",
+      "name": "If Under Max Attempts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3080, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = ($input.first().json.lastErrors)||[];\nthrow new Error('Script failed validation 3x - giving up for this run. Last errors: ' + JSON.stringify(e));"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000012",
+      "name": "Fail: Script Exhausted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3300, 820]
+    },
+    {
+      "parameters": { "fieldToSplitOut": "scenes", "options": {} },
+      "id": "b1a00001-0000-4000-8000-000000000013",
+      "name": "Split Out Scenes",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [3080, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://compose-lf.example.cloud/topic-history?niche={{ $('Resolve Niche Config').item.json.niche }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ topic: $('Validate Final Script').item.json.blueprint.topic, hook: $('Validate Final Script').item.json.hook }) }}",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000014",
+      "name": "Save Topic to History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3080, 240],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{ $('Resolve Niche Config').item.json.voiceId }}/with-timestamps",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const scenes = $('Split Out Scenes').all().map(i=>i.json); const idx = $itemIndex; const cur = $json; const prev = idx>0 ? (scenes[idx-1].narration||'') : ''; const next = idx<scenes.length-1 ? (scenes[idx+1].narration||'') : ''; const style = ($('Validate Final Script').first().json.caption_style)||'neutral'; const vs = ({serious:{stability:0.4,similarity_boost:0.8,style:0.4,use_speaker_boost:true,speed:0.98}, neutral:{stability:0.45,similarity_boost:0.8,style:0.35,use_speaker_boost:true,speed:1.0}}[style])||{stability:0.45,similarity_boost:0.8,style:0.35,use_speaker_boost:true,speed:1.0}; return JSON.stringify({ text: cur.narration, model_id: \"eleven_multilingual_v2\", previous_text: prev, next_text: next, voice_settings: vs }); })() }}",
+        "options": { "batching": { "batch": { "batchSize": 1, "batchInterval": 1200 } } }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000015",
+      "name": "ElevenLabs: TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, 320],
+      "credentials": { "httpHeaderAuth": { "id": "ELEVEN_CRED", "name": "ElevenLabs" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst si = $('Split Out Scenes').item.json.scene_index;\nif (!item.audio_base64) throw new Error(`TTS missing audio_base64 for scene ${si}`);\nif (!item.alignment) throw new Error(`TTS missing alignment for scene ${si}`);\nreturn { json: { scene_index: si, chars: ($('Split Out Scenes').item.json.narration||'').length, audio: item } };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000016",
+      "name": "Tag Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3520, 320]
+    },
+    {
+      "parameters": { "aggregate": "aggregateAllItemData", "options": {} },
+      "id": "b1a00001-0000-4000-8000-000000000017",
+      "name": "Aggregate Audio",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [3740, 320]
+    },
+    {
+      "parameters": { "options": {} },
+      "id": "b1a00001-0000-4000-8000-000000000018",
+      "name": "Loop Over Scenes",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [3300, 560]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://fal.run/fal-ai/flux/dev",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const s = $json; const terms = (s.search_terms||[]).join(', '); const style = s.visual_style || $('Resolve Niche Config').first().json.visualStyle; return JSON.stringify({ prompt: \"Ultra-realistic ultra-detailed photograph, cinematic, crisp focus, one striking focal subject, vertical 9:16. \" + terms + \". \" + style + \". No text, no words, no letters, no captions, no watermark, no logos.\", image_size: { width: 1024, height: 1792 }, num_images: 1, num_inference_steps: 28, enable_safety_checker: true }); })() }}",
+        "options": { "timeout": 90000 }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000019",
+      "name": "Fal: Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, 640],
+      "credentials": { "httpHeaderAuth": { "id": "FAL_CRED", "name": "fal.ai" } },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const scene = $('Loop Over Scenes').item.json;\nconst si = scene.scene_index;\nlet item = $input.item.json;\nlet url = item && item.images && item.images[0] && item.images[0].url;\nlet degraded = false;\n// Templates (outro) pass through as template scenes\nif (scene.visual_source === 'template') {\n  return { json: { scene_index: si, visual_source: 'template', template_name: scene.template_name, template_data: scene.template_data } };\n}\nif (!url) {\n  // Primary Fal failed (node set to continue on error). Signal a gradient placeholder;\n  // long-compose substitutes a house-style background for scenes flagged _degraded.\n  degraded = true;\n}\nreturn { json: { scene_index: si, images: url ? [url] : [], _degraded: degraded } };"
+      },
+      "id": "b1a00001-0000-4000-8000-00000000001a",
+      "name": "Tag Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3740, 640]
+    },
+    {
+      "parameters": { "aggregate": "aggregateAllItemData", "options": {} },
+      "id": "b1a00001-0000-4000-8000-00000000001b",
+      "name": "Aggregate Visuals",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [3960, 640]
+    },
+    {
+      "parameters": {},
+      "id": "b1a00001-0000-4000-8000-00000000001c",
+      "name": "Wait For Both Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [4200, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "const all = $input.all().map(i=>i.json);\nconst visAgg = all.find(i => Array.isArray(i.data) && i.data[0] && (i.data[0].images || i.data[0].visual_source==='template'));\nconst audAgg = all.find(i => Array.isArray(i.data) && i.data[0] && i.data[0].audio);\nif (!visAgg) throw new Error('visual branch missing');\nif (!audAgg) throw new Error('audio branch missing');\nconst v = $('Validate Final Script').first().json;\nconst degraded = visAgg.data.filter(x=>x._degraded).length;\nconst merged = visAgg.data.map(vi => {\n  const a = audAgg.data.find(x=>x.scene_index===vi.scene_index);\n  if (!a) throw new Error('no audio for scene ' + vi.scene_index);\n  return { scene_index: vi.scene_index, images: vi.images, visual_source: vi.visual_source, template_name: vi.template_name, template_data: vi.template_data, _degraded: vi._degraded, audio: a.audio };\n}).sort((x,y)=>x.scene_index-y.scene_index);\nconst chars = audAgg.data.reduce((s,x)=>s+(x.chars||0),0);\nreturn { json: { hook: v.hook, comment_hook: v.comment_hook, caption_style: v.caption_style, thumbnail_text: v.thumbnail_text, degraded_scenes: degraded, elevenlabs_chars: chars, num_scenes: v.num_scenes, script_word_count: v.script_word_count, claudeIn: v.claudeIn, claudeOut: v.claudeOut, niche: v.niche, topic: v.blueprint.topic, thumbnail_concept: v.thumbnail_concept, accent: v.accent, data: merged } };"
+      },
+      "id": "b1a00001-0000-4000-8000-00000000001d",
+      "name": "Merge By scene_index",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4420, 480]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://fal.run/fal-ai/flux/dev",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Ultra-realistic cinematic photograph, dramatic lighting, one bold striking subject filling the frame, landscape 16:9. \" + $json.thumbnail_concept + \". No text, no words, no letters, no watermark, no logos.\", image_size: { width: 1280, height: 720 }, num_images: 1, num_inference_steps: 28, enable_safety_checker: true }) }}",
+        "options": { "timeout": 90000 }
+      },
+      "id": "b1a00001-0000-4000-8000-00000000001e",
+      "name": "Fal: Thumbnail Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4640, 480],
+      "credentials": { "httpHeaderAuth": { "id": "FAL_CRED", "name": "fal.ai" } },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://compose-lf.example.cloud/compose",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const m = $('Merge By scene_index').item.json; const thumb = ($json.images && $json.images[0] && $json.images[0].url) || null; return JSON.stringify({ hook: m.hook, comment_hook: m.comment_hook, caption_style: m.caption_style, thumbnail: { image_url: thumb, text: m.thumbnail_text, accent: m.accent }, data: m.data }); })() }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "b1a00001-0000-4000-8000-00000000001f",
+      "name": "Start Compose Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4860, 480]
+    },
+    {
+      "parameters": { "jsCode": "return { json: { jobId: $json.job_id, pollAttempt: 0 } };" },
+      "id": "b1a00001-0000-4000-8000-000000000020",
+      "name": "Init Poll Counter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5080, 480]
+    },
+    {
+      "parameters": { "amount": 15 },
+      "id": "b1a00001-0000-4000-8000-000000000021",
+      "name": "Wait Before Poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [5300, 480],
+      "webhookId": "b1a00001-poll-webhook-0001"
+    },
+    {
+      "parameters": {
+        "url": "=https://compose-lf.example.cloud/compose-status/{{ $('Init Poll Counter').item.json.jobId }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000022",
+      "name": "Check Compose Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5520, 480]
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 }, "conditions": [ { "leftValue": "={{ $json.status }}", "rightValue": "processing", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" },
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000023",
+      "name": "If Compose Still Processing",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [5740, 480]
+    },
+    {
+      "parameters": { "jsCode": "const p = $('Init Poll Counter').item.json; return { json: { jobId: p.jobId, pollAttempt: (p.pollAttempt||0)+1 } };" },
+      "id": "b1a00001-0000-4000-8000-000000000024",
+      "name": "Increment Poll Attempt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5960, 600]
+    },
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 }, "conditions": [ { "leftValue": "={{ $json.pollAttempt }}", "rightValue": 120, "operator": { "type": "number", "operation": "lt" } } ], "combinator": "and" },
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-000000000025",
+      "name": "If Under Max Poll Attempts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [6180, 600]
+    },
+    {
+      "parameters": { "jsCode": "throw new Error('Compose did not finish within 120 polls (~30 min) - job ' + $json.jobId);" },
+      "id": "b1a00001-0000-4000-8000-000000000026",
+      "name": "Fail: Compose Timeout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6400, 720]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nif (j.success !== true) throw new Error('Compose failed: ' + (j.error||'unknown') + ' job ' + (j.job_id||''));\nif (!j.output_path) throw new Error('Compose missing output_path');\nreturn { json: j };"
+      },
+      "id": "b1a00001-0000-4000-8000-000000000027",
+      "name": "Validate Compose Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5960, 380]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.output_path.replace('/app/outputs', 'https://compose-lf.example.cloud/outputs') }}",
+        "options": { "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000028",
+      "name": "Download Final Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6180, 380]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ ($('Validate Final Script').item.json.title || $('Validate Final Script').item.json.hook).slice(0, 90) }}",
+        "regionCode": "DE",
+        "categoryId": "27",
+        "options": {
+          "description": "={{ $('Validate Final Script').item.json.seo_description }}",
+          "notifySubscribers": false,
+          "privacyStatus": "public",
+          "tags": "={{ ($('Validate Final Script').item.json.tags || []).join(',') }}"
+        }
+      },
+      "id": "b1a00001-0000-4000-8000-000000000029",
+      "name": "YouTube: Upload",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [6400, 380],
+      "credentials": { "youTubeOAuth2Api": { "id": "YT_CRED", "name": "YouTube account" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={{ $json.id || $json.uploadId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-00000000002a",
+      "name": "Set Thumbnail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6620, 380],
+      "credentials": { "youTubeOAuth2Api": { "id": "YT_CRED", "name": "YouTube account" } },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "https://www.googleapis.com/youtube/v3/videos?part=status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ id: $('YouTube: Upload').item.json.id || $('YouTube: Upload').item.json.uploadId, status: { privacyStatus: 'public', selfDeclaredMadeForKids: false, containsSyntheticMedia: true } }) }}",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-00000000002b",
+      "name": "Disclose AI-Generated Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6840, 380],
+      "credentials": { "youTubeOAuth2Api": { "id": "YT_CRED", "name": "YouTube account" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://compose-lf.example.cloud/run-log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const m = $('Merge By scene_index').item.json; const cv = $('Validate Compose Result').item.json; const cIn=m.claudeIn||0, cOut=m.claudeOut||0; const chars=m.elevenlabs_chars||0; const falCalls=(m.num_scenes||0)+1; const est = (cIn*5/1e6)+(cOut*25/1e6)+(chars*0.00018)+(falCalls*0.04); return JSON.stringify({ run_id: cv.job_id, timestamp: new Date().toISOString(), niche: m.niche, topic: m.topic, script_word_count: m.script_word_count, num_scenes: m.num_scenes, num_images: falCalls-1, degraded_scenes: m.degraded_scenes, render_time_sec: cv.render_time_sec || null, claude_input_tokens: cIn, claude_output_tokens: cOut, elevenlabs_chars: chars, fal_calls: falCalls, est_cost_usd: Number(est.toFixed(3)), video_id: $('YouTube: Upload').item.json.id || $('YouTube: Upload').item.json.uploadId }); })() }}",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-00000000002c",
+      "name": "Log Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [7060, 380],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ 'https://compose-lf.example.cloud/cleanup/' + $('Validate Compose Result').item.json.output_path.split('/').pop().split('.')[0] }}",
+        "options": {}
+      },
+      "id": "b1a00001-0000-4000-8000-00000000002d",
+      "name": "Cleanup: Delete Local Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [7280, 380],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [ [ { "node": "Set Niche Param", "type": "main", "index": 0 } ] ] },
+    "Schedule Trigger": { "main": [ [ { "node": "Set Niche Param", "type": "main", "index": 0 } ] ] },
+    "Set Niche Param": { "main": [ [ { "node": "Resolve Niche Config", "type": "main", "index": 0 } ] ] },
+    "Resolve Niche Config": { "main": [ [ { "node": "Get Topic History", "type": "main", "index": 0 } ] ] },
+    "Get Topic History": { "main": [ [ { "node": "Prep", "type": "main", "index": 0 } ] ] },
+    "Prep": { "main": [ [ { "node": "Claude: Blueprint + Topic", "type": "main", "index": 0 } ] ] },
+    "Claude: Blueprint + Topic": { "main": [ [ { "node": "Parse Blueprint", "type": "main", "index": 0 } ] ] },
+    "Parse Blueprint": { "main": [ [ { "node": "Split Out Acts", "type": "main", "index": 0 } ] ] },
+    "Split Out Acts": { "main": [ [ { "node": "Loop Over Acts", "type": "main", "index": 0 } ] ] },
+    "Loop Over Acts": { "main": [ [ { "node": "Assemble Full Script", "type": "main", "index": 0 } ], [ { "node": "Claude: Write Act", "type": "main", "index": 0 } ] ] },
+    "Claude: Write Act": { "main": [ [ { "node": "Accumulate", "type": "main", "index": 0 } ] ] },
+    "Accumulate": { "main": [ [ { "node": "Loop Over Acts", "type": "main", "index": 0 } ] ] },
+    "Assemble Full Script": { "main": [ [ { "node": "Validate Final Script", "type": "main", "index": 0 } ] ] },
+    "Validate Final Script": { "main": [ [ { "node": "If Script Valid", "type": "main", "index": 0 } ] ] },
+    "If Script Valid": { "main": [ [ { "node": "Split Out Scenes", "type": "main", "index": 0 }, { "node": "Save Topic to History", "type": "main", "index": 0 } ], [ { "node": "Increment Attempt", "type": "main", "index": 0 } ] ] },
+    "Increment Attempt": { "main": [ [ { "node": "If Under Max Attempts", "type": "main", "index": 0 } ] ] },
+    "If Under Max Attempts": { "main": [ [ { "node": "Claude: Blueprint + Topic", "type": "main", "index": 0 } ], [ { "node": "Fail: Script Exhausted", "type": "main", "index": 0 } ] ] },
+    "Split Out Scenes": { "main": [ [ { "node": "ElevenLabs: TTS", "type": "main", "index": 0 }, { "node": "Loop Over Scenes", "type": "main", "index": 0 } ] ] },
+    "ElevenLabs: TTS": { "main": [ [ { "node": "Tag Audio", "type": "main", "index": 0 } ] ] },
+    "Tag Audio": { "main": [ [ { "node": "Aggregate Audio", "type": "main", "index": 0 } ] ] },
+    "Aggregate Audio": { "main": [ [ { "node": "Wait For Both Branches", "type": "main", "index": 1 } ] ] },
+    "Loop Over Scenes": { "main": [ [ { "node": "Aggregate Visuals", "type": "main", "index": 0 } ], [ { "node": "Fal: Generate Image", "type": "main", "index": 0 } ] ] },
+    "Fal: Generate Image": { "main": [ [ { "node": "Tag Image", "type": "main", "index": 0 } ] ] },
+    "Tag Image": { "main": [ [ { "node": "Loop Over Scenes", "type": "main", "index": 0 } ] ] },
+    "Aggregate Visuals": { "main": [ [ { "node": "Wait For Both Branches", "type": "main", "index": 0 } ] ] },
+    "Wait For Both Branches": { "main": [ [ { "node": "Merge By scene_index", "type": "main", "index": 0 } ] ] },
+    "Merge By scene_index": { "main": [ [ { "node": "Fal: Thumbnail Image", "type": "main", "index": 0 } ] ] },
+    "Fal: Thumbnail Image": { "main": [ [ { "node": "Start Compose Job", "type": "main", "index": 0 } ] ] },
+    "Start Compose Job": { "main": [ [ { "node": "Init Poll Counter", "type": "main", "index": 0 } ] ] },
+    "Init Poll Counter": { "main": [ [ { "node": "Wait Before Poll", "type": "main", "index": 0 } ] ] },
+    "Wait Before Poll": { "main": [ [ { "node": "Check Compose Status", "type": "main", "index": 0 } ] ] },
+    "Check Compose Status": { "main": [ [ { "node": "If Compose Still Processing", "type": "main", "index": 0 } ] ] },
+    "If Compose Still Processing": { "main": [ [ { "node": "Increment Poll Attempt", "type": "main", "index": 0 } ], [ { "node": "Validate Compose Result", "type": "main", "index": 0 } ] ] },
+    "Increment Poll Attempt": { "main": [ [ { "node": "If Under Max Poll Attempts", "type": "main", "index": 0 } ] ] },
+    "If Under Max Poll Attempts": { "main": [ [ { "node": "Wait Before Poll", "type": "main", "index": 0 } ], [ { "node": "Fail: Compose Timeout", "type": "main", "index": 0 } ] ] },
+    "Validate Compose Result": { "main": [ [ { "node": "Download Final Video", "type": "main", "index": 0 } ] ] },
+    "Download Final Video": { "main": [ [ { "node": "YouTube: Upload", "type": "main", "index": 0 } ] ] },
+    "YouTube: Upload": { "main": [ [ { "node": "Set Thumbnail", "type": "main", "index": 0 } ] ] },
+    "Set Thumbnail": { "main": [ [ { "node": "Disclose AI-Generated Content", "type": "main", "index": 0 } ] ] },
+    "Disclose AI-Generated Content": { "main": [ [ { "node": "Log Run", "type": "main", "index": 0 } ] ] },
+    "Log Run": { "main": [ [ { "node": "Cleanup: Delete Local Render", "type": "main", "index": 0 } ] ] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
