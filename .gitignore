@@ -7,3 +7,6 @@ topic_history.json
 /tmp/
 *.mp4
 !long-compose/motion-assets/**/*.mov
+
+# brain local artifact store (smoke runs)
+brain/.amos-data/

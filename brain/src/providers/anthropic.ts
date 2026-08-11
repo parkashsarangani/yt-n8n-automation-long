@@ -1,0 +1,155 @@
+/**
+ * Anthropic model provider (RFC 0004).
+ *
+ * The only file in the system that knows Anthropic exists. Owns request shape,
+ * structured-output handling, refusal handling, and the price table.
+ */
+
+import Anthropic from "@anthropic-ai/sdk";
+import {
+  ProviderError,
+  ProviderRefusal,
+  relaxForStructuredOutput,
+  type CompletionRequest,
+  type CompletionResult,
+  type ModelProvider,
+  type ProviderCapabilities,
+} from "../provider.ts";
+
+interface Price {
+  /** USD per million tokens. */
+  input: number;
+  output: number;
+  /** Optional promotional rate, applied while `introUntil` is in the future. */
+  intro?: { input: number; output: number; until: string };
+}
+
+/**
+ * Prices are declared here because RFC 0004 puts cost accounting at the adapter
+ * boundary — this is the single place rates are written down.
+ */
+const PRICES: Record<string, Price> = {
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-sonnet-5": {
+    input: 3,
+    output: 15,
+    intro: { input: 2, output: 10, until: "2026-08-31T23:59:59Z" },
+  },
+  "claude-haiku-4-5": { input: 1, output: 5 },
+};
+
+export interface AnthropicProviderOptions {
+  model: string;
+  apiKey?: string;
+  /** Defaults to 8192; keep non-streaming requests well under the timeout cliff. */
+  maxOutputTokens?: number;
+  effort?: CompletionRequest["effort"];
+  client?: Anthropic;
+}
+
+export class AnthropicProvider implements ModelProvider {
+  readonly id: string;
+  private readonly client: Anthropic;
+  private readonly model: string;
+  private readonly defaultMaxTokens: number;
+  private readonly defaultEffort: CompletionRequest["effort"];
+
+  constructor(opts: AnthropicProviderOptions) {
+    this.model = opts.model;
+    this.id = `anthropic/${opts.model}`;
+    this.defaultMaxTokens = opts.maxOutputTokens ?? 8192;
+    this.defaultEffort = opts.effort ?? "high";
+    this.client =
+      opts.client ??
+      new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+  }
+
+  capabilities(): ProviderCapabilities {
+    return { structuredOutput: "native", maxOutputTokens: 64_000 };
+  }
+
+  async complete(req: CompletionRequest): Promise<CompletionResult> {
+    // Structured outputs cannot express length/range constraints, so the model
+    // receives a relaxed projection and the registry stays the strict validator
+    // on write (RFC 0007). Stripped constraints survive as descriptions.
+    const schema = relaxForStructuredOutput(req.outputSchema);
+
+    let response;
+    try {
+      response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
+        thinking: { type: "adaptive" },
+        output_config: {
+          effort: req.effort ?? this.defaultEffort,
+          format: { type: "json_schema", schema },
+        },
+        messages: [{ role: "user", content: req.prompt }],
+      } as Parameters<Anthropic["messages"]["create"]>[0]);
+    } catch (err) {
+      throw new ProviderError(`${this.id} request failed: ${String(err)}`);
+    }
+
+    const msg = response as Anthropic.Message & {
+      stop_details?: { category?: string | null } | null;
+    };
+
+    // Check stop_reason before touching content: on a refusal, content is empty
+    // or partial, and indexing into it blindly is the classic crash here.
+    if (msg.stop_reason === "refusal") {
+      throw new ProviderRefusal(
+        `${this.id} declined the request`,
+        msg.stop_details?.category ?? null,
+      );
+    }
+    if (msg.stop_reason === "max_tokens") {
+      throw new ProviderError(
+        `${this.id} hit max_tokens (${req.maxOutputTokens ?? this.defaultMaxTokens}); ` +
+          `output is truncated`,
+      );
+    }
+
+    const text = msg.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
+    if (!text) {
+      throw new ProviderError(`${this.id} returned no text block`);
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      // With native structured output this should be unreachable; if it fires,
+      // the schema was rejected or the model fell back to prose.
+      throw new ProviderError(
+        `${this.id} returned non-JSON despite structured output: ${text.slice(0, 300)}`,
+      );
+    }
+
+    return {
+      value,
+      usage: {
+        input_tokens: msg.usage.input_tokens,
+        output_tokens: msg.usage.output_tokens,
+        cost_usd: estimateCost(this.model, msg.usage.input_tokens, msg.usage.output_tokens),
+        provider: "anthropic",
+        model: this.model,
+      },
+      providerRef: this.id,
+    };
+  }
+}
+
+export function estimateCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  now: Date = new Date(),
+): number {
+  const price = PRICES[model];
+  if (!price) return 0; // unknown model: report zero rather than invent a rate
+  const rate =
+    price.intro && now < new Date(price.intro.until)
+      ? { input: price.intro.input, output: price.intro.output }
+      : { input: price.input, output: price.output };
+  return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
+}
