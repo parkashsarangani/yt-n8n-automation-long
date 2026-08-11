@@ -1,0 +1,38 @@
+{
+  "schema_id": "intent",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "The source input to a production: what the human asked for.",
+  "produced_by": ["human", "discovery"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "IntentArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["brief"],
+    "properties": {
+      "brief": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 2000,
+        "description": "Plain-language ask, e.g. 'a documentary about the world's strangest airports'."
+      },
+      "niche": {
+        "type": "string",
+        "maxLength": 64,
+        "description": "Optional channel niche hint, e.g. 'geography'."
+      },
+      "target_duration_sec": {
+        "type": "integer",
+        "minimum": 15,
+        "maximum": 7200
+      },
+      "constraints": {
+        "type": "array",
+        "maxItems": 20,
+        "items": { "type": "string", "maxLength": 300 },
+        "description": "Hard requirements or exclusions stated by the human."
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schema_id": "story",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Narrative skeleton: hook, escalating acts, payoff, and the engagement beat. Structure is strict; prose fields are permissive until real episodes tighten them (RFC 0007 open question).",
+  "produced_by": ["story_architect"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "StoryArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["topic", "title", "hook", "acts", "payoff", "outro_line"],
+    "properties": {
+      "topic": { "type": "string", "minLength": 8, "maxLength": 300 },
+      "title": { "type": "string", "minLength": 5, "maxLength": 100 },
+      "hook": { "type": "string", "minLength": 10, "maxLength": 600 },
+      "acts": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 6,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["act_index", "act_title", "premise", "target_words"],
+          "properties": {
+            "act_index": { "type": "integer", "minimum": 0 },
+            "act_title": { "type": "string", "minLength": 3, "maxLength": 120 },
+            "premise": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 1200,
+              "description": "What this act reveals and how it raises the stakes."
+            },
+            "target_words": { "type": "integer", "minimum": 50, "maximum": 1200 }
+          }
+        }
+      },
+      "payoff": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 800,
+        "description": "The kicker the video ends on. Planned before the acts are written."
+      },
+      "comment_hook": {
+        "type": "string",
+        "maxLength": 300,
+        "description": "One-tap engagement question, woven in around the two-thirds mark."
+      },
+      "outro_line": { "type": "string", "minLength": 5, "maxLength": 300 },
+      "retention_beats": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["at_fraction", "device"],
+          "properties": {
+            "at_fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "device": { "type": "string", "maxLength": 300 }
+          }
+        }
+      }
+    }
+  }
+}

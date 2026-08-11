@@ -1,0 +1,39 @@
+{
+  "schema_id": "script",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Narration broken into scenes. One scene = one narration beat = one TTS call = one visual (the flat model carried over from the long-form pipeline).",
+  "produced_by": ["script_writer"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ScriptArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["scenes"],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scene_index", "point", "narration"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "act_index": { "type": "integer", "minimum": 0 },
+            "point": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 300,
+              "description": "What this beat does for the story."
+            },
+            "narration": { "type": "string", "minLength": 5, "maxLength": 2000 },
+            "is_outro": { "type": "boolean" }
+          }
+        }
+      },
+      "word_count": { "type": "integer", "minimum": 0 }
+    }
+  }
+}
