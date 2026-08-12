@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "3",
-  "description": "Walking skeleton through render: intent -> story -> gate -> script -> (visual plan -> images | voice) -> render. Publish is added once the target adapter exists.",
+  "version": "4",
+  "description": "Walking skeleton, end to end: intent -> story -> gate -> script -> (visual plan -> images | voice) -> render -> publish.",
   "nodes": [
     {
       "id": "intent",
@@ -60,6 +60,14 @@
         "script",
         "voice",
         "assets"
+      ]
+    },
+    {
+      "id": "publish",
+      "transformation": "publish",
+      "in": [
+        "render",
+        "approve_story"
       ]
     }
   ]

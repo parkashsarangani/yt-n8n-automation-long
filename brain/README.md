@@ -31,13 +31,15 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/providers/elevenlabs.ts` | 0004 | Real TTS adapter (**never run live**) |
 | `src/providers/fal.ts` | 0004 | Real image adapter (**never run live**) |
 | `src/providers/compose.ts` | 0004 | long-compose renderer: submit + poll (**never run live**) |
+| `src/providers/youtube.ts` | 0004 | Publish target — the only file that knows YouTube (**never run live**) |
+| `src/workers/publish.ts` | 0003 | rendered_video+story → published_episode, gated on `requirements()` |
 | `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer`, `visual_planner` — data, not code |
-| `graphs/` | 0005 | `skeleton@3` — … → (visual plan → images \| voice) → render |
-| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest`, `rendered_video` at `1.0.0` |
+| `graphs/` | 0005 | `skeleton@4` — intent → story → gate → script → (plan → images \| voice) → render → publish |
+| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest`, `rendered_video`, `published_episode`; `story` at `1.1.0` |
 
 ```bash
 npm install
-npm test          # 84 tests, no network
+npm test          # 95 tests, no network
 npm run typecheck
 
 # live run of the skeleton graph against a real model:
@@ -73,6 +75,12 @@ ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
   so a crash leaves a trace instead of silently redoing the work.
 - The renderer polls to completion, reports the service's own error verbatim on
   failure, and gives up rather than polling forever.
+- Publish validates against the target's own `requirements()` and refuses
+  *before* upload — the one irreversible step does not get a silent truncation.
+- A refused thumbnail degrades and is recorded; a failed synthetic-media
+  disclosure throws, because the video would be live and undisclosed.
+- A `story@1.0.0` artifact written before `seo_description` existed still
+  publishes, on the newer schema, with no migrator.
 
 ## What implementation revealed about the RFCs
 
@@ -108,6 +116,12 @@ written to the run log immediately. Hiding the job entirely makes a crashed
 twenty-minute render both unrecoverable and untraceable; putting polling in the
 interface leaks one service's shape into every caller. Attaching to an existing
 job on resume is *not* implemented — the id is recorded so it becomes possible.
+
+**5. RFC 0007's minor-bump rule works as written.** `story@1.1.0` adds optional
+`seo_description` and `tags`. Existing `story@1.0.0` artifacts stay valid,
+consumers declaring `^1` keep working, the registry resolves new writes to
+1.1.0, and no migrator was needed — the first real exercise of the compatibility
+table rather than a hypothetical.
 
 ## Other deliberate choices
 
@@ -145,7 +159,15 @@ injected surface is enforced; construction is convention plus review.
 
 ## Next
 
-The publish target (RFC 0004's fifth interface) and its worker, which closes the
-skeleton. Then the three real adapters need their first live call — they are
-written from known-good request shapes but have never touched a real API, so
-treat the first run as the actual test.
+**The skeleton is structurally complete** — intent to published episode, with a
+human gate in the middle. What remains is not architecture:
+
+1. **First live call.** Four adapters (Anthropic, ElevenLabs, Fal, long-compose,
+   YouTube) are written from known-good request shapes and have never touched a
+   real API. Expect field-name surprises; that run is the real test.
+2. **YouTube OAuth.** `YouTubeTarget` takes an access token. Acquiring and
+   refreshing it is deliberately out of scope — token custody belongs with
+   whoever operates the deployment.
+3. **Then the deferred work** from `../docs/README.md`: Discovery, Research,
+   Fact Checking, and the knowledge graph — designed with evidence from real
+   episodes rather than assumption.

@@ -1,15 +1,27 @@
 {
   "name": "story_architect",
   "kind": "agent",
-  "version": "1",
-  "consumes": [{ "schema_id": "intent", "range": "^1", "as": "intent" }],
+  "version": "2",
+  "consumes": [
+    {
+      "schema_id": "intent",
+      "range": "^1",
+      "as": "intent"
+    }
+  ],
   "produces": "story",
-  "prompt": "story_architect@1",
+  "prompt": "story_architect@2",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 8192,
     "effort": "high"
   },
-  "confidence_dimensions": ["premise_strength", "novelty", "visual_potential"],
-  "retry": { "max_attempts": 3 }
+  "confidence_dimensions": [
+    "premise_strength",
+    "novelty",
+    "visual_potential"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
 }

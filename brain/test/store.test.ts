@@ -34,11 +34,13 @@ const STORY = {
 async function freshStore() {
   const registry = await SchemaRegistry.load(SCHEMA_DIR);
   const root = await mkdtemp(path.join(tmpdir(), "amos-store-"));
-  return { store: await FsArtifactStore.open(root, registry), root };
+  return { store: await FsArtifactStore.open(root, registry), root, registry };
 }
 
 test("put then get round-trips and assigns a content address", async () => {
-  const { store } = await freshStore();
+  const { store, registry } = await freshStore();
+  // Resolved from the registry, not hardcoded: story carries a minor bump.
+  const current = registry.resolveVersion("story");
   const { artifact, deduped } = await store.put({
     schema_id: "story",
     payload: STORY,
@@ -46,9 +48,9 @@ test("put then get round-trips and assigns a content address", async () => {
   });
 
   assert.equal(deduped, false);
-  assert.equal(artifact.schema_version, "1.0.0"); // resolved from the registry
+  assert.equal(artifact.schema_version, current);
   assert.match(artifact.artifact_id, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(artifact.artifact_id, computeArtifactId("story", "1.0.0", STORY));
+  assert.equal(artifact.artifact_id, computeArtifactId("story", current, STORY));
 
   const loaded = await store.require(artifact.artifact_id, { schema_id: "story", range: "^1" });
   assert.deepEqual(loaded.payload, STORY);

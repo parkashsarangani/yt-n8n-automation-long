@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { SchemaRegistry } from "../src/registry.ts";
 import { loadAgentDefs } from "../src/catalog.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
+import { FakePublishTarget } from "../src/providers/fake.ts";
 import { loadGraph, validateGraph, GraphError, descendantsOf, type GraphDoc } from "../src/graph.ts";
 import { parsePredicate, evaluatePredicate, PredicateError } from "../src/predicate.ts";
 import type { Artifact } from "../src/artifact.ts";
@@ -16,7 +17,10 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 async function deps() {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
-  const workers = defaultWorkers({ voice: { voiceId: "test-voice" } });
+  const workers = defaultWorkers({
+    voice: { voiceId: "test-voice" },
+    publish: { target: new FakePublishTarget() },
+  });
   return { registry, transformations: allTransformations(agents, workers) };
 }
 

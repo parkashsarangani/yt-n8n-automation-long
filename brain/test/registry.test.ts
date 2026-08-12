@@ -45,10 +45,12 @@ function entry(over: Partial<SchemaEntry> = {}): SchemaEntry {
 
 test("loads the real project schemas", async () => {
   const reg = await SchemaRegistry.load(SCHEMA_DIR);
-  for (const id of ["intent", "story", "script", "visual_plan"]) {
+  for (const id of ["intent", "story", "script", "visual_plan", "voice", "asset_manifest", "rendered_video", "published_episode"]) {
     assert.ok(reg.has(id), `expected schema "${id}"`);
-    assert.equal(reg.resolveVersion(id), "1.0.0");
   }
+  // story carries an additive minor bump; everything else is still at 1.0.0.
+  assert.equal(reg.resolveVersion("story"), "1.1.0");
+  assert.equal(reg.resolveVersion("script"), "1.0.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {

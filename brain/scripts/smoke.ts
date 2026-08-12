@@ -23,7 +23,12 @@ import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
 import { FsBlobStore } from "../src/blobs.ts";
-import { FakeSpeechProvider, FakeImageProvider, FakeRenderer } from "../src/providers/fake.ts";
+import {
+  FakeSpeechProvider,
+  FakeImageProvider,
+  FakeRenderer,
+  FakePublishTarget,
+} from "../src/providers/fake.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 
@@ -49,7 +54,10 @@ async function main() {
   // media path structurally.
   const transformations = allTransformations(
     agents,
-    defaultWorkers({ voice: { voiceId: process.env["ELEVENLABS_VOICE_ID"] ?? "smoke-voice" } }),
+    defaultWorkers({
+      voice: { voiceId: process.env["ELEVENLABS_VOICE_ID"] ?? "smoke-voice" },
+      publish: { target: new FakePublishTarget({ id: "dry-run" }), privacy: "private" },
+    }),
   );
   validateCatalog(agents as never, {
     hasSchema: (id) => registry.has(id),
@@ -126,6 +134,14 @@ async function main() {
     console.log(`\n  FAILED "${f.node_id}" (${f.transformation}): ${f.error}`);
   }
   if (result.blocked.length) console.log(`  blocked: ${result.blocked.join(", ")}`);
+
+  const publishedId = result.outputs["publish"];
+  if (publishedId) {
+    const ep = await store.require(publishedId, { schema_id: "published_episode" });
+    const p = ep.payload as { target: string; url: string; thumbnail_set: boolean };
+    console.log(`
+published to ${p.target}: ${p.url}  (thumbnail_set=${p.thumbnail_set})`);
+  }
 
   const scriptId = result.outputs["script"];
   if (scriptId) {

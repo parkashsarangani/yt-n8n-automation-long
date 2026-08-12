@@ -1,0 +1,32 @@
+{
+  "schema_id": "published_episode",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "The terminal artifact of a production. Records where the video went and under what conditions — including whether the custom thumbnail was actually accepted, because a silent fallback to an auto-selected frame changes CTR and would otherwise be invisible.",
+  "produced_by": ["publish"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "PublishedEpisodeArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["target", "external_id", "url", "title", "published_at"],
+    "properties": {
+      "target": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60,
+        "description": "Publish target id, e.g. \"youtube\". One of many possible destinations."
+      },
+      "external_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "url": { "type": "string", "minLength": 5, "maxLength": 2000 },
+      "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "published_at": { "type": "string", "format": "date-time" },
+      "synthetic_media_disclosed": { "type": "boolean" },
+      "thumbnail_set": {
+        "type": "boolean",
+        "description": "False means the platform refused the custom thumbnail and picked its own frame."
+      },
+      "privacy": { "type": "string", "enum": ["public", "unlisted", "private"] }
+    }
+  }
+}

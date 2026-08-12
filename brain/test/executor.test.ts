@@ -16,6 +16,7 @@ import {
   FakeSpeechProvider,
   FakeImageProvider,
   FakeRenderer,
+  FakePublishTarget,
   type FakeHandler,
 } from "../src/providers/fake.ts";
 import { Runner, type TransformationDef, type WorkerDef } from "../src/runner.ts";
@@ -79,7 +80,10 @@ async function harness(handler: FakeHandler) {
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
   const transformations = allTransformations(
     agents,
-    defaultWorkers({ voice: { voiceId: "test-voice" } }),
+    defaultWorkers({
+      voice: { voiceId: "test-voice" },
+      publish: { target: new FakePublishTarget() },
+    }),
   );
   const executor = new GraphExecutor({
     runner,
@@ -111,10 +115,11 @@ const storyThen = (conf: number): FakeHandler => (req) => {
 };
 
 const ALL_NODES = [
-  "approve_story", "assets", "intent", "render", "script", "story", "visual_plan", "voice",
+  "approve_story", "assets", "intent", "publish", "render", "script", "story",
+  "visual_plan", "voice",
 ];
 /** Everything downstream of the approval gate. */
-const AFTER_GATE = ["assets", "render", "script", "visual_plan", "voice"];
+const AFTER_GATE = ["assets", "publish", "render", "script", "visual_plan", "voice"];
 /** story, script, visual_plan are agents; voice and assets are workers (no model call). */
 const MODEL_CALLS_PER_RUN = 3;
 

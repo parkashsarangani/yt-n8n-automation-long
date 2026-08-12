@@ -121,6 +121,56 @@ export interface MediaRenderer {
   ): Promise<RenderResult>;
 }
 
+/**
+ * What a destination will accept. The rest of the system reads THIS rather than
+ * knowing anything about a specific platform — that is what makes YouTube a
+ * plugin instead of a privileged destination (RFC 0001, Distribution layer).
+ */
+export interface TargetRequirements {
+  aspects: Aspect[];
+  max_duration_sec?: number;
+  max_title_chars: number;
+  max_description_chars?: number;
+  max_tags?: number;
+  /** Platform requires declaring AI-generated content. */
+  requires_synthetic_media_disclosure?: boolean;
+  supports_custom_thumbnail?: boolean;
+}
+
+export interface PublishMetadata {
+  title: string;
+  description?: string;
+  tags?: string[];
+  privacy?: "public" | "unlisted" | "private";
+  made_for_kids?: boolean;
+}
+
+export interface PublishRequest {
+  video: Uint8Array;
+  media_type: string;
+  thumbnail?: { bytes: Uint8Array; media_type: string };
+  metadata: PublishMetadata;
+  duration_sec?: number;
+}
+
+export interface PublishResult {
+  external_id: string;
+  url: string;
+  /** False when the platform refused the thumbnail (e.g. unverified channel). */
+  thumbnail_set: boolean;
+  synthetic_media_disclosed: boolean;
+  usage: Usage;
+}
+
+export interface PublishTarget {
+  readonly id: string;
+  requirements(): TargetRequirements;
+  publish(
+    req: PublishRequest,
+    opts?: { onProgress?: (detail: string) => void | Promise<void> },
+  ): Promise<PublishResult>;
+}
+
 export class ProviderError extends Error {
   override name = "ProviderError";
 }

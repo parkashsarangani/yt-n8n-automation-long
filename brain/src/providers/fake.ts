@@ -17,8 +17,11 @@ import {
   type MediaRenderer,
   type ModelProvider,
   type ProviderCapabilities,
+  type PublishRequest,
+  type PublishTarget,
   type RenderRequest,
   type SpeechProvider,
+  type TargetRequirements,
 } from "../provider.ts";
 
 export type FakeHandler = (
@@ -170,6 +173,55 @@ export class FakeRenderer implements MediaRenderer {
         input_tokens: 0,
         output_tokens: 0,
         units: 42,
+        cost_usd: 0,
+        provider: "fake",
+        model: this.id,
+      },
+    };
+  }
+}
+
+export class FakePublishTarget implements PublishTarget {
+  readonly id: string;
+  readonly published: PublishRequest[] = [];
+
+  constructor(
+    private readonly opts: {
+      id?: string;
+      requirements?: Partial<TargetRequirements>;
+      /** Simulate a platform refusing the thumbnail (unverified channel). */
+      rejectThumbnail?: boolean;
+      failWith?: string;
+    } = {},
+  ) {
+    this.id = opts.id ?? "fake-target";
+  }
+
+  requirements(): TargetRequirements {
+    return {
+      aspects: ["16:9"],
+      max_title_chars: 100,
+      max_description_chars: 5000,
+      max_tags: 50,
+      requires_synthetic_media_disclosure: true,
+      supports_custom_thumbnail: true,
+      ...this.opts.requirements,
+    };
+  }
+
+  async publish(req: PublishRequest) {
+    this.published.push(req);
+    if (this.opts.failWith) throw new ProviderError(this.opts.failWith);
+    const id = `fakevid_${this.published.length}`;
+    return {
+      external_id: id,
+      url: `https://example.test/${id}`,
+      thumbnail_set: Boolean(req.thumbnail) && !this.opts.rejectThumbnail,
+      synthetic_media_disclosed: true,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 1,
         cost_usd: 0,
         provider: "fake",
         model: this.id,
