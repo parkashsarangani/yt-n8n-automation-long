@@ -10,3 +10,7 @@ topic_history.json
 
 # brain local artifact store (smoke runs)
 brain/.amos-data/
+
+# local credentials
+brain/.env
+.env

@@ -42,11 +42,27 @@ npm install
 npm test          # 95 tests, no network
 npm run typecheck
 
-# live run of the skeleton graph against a real model:
-ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- "why Chile is so incredibly long"
+# credentials: copy the template and fill in whatever you have
+cp .env.example .env
+
+# live run of the skeleton graph. Every provider without a credential falls
+# back to a deterministic fake, so a partial setup still runs end to end.
+npm run smoke -- "why Chile is so incredibly long"
+
 # it parks at the approval gate below 0.9 confidence:
-ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
+npm run smoke -- --approve <run_id>
+
+# actually upload (needs YOUTUBE_ACCESS_TOKEN; always uploads PRIVATE):
+npm run smoke -- --publish "why Chile is so incredibly long"
 ```
+
+| Credential | Provider | Without it |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | reasoning agents | **required** |
+| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | fake audio |
+| `FAL_KEY` | images | fake images |
+| `COMPOSE_URL` | video assembly | fake renderer |
+| `YOUTUBE_ACCESS_TOKEN` + `--publish` | publishing | dry-run target |
 
 ## Invariants under test
 

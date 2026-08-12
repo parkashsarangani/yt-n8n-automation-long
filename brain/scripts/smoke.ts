@@ -8,6 +8,12 @@
  *
  *   ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
  *
+ * Each provider is real when its credential is present and a deterministic fake
+ * otherwise, so a partial setup still runs end to end. See .env.example.
+ *
+ * Publishing needs BOTH a YouTube token AND an explicit --publish flag, and
+ * always uploads as private.
+ *
  * Artifacts and the run log land in ./.amos-data.
  */
 
@@ -29,6 +35,10 @@ import {
   FakeRenderer,
   FakePublishTarget,
 } from "../src/providers/fake.ts";
+import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
+import { FalImageProvider } from "../src/providers/fal.ts";
+import { ComposeRenderer } from "../src/providers/compose.ts";
+import { YouTubeTarget } from "../src/providers/youtube.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 
@@ -44,19 +54,59 @@ async function main() {
   const argv = process.argv.slice(2);
   const approveAt = argv.indexOf("--approve");
   const resumeRunId = approveAt >= 0 ? argv[approveAt + 1] : null;
-  const brief = (approveAt >= 0 ? [] : argv).join(" ") || "why Chile is so incredibly long";
+  const reallyPublish = argv.includes("--publish");
+  const brief = argv
+    .filter((a, i) => !a.startsWith("--") && i !== approveAt + 1)
+    .join(" ") || "why Chile is so incredibly long";
+
+  const env = (k: string) => {
+    const v = process.env[k];
+    return v && v.trim() ? v.trim() : undefined;
+  };
+
+  // Each provider is real when its credential is present, and a deterministic
+  // fake otherwise — so a partial setup still runs end to end instead of
+  // failing at the first missing key.
+  const speech = env("ELEVENLABS_API_KEY")
+    ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
+    : new FakeSpeechProvider();
+  const images = env("FAL_KEY")
+    ? new FalImageProvider({ apiKey: env("FAL_KEY")! })
+    : new FakeImageProvider();
+  const renderer = env("COMPOSE_URL")
+    ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
+    : new FakeRenderer();
+
+  // Publishing is irreversible and outward-facing, so it needs BOTH a token and
+  // an explicit --publish. A token alone must never cause an upload.
+  const canPublish = Boolean(env("YOUTUBE_ACCESS_TOKEN")) && reallyPublish;
+  const target = canPublish
+    ? new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! })
+    : new FakePublishTarget({ id: "dry-run" });
+
+  console.log("providers:");
+  console.log(`  reasoning  anthropic (claude-opus-5 / claude-sonnet-5)`);
+  console.log(`  speech     ${speech.id}`);
+  console.log(`  images     ${images.id}`);
+  console.log(`  renderer   ${renderer.id}`);
+  console.log(
+    `  publish    ${target.id}` +
+      (env("YOUTUBE_ACCESS_TOKEN") && !reallyPublish
+        ? "  (token present; pass --publish to actually upload)"
+        : ""),
+  );
+  if (canPublish) console.log("  !! will upload to YouTube as PRIVATE");
+  console.log();
 
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
-  // Voice and images are still fakes: the real ElevenLabs and Fal adapters are
-  // not written yet, so this exercises the reasoning path for real and the
-  // media path structurally.
   const transformations = allTransformations(
     agents,
     defaultWorkers({
-      voice: { voiceId: process.env["ELEVENLABS_VOICE_ID"] ?? "smoke-voice" },
-      publish: { target: new FakePublishTarget({ id: "dry-run" }), privacy: "private" },
+      voice: { voiceId: env("ELEVENLABS_VOICE_ID") ?? "smoke-voice" },
+      // Private always: a smoke test must not publish publicly by accident.
+      publish: { target, privacy: "private" },
     }),
   );
   validateCatalog(agents as never, {
@@ -85,11 +135,7 @@ async function main() {
     runLog,
     logger: console,
     blobs,
-    media: {
-      speech: new FakeSpeechProvider(),
-      images: new FakeImageProvider(),
-      renderer: new FakeRenderer(),
-    },
+    media: { speech, images, renderer },
   });
   const executor = new GraphExecutor({
     runner,
