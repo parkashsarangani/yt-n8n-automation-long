@@ -22,7 +22,10 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/catalog.ts` | 0003 | Loads agents from disk; cross-checks them at boot |
 | `src/graph.ts` | 0005 | Graph document + static validation (arity, schema wiring, cycles) |
 | `src/predicate.ts` | 0005 | Declared predicates for auto-pass gates — not an expression language |
-| `src/executor.ts` | 0005 | Walks the DAG: readiness, bounded concurrency, gates, blocking |
+| `src/executor.ts` | 0005 | Walks the DAG: readiness, bounded concurrency, gates, blocking, progress events |
+| `src/service.ts` | — | Assembles the brain for one operator; live run state |
+| `src/server.ts` + `ui/` | — | Loopback-only control UI |
+| `src/config.ts` | — | `.env` read/write; secrets masked on the way out |
 | `src/blobs.ts` | 0002 | Content-addressed byte storage — audio, images, alignment JSON |
 | `src/concurrency.ts` | — | Bounded fan-out; nothing runs unbounded |
 | `src/workers/voice.ts` | 0003 | script → voice. TTS per scene with prev/next continuity |
@@ -34,15 +37,19 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/providers/youtube.ts` | 0004 | Publish target — the only file that knows YouTube (**never run live**) |
 | `src/workers/publish.ts` | 0003 | rendered_video+story → published_episode, gated on `requirements()` |
 | `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer`, `visual_planner` — data, not code |
-| `graphs/` | 0005 | `skeleton@4` — intent → story → gate → script → (plan → images \| voice) → render → publish |
+| `graphs/` | 0005 | `skeleton@5` — two human gates: the story premise, and the narration script |
 | `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest`, `rendered_video`, `published_episode`; `story` at `1.1.0` |
 
 ```bash
 npm install
-npm test          # 95 tests, no network
+npm test          # 96 tests, no network
 npm run typecheck
 
-# credentials: copy the template and fill in whatever you have
+# the UI is the easiest way in: set keys, start a run, watch it, approve
+npm run ui                # http://127.0.0.1:4321
+npm run ui -- --publish   # allow real uploads (still private)
+
+# or set credentials by hand
 cp .env.example .env
 
 # live run of the skeleton graph. Every provider without a credential falls
@@ -97,6 +104,8 @@ npm run smoke -- --publish "why Chile is so incredibly long"
   disclosure throws, because the video would be live and undisclosed.
 - A `story@1.0.0` artifact written before `seo_description` existed still
   publishes, on the newer schema, with no migrator.
+- The story gate can auto-pass on confidence; the script gate always asks, and
+  sits before any paid media work so a rewrite costs only the script.
 
 ## What implementation revealed about the RFCs
 

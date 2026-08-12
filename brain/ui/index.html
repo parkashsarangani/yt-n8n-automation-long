@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AMOS</title>
+<style>
+  :root {
+    --bg: #12131a; --panel: #1a1c25; --line: #2a2d3a; --ink: #e7e9f0;
+    --dim: #9aa0b4; --accent: #7aa2f7; --ok: #6ac48a; --warn: #e0af68;
+    --bad: #e06c75; --run: #7aa2f7;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .04em; }
+  .muted { color: var(--dim); font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(320px, 400px) 1fr; gap: 18px; padding: 18px 20px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
+  input, textarea, button {
+    font: inherit; color: var(--ink); background: #0e0f15;
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; width: 100%;
+  }
+  textarea { resize: vertical; min-height: 74px; }
+  button { background: var(--accent); color: #0b0d13; border: 0; font-weight: 600; cursor: pointer; width: auto; padding: 8px 16px; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); font-weight: 500; }
+  button.bad { background: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+  .pill.real { color: var(--ok); border-color: #2c4a38; }
+  .pill.fake { color: var(--warn); border-color: #4a3f28; }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps li { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  ol.steps li:last-child { border-bottom: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 7px; flex: 0 0 auto; background: var(--line); }
+  .dot.done { background: var(--ok); }
+  .dot.running { background: var(--run); animation: pulse 1s ease-in-out infinite; }
+  .dot.waiting { background: var(--warn); }
+  .dot.failed, .dot.blocked { background: var(--bad); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  .step-name { font-weight: 600; }
+  .step-meta { font-size: 12px; color: var(--dim); }
+
+  .run-item { padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+  .run-item.sel { border-color: var(--accent); }
+  .run-item .brief { font-size: 13px; }
+  code { background: #0e0f15; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  pre { background: #0e0f15; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; max-height: 460px; font-size: 12.5px; }
+  .scene { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .scene:last-child { border-bottom: 0; }
+  .scene .pt { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .banner { border-left: 3px solid var(--warn); padding: 10px 12px; background: #241f14; border-radius: 0 8px 8px 0; margin-bottom: 12px; }
+  .banner.bad { border-color: var(--bad); background: #2a1a1c; }
+  .err { color: var(--bad); font-size: 12.5px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>AMOS</h1>
+  <span class="muted" id="graph"></span>
+  <span class="row" id="providers" style="margin-left:auto"></span>
+</header>
+
+<main>
+  <div>
+    <section>
+      <h2>New run</h2>
+      <label for="brief">What should the video be about?</label>
+      <textarea id="brief" placeholder="why Chile is so incredibly long"></textarea>
+      <label for="dur">Target length (seconds)</label>
+      <input id="dur" type="number" value="540" min="30" max="3600" />
+      <div class="row" style="margin-top:12px">
+        <button id="start">Start run</button>
+        <span class="muted" id="startMsg"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Runs</h2>
+      <div id="runs"><span class="muted">none yet</span></div>
+    </section>
+
+    <section>
+      <h2>Credentials</h2>
+      <div class="muted" style="margin-bottom:8px">
+        Stored in <code id="envfile">.env</code>. Values are never sent back to this page.
+      </div>
+      <div id="creds"></div>
+      <div class="row" style="margin-top:14px">
+        <button id="saveCreds">Save</button>
+        <span class="muted" id="credMsg"></span>
+      </div>
+    </section>
+  </div>
+
+  <div>
+    <section id="detail">
+      <h2>Run detail</h2>
+      <span class="muted">Start a run, or pick one on the left.</span>
+    </section>
+  </div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+let selected = null;
+let poller = null;
+
+const api = async (url, opts) => {
+  const res = await fetch(url, {
+    ...opts,
+    headers: opts?.body ? { "content-type": "application/json" } : undefined,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`);
+  return body;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---------- config ----------
+async function loadConfig() {
+  const cfg = await api("/api/config");
+  $("graph").textContent = cfg.graph;
+  $("envfile").textContent = cfg.env_file;
+  $("providers").innerHTML = cfg.providers
+    .map((p) => `<span class="pill ${p.real ? "real" : "fake"}">${esc(p.role)}: ${esc(p.provider)}</span>`)
+    .join("");
+  $("creds").innerHTML = cfg.credentials.map((c) => `
+    <label for="c_${c.key}">
+      ${esc(c.label)}${c.required ? " *" : ""}
+      ${c.set ? `<span class="pill real">set ${esc(c.preview)}</span>` : `<span class="pill fake">not set</span>`}
+    </label>
+    <input id="c_${c.key}" data-key="${c.key}" type="${c.secret ? "password" : "text"}"
+           placeholder="${esc(c.set ? "unchanged — type to replace" : c.placeholder || "")}"
+           autocomplete="off" spellcheck="false" />
+    <div class="muted">${esc(c.help)} · without it: ${esc(c.fallback)}</div>
+  `).join("");
+}
+
+$("saveCreds").onclick = async () => {
+  const updates = {};
+  for (const el of document.querySelectorAll("#creds input")) {
+    if (el.value !== "") updates[el.dataset.key] = el.value;
+  }
+  if (!Object.keys(updates).length) { $("credMsg").textContent = "nothing changed"; return; }
+  $("saveCreds").disabled = true;
+  try {
+    const out = await api("/api/config", { method: "POST", body: JSON.stringify({ updates }) });
+    for (const el of document.querySelectorAll("#creds input")) el.value = "";
+    $("credMsg").textContent = `saved ${out.applied.join(", ")}`;
+    await loadConfig();
+  } catch (e) {
+    $("credMsg").textContent = e.message;
+  } finally {
+    $("saveCreds").disabled = false;
+  }
+};
+
+// ---------- runs ----------
+$("start").onclick = async () => {
+  const brief = $("brief").value.trim();
+  if (brief.length < 8) { $("startMsg").textContent = "say a bit more"; return; }
+  $("start").disabled = true;
+  $("startMsg").textContent = "starting…";
+  try {
+    const { run_id } = await api("/api/runs", {
+      method: "POST",
+      body: JSON.stringify({ brief, duration_sec: Number($("dur").value) || 540 }),
+    });
+    $("startMsg").textContent = "";
+    select(run_id);
+    await refresh();
+  } catch (e) {
+    $("startMsg").textContent = e.message;
+  } finally {
+    $("start").disabled = false;
+  }
+};
+
+function select(id) {
+  selected = id;
+  if (poller) clearInterval(poller);
+  poller = setInterval(() => renderDetail().catch(() => {}), 1500);
+  renderDetail().catch(() => {});
+}
+
+async function refresh() {
+  const { runs } = await api("/api/runs");
+  $("runs").innerHTML = runs.length
+    ? runs.map((r) => `
+        <div class="run-item ${r.run_id === selected ? "sel" : ""}" data-id="${r.run_id}">
+          <div class="brief">${esc(r.brief.slice(0, 70))}${r.brief.length > 70 ? "…" : ""}</div>
+          <div class="muted">${esc(r.status)} · $${r.cost_usd.toFixed(4)} · ${esc(r.run_id.slice(4, 12))}</div>
+        </div>`).join("")
+    : `<span class="muted">none yet</span>`;
+  for (const el of document.querySelectorAll(".run-item")) {
+    el.onclick = () => { select(el.dataset.id); refresh(); };
+  }
+}
+
+const STATE_LABEL = { pending: "", running: "running…", done: "done", waiting: "needs you", failed: "failed", blocked: "blocked" };
+
+async function renderDetail() {
+  if (!selected) return;
+  const { run } = await api(`/api/runs/${selected}`);
+  const waiting = run.waiting[0];
+
+  let html = `<h2>Run detail</h2>
+    <div class="muted" style="margin-bottom:10px">
+      ${esc(run.brief)} · <code>${esc(run.graph)}</code> · ${esc(run.status)} · $${run.cost_usd.toFixed(4)}
+    </div>`;
+
+  if (waiting) {
+    html += `<div class="banner"><b>Waiting for you at “${esc(waiting.node_id)}”</b><br>
+      <span class="muted">${esc(waiting.reason)}</span></div>`;
+  }
+  for (const f of run.failures) {
+    html += `<div class="banner bad"><b>${esc(f.node_id)} failed</b><br>
+      <span class="err">${esc(f.error)}</span></div>`;
+  }
+
+  html += `<ol class="steps">` + run.nodes.map((n) => `
+    <li>
+      <span class="dot ${n.state}"></span>
+      <span>
+        <span class="step-name">${esc(n.node_id)}</span>
+        <span class="step-meta">${n.transformation ? " · " + esc(n.transformation) : n.kind === "human_gate" ? " · human gate" : ""}
+          ${STATE_LABEL[n.state] ? " · " + STATE_LABEL[n.state] : ""}</span>
+        ${n.error ? `<div class="err">${esc(n.error)}</div>` : ""}
+      </span>
+    </li>`).join("") + `</ol>`;
+
+  html += `<div id="review"></div>`;
+  $("detail").innerHTML = html;
+
+  // Review pane: whatever the gate is gating, or the newest reviewable artifact.
+  const reviewId =
+    waiting?.artifact_id ??
+    run.nodes.find((n) => n.node_id === "script" && n.artifact_id)?.artifact_id ??
+    run.nodes.find((n) => n.node_id === "story" && n.artifact_id)?.artifact_id;
+  if (reviewId) await renderReview(reviewId, waiting?.node_id ?? null);
+}
+
+async function renderReview(artifactId, gateNode) {
+  const { artifact } = await api(`/api/artifacts/${encodeURIComponent(artifactId)}`);
+  const p = artifact.payload;
+  let body = "";
+
+  if (artifact.schema_id === "script") {
+    const words = p.scenes.reduce((n, s) => n + s.narration.trim().split(/\s+/).length, 0);
+    body = `<div class="muted">${p.scenes.length} scenes · ~${words} words · ~${Math.round(words / 150)} min</div>`
+      + p.scenes.map((s) => `
+        <div class="scene">
+          <div class="pt">${s.scene_index}. ${esc(s.point)}</div>
+          <div>${esc(s.narration)}</div>
+        </div>`).join("");
+  } else if (artifact.schema_id === "story") {
+    body = `<div style="font-size:15px;font-weight:600">${esc(p.title)}</div>
+      <div class="scene"><div class="pt">hook</div><div>${esc(p.hook)}</div></div>`
+      + p.acts.map((a) => `<div class="scene"><div class="pt">act ${a.act_index} — ${esc(a.act_title)}</div>
+          <div>${esc(a.premise)}</div></div>`).join("")
+      + `<div class="scene"><div class="pt">payoff</div><div>${esc(p.payoff)}</div></div>`;
+  } else {
+    body = `<pre>${esc(JSON.stringify(p, null, 2))}</pre>`;
+  }
+
+  const conf = artifact.confidence?.overall;
+  $("review").innerHTML = `
+    <h2 style="margin-top:18px">Review — ${esc(artifact.schema_id)}${
+      conf != null ? ` <span class="pill">confidence ${conf}</span>` : ""
+    }</h2>
+    ${body}
+    ${gateNode ? `
+      <div class="row" style="margin-top:14px">
+        <button id="approve">Approve &amp; continue</button>
+        <button id="reject" class="bad ghost">Reject</button>
+        <span class="muted" id="decideMsg"></span>
+      </div>` : ""}`;
+
+  if (!gateNode) return;
+  $("approve").onclick = () => decide(gateNode, true);
+  $("reject").onclick = () => decide(gateNode, false);
+}
+
+async function decide(nodeId, approve) {
+  $("approve").disabled = $("reject").disabled = true;
+  $("decideMsg").textContent = approve ? "continuing…" : "rejecting…";
+  try {
+    await api(`/api/runs/${selected}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ node_id: nodeId, approve }),
+    });
+    await renderDetail();
+  } catch (e) {
+    $("decideMsg").textContent = e.message;
+  }
+}
+
+await loadConfig();
+await refresh();
+setInterval(() => refresh().catch(() => {}), 3000);
+</script>
+</body>
+</html>

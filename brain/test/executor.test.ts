@@ -115,24 +115,42 @@ const storyThen = (conf: number): FakeHandler => (req) => {
 };
 
 const ALL_NODES = [
-  "approve_story", "assets", "intent", "publish", "render", "script", "story",
-  "visual_plan", "voice",
+  "approve_script", "approve_story", "assets", "intent", "publish", "render",
+  "script", "story", "visual_plan", "voice",
 ];
-/** Everything downstream of the approval gate. */
-const AFTER_GATE = ["assets", "publish", "render", "script", "visual_plan", "voice"];
+/** Everything downstream of the story gate. */
+const AFTER_GATE = [
+  "approve_script", "assets", "publish", "render", "script", "visual_plan", "voice",
+];
+/** Everything downstream of the script gate. */
+const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "visual_plan", "voice"];
 /** story, script, visual_plan are agents; voice and assets are workers (no model call). */
 const MODEL_CALLS_PER_RUN = 3;
 
-test("a confident story auto-passes the gate and the run completes", async () => {
+test("a confident story auto-passes its gate, then the script gate always asks", async () => {
   const h = await harness(storyThen(0.95));
   const result = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
 
-  assert.equal(result.status, "completed");
-  assert.deepEqual(Object.keys(result.outputs).sort(), ALL_NODES);
-  // The gate is an identity pass-through: same artifact on both sides.
+  // The story gate has an auto-pass policy; the script gate deliberately has
+  // none, so narration is always reviewed before any paid media work.
   assert.equal(result.outputs["approve_story"], result.outputs["story"]);
-  assert.deepEqual(result.waiting, []);
+  assert.equal(result.status, "waiting");
+  assert.deepEqual(result.waiting.map((w) => w.node_id), ["approve_script"]);
+  assert.deepEqual([...result.blocked].sort(), AFTER_SCRIPT_GATE);
   assert.deepEqual(result.failures, []);
+});
+
+test("approving the script gate runs the rest of the graph to completion", async () => {
+  const h = await harness(storyThen(0.95));
+  const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const done = await h.executor.resume(h.graph, first.run_id, {
+    approve_script: { result: "approve" },
+  });
+
+  assert.equal(done.status, "completed");
+  assert.deepEqual(Object.keys(done.outputs).sort(), ALL_NODES);
+  // The script gate is an identity pass-through too.
+  assert.equal(done.outputs["approve_script"], done.outputs["script"]);
 });
 
 test("a low-confidence story parks the run at the gate", async () => {
@@ -160,9 +178,17 @@ test("resuming with approval continues without re-running completed nodes", asyn
     approve_story: { result: "approve" },
   });
 
-  assert.equal(resumed.status, "completed");
+  // Parks again at the script gate — narration is always reviewed.
+  assert.equal(resumed.status, "waiting");
+  assert.deepEqual(resumed.waiting.map((w) => w.node_id), ["approve_script"]);
   assert.equal(resumed.outputs["story"], first.outputs["story"]); // derived, not recomputed
-  // The story was not re-run: only script and visual_plan cost a model call.
+  // The story was not re-run: only the script cost a model call this time.
+  assert.equal(h.provider.calls.length, 2);
+
+  const done = await h.executor.resume(h.graph, first.run_id, {
+    approve_script: { result: "approve" },
+  });
+  assert.equal(done.status, "completed");
   assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN);
   // Workers ran too, producing real bytes.
   assert.ok(h.speech.calls.length > 0);
@@ -204,7 +230,10 @@ test("seeds are validated against the input node's schema before anything runs",
 
 test("reuse:true picks up a matching output from an earlier run", async () => {
   const h = await harness(storyThen(0.95));
-  const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const started = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const first = await h.executor.resume(h.graph, started.run_id, {
+    approve_script: { result: "approve" },
+  });
   assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN);
 
   const reusing: GraphDoc = {
@@ -213,7 +242,10 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
       n.id === "story" ? { ...n, reuse: true } : n,
     ) as GraphDoc["nodes"],
   };
-  const second = await h.executor.start(reusing, { intent: h.seed.artifact.artifact_id });
+  const startedAgain = await h.executor.start(reusing, { intent: h.seed.artifact.artifact_id });
+  const second = await h.executor.resume(reusing, startedAgain.run_id, {
+    approve_script: { result: "approve" },
+  });
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);

@@ -59,6 +59,16 @@ export interface GraphRunResult {
   blocked: string[];
 }
 
+/** Live progress, so a UI can show which step is executing (RFC 0006). */
+export type ExecutorEvent =
+  | { type: "run_start"; run_id: string; graph: string }
+  | { type: "node_start"; run_id: string; node_id: string; transformation: string }
+  | { type: "node_done"; run_id: string; node_id: string; artifact_id: string; cached: boolean }
+  | { type: "node_failed"; run_id: string; node_id: string; error: string }
+  | { type: "gate_waiting"; run_id: string; node_id: string; reason: string }
+  | { type: "gate_settled"; run_id: string; node_id: string; approved: boolean }
+  | { type: "run_end"; run_id: string; status: GraphRunStatus };
+
 export type GateDecision =
   | { result: "approve" }
   | { result: "reject"; reason?: string };
@@ -72,10 +82,20 @@ export interface ExecutorDeps {
   /** Ready nodes executed concurrently. Bounded so a wide fan-out cannot swamp the host. */
   maxParallel?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
+  /** Progress sink. Must never throw — a broken listener cannot fail a run. */
+  onEvent?: (event: ExecutorEvent) => void;
 }
 
 export class GraphExecutor {
   constructor(private readonly deps: ExecutorDeps) {}
+
+  private emit(event: ExecutorEvent): void {
+    try {
+      this.deps.onEvent?.(event);
+    } catch (err) {
+      this.deps.logger?.warn(`[graph] progress listener threw: ${String(err)}`);
+    }
+  }
 
   /** Begin a run. `seeds` maps input node ids to existing artifact ids. */
   async start(
@@ -123,6 +143,7 @@ export class GraphExecutor {
     const failures: NodeFailure[] = [];
     const waiting: GateWait[] = [];
     const stalled = new Set<string>(); // failed or waiting this pass
+    this.emit({ type: "run_start", run_id: runId, graph: ref });
 
     for (;;) {
       const ready = graph.nodes.filter(
@@ -144,14 +165,22 @@ export class GraphExecutor {
 
         if (outcome.kind === "approved") {
           completed.set(gate.id, upstreamId); // identity pass-through
+          this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: true });
           await this.recordNode(runId, graph, gate.id, "human_gate", upstreamId, "ok");
         } else if (outcome.kind === "rejected") {
           stalled.add(gate.id);
+          this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: false });
           failures.push({ node_id: gate.id, transformation: "human_gate", error: outcome.reason });
           await this.recordNode(runId, graph, gate.id, "human_gate", null, "failed", outcome.reason);
         } else {
           stalled.add(gate.id);
           waiting.push({ node_id: gate.id, artifact_id: upstreamId, reason: outcome.reason });
+          this.emit({
+            type: "gate_waiting",
+            run_id: runId,
+            node_id: gate.id,
+            reason: outcome.reason,
+          });
         }
       }
 
@@ -161,13 +190,29 @@ export class GraphExecutor {
       const results = await mapWithConcurrency(
         work,
         this.deps.maxParallel ?? 3,
-        async (node) => this.runNode(graph, runId, node as TransformationNode, completed),
+        async (node) => {
+          const tn = node as TransformationNode;
+          this.emit({
+            type: "node_start",
+            run_id: runId,
+            node_id: tn.id,
+            transformation: tn.transformation,
+          });
+          return this.runNode(graph, runId, tn, completed);
+        },
       );
 
       for (const [i, r] of results.entries()) {
         const node = work[i]!;
         if (r.ok) {
           completed.set(node.id, r.artifactId);
+          this.emit({
+            type: "node_done",
+            run_id: runId,
+            node_id: node.id,
+            artifact_id: r.artifactId,
+            cached: false,
+          });
         } else {
           stalled.add(node.id);
           failures.push({
@@ -175,6 +220,7 @@ export class GraphExecutor {
             transformation: (node as TransformationNode).transformation,
             error: r.error,
           });
+          this.emit({ type: "node_failed", run_id: runId, node_id: node.id, error: r.error });
           this.deps.logger?.warn(`[graph ${ref}] node "${node.id}" failed: ${r.error}`);
         }
       }
@@ -193,6 +239,8 @@ export class GraphExecutor {
           : completed.size === graph.nodes.length
             ? "completed"
             : "blocked";
+
+    this.emit({ type: "run_end", run_id: runId, status });
 
     return {
       run_id: runId,

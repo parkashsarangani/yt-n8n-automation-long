@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "4",
-  "description": "Walking skeleton, end to end: intent -> story -> gate -> script -> (visual plan -> images | voice) -> render -> publish.",
+  "version": "5",
+  "description": "Walking skeleton, end to end. Two human gates: the story premise, and the narration script \u2014 the script gate sits before any paid media work, so a rewrite costs nothing but the script.",
   "nodes": [
     {
       "id": "intent",
@@ -33,10 +33,17 @@
       ]
     },
     {
+      "id": "approve_script",
+      "type": "human_gate",
+      "in": [
+        "script"
+      ]
+    },
+    {
       "id": "visual_plan",
       "transformation": "visual_planner",
       "in": [
-        "script"
+        "approve_script"
       ]
     },
     {
@@ -50,7 +57,7 @@
       "id": "voice",
       "transformation": "voice",
       "in": [
-        "script"
+        "approve_script"
       ]
     },
     {
