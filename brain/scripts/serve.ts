@@ -15,14 +15,24 @@ import { createUiServer } from "../src/server.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const allowPublish = process.argv.includes("--publish");
+const allowPublish = process.argv.includes("--publish") || process.env["AMOS_ALLOW_PUBLISH"] === "1";
 const port = Number(process.env["AMOS_PORT"] ?? 4321);
 
-const service = await AmosService.create({ root: ROOT, allowPublish });
-const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port });
+// Loopback by default. In a container this must be 0.0.0.0 to be reachable at
+// all — the loopback guarantee then comes from publishing the port as
+// 127.0.0.1:4321:4321 on the host, plus the Host-header check in the server.
+const host = process.env["AMOS_HOST"] ?? "127.0.0.1";
+
+const service = await AmosService.create({
+  root: ROOT,
+  allowPublish,
+  ...(process.env["AMOS_DATA"] ? { dataDir: process.env["AMOS_DATA"] } : {}),
+  ...(process.env["AMOS_ENV_FILE"] ? { envFile: process.env["AMOS_ENV_FILE"] } : {}),
+});
+const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port, host });
 const url = await server.listen();
 
-console.log(`AMOS UI  ${url}`);
+console.log(`AMOS UI  ${url}${host === "0.0.0.0" ? "  (published on the host as 127.0.0.1:" + port + ")" : ""}`);
 console.log(`config   ${service.envFile}`);
 for (const p of service.providerSummary()) {
   console.log(`  ${p.role.padEnd(10)} ${p.provider}${p.real ? "" : "  (fake)"}`);

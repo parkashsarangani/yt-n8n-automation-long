@@ -38,7 +38,8 @@ export function createUiServer(opts: ServerOptions) {
     // Loopback guard: refuse anything that did not arrive at localhost. This is
     // the only thing standing between a stray bind and a key-holding UI on a LAN.
     const hostHeader = (req.headers.host ?? "").split(":")[0];
-    if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostHeader ?? "")) {
+    const allowedHosts = ["localhost", "127.0.0.1", "[::1]", "::1"];
+    if (!allowedHosts.includes(hostHeader ?? "")) {
       json(res, 403, { error: "this UI is loopback-only" });
       return;
     }

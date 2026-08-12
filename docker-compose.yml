@@ -1,57 +1,73 @@
-# Long-form stack. Namespaced 'yt-longform' with offset host ports and long_-prefixed
-# volumes so it can run on the SAME Ubuntu server as the Shorts stack without
-# colliding on ports (5678/4000) or sharing named volumes (topic history, outputs).
-# On a dedicated host, you can revert the "5679:"/"4001:" host ports to 5678/4000.
-name: yt-longform
+# AMOS — one command to run everything:
+#
+#   docker compose up --build
+#   → http://localhost:4321
+#
+# Credentials can be set in the UI (they persist in the amos_data volume) or
+# seeded from a .env file next to this one. See .env.example.
+#
+# SECURITY: both published ports are bound to 127.0.0.1 on purpose. The UI holds
+# API keys and is unauthenticated by design; publishing it as "4321:4321" would
+# expose it to your whole network. Do not change that unless you add auth.
+name: amos
 
 services:
-  n8n:
-    image: docker.n8n.io/n8nio/n8n
+  # The brain: reasoning agents, execution graph, artifact store, control UI.
+  brain:
+    build: ./brain
     restart: unless-stopped
     ports:
-      - "5679:5678"          # host 5679 -> container 5678 (Shorts uses 5678)
+      - "127.0.0.1:4321:4321"
     environment:
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      - N8N_RUNNERS_ENABLED=true
-      - N8N_SECURE_COOKIE=false
-      # Set to your long-form-specific subdomain (see README §3), NOT the Shorts one.
-      - WEBHOOK_URL=https://n8n-lf.example.cloud/
-      - NODE_ENV=production
-      - GENERIC_TIMEZONE=Europe/Berlin
-      - TZ=Europe/Berlin
+      # Inside the compose network the renderer is reachable by service name.
+      # This overrides anything in the stored .env, which is what we want:
+      # "localhost:4001" is a host-side address and is wrong from in here.
+      COMPOSE_URL: http://long-compose:4000
+      # Seeded from your shell or the .env beside this file. Empty is treated as
+      # unset by the service, so a blank here never clobbers a key you saved in
+      # the UI (which lives in the volume).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      FAL_KEY: ${FAL_KEY:-}
+      YOUTUBE_ACCESS_TOKEN: ${YOUTUBE_ACCESS_TOKEN:-}
+      # Set to 1 to allow real YouTube uploads. Off by default: a token alone
+      # must never cause a publish. Uploads are private either way.
+      AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
     volumes:
-      - long_n8n_data:/home/node/.n8n
+      # Artifacts, blobs, the run log, and credentials entered in the UI.
+      - amos_data:/data
+    depends_on:
+      long-compose:
+        condition: service_healthy
 
+  # Video assembly: FFmpeg + Remotion. Called by the brain's render worker.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
     ports:
-      - "4001:4000"          # host 4001 -> container 4000 (Shorts uses 4000)
+      # Exposed only for debugging; the brain reaches it over the internal network.
+      - "127.0.0.1:4001:4000"
     environment:
-      - OUTPUT_DIR=/app/outputs
-      - TOPIC_HISTORY_PATH=/app/data/topic_history.json
-      - NODE_OPTIONS=--max-old-space-size=4096
-      # Long-form scene-concurrency cap (used by the upcoming compose.js edit): bound
-      # parallel ffmpeg/zoompan builds so 40-50 scenes don't OOM the 6GB container.
-      - COMPOSE_CONCURRENCY=3
-      # Fal AI image generation key. Add as a repo/environment secret named FAL_KEY.
-      - FAL_KEY=${FAL_KEY:-}
-      # Hybrid image->video (hook/payoff animation) stays OFF by default (see compose.js).
-      - FAL_VIDEO_ENABLED=${FAL_VIDEO_ENABLED:-}
-      - FAL_VIDEO_MODEL=${FAL_VIDEO_MODEL:-fal-ai/ltx-video/image-to-video}
+      OUTPUT_DIR: /app/outputs
+      TOPIC_HISTORY_PATH: /app/data/topic_history.json
+      NODE_OPTIONS: --max-old-space-size=4096
+      # Bound scene concurrency: 40-50 scenes built at once OOMs the container.
+      COMPOSE_CONCURRENCY: ${COMPOSE_CONCURRENCY:-3}
+      KENBURNS_UPSCALE: ${KENBURNS_UPSCALE:-3500}
+      FAL_KEY: ${FAL_KEY:-}
+      FAL_VIDEO_ENABLED: ${FAL_VIDEO_ENABLED:-}
+      FAL_VIDEO_MODEL: ${FAL_VIDEO_MODEL:-fal-ai/ltx-video/image-to-video}
     volumes:
-      # All app-writable paths are named volumes (immune to git clean on deploy),
-      # prefixed long_ so they never share state with the Shorts stack.
-      - long_outputs:/app/outputs      # ephemeral rendered videos, cleaned up per job
-      - long_data:/app/data            # persistent per-niche topic-history dedup state
+      - long_outputs:/app/outputs
+      - long_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:4000/topic-history"]
-      interval: 30s
+      interval: 20s
       timeout: 10s
       retries: 3
-      start_period: 15s
-    # Remotion rendering is memory-intensive (Chromium frame rendering); long-form
-    # renders are longer, so keep the 6GB ceiling and rely on COMPOSE_CONCURRENCY.
+      start_period: 20s
+    # Remotion renders in headless Chromium and is memory-hungry.
     deploy:
       resources:
         limits:
@@ -59,7 +75,31 @@ services:
         reservations:
           memory: 2G
 
+  # The pre-AMOS n8n pipeline. It no longer has a role: the brain owns the
+  # execution graph and the UI owns human approval. Kept behind a profile so the
+  # old A/B pipeline stays runnable while AMOS is unproven, but it does NOT
+  # start with a plain `docker compose up`.
+  #
+  #   docker compose --profile legacy up
+  n8n:
+    profiles: ["legacy"]
+    image: docker.n8n.io/n8nio/n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5679:5678"
+    environment:
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5679/}
+      NODE_ENV: production
+      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - long_n8n_data:/home/node/.n8n
+
 volumes:
-  long_n8n_data:
-  long_data:
+  amos_data:
   long_outputs:
+  long_data:
+  long_n8n_data:

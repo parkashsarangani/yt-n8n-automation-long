@@ -1,0 +1,5 @@
+node_modules
+remotion/node_modules
+outputs
+topic_history.json
+*.log

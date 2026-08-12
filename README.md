@@ -1,101 +1,107 @@
-# YouTube Long-form Automation Pipeline
+# AMOS — Autonomous Media Operating System
 
-A fully automated pipeline for **8–10 minute long-form YouTube videos**, built to
-A/B test two content niches — **Geography** and **Historical Mysteries** — through
-one parameterized pipeline before committing to a niche long-term.
+A compiler from ideas into publishable media. You give it a topic; it researches
+nothing yet, writes a story, writes the narration, plans the visuals, generates
+images and voice, renders a video, and publishes it — pausing for your approval
+at the points that matter.
 
-This is a separate project from the Shorts pipeline
-([`yt-n8n-automation`](https://github.com/parkashsarangani/yt-n8n-automation)).
-It shares DNA with it (n8n + Claude + ElevenLabs + Fal + a hybrid Remotion/FFmpeg
-compositor) but the chunking logic differs at every stage — script generation,
-TTS, B-roll volume, render scaling — so it lives on its own.
+YouTube is one output target, not the system.
+
+## Run it
+
+```bash
+docker compose up --build
+```
+
+Then open **http://localhost:4321** and set your Anthropic key in the UI.
+
+That is the whole setup. Everything else is optional: any provider without a
+credential falls back to a deterministic fake, so the pipeline runs end to end
+from the first minute and gets more real as you add keys.
+
+| Credential | Powers | Without it |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | story, script, visual plan | **required** |
+| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | fake audio |
+| `FAL_KEY` | images | fake images |
+| `YOUTUBE_ACCESS_TOKEN` | publishing | dry-run target |
+
+Keys entered in the UI persist in the `amos_data` volume. You can also seed them
+from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example).
+
+**Publishing never happens by accident.** A YouTube token alone does nothing;
+you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
+
+## What you get in the UI
+
+- A topic box and a target length.
+- **Live step status** — which node is running right now, which are done,
+  waiting, failed, or blocked.
+- **Two review gates.** The story premise (auto-passes on high confidence), and
+  the **narration script**, which always asks. The script gate sits *before* any
+  image or voice generation, so rejecting a script costs one model call rather
+  than eighty images.
+- Per-run cost.
+
+## Services
+
+```
+brain          the system: agents, execution graph, artifact store, control UI
+long-compose   video assembly (FFmpeg + Remotion)
+n8n            legacy — the pre-AMOS pipeline, see below
+```
+
+Both published ports bind to `127.0.0.1` deliberately: the UI holds API keys and
+is unauthenticated by design. Do not expose it.
+
+### The legacy n8n pipeline
+
+The original n8n A/B pipeline still exists but has no role in AMOS — the brain
+owns the execution graph and the UI owns human approval. It is parked behind a
+profile so it does not start by default:
+
+```bash
+docker compose --profile legacy up
+```
+
+Its workflow and build spec remain in [`n8n/`](n8n).
+
+## How it works
+
+Read [`docs/`](docs) — eight RFCs covering the irreversible decisions. The short
+version, five rules everything else derives from:
+
+1. Workers never think.
+2. Agents never touch files.
+3. Artifacts are immutable.
+4. Everything is observable.
+5. Every transformation is reproducible.
+
+## Developing
+
+```bash
+cd brain
+npm install
+npm test          # 96 tests, no network, no API keys
+npm run typecheck
+npm run ui        # the UI without Docker, on the host
+```
+
+See [`brain/README.md`](brain/README.md) for the module map, the invariants under
+test, and what implementation revealed about the RFCs.
 
 ## Status
 
-**MVP, in build.** The design is fully specified in
-[`n8n/long-form-mvp-spec.md`](n8n/long-form-mvp-spec.md) — read that first; it is
-the source of truth for the node graph, prompt templates, retry/failure semantics,
-the thumbnail step, and the per-run cost logging.
+The skeleton is structurally complete: intent → published episode. **No adapter
+has made a live API call yet** — Anthropic, ElevenLabs, Fal, long-compose and
+YouTube are written from known-good request shapes and tested against stubs, so
+treat the first real run as the actual test.
 
-Build order: (1) `n8n/long-workflow.json` workflow · (2) the two `long-compose/compose.js`
-edits (scene-concurrency cap, Ken-Burns upscale reduction) · (3) 3-video pilot to
-validate retention + pipeline reliability · (4) full interleaved A/B run.
-
-## Architecture (long-form specifics)
-
-```
-n8n (orchestration) — long-workflow.json
-  ├─ Claude — niche-seeded topic → blueprint → per-act script loop (avoids truncation)
-  │           → editorial pass → dedicated visual-plan enrichment
-  ├─ ElevenLabs — per-section TTS with previous_text/next_text for voice continuity
-  ├─ Fal flux/dev — 40–80 AI images (search_terms → prompt; fallback_terms; gradient placeholder)
-  ├─ long-compose (this repo) — hybrid Remotion + FFmpeg assembly (vendored from the Shorts compositor,
-  │           with a scene-concurrency cap + raised async poll budget for 10-min renders)
-  ├─ Thumbnail — dedicated 16:9 Fal image + templated text overlay (identical template per niche,
-  │           for A/B validity), set via YouTube thumbnails.set
-  └─ YouTube Data API — upload, AI-content disclosure, per-run cost logging
-```
-
-## Why a separate niche A/B, briefly
-
-- **Decision metric:** CTR + average-view-duration (low variance, resolvable at
-  ~12–15 videos/arm); revenue/views is directional-only (landslide ≥2× to count).
-- **Timeline:** judge each video on 28-day matured metrics → real read at ~6–8 weeks,
-  not 2. Alternate niches day-by-day (A B A B), never in blocks.
-- **Break-even:** ~650–1,200 views/video at $5–7 RPM; per-video API cost (~$3–6) and
-  the ~$135 total test cost are a rounding error next to calendar time.
-
-See the spec and the project notes for the full experiment design.
-
-## Repo layout
-
-```
-n8n/
-  long-form-mvp-spec.md        - build spec (READ FIRST): nodes, prompts, retry/failure, thumbnail, logging
-  long-workflow.json               - the n8n workflow (to be generated from the spec)
-long-compose/                       - vendored video-composition service (self-contained)
-  compose.js                     - async job API + hybrid Remotion/FFmpeg pipeline
-  Dockerfile, package.json
-  remotion/                      - studio motion graphics + caption/thumbnail compositions
-  motion-assets/                 - fonts, icons, backgrounds, sfx (see LICENSES.md)
-docker-compose.yml             - deploys n8n + long-compose (namespaced 'yt-longform'; ports offset to co-exist with Shorts)
-```
-
-## Setup
-
-### 1. Credentials (configure in n8n, not in this repo)
-
-- Anthropic (Claude) API key
-- ElevenLabs API key + voice ID
-- Fal API key
-- YouTube Data API v3 (OAuth2) — **the channel must be phone-verified**, or custom
-  thumbnails 403 and every video silently reverts to auto-frame (which re-introduces
-  the exact thumbnail bias the A/B is designed to avoid).
-
-### 2. Deploy the stack
-
-```bash
-docker compose up -d --build
-```
-
-The long-compose service and n8n are **namespaced and port-offset** (n8n on host `5679`,
-long-compose on host `4001`, volumes prefixed `long_`) so this stack can run on the same
-Ubuntu server as the Shorts stack without colliding on ports or sharing state.
-If you run it on a separate host, revert the port offsets in `docker-compose.yml`.
-
-### 3. Cloudflare Tunnel / hostnames
-
-Point long-form-specific subdomains at this stack (e.g. `n8n-lf.<domain>` →
-`localhost:5679`, `compose-lf.<domain>` → `localhost:4001`). The n8n workflow and
-`WEBHOOK_URL` reference these hostnames — set them before the first run.
-
-### 4. Import the workflow
-
-Import `n8n/long-workflow.json` into n8n, reconnect each credential, and set the niche
-input parameter (`geography` | `historical_mysteries`) per run.
+Deliberately not built yet: Discovery, Research, Fact Checking, and the
+knowledge graph. Each is designed to be additive, and each is better designed
+against real episodes than against assumptions.
 
 ## Licensing
 
-See [`LICENSES.md`](LICENSES.md). Inter (SIL OFL, no attribution). Icon set is
-CC-BY 4.0 — **attribution to useanimations.com is required** on the channel and is a
-carried-over open TODO. SFX are synthesized (no third-party licensing).
+See [`LICENSES.md`](LICENSES.md). Inter is SIL OFL. The icon set is CC-BY 4.0 and
+**requires attribution to useanimations.com** — a carried-over open item.

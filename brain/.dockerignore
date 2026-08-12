@@ -1,0 +1,4 @@
+node_modules
+.amos-data
+.env
+*.log
