@@ -21,6 +21,9 @@ import { ProviderRouter } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
 import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
+import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
+import { FsBlobStore } from "../src/blobs.ts";
+import { FakeSpeechProvider, FakeImageProvider } from "../src/providers/fake.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 
@@ -40,11 +43,15 @@ async function main() {
 
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const transformations = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<
-    string,
-    TransformationDef
-  >;
-  validateCatalog(transformations as never, {
+  const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
+  // Voice and images are still fakes: the real ElevenLabs and Fal adapters are
+  // not written yet, so this exercises the reasoning path for real and the
+  // media path structurally.
+  const transformations = allTransformations(
+    agents,
+    defaultWorkers({ voice: { voiceId: process.env["ELEVENLABS_VOICE_ID"] ?? "smoke-voice" } }),
+  );
+  validateCatalog(agents as never, {
     hasSchema: (id) => registry.has(id),
     hasPrompt: (ref) => prompts.has(ref),
   });
@@ -53,6 +60,7 @@ async function main() {
   validateGraph(graph, { registry, transformations }); // fails before spending anything
 
   const store = await FsArtifactStore.open(DATA, registry);
+  const blobs = await FsBlobStore.open(DATA);
   const runLog = new JsonlRunLog(path.join(DATA, "runs.jsonl"));
 
   // The only place a concrete model id appears (RFC 0004).
@@ -61,7 +69,16 @@ async function main() {
     reasoning_fast: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
   });
 
-  const runner = new Runner({ store, registry, prompts, providers, runLog, logger: console });
+  const runner = new Runner({
+    store,
+    registry,
+    prompts,
+    providers,
+    runLog,
+    logger: console,
+    blobs,
+    media: { speech: new FakeSpeechProvider(), images: new FakeImageProvider() },
+  });
   const executor = new GraphExecutor({
     runner,
     runLog,

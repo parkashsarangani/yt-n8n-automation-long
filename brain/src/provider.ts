@@ -42,6 +42,39 @@ export interface ModelProvider {
   complete(req: CompletionRequest): Promise<CompletionResult>;
 }
 
+/** Text to speech, for the voice worker (RFC 0004). */
+export interface SpeechProvider {
+  readonly id: string;
+  synthesize(req: {
+    text: string;
+    voice: string;
+    /** Neighbouring narration, for prosody continuity across many clips. */
+    context?: { prev?: string; next?: string };
+  }): Promise<{
+    audio: Uint8Array;
+    media_type: string;
+    /** Word/character timings, when the provider returns them. */
+    alignment?: unknown;
+    duration_sec?: number;
+    usage: Usage;
+  }>;
+}
+
+/** Image generation, for the asset collector worker (RFC 0004). */
+export type Aspect = "9:16" | "16:9" | "1:1";
+
+export interface ImageProvider {
+  readonly id: string;
+  generate(req: {
+    prompt: string;
+    aspect: Aspect;
+    count?: number;
+  }): Promise<{
+    images: Array<{ bytes: Uint8Array; media_type: string }>;
+    usage: Usage;
+  }>;
+}
+
 export class ProviderError extends Error {
   override name = "ProviderError";
 }

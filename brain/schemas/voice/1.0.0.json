@@ -1,0 +1,38 @@
+{
+  "schema_id": "voice",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "One narrated clip per scene. Audio and alignment live in the blob store; the payload only references them, so the artifact stays small and hashable.",
+  "produced_by": ["voice"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "VoiceArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["voice_id", "clips"],
+    "properties": {
+      "voice_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+      "clips": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scene_index", "audio_uri", "duration_sec"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "audio_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
+            "alignment_uri": {
+              "type": "string",
+              "pattern": "^blob://sha256:[0-9a-f]{64}$",
+              "description": "Word/character timings, needed downstream for captions."
+            },
+            "duration_sec": { "type": "number", "minimum": 0 }
+          }
+        }
+      },
+      "total_duration_sec": { "type": "number", "minimum": 0 }
+    }
+  }
+}

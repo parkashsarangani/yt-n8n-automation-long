@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "1",
-  "description": "Walking skeleton: intent -> story -> human gate -> script. Render and publish are added once the long-compose worker exists.",
+  "version": "2",
+  "description": "Walking skeleton through asset production: intent -> story -> human gate -> script -> (visual plan -> images | voice). Render and publish are added once those workers exist.",
   "nodes": [
     {
       "id": "intent",
@@ -25,6 +25,21 @@
       "id": "script",
       "transformation": "script_writer",
       "in": ["approve_story"]
+    },
+    {
+      "id": "visual_plan",
+      "transformation": "visual_planner",
+      "in": ["script"]
+    },
+    {
+      "id": "assets",
+      "transformation": "asset_collector",
+      "in": ["visual_plan"]
+    },
+    {
+      "id": "voice",
+      "transformation": "voice",
+      "in": ["script"]
     }
   ]
 }

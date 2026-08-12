@@ -8,11 +8,13 @@ import { tmpdir } from "node:os";
 import { SchemaRegistry } from "../src/registry.ts";
 import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
+import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
-import { FakeProvider, type FakeHandler } from "../src/providers/fake.ts";
+import { FakeProvider, FakeSpeechProvider, FakeImageProvider, type FakeHandler } from "../src/providers/fake.ts";
 import { Runner, type TransformationDef, type WorkerDef } from "../src/runner.ts";
 import { loadAgentDefs } from "../src/catalog.ts";
+import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
 import { GraphExecutor, ExecutorError } from "../src/executor.ts";
 import { loadGraph, validateGraph, type GraphDoc } from "../src/graph.ts";
 
@@ -38,12 +40,25 @@ const SCRIPT = {
   ],
 };
 
+const VISUAL_PLAN = {
+  scenes: [
+    {
+      scene_index: 0,
+      search_terms: ["aerial coastline at dawn", "andes ridge line", "empty desert highway"],
+      visual_style: "vivid explanatory documentary",
+      fallback_terms: ["mountain range", "coastal landscape"],
+    },
+  ],
+};
+
 async function harness(handler: FakeHandler) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-exec-")), registry);
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
+  const speech = new FakeSpeechProvider();
+  const images = new FakeImageProvider();
   const runner = new Runner({
     store,
     registry,
@@ -51,11 +66,14 @@ async function harness(handler: FakeHandler) {
     providers: new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider }),
     runLog,
     logger: silent(),
+    blobs: new MemoryBlobStore(),
+    media: { speech, images },
   });
-  const transformations = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<
-    string,
-    TransformationDef
-  >;
+  const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
+  const transformations = allTransformations(
+    agents,
+    defaultWorkers({ voice: { voiceId: "test-voice" } }),
+  );
   const executor = new GraphExecutor({
     runner,
     runLog,
@@ -73,20 +91,30 @@ async function harness(handler: FakeHandler) {
     produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
   });
 
-  return { registry, store, runLog, provider, runner, executor, graph, transformations, seed };
+  return { registry, store, runLog, provider, speech, images, runner, executor, graph, transformations, seed };
 }
 
-const storyThen = (conf: number): FakeHandler => (req) =>
-  req.prompt.includes("head writer")
-    ? { payload: STORY, confidence: { overall: conf } }
-    : { payload: SCRIPT, confidence: { overall: 0.8 } };
+/** Routes on each prompt's opening line, so all three agents get valid output. */
+const storyThen = (conf: number): FakeHandler => (req) => {
+  if (req.prompt.includes("head writer")) return { payload: STORY, confidence: { overall: conf } };
+  if (req.prompt.includes("choose what the viewer sees")) {
+    return { payload: VISUAL_PLAN, confidence: { overall: 0.85 } };
+  }
+  return { payload: SCRIPT, confidence: { overall: 0.8 } };
+};
+
+const ALL_NODES = ["approve_story", "assets", "intent", "script", "story", "visual_plan", "voice"];
+/** Everything downstream of the approval gate. */
+const AFTER_GATE = ["assets", "script", "visual_plan", "voice"];
+/** story, script, visual_plan are agents; voice and assets are workers (no model call). */
+const MODEL_CALLS_PER_RUN = 3;
 
 test("a confident story auto-passes the gate and the run completes", async () => {
   const h = await harness(storyThen(0.95));
   const result = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
 
   assert.equal(result.status, "completed");
-  assert.deepEqual(Object.keys(result.outputs).sort(), ["approve_story", "intent", "script", "story"]);
+  assert.deepEqual(Object.keys(result.outputs).sort(), ALL_NODES);
   // The gate is an identity pass-through: same artifact on both sides.
   assert.equal(result.outputs["approve_story"], result.outputs["story"]);
   assert.deepEqual(result.waiting, []);
@@ -102,9 +130,11 @@ test("a low-confidence story parks the run at the gate", async () => {
   assert.equal(result.waiting[0]!.node_id, "approve_story");
   assert.match(result.waiting[0]!.reason, /auto-pass predicate not met/);
   // Downstream work was not attempted, so no tokens were spent on it.
-  assert.deepEqual(result.blocked, ["script"]);
+  assert.deepEqual([...result.blocked].sort(), AFTER_GATE);
   assert.equal(result.outputs["script"], undefined);
   assert.equal(h.provider.calls.length, 1);
+  assert.equal(h.speech.calls.length, 0);
+  assert.equal(h.images.prompts.length, 0);
 });
 
 test("resuming with approval continues without re-running completed nodes", async () => {
@@ -118,8 +148,11 @@ test("resuming with approval continues without re-running completed nodes", asyn
 
   assert.equal(resumed.status, "completed");
   assert.equal(resumed.outputs["story"], first.outputs["story"]); // derived, not recomputed
-  // Exactly one more model call: the script. The story was not re-run.
-  assert.equal(h.provider.calls.length, 2);
+  // The story was not re-run: only script and visual_plan cost a model call.
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN);
+  // Workers ran too, producing real bytes.
+  assert.ok(h.speech.calls.length > 0);
+  assert.ok(h.images.prompts.length > 0);
 });
 
 test("resuming with a rejection blocks the downstream subtree", async () => {
@@ -132,7 +165,7 @@ test("resuming with a rejection blocks the downstream subtree", async () => {
   assert.equal(resumed.status, "blocked");
   assert.deepEqual(resumed.failures.map((f) => f.node_id), ["approve_story"]);
   assert.match(resumed.failures[0]!.error, /hook is weak/);
-  assert.deepEqual(resumed.blocked, ["script"]);
+  assert.deepEqual([...resumed.blocked].sort(), AFTER_GATE);
   assert.equal(h.provider.calls.length, 1);
 });
 
@@ -158,7 +191,7 @@ test("seeds are validated against the input node's schema before anything runs",
 test("reuse:true picks up a matching output from an earlier run", async () => {
   const h = await harness(storyThen(0.95));
   const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
-  assert.equal(h.provider.calls.length, 2);
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN);
 
   const reusing: GraphDoc = {
     ...h.graph,
@@ -170,9 +203,9 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);
-  // Story was reused; only the script cost a call. (Agents are not cached by
-  // default — re-running is how variants happen — so this is opt-in.)
-  assert.equal(h.provider.calls.length, 3);
+  // Story was reused; only script and visual_plan cost calls. (Agents are not
+  // cached by default — re-running is how variants happen — so this is opt-in.)
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 2);
 });
 
 // -- failure isolation, on a throwaway registry so the producer allowlist
@@ -209,7 +242,7 @@ async function tempSetup() {
     consumes: [{ schema_id: from, range: "^1", as: "x" }],
     produces: to,
     async execute(inputs) {
-      return { v: `${name}:${(inputs["x"]!.payload as { v: string }).v}` };
+      return { payload: { v: `${name}:${(inputs["x"]!.payload as { v: string }).v}` } };
     },
   });
   const boom: WorkerDef = {
@@ -236,6 +269,7 @@ async function tempSetup() {
     providers: new ProviderRouter({}),
     runLog,
     logger: silent(),
+    blobs: new MemoryBlobStore(),
   });
   const executor = new GraphExecutor({ runner, runLog, store, registry, transformations, logger: silent() });
   const seed = await store.put({

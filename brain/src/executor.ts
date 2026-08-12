@@ -22,6 +22,7 @@ import {
   type InputNode,
   type TransformationNode,
 } from "./graph.ts";
+import { mapWithConcurrency } from "./concurrency.ts";
 import { evaluatePredicate } from "./predicate.ts";
 import type { SchemaRegistry } from "./registry.ts";
 import type { RunLog, RunRecord } from "./runlog.ts";
@@ -331,23 +332,3 @@ export class GraphExecutor {
   }
 }
 
-/** Bounded-concurrency map preserving input order. */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    for (;;) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i]!);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(1, limit), items.length || 1) }, worker),
-  );
-  return results;
-}

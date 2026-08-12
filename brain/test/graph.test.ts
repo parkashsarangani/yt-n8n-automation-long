@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { SchemaRegistry } from "../src/registry.ts";
 import { loadAgentDefs } from "../src/catalog.ts";
+import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
 import { loadGraph, validateGraph, GraphError, descendantsOf, type GraphDoc } from "../src/graph.ts";
 import { parsePredicate, evaluatePredicate, PredicateError } from "../src/predicate.ts";
 import type { Artifact } from "../src/artifact.ts";
@@ -14,8 +15,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function deps() {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const agents = await loadAgentDefs(path.join(ROOT, "agents"));
-  return { registry, transformations: agents as Map<string, TransformationDef> };
+  const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
+  const workers = defaultWorkers({ voice: { voiceId: "test-voice" } });
+  return { registry, transformations: allTransformations(agents, workers) };
 }
 
 function graph(nodes: GraphDoc["nodes"]): GraphDoc {

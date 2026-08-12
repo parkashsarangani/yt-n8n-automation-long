@@ -23,13 +23,17 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/graph.ts` | 0005 | Graph document + static validation (arity, schema wiring, cycles) |
 | `src/predicate.ts` | 0005 | Declared predicates for auto-pass gates — not an expression language |
 | `src/executor.ts` | 0005 | Walks the DAG: readiness, bounded concurrency, gates, blocking |
-| `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer` — data, not code |
-| `graphs/` | 0005 | `skeleton@1` — intent → story → human gate → script |
-| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan` at `1.0.0` |
+| `src/blobs.ts` | 0002 | Content-addressed byte storage — audio, images, alignment JSON |
+| `src/concurrency.ts` | — | Bounded fan-out; nothing runs unbounded |
+| `src/workers/voice.ts` | 0003 | script → voice. TTS per scene with prev/next continuity |
+| `src/workers/assets.ts` | 0003 | visual_plan → asset_manifest. Three-rung failure ladder |
+| `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer`, `visual_planner` — data, not code |
+| `graphs/` | 0005 | `skeleton@2` — intent → story → gate → script → (visual plan → images \| voice) |
+| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest` at `1.0.0` |
 
 ```bash
 npm install
-npm test          # 65 tests, no network
+npm test          # 77 tests, no network
 npm run typecheck
 
 # live run of the skeleton graph against a real model:
@@ -56,6 +60,10 @@ ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
 - A parked run resumes without re-running completed nodes.
 - A failed node blocks only its own subtree; independent branches finish.
 - Predicates cannot express arbitrary code.
+- Blobs are content-addressed and deduped; a tampered blob is caught on read.
+- A scene whose image generation fails twice degrades to a placeholder rather
+  than failing the video, and is counted.
+- Voice clips carry neighbouring narration so prosody does not reset per scene.
 
 ## What implementation revealed about the RFCs
 
@@ -90,11 +98,23 @@ interface is the contract; `FsArtifactStore` is the zero-infrastructure
 implementation. Postgres slots in behind the same interface when RFC 0006
 rollup queries need it. The on-disk layout is already content-addressed.
 
+**Blobs are owned by the envelope, referenced by the payload.** Media bytes live
+in the blob store; the artifact payload holds only `blob://sha256:...` URIs, so
+artifacts stay small and cheap to hash, while `envelope.blobs[]` lists what the
+artifact owns for future retention decisions.
+
 **Confidence rides a wrapper schema.** Confidence belongs to the envelope, not
 the payload (it must not affect the hash), but it has to come back from the same
 call — so the provider is asked for `{payload, confidence}` and the runner
 unwraps. Prompts tell the agent that a low score on thin input is more useful
 than false certainty.
+
+## A limitation worth stating plainly
+
+`WorkerContext` provably contains no model — the runner builds it, so smuggling
+one in means editing the runner. But that proves nothing about dependencies a
+worker closes over at *construction* time (`makeVoiceWorker({...})`). The
+injected surface is enforced; construction is convention plus review.
 
 ## Not built yet, deliberately
 
@@ -107,7 +127,7 @@ than false certainty.
 
 ## Next
 
-The visual-plan agent and a `long-compose` render worker, which completes the
-walking skeleton: intent → story → gate → script → visual plan → render →
-publish. The render worker is the first one with real side effects, so it is
-also the first genuine test of the worker half of RFC 0003.
+Real provider adapters (ElevenLabs, Fal) plus the render and publish workers.
+`long-compose` already renders video; wrapping it is the first worker with a
+long-running external job, which is where RFC 0004's open question about async
+job shape gets answered. After that the skeleton produces an actual video.

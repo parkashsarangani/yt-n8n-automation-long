@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { SchemaRegistry } from "../src/registry.ts";
 import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
+import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog, rollup } from "../src/runlog.ts";
 import { ProviderRouter, ProviderRefusal, relaxForStructuredOutput } from "../src/provider.ts";
 import { FakeProvider, type FakeHandler } from "../src/providers/fake.ts";
@@ -46,7 +47,7 @@ async function harness(handler: FakeHandler) {
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
   const providers = new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider });
-  const runner = new Runner({ store, registry, prompts, providers, runLog, logger: silent() });
+  const runner = new Runner({ store, registry, prompts, providers, runLog, logger: silent(), blobs: new MemoryBlobStore() });
   const agents = await loadAgentDefs(path.join(ROOT, "agents"));
   return { registry, prompts, store, runLog, provider, runner, agents };
 }
@@ -87,9 +88,9 @@ async function seedIntent(h: Awaited<ReturnType<typeof harness>>) {
   return artifact;
 }
 
-test("the catalog loads both agents as pure data", async () => {
+test("the catalog loads every agent as pure data", async () => {
   const agents = await loadAgentDefs(path.join(ROOT, "agents"));
-  assert.deepEqual([...agents.keys()].sort(), ["script_writer", "story_architect"]);
+  assert.deepEqual([...agents.keys()].sort(), ["script_writer", "story_architect", "visual_planner"]);
   for (const def of agents.values()) {
     // RFC 0004: agents declare capabilities, never vendors.
     assert.match(def.model.capability, /^reasoning_/);
@@ -219,7 +220,7 @@ test("the producer allowlist blocks a transformation that is not declared", asyn
     async execute() {
       // Deliberately schema-VALID, so the allowlist is what rejects this and
       // not an incidental validation failure.
-      return { scenes: [{ scene_index: 0, point: "open", narration: "hello there" }] };
+      return { payload: { scenes: [{ scene_index: 0, point: "open", narration: "hello there" }] } };
     },
   };
 
@@ -244,6 +245,7 @@ test("workers run through the same harness and are given no model", async () => 
     providers: new ProviderRouter({}),
     runLog: new MemoryRunLog(),
     logger: silent(),
+    blobs: new MemoryBlobStore(),
   });
 
   const seed = await store.put({
@@ -262,15 +264,18 @@ test("workers run through the same harness and are given no model", async () => 
     async execute(inputs, ctx) {
       sawContext = ctx as unknown as Record<string, unknown>;
       const note = inputs["note"]!.payload as { text: string };
-      return { text: note.text.toUpperCase() };
+      return { payload: { text: note.text.toUpperCase() } };
     },
   };
 
   const out = await runner.run(shouter, [seed.artifact.artifact_id]);
   assert.equal((out.artifact.payload as { text: string }).text, "THE ANDES DREW THIS BORDER");
   assert.equal(out.artifact.produced_by.provider, null); // workers have no provider
-  // RFC 0001 rule 1, enforced structurally: there is no model in scope.
-  assert.deepEqual(Object.keys(sawContext), ["logger"]);
+  // RFC 0001 rule 1, enforced structurally: I/O yes, model no.
+  assert.deepEqual(Object.keys(sawContext).sort(), ["blobs", "logger", "media"]);
+  assert.equal("model" in sawContext, false);
+  assert.equal("providers" in sawContext, false);
+  assert.deepEqual(Object.keys(sawContext["media"] as object), []);
 
   // Deterministic: the same worker over the same input is a cache hit.
   const again = await runner.run(shouter, [seed.artifact.artifact_id]);

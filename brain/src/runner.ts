@@ -11,13 +11,16 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { Artifact, Confidence, ProducedBy } from "./artifact.ts";
+import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
+import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import {
   ProviderError,
   ProviderRefusal,
   ProviderRouter,
   wrapWithConfidence,
+  type ImageProvider,
+  type SpeechProvider,
   type Usage,
 } from "./provider.ts";
 import { SchemaRegistry, SchemaValidationError } from "./registry.ts";
@@ -51,9 +54,30 @@ export interface AgentDef {
   version?: string;
 }
 
-/** Workers get I/O and no model. Deliberately not extended with one. */
+/**
+ * What a worker is allowed to touch: bytes, media services, a logger.
+ *
+ * Deliberately NOT extended with a ModelProvider. The runner constructs this,
+ * so adding one requires editing the runner — a visible, reviewable act rather
+ * than an accident inside a handler (RFC 0001 rule 1).
+ *
+ * Honest limitation: this proves nothing about dependencies a worker closes
+ * over at construction time. The injected surface is enforced; construction is
+ * still convention plus review.
+ */
 export interface WorkerContext {
   logger: Pick<Console, "log" | "warn" | "error">;
+  blobs: BlobStore;
+  media: {
+    speech?: SpeechProvider;
+    images?: ImageProvider;
+  };
+}
+
+/** Workers declare the blobs they created so the envelope can own them. */
+export interface WorkerOutput {
+  payload: unknown;
+  blobs?: BlobRef[];
 }
 
 export interface WorkerDef {
@@ -63,7 +87,7 @@ export interface WorkerDef {
   produces: string;
   produces_version?: string;
   version?: string;
-  execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<unknown>;
+  execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput>;
 }
 
 export type TransformationDef = AgentDef | WorkerDef;
@@ -93,6 +117,9 @@ export interface RunnerDeps {
   providers: ProviderRouter;
   runLog: RunLog;
   logger?: Pick<Console, "log" | "warn" | "error">;
+  /** Required only if any worker produces bytes. */
+  blobs?: BlobStore;
+  media?: { speech?: SpeechProvider; images?: ImageProvider };
 }
 
 export class Runner {
@@ -321,11 +348,23 @@ export class Runner {
     const inputs = await this.bindInputs(def, inputIds);
 
     // Note what is absent: no ModelProvider. A worker cannot think (RFC 0001).
-    const ctx: WorkerContext = { logger: this.deps.logger ?? console };
+    if (!this.deps.blobs) {
+      throw new RunnerError(
+        `worker "${def.name}" needs a blob store; construct the Runner with { blobs }`,
+      );
+    }
+    const ctx: WorkerContext = {
+      logger: this.deps.logger ?? console,
+      blobs: this.deps.blobs,
+      media: this.deps.media ?? {},
+    };
 
     let payload: unknown;
+    let blobs: BlobRef[] | undefined;
     try {
-      payload = await def.execute(inputs, ctx);
+      const out = await def.execute(inputs, ctx);
+      payload = out.payload;
+      blobs = out.blobs;
     } catch (err) {
       await this.writeRecord({
         run_id: runId,
@@ -356,6 +395,7 @@ export class Runner {
         provider: null,
       },
       parents: inputIds,
+      ...(blobs && blobs.length > 0 ? { blobs } : {}),
       ...(opts.labels ? { labels: opts.labels } : {}),
     });
 
