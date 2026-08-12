@@ -20,16 +20,22 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/providers/fake.ts` | 0004 | Deterministic provider for tests — zero network, zero cost |
 | `src/runner.ts` | 0003 | One harness for every transformation; validate-and-retry |
 | `src/catalog.ts` | 0003 | Loads agents from disk; cross-checks them at boot |
+| `src/graph.ts` | 0005 | Graph document + static validation (arity, schema wiring, cycles) |
+| `src/predicate.ts` | 0005 | Declared predicates for auto-pass gates — not an expression language |
+| `src/executor.ts` | 0005 | Walks the DAG: readiness, bounded concurrency, gates, blocking |
 | `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer` — data, not code |
+| `graphs/` | 0005 | `skeleton@1` — intent → story → human gate → script |
 | `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan` at `1.0.0` |
 
 ```bash
 npm install
-npm test          # 45 tests, no network
+npm test          # 65 tests, no network
 npm run typecheck
 
-# live end-to-end (intent -> story -> script) against a real model:
+# live run of the skeleton graph against a real model:
 ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- "why Chile is so incredibly long"
+# it parks at the approval gate below 0.9 confidence:
+ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
 ```
 
 ## Invariants under test
@@ -46,6 +52,10 @@ ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- "why Chile is so incredibly long"
 - A refusal is not retried.
 - Workers receive a context with no model in it.
 - Inputs are validated on read *before* a token is spent.
+- A mis-wired graph fails static validation *before* a token is spent.
+- A parked run resumes without re-running completed nodes.
+- A failed node blocks only its own subtree; independent branches finish.
+- Predicates cannot express arbitrary code.
 
 ## What implementation revealed about the RFCs
 
@@ -86,8 +96,18 @@ call — so the provider is asked for `{payload, confidence}` and the runner
 unwraps. Prompts tell the agent that a low score on thin input is more useful
 than false certainty.
 
+## Not built yet, deliberately
+
+- **`fanout` / `select` nodes.** RFC 0005 specifies them for variant generation;
+  the validator rejects them with a pointed error rather than silently skipping.
+- **Durable run state.** Completion is derived from the run log, so a crash
+  mid-node loses only that node. There is no lease or heartbeat, so two
+  executors driving the same run would duplicate work — single-process only.
+- **Postgres.** See the store note above.
+
 ## Next
 
-The execution graph (RFC 0005) — topology as versioned data, with the brain
-walking the DAG. Then the visual-plan agent and the `long-compose` render
-worker, which completes the walking skeleton.
+The visual-plan agent and a `long-compose` render worker, which completes the
+walking skeleton: intent → story → gate → script → visual plan → render →
+publish. The render worker is the first one with real side effects, so it is
+also the first genuine test of the worker half of RFC 0003.

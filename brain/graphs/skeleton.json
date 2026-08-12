@@ -1,0 +1,30 @@
+{
+  "graph_id": "skeleton",
+  "version": "1",
+  "description": "Walking skeleton: intent -> story -> human gate -> script. Render and publish are added once the long-compose worker exists.",
+  "nodes": [
+    {
+      "id": "intent",
+      "type": "input",
+      "schema_id": "intent"
+    },
+    {
+      "id": "story",
+      "transformation": "story_architect",
+      "in": ["intent"]
+    },
+    {
+      "id": "approve_story",
+      "type": "human_gate",
+      "in": ["story"],
+      "policy": {
+        "auto_pass_if": "confidence.overall >= 0.9"
+      }
+    },
+    {
+      "id": "script",
+      "transformation": "script_writer",
+      "in": ["approve_story"]
+    }
+  ]
+}
