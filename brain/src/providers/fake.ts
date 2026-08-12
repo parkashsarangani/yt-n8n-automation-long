@@ -14,8 +14,10 @@ import {
   type CompletionRequest,
   type CompletionResult,
   type ImageProvider,
+  type MediaRenderer,
   type ModelProvider,
   type ProviderCapabilities,
+  type RenderRequest,
   type SpeechProvider,
 } from "../provider.ts";
 
@@ -128,6 +130,46 @@ export class FakeImageProvider implements ImageProvider {
         input_tokens: 0,
         output_tokens: 0,
         units: n,
+        cost_usd: 0,
+        provider: "fake",
+        model: this.id,
+      },
+    };
+  }
+}
+
+export class FakeRenderer implements MediaRenderer {
+  readonly id = "fake/renderer";
+  readonly requests: RenderRequest[] = [];
+  readonly jobIds: string[] = [];
+  constructor(private readonly failWith?: string) {}
+
+  async render(
+    req: RenderRequest,
+    opts: { onJob?: (jobId: string) => void | Promise<void> } = {},
+  ) {
+    this.requests.push(req);
+    const jobId = `fakejob_${this.requests.length}`;
+    this.jobIds.push(jobId);
+    // Surface the job id before doing the work, exactly as a real async job
+    // service would, so the caller can record it.
+    if (opts.onJob) await opts.onJob(jobId);
+    if (this.failWith) throw new ProviderError(this.failWith);
+
+    const seed = req.scenes.map((s) => s.scene_index).join(",");
+    return {
+      video: fakeBytes(`video:${seed}`, 256),
+      media_type: "video/mp4",
+      thumbnail: req.thumbnail
+        ? { bytes: fakeBytes(`thumb:${seed}`, 96), media_type: "image/png" }
+        : undefined,
+      duration_sec: req.scenes.length * 12,
+      render_time_sec: 42,
+      degraded_scenes: req.scenes.filter((s) => !s.image).length,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 42,
         cost_usd: 0,
         provider: "fake",
         model: this.id,

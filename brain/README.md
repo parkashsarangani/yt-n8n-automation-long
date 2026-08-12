@@ -27,13 +27,17 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/concurrency.ts` | — | Bounded fan-out; nothing runs unbounded |
 | `src/workers/voice.ts` | 0003 | script → voice. TTS per scene with prev/next continuity |
 | `src/workers/assets.ts` | 0003 | visual_plan → asset_manifest. Three-rung failure ladder |
+| `src/workers/render.ts` | 0003 | script+voice+assets → rendered_video. Joins by scene_index |
+| `src/providers/elevenlabs.ts` | 0004 | Real TTS adapter (**never run live**) |
+| `src/providers/fal.ts` | 0004 | Real image adapter (**never run live**) |
+| `src/providers/compose.ts` | 0004 | long-compose renderer: submit + poll (**never run live**) |
 | `agents/`, `prompts/` | 0003 | `story_architect`, `script_writer`, `visual_planner` — data, not code |
-| `graphs/` | 0005 | `skeleton@2` — intent → story → gate → script → (visual plan → images \| voice) |
-| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest` at `1.0.0` |
+| `graphs/` | 0005 | `skeleton@3` — … → (visual plan → images \| voice) → render |
+| `schemas/` | 0007 | `intent`, `story`, `script`, `visual_plan`, `voice`, `asset_manifest`, `rendered_video` at `1.0.0` |
 
 ```bash
 npm install
-npm test          # 77 tests, no network
+npm test          # 84 tests, no network
 npm run typecheck
 
 # live run of the skeleton graph against a real model:
@@ -64,6 +68,11 @@ ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
 - A scene whose image generation fails twice degrades to a placeholder rather
   than failing the video, and is counted.
 - Voice clips carry neighbouring narration so prosody does not reset per scene.
+- Render joins three artifacts by `scene_index`, not by array position.
+- A long render's external job id reaches the run log *before* the job finishes,
+  so a crash leaves a trace instead of silently redoing the work.
+- The renderer polls to completion, reports the service's own error verbatim on
+  failure, and gives up rather than polling forever.
 
 ## What implementation revealed about the RFCs
 
@@ -90,6 +99,15 @@ validator on write — with stripped constraints appended to each field's
 `description` so the model still sees them as instruction. The practical effect
 is that some constraints are enforced by validate-and-retry rather than by the
 output grammar, which makes the retry loop load-bearing rather than defensive.
+
+**4. RFC 0004: the async job question, answered.** The RFC left open whether
+`MediaRenderer` should expose submit-and-poll or hide it behind a promise. Both,
+in different senses: polling is an implementation detail (the promise resolves
+when the video is ready), but the **job identity** is surfaced via `onJob` and
+written to the run log immediately. Hiding the job entirely makes a crashed
+twenty-minute render both unrecoverable and untraceable; putting polling in the
+interface leaks one service's shape into every caller. Attaching to an existing
+job on resume is *not* implemented — the id is recorded so it becomes possible.
 
 ## Other deliberate choices
 
@@ -127,7 +145,7 @@ injected surface is enforced; construction is convention plus review.
 
 ## Next
 
-Real provider adapters (ElevenLabs, Fal) plus the render and publish workers.
-`long-compose` already renders video; wrapping it is the first worker with a
-long-running external job, which is where RFC 0004's open question about async
-job shape gets answered. After that the skeleton produces an actual video.
+The publish target (RFC 0004's fifth interface) and its worker, which closes the
+skeleton. Then the three real adapters need their first live call — they are
+written from known-good request shapes but have never touched a real API, so
+treat the first run as the actual test.

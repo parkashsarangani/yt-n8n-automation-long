@@ -11,7 +11,13 @@ import { FsArtifactStore } from "../src/store.ts";
 import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
-import { FakeProvider, FakeSpeechProvider, FakeImageProvider, type FakeHandler } from "../src/providers/fake.ts";
+import {
+  FakeProvider,
+  FakeSpeechProvider,
+  FakeImageProvider,
+  FakeRenderer,
+  type FakeHandler,
+} from "../src/providers/fake.ts";
 import { Runner, type TransformationDef, type WorkerDef } from "../src/runner.ts";
 import { loadAgentDefs } from "../src/catalog.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
@@ -59,6 +65,7 @@ async function harness(handler: FakeHandler) {
   const provider = new FakeProvider(handler);
   const speech = new FakeSpeechProvider();
   const images = new FakeImageProvider();
+  const renderer = new FakeRenderer();
   const runner = new Runner({
     store,
     registry,
@@ -67,7 +74,7 @@ async function harness(handler: FakeHandler) {
     runLog,
     logger: silent(),
     blobs: new MemoryBlobStore(),
-    media: { speech, images },
+    media: { speech, images, renderer },
   });
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
   const transformations = allTransformations(
@@ -91,7 +98,7 @@ async function harness(handler: FakeHandler) {
     produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
   });
 
-  return { registry, store, runLog, provider, speech, images, runner, executor, graph, transformations, seed };
+  return { registry, store, runLog, provider, speech, images, renderer, runner, executor, graph, transformations, seed };
 }
 
 /** Routes on each prompt's opening line, so all three agents get valid output. */
@@ -103,9 +110,11 @@ const storyThen = (conf: number): FakeHandler => (req) => {
   return { payload: SCRIPT, confidence: { overall: 0.8 } };
 };
 
-const ALL_NODES = ["approve_story", "assets", "intent", "script", "story", "visual_plan", "voice"];
+const ALL_NODES = [
+  "approve_story", "assets", "intent", "render", "script", "story", "visual_plan", "voice",
+];
 /** Everything downstream of the approval gate. */
-const AFTER_GATE = ["assets", "script", "visual_plan", "voice"];
+const AFTER_GATE = ["assets", "render", "script", "visual_plan", "voice"];
 /** story, script, visual_plan are agents; voice and assets are workers (no model call). */
 const MODEL_CALLS_PER_RUN = 3;
 

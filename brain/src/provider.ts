@@ -75,6 +75,52 @@ export interface ImageProvider {
   }>;
 }
 
+/** One scene as the renderer needs it: audio, optional image, timing data. */
+export interface RenderScene {
+  scene_index: number;
+  audio: Uint8Array;
+  audio_media_type: string;
+  /** Absent for a degraded scene; the renderer substitutes a house placeholder. */
+  image?: Uint8Array;
+  image_media_type?: string;
+  /** Word/character timings, for burned-in captions. */
+  alignment?: unknown;
+  is_outro?: boolean;
+}
+
+export interface RenderRequest {
+  scenes: RenderScene[];
+  caption_style?: string;
+  comment_hook?: string;
+  thumbnail?: { image?: Uint8Array; text?: string; accent?: string };
+}
+
+export interface RenderResult {
+  video: Uint8Array;
+  media_type: string;
+  thumbnail?: { bytes: Uint8Array; media_type: string };
+  duration_sec?: number;
+  render_time_sec?: number;
+  degraded_scenes?: number;
+  usage: Usage;
+}
+
+/**
+ * Video assembly (RFC 0004).
+ *
+ * Polling is an implementation detail — the promise resolves when the render is
+ * done. But the JOB IDENTITY is exposed via `onJob`, because a 20-minute render
+ * that dies with the process is unrecoverable if nobody wrote the job id down.
+ * See the RFC 0004 note in brain/README.md.
+ */
+export interface MediaRenderer {
+  readonly id: string;
+  render(
+    req: RenderRequest,
+    opts?: { onJob?: (jobId: string) => void | Promise<void>; signal?: AbortSignal },
+  ): Promise<RenderResult>;
+}
+
 export class ProviderError extends Error {
   override name = "ProviderError";
 }

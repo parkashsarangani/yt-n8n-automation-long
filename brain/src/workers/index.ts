@@ -9,19 +9,22 @@
 import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
+import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
 
-export { makeVoiceWorker, makeAssetWorker };
+export { makeVoiceWorker, makeAssetWorker, makeRenderWorker };
 export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
   assets?: AssetWorkerOptions;
+  render?: RenderWorkerOptions;
 }
 
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
   const workers: TransformationDef[] = [
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
+    makeRenderWorker(opts.render ?? {}),
   ];
   return new Map(workers.map((w) => [w.name, w]));
 }

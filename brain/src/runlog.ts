@@ -15,6 +15,9 @@ import type { Usage } from "./provider.ts";
 export type RunStatus =
   | "ok"
   | "cache_hit"
+  /** A long-running job is in flight; carries the external job id so a crashed
+   *  run can be traced (and, later, re-attached) rather than silently redone. */
+  | "running"
   | "schema_invalid"
   | "provider_error"
   | "provider_refusal"
@@ -41,6 +44,14 @@ export interface RunRecord {
   started_at: string;
   duration_ms: number;
   error?: string | null;
+  /**
+   * External job identifier for a long-running transformation (a render, say).
+   * Recorded while the job is in flight so a crashed run leaves a trace of what
+   * it had started, instead of silently re-doing twenty minutes of work.
+   */
+  external_job_id?: string | null;
+  /** Human-readable progress note, only on `running` records. */
+  detail?: string | null;
 }
 
 export interface RunLog {

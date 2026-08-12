@@ -20,6 +20,7 @@ import {
   ProviderRouter,
   wrapWithConfidence,
   type ImageProvider,
+  type MediaRenderer,
   type SpeechProvider,
   type Usage,
 } from "./provider.ts";
@@ -71,7 +72,14 @@ export interface WorkerContext {
   media: {
     speech?: SpeechProvider;
     images?: ImageProvider;
+    renderer?: MediaRenderer;
   };
+  /**
+   * Emit an interim run-log record for a long-running job (RFC 0006: everything
+   * observable). Without this, a 20-minute render is a black box and a crash
+   * leaves no trace of the external job it had started.
+   */
+  progress(note: { detail: string; job_id?: string }): Promise<void>;
 }
 
 /** Workers declare the blobs they created so the envelope can own them. */
@@ -119,7 +127,7 @@ export interface RunnerDeps {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Required only if any worker produces bytes. */
   blobs?: BlobStore;
-  media?: { speech?: SpeechProvider; images?: ImageProvider };
+  media?: { speech?: SpeechProvider; images?: ImageProvider; renderer?: MediaRenderer };
 }
 
 export class Runner {
@@ -357,6 +365,25 @@ export class Runner {
       logger: this.deps.logger ?? console,
       blobs: this.deps.blobs,
       media: this.deps.media ?? {},
+      progress: async (note) => {
+        await this.deps.runLog.record({
+          run_id: runId,
+          graph_id: opts.graphId ?? null,
+          node_id: opts.nodeId ?? null,
+          transformation: def.name,
+          transformation_version: transformationVersion,
+          inputs: inputIds,
+          output: null,
+          status: "running",
+          attempt: 1,
+          max_attempts: 1,
+          started_at: new Date().toISOString(),
+          duration_ms: Date.now() - startedMs,
+          error: null,
+          ...(note.job_id ? { external_job_id: note.job_id } : {}),
+          detail: note.detail,
+        });
+      },
     };
 
     let payload: unknown;

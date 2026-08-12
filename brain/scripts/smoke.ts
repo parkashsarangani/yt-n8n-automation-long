@@ -23,7 +23,7 @@ import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
 import { FsBlobStore } from "../src/blobs.ts";
-import { FakeSpeechProvider, FakeImageProvider } from "../src/providers/fake.ts";
+import { FakeSpeechProvider, FakeImageProvider, FakeRenderer } from "../src/providers/fake.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 
@@ -77,7 +77,11 @@ async function main() {
     runLog,
     logger: console,
     blobs,
-    media: { speech: new FakeSpeechProvider(), images: new FakeImageProvider() },
+    media: {
+      speech: new FakeSpeechProvider(),
+      images: new FakeImageProvider(),
+      renderer: new FakeRenderer(),
+    },
   });
   const executor = new GraphExecutor({
     runner,
