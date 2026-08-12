@@ -5,12 +5,40 @@ on:
     branches: [main]
 
 jobs:
-  docker-build:
-    name: Docker Build (validate)
+  validate:
+    name: Build and test
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build long-compose image (no push)
+      - name: Compose file is valid and starts the right services
         run: |
-          docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+          set -e
+          # Catches a bad edit before it reaches the deploy, and pins the
+          # invariant that legacy n8n stays behind its profile.
+          services=$(docker compose config --services | sort | tr '\n' ' ')
+          echo "default services: $services"
+          [ "$services" = "brain long-compose " ] || {
+            echo "ERROR: expected exactly 'brain long-compose' by default"
+            exit 1
+          }
+
+      - name: Build brain image
+        run: docker build -t brain:pr-${{ github.event.pull_request.number }} ./brain
+
+      # Run against the image rather than the runner's Node, so the tests
+      # execute on exactly the runtime production uses.
+      - name: Typecheck
+        run: docker run --rm brain:pr-${{ github.event.pull_request.number }} npm run typecheck
+
+      - name: Test
+        run: docker run --rm brain:pr-${{ github.event.pull_request.number }} npm test
+
+      - name: Build long-compose image (no push)
+        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rmi -f brain:pr-${{ github.event.pull_request.number }} \
+                        long-compose:pr-${{ github.event.pull_request.number }} 2>/dev/null || true

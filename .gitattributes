@@ -1,0 +1,8 @@
+# These are checked out onto a Linux server and executed there. CRLF would make
+# the kernel report "bad interpreter: /usr/bin/env bash^M", so pin them to LF
+# regardless of the committer's core.autocrlf setting.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.env.example    text eol=lf

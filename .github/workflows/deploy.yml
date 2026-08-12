@@ -1,5 +1,15 @@
 name: Deploy to Production
 
+# Deploys AMOS to the self-hosted HP Linux server (the same box the Shorts
+# stack runs on). Ports are offset from that stack on purpose:
+#
+#   AMOS brain        127.0.0.1:4321
+#   AMOS long-compose 127.0.0.1:4001    (Shorts uses 4000)
+#   legacy n8n        127.0.0.1:5679    (Shorts uses 5678) — not started here
+#
+# The UI is loopback-bound and unauthenticated. Reach it from a laptop with an
+# SSH tunnel, never by publishing the port. See README "Running on the server".
+
 on:
   push:
     branches: [main]
@@ -18,74 +28,65 @@ jobs:
         with:
           clean: true
 
+      # One-time move from the pre-AMOS compose project name. Idempotent: a
+      # no-op on every deploy after the first.
+      - name: Migrate compose project name (yt-longform -> amos)
+        run: bash scripts/migrate-from-yt-longform.sh
+
       - name: Build and deploy
         env:
-          # fal.ai key for hybrid image->video (hook/payoff animation). Add it
-          # as a repo/environment secret named FAL_KEY. If the secret is unset,
-          # this is empty and long-compose skips animation (falls back to stills).
+          # All optional. Unset secrets arrive as empty strings, which the brain
+          # treats as "not configured" — so a missing secret never clobbers a
+          # credential already saved through the UI (those live in amos_data).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
+          YOUTUBE_ACCESS_TOKEN: ${{ secrets.YOUTUBE_ACCESS_TOKEN }}
+          # Deliberately NOT wired to a secret. Publishing for real is a manual
+          # decision made on the box, not something a push to main can turn on.
+          AMOS_ALLOW_PUBLISH: ""
         run: |
           set -e
 
-          echo "=== Stopping existing long-compose (if running) ==="
-          docker compose down long-compose || true
-          # Also kill any orphan container holding port 4000
-          docker ps -q --filter "publish=4001" | xargs -r docker stop || true
+          echo "=== Building ==="
+          # Layer cache kept: npm ci only reruns when package*.json changes.
+          docker compose build brain long-compose
 
-          # No pre-create step: all app-writable paths (outputs, topic history)
-          # are named volumes now, so nothing needs a host dir under the git
-          # checkout - and clean:true can no longer break a bind mount.
-
-          echo "=== Building long-compose ==="
-          docker compose build --no-cache long-compose
-
-          echo "=== Deploying ==="
-          docker compose up -d long-compose
+          echo "=== Starting ==="
+          # up -d recreates changed services and leaves the rest alone. The
+          # legacy n8n profile is not included, so it stays down.
+          docker compose up -d --remove-orphans brain long-compose
 
       - name: Health check
         run: |
           set -e
-          sleep 5
-          RETRY=0
-          MAX_RETRY=12
-          until curl -sf http://localhost:4001/topic-history > /dev/null 2>&1; do
-            RETRY=$((RETRY + 1))
-            if [ $RETRY -ge $MAX_RETRY ]; then
-              echo "ERROR: long-compose failed to start after 60s"
-              docker compose logs --tail=50 long-compose
-              exit 1
-            fi
-            echo "Waiting for long-compose to be ready... ($RETRY/$MAX_RETRY)"
-            sleep 5
-          done
-          echo "Health check passed"
+          check() {
+            local name=$1 url=$2 hdr=${3:-}
+            local retry=0 max=24
+            until curl -sf ${hdr:+-H "$hdr"} "$url" > /dev/null 2>&1; do
+              retry=$((retry + 1))
+              if [ $retry -ge $max ]; then
+                echo "ERROR: $name did not come up after 120s"
+                docker compose logs --tail=60 "$name"
+                exit 1
+              fi
+              echo "waiting for $name ... ($retry/$max)"
+              sleep 5
+            done
+            echo "$name OK"
+          }
 
-      - name: Deploy n8n workflow
+          check long-compose http://127.0.0.1:4001/topic-history
+          # The Host header matters: the UI refuses any request that did not
+          # arrive at localhost, and curl would otherwise send "127.0.0.1".
+          check brain http://127.0.0.1:4321/api/config "Host: localhost"
+
+      - name: Report
         run: |
-          echo "=== Deploying n8n workflow ==="
-          # n8n PUT requires: name, nodes, connections, settings
-          # settings only accepts: executionOrder, timezone, saveManualExecutions,
-          # callerPolicy, errorWorkflow — strip all others to avoid validation errors
-          jq '{
-            name,
-            nodes,
-            connections,
-            settings: {executionOrder: (.settings.executionOrder // "v1")}
-          }' n8n/long-workflow.json > /tmp/workflow_deploy.json
-
-          HTTP_STATUS=$(curl -s -o /tmp/n8n_response.json -w "%{http_code}" \
-            -X PUT "http://localhost:5679/api/v1/workflows/${{ vars.N8N_WORKFLOW_ID }}" \
-            -H "X-N8N-API-KEY: ${{ secrets.N8N_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d @/tmp/workflow_deploy.json)
-
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "n8n workflow deployed successfully (HTTP $HTTP_STATUS)"
-          else
-            echo "ERROR: n8n workflow deploy failed (HTTP $HTTP_STATUS)"
-            cat /tmp/n8n_response.json
-            exit 1
-          fi
+          echo "=== Active graph and provider wiring ==="
+          curl -s -H "Host: localhost" http://127.0.0.1:4321/api/config \
+            | jq '{graph, providers: [.providers[] | {role, provider, real}]}' || true
 
       - name: Cleanup
         run: |
