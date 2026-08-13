@@ -29,12 +29,18 @@ interface PlanScene {
   visual_style: string;
   fallback_terms: string[];
   template_category?: string;
-  template_data?: Record<string, unknown>;
+  /** JSON-encoded string from the model, parsed into an object at read time. */
+  template_data?: string;
 }
 
 const DEFAULT_PREFIX =
   "Cinematic still frame, photorealistic, dramatic lighting, shallow depth of field.";
 const NEGATIVE = "No text, no words, no letters, no captions, no watermark, no logos, no UI elements.";
+
+/** Safely parse a JSON string into an object; returns {} on failure. */
+function safeParseJson(str: string): Record<string, unknown> {
+  try { return JSON.parse(str); } catch { return {}; }
+}
 
 export function buildPrompt(terms: string[], style: string, prefix = DEFAULT_PREFIX): string {
   return `${prefix} ${terms.join(", ")}. ${style}. ${NEGATIVE}`;
@@ -85,7 +91,7 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
                 source: attempt.source,
                 prompt,
                 ...(scene.template_category ? { template_category: scene.template_category } : {}),
-                ...(scene.template_data ? { template_data: scene.template_data } : {}),
+                ...(scene.template_data ? { template_data: safeParseJson(scene.template_data) } : {}),
               },
               blob: ref,
             };
@@ -106,7 +112,7 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
             source: "placeholder" as const,
             prompt: buildPrompt(scene.search_terms, scene.visual_style, prefix),
             ...(scene.template_category ? { template_category: scene.template_category } : {}),
-            ...(scene.template_data ? { template_data: scene.template_data } : {}),
+            ...(scene.template_data ? { template_data: safeParseJson(scene.template_data) } : {}),
           },
           blob: null,
         };
