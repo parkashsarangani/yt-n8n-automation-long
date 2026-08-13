@@ -190,6 +190,7 @@ export class AmosService {
       runLog: this.runLog,
       blobs: this.blobs,
       media: { speech, images, renderer },
+      logger: console,
     });
 
     this.executor = new GraphExecutor({
@@ -205,8 +206,26 @@ export class AmosService {
   private onExecutorEvent(e: ExecutorEvent): void {
     const state = this.runs.get(e.run_id);
     if (!state) return;
-    if (e.type === "node_start") state.active.add(e.node_id);
-    if (e.type === "node_done" || e.type === "node_failed") state.active.delete(e.node_id);
+    const tag = `[run ${e.run_id.slice(4, 12)}]`;
+    if (e.type === "node_start") {
+      state.active.add(e.node_id);
+      console.log(`${tag} ▶ ${e.node_id} (${e.transformation})`);
+    }
+    if (e.type === "node_done" || e.type === "node_failed") {
+      state.active.delete(e.node_id);
+    }
+    if (e.type === "node_done") {
+      console.log(`${tag} ✓ ${e.node_id}${e.cached ? " (cached)" : ""}`);
+    }
+    if (e.type === "node_failed") {
+      console.error(`${tag} ✗ ${e.node_id} — ${e.error}`);
+    }
+    if (e.type === "gate_waiting") {
+      console.log(`${tag} ⏸ ${e.node_id} — ${e.reason}`);
+    }
+    if (e.type === "run_end") {
+      console.log(`${tag} ■ ${e.status}`);
+    }
   }
 
   // -- providers / credentials -------------------------------------------
@@ -246,6 +265,7 @@ export class AmosService {
     }
 
     const runId = `run_${randomUUID()}`;
+    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)`);
     const intent = await this.store.put({
       schema_id: "intent",
       payload: { brief: trimmed, target_duration_sec: durationSec },
@@ -284,6 +304,7 @@ export class AmosService {
       state.last = await fn();
     } catch (err) {
       state.error = err instanceof Error ? err.message : String(err);
+      console.error(`[run ${runId.slice(4, 12)}] drive error: ${state.error}`);
     } finally {
       state.active.clear();
       state.finished = true;
