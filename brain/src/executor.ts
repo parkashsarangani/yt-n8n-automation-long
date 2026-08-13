@@ -87,7 +87,7 @@ export interface ExecutorDeps {
 }
 
 export class GraphExecutor {
-  constructor(private readonly deps: ExecutorDeps) {}
+  constructor(private readonly deps: ExecutorDeps) { }
 
   private emit(event: ExecutorEvent): void {
     try {
@@ -143,9 +143,10 @@ export class GraphExecutor {
     const failures: NodeFailure[] = [];
     const waiting: GateWait[] = [];
     const stalled = new Set<string>(); // failed or waiting this pass
+    const gateRetries = new Map<string, number>(); // rejection count per gate
     this.emit({ type: "run_start", run_id: runId, graph: ref });
 
-    for (;;) {
+    for (; ;) {
       const ready = graph.nodes.filter(
         (n) =>
           !completed.has(n.id) &&
@@ -162,16 +163,37 @@ export class GraphExecutor {
         const gate = node as HumanGateNode;
         const upstreamId = completed.get(inputsOf(gate)[0]!)!;
         const outcome = await this.settleGate(gate, upstreamId, decisions[gate.id]);
+        // Consume the decision so it doesn't re-apply on retry loops.
+        delete decisions[gate.id];
 
         if (outcome.kind === "approved") {
           completed.set(gate.id, upstreamId); // identity pass-through
           this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: true });
           await this.recordNode(runId, graph, gate.id, "human_gate", upstreamId, "ok");
         } else if (outcome.kind === "rejected") {
-          stalled.add(gate.id);
-          this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: false });
-          failures.push({ node_id: gate.id, transformation: "human_gate", error: outcome.reason });
-          await this.recordNode(runId, graph, gate.id, "human_gate", null, "failed", outcome.reason);
+          // Retry: remove the upstream transformation from completed so it reruns.
+          // The gate stays unresolved, and on the next loop iteration the upstream
+          // node becomes ready again, producing a fresh artifact for re-evaluation.
+          const upstreamNodeId = inputsOf(gate)[0]!;
+
+          // Guard against infinite retries (max 3 rejections per gate per run).
+          const retryKey = `${gate.id}_retries`;
+          const retries = (gateRetries.get(retryKey) ?? 0) + 1;
+          gateRetries.set(retryKey, retries);
+
+          if (retries > 3) {
+            stalled.add(gate.id);
+            failures.push({ node_id: gate.id, transformation: "human_gate", error: `rejected ${retries} times — giving up` });
+            this.emit({ type: "node_failed", run_id: runId, node_id: gate.id, error: `max retries exceeded` });
+          } else {
+            completed.delete(upstreamNodeId);
+            completed.delete(gate.id);
+            this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: false });
+            await this.recordNode(runId, graph, gate.id, "human_gate", null, "retry", outcome.reason);
+            this.deps.logger?.log(
+              `[graph ${ref}] gate "${gate.id}" rejected (${retries}/3) — retrying "${upstreamNodeId}"`,
+            );
+          }
         } else {
           stalled.add(gate.id);
           waiting.push({ node_id: gate.id, artifact_id: upstreamId, reason: outcome.reason });
@@ -340,13 +362,24 @@ export class GraphExecutor {
     return null;
   }
 
-  /** Nodes already completed for this run, from the run log. */
+  /** Nodes already completed for this run, from the run log (last success wins). */
   private async deriveCompleted(runId: string, ref: string): Promise<Map<string, string>> {
     const out = new Map<string, string>();
-    for (const r of await this.deps.runLog.all()) {
-      if (r.run_id !== runId || r.graph_id !== ref || !r.node_id || !r.output) continue;
+    const retried = new Set<string>();
+    const records = await this.deps.runLog.all();
+    // Scan in order: a "retry" record invalidates the prior success for that node.
+    for (const r of records) {
+      if (r.run_id !== runId || r.graph_id !== ref || !r.node_id) continue;
+      if (r.status === "retry") {
+        // The upstream was rejected — any prior completion for the upstream is invalid.
+        retried.add(r.node_id);
+        out.delete(r.node_id);
+        continue;
+      }
+      if (!r.output) continue;
       if (r.status !== "ok" && r.status !== "cache_hit") continue;
       out.set(r.node_id, r.output);
+      retried.delete(r.node_id); // a new success after a retry is valid
     }
     return out;
   }

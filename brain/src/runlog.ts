@@ -18,6 +18,7 @@ export type RunStatus =
   /** A long-running job is in flight; carries the external job id so a crashed
    *  run can be traced (and, later, re-attached) rather than silently redone. */
   | "running"
+  | "retry"
   | "schema_invalid"
   | "provider_error"
   | "provider_refusal"
@@ -72,7 +73,7 @@ export class MemoryRunLog implements RunLog {
 
 /** Append-only JSONL. Postgres replaces this behind the same interface. */
 export class JsonlRunLog implements RunLog {
-  constructor(private readonly file: string) {}
+  constructor(private readonly file: string) { }
 
   async record(r: RunRecord): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true });
