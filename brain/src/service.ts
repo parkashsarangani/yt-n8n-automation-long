@@ -315,6 +315,17 @@ export class AmosService {
     void this.drive(runId, () => this.executor.resume(this.graph, runId, { [nodeId]: decision }));
   }
 
+  /** Retry a failed run from where it stopped — completed nodes are preserved. */
+  async retry(runId: string): Promise<void> {
+    const state = this.runs.get(runId);
+    if (!state) throw new Error(`unknown run ${runId}`);
+    if (!state.finished) throw new Error(`run ${runId} is still executing`);
+    state.finished = false;
+    state.error = null;
+    console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
+    void this.drive(runId, () => this.executor.resume(this.graph, runId, {}));
+  }
+
   private async drive(runId: string, fn: () => Promise<GraphRunResult>): Promise<void> {
     const state = this.runs.get(runId)!;
     try {
