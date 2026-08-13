@@ -524,35 +524,83 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
 // ---------------------------------------------------------------------------
 
 async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood) {
-  // Map template names to Remotion composition IDs
-  const compositionMap = {
+  // --- Direct name → composition ID map (existing templates) ---
+  const directMap = {
     stat_reveal: "StatReveal",
     comparison: "Comparison",
     kinetic_text: "KineticText",
   };
 
-  const compositionId = compositionMap[templateName];
-  if (!compositionId) {
-    throw new Error(`Unknown template_name "${templateName}"`);
+  // --- Category pools: the AI specifies a category, we pick randomly ---
+  const categoryPools = {
+    list: [
+      "ListAsymmetric3", "ListNumberedVertical", "ListStaggered",
+      "ListFullscreenSequence", "ListMinimalLeft", "ListStatsFocused",
+      "ListTimeline", "ListUnevenGrid", "ListTwoColumnCompare",
+      "ListSimpleText", "ListHorizontalPeek", "ListHeroWithList",
+    ],
+    data: [
+      "DataBarChart", "DataLineChart", "DataPieChart", "DataStatsCards",
+      "DataProgressBars", "DataTimeline", "DataRanking", "DataGauge",
+    ],
+    text: [
+      "TextKinetic", "TextScramble", "TextWave", "TextSplit",
+      "TextMaskReveal", "TextGlitch", "TextNeon", "Text3DFlip",
+      "TextTypewriter", "TextCounter", "TextGradient", "TextExplode",
+    ],
+    roller: [
+      "RollerSlotMachine", "RollerFlip", "RollerFadeSlide", "RollerBlur",
+      "RollerScaleBounce", "RollerGlitch", "RollerWave", "RollerTypewriter",
+      "RollerLiquid", "RollerVerticalList", "RollerDrum", "RollerMaskSlide",
+      "RollerSlotReveal", "RollerDramaticStop", "RollerMultiSlot",
+      "RollerCountdown", "RollerOutlineHighlight", "RollerPerspectiveStripes",
+      "RollerShuffle", "Roller3DCarousel", "RollerSplitFlap", "RollerGradientWave",
+    ],
+    cinematic: [
+      "CinematicEpic", "CinematicHorror", "CinematicRomance", "CinematicAction",
+      "CinematicDocumentary", "CinematicSciFi", "CinematicNoir", "CinematicAnime",
+      "CinematicVintage", "CinematicMinimalEnd",
+    ],
+    // Sub-category shortcuts for AI convenience
+    timeline: ["ListTimeline", "DataTimeline"],
+    ranking: ["DataRanking", "ListStatsFocused"],
+    chart: ["DataBarChart", "DataLineChart", "DataPieChart", "DataGauge"],
+    counter: ["TextCounter", "RollerCountdown", "RollerSplitFlap", "RollerDramaticStop"],
+    reveal: ["TextMaskReveal", "TextKinetic", "TextGradient", "ListStaggered"],
+  };
+
+  // Resolve composition ID: direct map first, then category pool, then treat as literal ID
+  let compositionId;
+  if (directMap[templateName]) {
+    compositionId = directMap[templateName];
+  } else if (categoryPools[templateName]) {
+    const pool = categoryPools[templateName];
+    compositionId = pool[Math.floor(Math.random() * pool.length)];
+    console.log(`[template] category "${templateName}" → picked "${compositionId}"`);
+  } else {
+    // Assume it's a direct composition ID (e.g. "DataBarChart")
+    compositionId = templateName;
   }
 
-  // Build props for the Remotion composition
-  let props = { mood: mood || "neutral" };
-  if (templateName === "stat_reveal") {
-    props.statValue = templateData?.statValue || "";
-    props.label = templateData?.label || "";
+  // Build props — pass all template_data through as props + mood
+  let props = { mood: mood || "neutral", ...(templateData || {}) };
+
+  // Legacy prop mapping for existing templates
+  if (compositionId === "StatReveal") {
+    props.statValue = templateData?.statValue || props.statValue || "";
+    props.label = templateData?.label || props.label || "";
     props.icon = templateData?.icon || "activity";
-  } else if (templateName === "comparison") {
+  } else if (compositionId === "Comparison") {
     props.leftLabel = templateData?.leftLabel || "";
     props.leftValue = templateData?.leftValue || "";
     props.rightLabel = templateData?.rightLabel || "";
     props.rightValue = templateData?.rightValue || "";
-  } else if (templateName === "kinetic_text") {
-    props.line = templateData?.line || "";
+  } else if (compositionId === "KineticText") {
+    props.line = templateData?.line || props.line || "";
   }
 
   // Render template via Remotion
-  const templateVideoPath = path.join(tmpDir, `remotion_${templateName}_${Date.now()}.mp4`);
+  const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${Date.now()}.mp4`);
   await renderRemotion(compositionId, templateVideoPath, duration, props);
 
   // Mux Remotion video with audio
