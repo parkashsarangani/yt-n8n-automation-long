@@ -26,7 +26,7 @@ import { GraphExecutor, ExecutorError } from "../src/executor.ts";
 import { loadGraph, validateGraph, type GraphDoc } from "../src/graph.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
+const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const STORY = {
   topic: "Why Chile is so incredibly long",
@@ -195,18 +195,24 @@ test("resuming with approval continues without re-running completed nodes", asyn
   assert.ok(h.images.prompts.length > 0);
 });
 
-test("resuming with a rejection blocks the downstream subtree", async () => {
+test("resuming with a rejection retries the upstream transformation", async () => {
   const h = await harness(storyThen(0.4));
   const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  // First attempt produced a story; gate waits because confidence < 0.9.
+  assert.equal(first.status, "waiting");
+  assert.equal(h.provider.calls.length, 1);
+
+  // Reject → upstream reruns, then gate parks again (new story, still < 0.9).
   const resumed = await h.executor.resume(h.graph, first.run_id, {
     approve_story: { result: "reject", reason: "hook is weak" },
   });
 
-  assert.equal(resumed.status, "blocked");
-  assert.deepEqual(resumed.failures.map((f) => f.node_id), ["approve_story"]);
-  assert.match(resumed.failures[0]!.error, /hook is weak/);
-  assert.deepEqual([...resumed.blocked].sort(), AFTER_GATE);
-  assert.equal(h.provider.calls.length, 1);
+  assert.equal(resumed.status, "waiting");
+  // The story_architect ran again (2 calls total now).
+  assert.equal(h.provider.calls.length, 2);
+  // The gate is waiting again with the new artifact.
+  assert.equal(resumed.waiting.length, 1);
+  assert.equal(resumed.waiting[0]!.node_id, "approve_story");
 });
 
 test("seeds are validated against the input node's schema before anything runs", async () => {

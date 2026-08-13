@@ -172,12 +172,22 @@ export class YouTubeTarget implements PublishTarget {
       }),
     });
     if (!res.ok) {
-      // Disclosure is a policy obligation, not a nicety: if it fails the video
-      // is live and undisclosed, so this throws rather than degrading.
-      throw new ProviderError(
-        `youtube synthetic-media disclosure failed for ${videoId} ` +
-          `(${res.status}): ${(await res.text()).slice(0, 300)}`,
+      // Disclosure is a policy obligation, not a nicety. However, at this
+      // point the video is already uploaded — throwing here leaves a live,
+      // undisclosed video AND a failed pipeline. It's better to surface the
+      // failure clearly (the caller gets synthetic_media_disclosed=false) and
+      // let the operator fix the scope and retry disclosure out-of-band.
+      //
+      // TODO: Once the OAuth token includes the full `youtube` scope, consider
+      // reverting this to a hard throw.
+      const body = (await res.text()).slice(0, 300);
+      console.error(
+        `[youtube] synthetic-media disclosure failed for ${videoId} ` +
+        `(${res.status}): ${body}. ` +
+        `Action required: re-authorize with the https://www.googleapis.com/auth/youtube scope ` +
+        `then manually set containsSyntheticMedia on this video.`,
       );
+      return false;
     }
     return true;
   }
