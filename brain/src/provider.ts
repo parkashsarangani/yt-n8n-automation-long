@@ -86,6 +86,9 @@ export interface RenderScene {
   /** Word/character timings, for burned-in captions. */
   alignment?: unknown;
   is_outro?: boolean;
+  /** If set, the renderer uses a motion graphics template for this scene. */
+  template_category?: string;
+  template_data?: Record<string, unknown>;
 }
 
 export interface RenderRequest {
@@ -188,14 +191,14 @@ export class ProviderRefusal extends ProviderError {
 
 /** Maps capability names to providers. The whole of "models are swappable". */
 export class ProviderRouter {
-  constructor(private readonly profiles: Record<string, ModelProvider>) {}
+  constructor(private readonly profiles: Record<string, ModelProvider>) { }
 
   forCapability(capability: string): ModelProvider {
     const p = this.profiles[capability];
     if (!p) {
       throw new ProviderError(
         `no provider configured for capability "${capability}" ` +
-          `(have: ${Object.keys(this.profiles).join(", ") || "none"})`,
+        `(have: ${Object.keys(this.profiles).join(", ") || "none"})`,
       );
     }
     return p;
@@ -286,13 +289,13 @@ export function wrapWithConfidence(
           },
           ...(dimensions.length > 0
             ? {
-                dimensions: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: dimensions,
-                  properties: dimProps,
-                },
-              }
+              dimensions: {
+                type: "object",
+                additionalProperties: false,
+                required: dimensions,
+                properties: dimProps,
+              },
+            }
             : {}),
         },
       },

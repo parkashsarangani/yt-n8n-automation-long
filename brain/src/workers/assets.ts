@@ -28,6 +28,8 @@ interface PlanScene {
   search_terms: string[];
   visual_style: string;
   fallback_terms: string[];
+  template_category?: string;
+  template_data?: Record<string, unknown>;
 }
 
 const DEFAULT_PREFIX =
@@ -82,6 +84,8 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
                 image_uri: ref.uri,
                 source: attempt.source,
                 prompt,
+                ...(scene.template_category ? { template_category: scene.template_category } : {}),
+                ...(scene.template_data ? { template_data: scene.template_data } : {}),
               },
               blob: ref,
             };
@@ -101,6 +105,8 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
             scene_index: scene.scene_index,
             source: "placeholder" as const,
             prompt: buildPrompt(scene.search_terms, scene.visual_style, prefix),
+            ...(scene.template_category ? { template_category: scene.template_category } : {}),
+            ...(scene.template_data ? { template_data: scene.template_data } : {}),
           },
           blob: null,
         };

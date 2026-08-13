@@ -37,6 +37,8 @@ interface AssetScene {
   scene_index: number;
   image_uri?: string;
   source: string;
+  template_category?: string;
+  template_data?: Record<string, unknown>;
 }
 
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
@@ -74,7 +76,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
           // so the timeline cannot be built. Fail loudly.
           throw new Error(
             `render: no voice clip for scene ${scene.scene_index}; ` +
-              `voice and script artifacts disagree`,
+            `voice and script artifacts disagree`,
           );
         }
         const asset = assetBy.get(scene.scene_index);
@@ -96,6 +98,8 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
           ...(image ? { image, image_media_type: "image/png" } : {}),
           ...(alignment !== undefined ? { alignment } : {}),
           ...(scene.is_outro ? { is_outro: true } : {}),
+          ...(asset?.template_category ? { template_category: asset.template_category } : {}),
+          ...(asset?.template_data ? { template_data: asset.template_data } : {}),
         });
       }
 

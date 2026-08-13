@@ -17,7 +17,7 @@ import { Runner } from "../src/runner.ts";
 import { makePublishWorker } from "../src/workers/index.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
+const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const STORY = {
   topic: "Why Chile is so incredibly long",
@@ -274,13 +274,16 @@ test("youtube: a rejected thumbnail degrades, a failed disclosure does not", asy
   assert.equal(out.thumbnail_set, false); // published anyway
   assert.equal(out.external_id, "vid_123");
 
-  // Disclosure is a policy obligation: failing it leaves an undisclosed video
-  // live, so it throws rather than degrading.
+  // Disclosure failure no longer throws — it returns synthetic_media_disclosed=false
+  // so the operator can fix the scope and manually disclose. The video is already
+  // uploaded at this point; throwing would leave it both live AND failed.
   const undisclosed = new YouTubeTarget({
     accessToken: "tok",
     fetchImpl: youtubeStub({ discloseOk: false }).fetchImpl,
   });
-  await assert.rejects(() => undisclosed.publish(pubReq), /disclosure failed/);
+  const result = await undisclosed.publish(pubReq);
+  assert.equal(result.synthetic_media_disclosed, false);
+  assert.equal(result.external_id, "vid_123"); // still published
 });
 
 test("youtube declares its own limits; nothing upstream hardcodes them", () => {

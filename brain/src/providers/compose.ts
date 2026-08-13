@@ -69,12 +69,12 @@ export class ComposeRenderer implements MediaRenderer {
       comment_hook: req.comment_hook ?? null,
       ...(req.thumbnail
         ? {
-            thumbnail: {
-              image_base64: req.thumbnail.image ? toBase64(req.thumbnail.image) : null,
-              text: req.thumbnail.text ?? null,
-              accent: req.thumbnail.accent ?? null,
-            },
-          }
+          thumbnail: {
+            image_base64: req.thumbnail.image ? toBase64(req.thumbnail.image) : null,
+            text: req.thumbnail.text ?? null,
+            accent: req.thumbnail.accent ?? null,
+          },
+        }
         : {}),
       data: req.scenes.map((s) => ({
         scene_index: s.scene_index,
@@ -88,6 +88,12 @@ export class ComposeRenderer implements MediaRenderer {
           ? { images_base64: [toBase64(s.image)] }
           : { _degraded: true }), // no image: renderer substitutes a placeholder
         ...(s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
+        // Template scenes: tell long-compose to render via Remotion
+        ...(s.template_category && !s.is_outro ? {
+          visual_source: "template",
+          template_name: s.template_category,
+          template_data: s.template_data ?? {},
+        } : {}),
       })),
     };
 
@@ -97,7 +103,7 @@ export class ComposeRenderer implements MediaRenderer {
     if (opts.onJob) await opts.onJob(jobId);
 
     const deadline = Date.now() + this.timeoutMs;
-    for (;;) {
+    for (; ;) {
       if (opts.signal?.aborted) throw new ProviderError(`${this.id} render aborted (job ${jobId})`);
       if (Date.now() > deadline) {
         throw new ProviderError(
@@ -120,9 +126,9 @@ export class ComposeRenderer implements MediaRenderer {
       const video = await this.download(status.output_path);
       const thumbnail = status.thumbnail_path
         ? {
-            bytes: await this.download(status.thumbnail_path),
-            media_type: "image/png",
-          }
+          bytes: await this.download(status.thumbnail_path),
+          media_type: "image/png",
+        }
         : undefined;
 
       return {
