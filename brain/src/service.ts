@@ -138,6 +138,7 @@ export class AmosService {
     svc.blobs = await FsBlobStore.open(svc.dataDir);
     svc.runLog = new JsonlRunLog(path.join(svc.dataDir, "runs.jsonl"));
     svc.rebuild();
+    await svc.reloadRuns();
     return svc;
   }
 
@@ -203,6 +204,76 @@ export class AmosService {
       transformations: this.transformations,
       onEvent: (e) => this.onExecutorEvent(e),
     });
+  }
+
+  /** Reload runs from the run log so they survive container restarts. */
+  private async reloadRuns(): Promise<void> {
+    const records = await this.runLog.all();
+    // Group records by run_id
+    const byRun = new Map<string, RunRecord[]>();
+    for (const r of records) {
+      const list = byRun.get(r.run_id) ?? [];
+      list.push(r);
+      byRun.set(r.run_id, list);
+    }
+
+    for (const [runId, recs] of byRun) {
+      if (this.runs.has(runId)) continue; // already in memory
+      // Find the intent (first record) to get the brief
+      const intentRec = recs.find(r => r.transformation === "human" && r.node_id === "intent");
+      // Derive brief from the intent artifact if possible
+      let brief = runId;
+      if (intentRec?.output) {
+        try {
+          const art = await this.store.get(intentRec.output);
+          if (art && typeof art === "object" && "payload" in (art as any)) {
+            brief = (art as any).payload?.brief ?? runId;
+          }
+        } catch { /* use runId as fallback */ }
+      }
+
+      // Check if the run completed or has failures
+      const completedOutputs = new Map<string, string>();
+      let hasFailure = false;
+      for (const r of recs) {
+        if (r.node_id && r.output && (r.status === "ok" || r.status === "cache_hit")) {
+          completedOutputs.set(r.node_id, r.output);
+        }
+        if (r.status === "failed" || r.status === "provider_error") {
+          hasFailure = true;
+        }
+      }
+
+      const allDone = completedOutputs.size === this.graph.nodes.length;
+
+      this.runs.set(runId, {
+        runId,
+        brief,
+        createdAt: recs[0]?.started_at ?? new Date().toISOString(),
+        active: new Set(),
+        completedOutputs,
+        last: {
+          run_id: runId,
+          graph: `${this.graph.graph_id}@${this.graph.version}`,
+          status: allDone ? "completed" : hasFailure ? "blocked" : "waiting",
+          outputs: Object.fromEntries(completedOutputs),
+          waiting: [],
+          failures: hasFailure
+            ? recs.filter(r => r.status === "failed" && r.node_id).map(r => ({
+              node_id: r.node_id!,
+              transformation: r.transformation,
+              error: r.error ?? "unknown error",
+            }))
+            : [],
+          blocked: [],
+        },
+        finished: true,
+        error: null,
+      });
+    }
+    if (byRun.size > 0) {
+      console.log(`[startup] reloaded ${byRun.size} run(s) from disk`);
+    }
   }
 
   private onExecutorEvent(e: ExecutorEvent): void {
