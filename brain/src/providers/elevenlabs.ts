@@ -15,7 +15,7 @@ export interface ElevenLabsOptions {
   apiKey?: string;
   modelId?: string;
   baseUrl?: string;
-  /** USD per 1000 characters, for cost accounting. Plan-dependent. */
+  /** USD per 1000 characters, for cost accounting. Default: $0.30/kchar (Scale plan). */
   pricePerKChar?: number;
   voiceSettings?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
@@ -42,7 +42,7 @@ export class ElevenLabsProvider implements SpeechProvider {
     this.apiKey = key;
     this.modelId = opts.modelId ?? "eleven_multilingual_v2";
     this.baseUrl = opts.baseUrl ?? "https://api.elevenlabs.io";
-    this.pricePerKChar = opts.pricePerKChar ?? 0;
+    this.pricePerKChar = opts.pricePerKChar ?? 0.30;
     this.voiceSettings = opts.voiceSettings ?? {
       stability: 0.45,
       similarity_boost: 0.8,
