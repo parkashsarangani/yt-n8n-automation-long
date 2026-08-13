@@ -18,8 +18,8 @@ jobs:
           # invariant that legacy n8n stays behind its profile.
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "default services: $services"
-          [ "$services" = "brain long-compose " ] || {
-            echo "ERROR: expected exactly 'brain long-compose' by default"
+          [ "$services" = "brain long-compose postgres " ] || {
+            echo "ERROR: expected exactly 'brain long-compose postgres' by default"
             exit 1
           }
 

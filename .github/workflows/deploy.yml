@@ -58,7 +58,8 @@ jobs:
           echo "=== Starting ==="
           # up -d recreates changed services and leaves the rest alone. The
           # legacy n8n profile is not included, so it stays down.
-          docker compose up -d --remove-orphans brain long-compose
+          # Postgres uses a stock image (no build needed) but must be up first.
+          docker compose up -d --remove-orphans postgres brain long-compose
 
       - name: Health check
         run: |
