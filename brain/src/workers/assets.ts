@@ -31,8 +31,8 @@ interface PlanScene {
 }
 
 const DEFAULT_PREFIX =
-  "Ultra-realistic, cinematic, crisp focus, one striking focal subject.";
-const NEGATIVE = "No text, no words, no letters, no captions, no watermark, no logos.";
+  "Cinematic still frame, photorealistic, dramatic lighting, shallow depth of field.";
+const NEGATIVE = "No text, no words, no letters, no captions, no watermark, no logos, no UI elements.";
 
 export function buildPrompt(terms: string[], style: string, prefix = DEFAULT_PREFIX): string {
   return `${prefix} ${terms.join(", ")}. ${style}. ${NEGATIVE}`;
@@ -88,7 +88,7 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
           } catch (err) {
             ctx.logger.warn(
               `[asset_collector] scene ${scene.scene_index} ${attempt.source} attempt failed: ` +
-                `${err instanceof Error ? err.message : String(err)}`,
+              `${err instanceof Error ? err.message : String(err)}`,
             );
           }
         }

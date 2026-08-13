@@ -42,7 +42,7 @@ export class FalImageProvider implements ImageProvider {
     const key = opts.apiKey ?? process.env["FAL_KEY"];
     if (!key) throw new ProviderError("FalImageProvider needs an API key (FAL_KEY)");
     this.apiKey = key;
-    this.model = opts.model ?? "fal-ai/flux/dev";
+    this.model = opts.model ?? "fal-ai/flux-2-pro";
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.steps = opts.steps ?? 28;
     this.pricePerImage = opts.pricePerImage ?? 0.04;
