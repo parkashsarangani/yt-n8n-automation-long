@@ -5,17 +5,23 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListStaggered = ({ startDelay = 0 }: {
+export const ListStaggered = ({ startDelay = 0, items: itemsProp }: {
   startDelay?: number;
+  items?: Array<{ title: string; desc?: string; align?: string }>;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = (itemsProp ?? [
     { title: "Research", desc: "Deep market analysis", align: "left", top: 100 },
     { title: "Strategy", desc: "Data-driven planning", align: "right", top: 220 },
     { title: "Execute", desc: "Rapid implementation", align: "left", top: 340 },
-  ];
+  ]).map((item, i) => ({
+    title: item.title,
+    desc: item.desc ?? "",
+    align: item.align ?? (i % 2 === 0 ? "left" : "right"),
+    top: 100 + i * 120,
+  }));
 
   return (
     <AbsoluteFill style={{ background: C.black }}>

@@ -5,19 +5,22 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const DataTimeline = ({ startDelay = 0 }: {
+export const DataTimeline = ({ startDelay = 0, events: eventsProp, title }: {
   startDelay?: number;
+  events?: Array<{ year: string; title: string; desc?: string }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const events = [
+  const events = eventsProp ?? [
     { year: "2020", title: "Founded", desc: "Company established" },
     { year: "2021", title: "Series A", desc: "$10M funding raised" },
     { year: "2022", title: "Global", desc: "Expanded to 20 countries" },
     { year: "2023", title: "IPO", desc: "Public listing" },
     { year: "2024", title: "100M Users", desc: "Major milestone" },
   ];
+  const heading = title ?? "Our Journey";
 
   return (
     <AbsoluteFill style={{ background: C.black, padding: 60 }}>
@@ -32,7 +35,7 @@ export const DataTimeline = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
         }}
       >
-        Our Journey
+        {heading}
       </div>
 
       {/* タイムライン */}

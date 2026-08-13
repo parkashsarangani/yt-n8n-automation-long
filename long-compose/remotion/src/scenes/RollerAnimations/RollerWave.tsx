@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerWave = ({ startDelay = 0 }: {
+export const RollerWave = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["Design", "Develop", "Deploy", "Delight"];
+  const words = wordsProp ?? ["Design", "Develop", "Deploy", "Delight"];
+  const displayPrefix = prefix ?? "We";
   const cycleDuration = 28;
   const finalIndex = words.length - 1;
 
@@ -33,7 +36,7 @@ export const RollerWave = ({ startDelay = 0 }: {
         }}
       >
         <div style={{ fontFamily: font, fontSize: 56, fontWeight: 300, color: C.gray[600] }}>
-          We
+          {displayPrefix}
         </div>
 
         <div style={{ display: "flex" }}>

@@ -5,13 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, Easing } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerOutlineHighlight = ({ startDelay = 0 }: {
+export const RollerOutlineHighlight = ({ startDelay = 0, word: wordProp }: {
   startDelay?: number;
+  word?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const word = "Introducing";
+  const word = wordProp ?? "Introducing";
   const rowCount = 7;
   const rowHeight = 120;
   const t = frame - startDelay;
@@ -28,10 +29,10 @@ export const RollerOutlineHighlight = ({ startDelay = 0 }: {
   const isStopping = t >= duration - 15;
   const stopSpring = isStopping
     ? spring({
-        frame: t - (duration - 15),
-        fps,
-        config: { damping: 15, stiffness: 200 },
-      })
+      frame: t - (duration - 15),
+      fps,
+      config: { damping: 15, stiffness: 200 },
+    })
     : 0;
 
   const finalPosition = isStopping

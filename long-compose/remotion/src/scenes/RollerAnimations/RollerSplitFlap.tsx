@@ -5,14 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerSplitFlap = ({ startDelay = 0 }: {
+export const RollerSplitFlap = ({ startDelay = 0, words: wordsProp, finalWord: finalWordProp }: {
   startDelay?: number;
+  words?: string[];
+  finalWord?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["PARIS", "LONDON", "TOKYO", "NEW YORK", "SYDNEY", "BERLIN"];
-  const finalWord = "WELCOME";
+  const words = wordsProp ?? ["PARIS", "LONDON", "TOKYO", "NEW YORK", "SYDNEY", "BERLIN"];
+  const finalWord = finalWordProp ?? "WELCOME";
   const allWords = [...words, finalWord];
   const t = frame - startDelay;
 

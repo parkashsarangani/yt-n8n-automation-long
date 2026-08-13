@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerTypewriter = ({ startDelay = 0 }: {
+export const RollerTypewriter = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["amazing", "stunning", "powerful", "seamless"];
+  const words = wordsProp ?? ["amazing", "stunning", "powerful", "seamless"];
+  const displayPrefix = prefix ?? "Create something";
   const cycleDuration = 35;
   const finalIndex = words.length - 1;
 
@@ -57,7 +60,7 @@ export const RollerTypewriter = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          Create something{" "}
+          {displayPrefix}{" "}
           <span style={{ color: C.success }}>
             {displayText}
             {showCursor && (

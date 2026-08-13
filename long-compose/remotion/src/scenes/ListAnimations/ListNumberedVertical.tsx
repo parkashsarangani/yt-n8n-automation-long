@@ -5,17 +5,22 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListNumberedVertical = ({ startDelay = 0 }: {
+export const ListNumberedVertical = ({ startDelay = 0, items: itemsProp, title, subtitle }: {
   startDelay?: number;
+  items?: Array<{ num?: string; text: string }>;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = (itemsProp ?? [
     { num: "01", text: "Understand your needs" },
     { num: "02", text: "Design the solution" },
     { num: "03", text: "Build and iterate" },
-  ];
+  ]).map((item, i) => ({ num: item.num ?? String(i + 1).padStart(2, "0"), text: item.text }));
+  const heading = title ?? "Three Steps";
+  const subheading = subtitle ?? "OUR PROCESS";
 
   return (
     <AbsoluteFill style={{ background: C.gray[950] }}>
@@ -37,7 +42,7 @@ export const ListNumberedVertical = ({ startDelay = 0 }: {
             marginBottom: 15,
           }}
         >
-          OUR PROCESS
+          {subheading}
         </div>
         <div
           style={{
@@ -47,7 +52,7 @@ export const ListNumberedVertical = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          Three Steps
+          {heading}
         </div>
       </div>
 

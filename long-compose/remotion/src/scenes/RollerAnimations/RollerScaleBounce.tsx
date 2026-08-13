@@ -5,13 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerScaleBounce = ({ startDelay = 0 }: {
+export const RollerScaleBounce = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Build", "Ship", "Scale", "Grow"];
+  const words = wordsProp ?? ["Build", "Ship", "Scale", "Grow"];
+  const displayPrefix = prefix ?? "Let's";
   const cycleDuration = 25;
   const finalIndex = words.length - 1;
 
@@ -52,7 +55,7 @@ export const RollerScaleBounce = ({ startDelay = 0 }: {
             color: "rgba(255,255,255,0.7)",
           }}
         >
-          Let&apos;s
+          {displayPrefix}
         </div>
 
         {/* スケールローラー */}

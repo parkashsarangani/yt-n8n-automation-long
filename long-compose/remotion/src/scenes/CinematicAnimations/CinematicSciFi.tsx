@@ -5,10 +5,16 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const CinematicSciFi = ({ startDelay = 0 }: {
+export const CinematicSciFi = ({ startDelay = 0, title, subtitle, label }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
+  label?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "NEXUS";
+  const displaySubtitle = subtitle ?? "[ SYSTEM ONLINE ]";
+  const displayLabel = label ?? "INITIALIZING SYSTEM";
 
   const scanlineY = ((frame - startDelay) * 5) % 720;
   const titleOpacity = lerp(frame, [startDelay + 30, startDelay + 50], [0, 1]);
@@ -88,7 +94,7 @@ export const CinematicSciFi = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 20, startDelay + 40], [0, 1]),
           }}
         >
-          INITIALIZING SYSTEM
+          {displayLabel}
         </div>
         <div
           style={{
@@ -101,7 +107,7 @@ export const CinematicSciFi = ({ startDelay = 0 }: {
             opacity: titleOpacity,
           }}
         >
-          NEXUS
+          {displayTitle}
         </div>
         <div
           style={{
@@ -112,7 +118,7 @@ export const CinematicSciFi = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 50, startDelay + 70], [0, 1]),
           }}
         >
-          [ SYSTEM ONLINE ]
+          {displaySubtitle}
         </div>
       </div>
     </AbsoluteFill>

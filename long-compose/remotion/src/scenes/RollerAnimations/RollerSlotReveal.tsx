@@ -5,14 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const RollerSlotReveal = ({ startDelay = 0 }: {
+export const RollerSlotReveal = ({ startDelay = 0, words: wordsProp, prefix: prefixProp }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const prefix = "New";
-  const words = [
+  const prefix = prefixProp ?? "New";
+  const words = wordsProp ?? [
     "Feature",
     "Product",
     "Design",
@@ -62,10 +64,10 @@ export const RollerSlotReveal = ({ startDelay = 0 }: {
   const isStopping = t >= duration - 15;
   const springScroll = isStopping
     ? spring({
-        frame: t - (duration - 15),
-        fps,
-        config: { damping: 20, stiffness: 150 },
-      })
+      frame: t - (duration - 15),
+      fps,
+      config: { damping: 20, stiffness: 150 },
+    })
     : 0;
 
   // 最終スクロール位置

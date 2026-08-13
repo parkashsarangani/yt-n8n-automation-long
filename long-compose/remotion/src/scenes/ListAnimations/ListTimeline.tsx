@@ -5,17 +5,20 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListTimeline = ({ startDelay = 0 }: {
+export const ListTimeline = ({ startDelay = 0, items: itemsProp, title }: {
   startDelay?: number;
+  items?: Array<{ year: string; title: string; desc?: string }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = itemsProp ?? [
     { year: "2022", title: "Foundation", desc: "Company established" },
     { year: "2023", title: "Growth", desc: "Series A funding" },
     { year: "2024", title: "Scale", desc: "Global expansion" },
   ];
+  const heading = title ?? "Timeline";
 
   // タイムラインの線のアニメーション
   const lineProgress = lerp(frame, [startDelay, startDelay + 80], [0, 100], EASE.out);
@@ -50,7 +53,7 @@ export const ListTimeline = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          Timeline
+          {heading}
         </div>
       </div>
 

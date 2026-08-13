@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerLiquid = ({ startDelay = 0 }: {
+export const RollerLiquid = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["FLOW", "FORM", "FLUX", "FUSE"];
+  const words = wordsProp ?? ["FLOW", "FORM", "FLUX", "FUSE"];
+  const displayPrefix = prefix ?? "IN CONSTANT";
   const cycleDuration = 32;
   const finalIndex = words.length - 1;
 
@@ -72,7 +75,7 @@ export const RollerLiquid = ({ startDelay = 0 }: {
             marginBottom: 20,
           }}
         >
-          IN CONSTANT
+          {displayPrefix}
         </div>
 
         {/* 流体テキスト */}

@@ -5,11 +5,13 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, random } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const CinematicAction = ({ startDelay = 0 }: {
+export const CinematicAction = ({ startDelay = 0, title }: {
   startDelay?: number;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const displayTitle = title ?? "IMPACT";
 
   const impactFrame = startDelay + 25;
   const hasImpact = frame >= impactFrame;
@@ -73,7 +75,7 @@ export const CinematicAction = ({ startDelay = 0 }: {
           textShadow: `0 0 40px ${C.accent}`,
         }}
       >
-        IMPACT
+        {displayTitle}
       </div>
 
       {/* 飛び散るデブリ */}

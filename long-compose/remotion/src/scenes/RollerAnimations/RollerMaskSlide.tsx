@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerMaskSlide = ({ startDelay = 0 }: {
+export const RollerMaskSlide = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["INSPIRE", "IMAGINE", "INNOVATE", "IMPACT"];
+  const words = wordsProp ?? ["INSPIRE", "IMAGINE", "INNOVATE", "IMPACT"];
+  const displayPrefix = prefix ?? "TIME TO";
   const cycleDuration = 30;
   const finalIndex = words.length - 1;
 
@@ -43,7 +46,7 @@ export const RollerMaskSlide = ({ startDelay = 0 }: {
             marginBottom: 20,
           }}
         >
-          TIME TO
+          {displayPrefix}
         </div>
 
         {/* マスクスライドコンテナ */}

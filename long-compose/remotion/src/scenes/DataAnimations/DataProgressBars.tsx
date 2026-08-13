@@ -5,18 +5,21 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const DataProgressBars = ({ startDelay = 0 }: {
+export const DataProgressBars = ({ startDelay = 0, items: itemsProp, title }: {
   startDelay?: number;
+  items?: Array<{ label: string; value: number; color?: string }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const items = [
+  const items = (itemsProp ?? [
     { label: "JavaScript", value: 92, color: C.warning },
     { label: "TypeScript", value: 85, color: C.accent },
     { label: "React", value: 88, color: C.secondary },
     { label: "Node.js", value: 75, color: C.success },
     { label: "Python", value: 65, color: C.tertiary },
-  ];
+  ]).map((item, i) => ({ ...item, color: item.color ?? [C.warning, C.accent, C.secondary, C.success, C.tertiary][i % 5] }));
+  const heading = title ?? "Skills";
 
   return (
     <AbsoluteFill style={{ background: C.gray[950], padding: 80 }}>
@@ -31,7 +34,7 @@ export const DataProgressBars = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
         }}
       >
-        Skills
+        {heading}
       </div>
 
       {/* プログレスバー */}

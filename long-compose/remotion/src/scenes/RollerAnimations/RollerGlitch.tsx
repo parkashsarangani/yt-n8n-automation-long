@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerGlitch = ({ startDelay = 0 }: {
+export const RollerGlitch = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["HACK", "CODE", "SHIP", "WIN"];
+  const words = wordsProp ?? ["HACK", "CODE", "SHIP", "WIN"];
+  const displayPrefix = prefix ?? "READY TO";
   const cycleDuration = 30;
   const finalIndex = words.length - 1;
 
@@ -42,7 +45,7 @@ export const RollerGlitch = ({ startDelay = 0 }: {
             marginBottom: 15,
           }}
         >
-          READY TO
+          {displayPrefix}
         </div>
 
         {/* グリッチローラー */}

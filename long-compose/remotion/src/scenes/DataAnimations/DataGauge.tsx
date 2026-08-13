@@ -5,12 +5,14 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const DataGauge = ({ value = 78, maxValue = 100, startDelay = 0 }: {
+export const DataGauge = ({ value = 78, maxValue = 100, startDelay = 0, label }: {
   value?: number;
   maxValue?: number;
   startDelay?: number;
+  label?: string;
 }) => {
   const frame = useCurrentFrame();
+  const heading = label ?? "Performance Score";
 
   const progress = lerp(frame, [startDelay, startDelay + 50], [0, value / maxValue], EASE.out);
   const angle = -135 + progress * 270; // -135度から+135度
@@ -137,7 +139,7 @@ export const DataGauge = ({ value = 78, maxValue = 100, startDelay = 0 }: {
               color: C.gray[500],
             }}
           >
-            Performance Score
+            {heading}
           </div>
         </div>
       </div>

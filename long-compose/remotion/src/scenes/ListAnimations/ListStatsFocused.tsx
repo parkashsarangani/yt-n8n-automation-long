@@ -5,13 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListStatsFocused = ({ startDelay = 0 }: {
+export const ListStatsFocused = ({ startDelay = 0, stats: statsProp }: {
   startDelay?: number;
+  stats?: Array<{ value: string; unit: string; label: string }>;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const stats = [
+  const stats = statsProp ?? [
     { value: "99.9", unit: "%", label: "Uptime" },
     { value: "50", unit: "ms", label: "Latency" },
     { value: "10", unit: "x", label: "Faster" },

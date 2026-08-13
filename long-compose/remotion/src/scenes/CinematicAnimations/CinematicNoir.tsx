@@ -5,10 +5,14 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicNoir = ({ startDelay = 0 }: {
+export const CinematicNoir = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "Shadows";
+  const displaySubtitle = subtitle ?? "A NOIR THRILLER";
 
   const blindsProgress = lerp(frame, [startDelay, startDelay + 40], [0, 1], EASE.out);
   const titleOpacity = lerp(frame, [startDelay + 30, startDelay + 50], [0, 1]);
@@ -65,7 +69,7 @@ export const CinematicNoir = ({ startDelay = 0 }: {
             opacity: titleOpacity,
           }}
         >
-          Shadows
+          {displayTitle}
         </div>
         <div
           style={{
@@ -77,7 +81,7 @@ export const CinematicNoir = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 50, startDelay + 70], [0, 1]),
           }}
         >
-          A NOIR THRILLER
+          {displaySubtitle}
         </div>
       </div>
 

@@ -523,7 +523,7 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
 // Template Scene Processing (Remotion — studio motion graphics)
 // ---------------------------------------------------------------------------
 
-async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood) {
+async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood, bgImagePath = null) {
   // --- Direct name → composition ID map (existing templates) ---
   const directMap = {
     stat_reveal: "StatReveal",
@@ -582,8 +582,17 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     compositionId = templateName;
   }
 
-  // Build props — pass all template_data through as props + mood
+  // Build props — pass all template_data through as props + mood + background
   let props = { mood: mood || "neutral", ...(templateData || {}) };
+  // Pass the background image as a data URI so Remotion can render it behind the template
+  if (bgImagePath) {
+    try {
+      const imgBuf = await fsp.readFile(bgImagePath);
+      props.backgroundImage = `data:image/png;base64,${imgBuf.toString("base64")}`;
+    } catch (e) {
+      console.warn(`[template] failed to read background image: ${e.message}`);
+    }
+  }
 
   // Legacy prop mapping for existing templates
   if (compositionId === "StatReveal") {
@@ -603,7 +612,56 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${Date.now()}.mp4`);
   await renderRemotion(compositionId, templateVideoPath, duration, props);
 
-  // Mux Remotion video with audio
+  // If we have a background image, composite the template over it.
+  // The template renders on a dark background — we blend it over the image
+  // using lighten mode so the bright template content shows through.
+  if (bgImagePath) {
+    const bgClipPath = path.join(tmpDir, `tpl_bg_${Date.now()}.mp4`);
+    // Create a Ken Burns still from the background image
+    const totalFrames = Math.ceil(duration * FPS);
+    const startScale = 1.05;
+    const endScale = 1.15;
+    await new Promise((resolve, reject) => {
+      ffmpeg()
+        .input(bgImagePath)
+        .loop(duration)
+        .inputOptions(["-framerate", String(FPS)])
+        .complexFilter([
+          `scale=${KENBURNS_UPSCALE}:-1,` +
+          `zoompan=z='${startScale}+((${endScale}-${startScale})*(on/${totalFrames}))':` +
+          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
+          `d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${FPS},` +
+          `format=yuv420p[bg]`
+        ])
+        .outputOptions(["-map", "[bg]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"])
+        .output(bgClipPath)
+        .on("end", resolve)
+        .on("error", reject)
+        .run();
+    });
+
+    // Composite: darken the background, overlay the template using screen blend
+    const compositePath = path.join(tmpDir, `tpl_comp_${Date.now()}.mp4`);
+    await new Promise((resolve, reject) => {
+      ffmpeg()
+        .input(bgClipPath)
+        .input(templateVideoPath)
+        .complexFilter([
+          `[0:v]colorbalance=rs=-0.1:gs=-0.1:bs=-0.1,eq=brightness=-0.3:saturation=0.7[darkbg];` +
+          `[darkbg][1:v]blend=all_mode=screen:all_opacity=0.85[out]`
+        ])
+        .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"])
+        .output(compositePath)
+        .on("end", resolve)
+        .on("error", reject)
+        .run();
+    });
+
+    // Use the composite as the template video for muxing with audio
+    await fsp.rename(compositePath, templateVideoPath);
+  }
+
+  // Mux template video (or composite) with audio
   const templateDuration = await ffprobeDuration(templateVideoPath);
   const videoFilter = templateDuration < duration
     ? `[0:v]tpad=stop_mode=clone:stop_duration=${(duration - templateDuration + 0.1).toFixed(3)}[padded]`
@@ -652,9 +710,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,64,&H00FFFFFF,&H000000FF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
-Style: CaptionHL,Inter Bold,68,&H0096E0FF,&H000000FF,&H40000000,&H80000000,0,0,0,0,105,105,0,0,1,3,4,2,60,60,420,1
-Style: CaptionKey,Inter Bold,68,&H0080FF60,&H000000FF,&H40000000,&H80000000,0,0,0,0,105,105,0,0,1,3,4,2,60,60,420,1
+Style: Caption,Inter Bold,62,&H00FFFFFF,&H000000FF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
+Style: CaptionHL,Inter Bold,62,&H0000DFFF,&H000000FF,&H40000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -662,11 +719,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
   let events = "";
-  const WORDS_PER_CHUNK = 2;
+  // Show phrases of ~6-10 words at a time, with the spoken word highlighted.
+  const WORDS_PER_PHRASE = 8;
 
   scenes.forEach((scene, sceneIdx) => {
-    // The outro is a branded KineticText card (Like / Share / Follow) with a
-    // spoken share line - let the template + voice carry it, no burned captions.
     if (scene?.template_data?.is_outro) return;
     const alignment = scene?.audio?.alignment;
     if (!alignment) return;
@@ -693,30 +749,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     if (current) words.push({ text: current, start: wordStart, end: ends[ends.length - 1] });
 
-    for (let i = 0; i < words.length; i += WORDS_PER_CHUNK) {
-      const chunk = words.slice(i, i + WORDS_PER_CHUNK);
-      if (!chunk.length || chunk[0].start == null) continue;
+    // Group words into phrases
+    for (let phraseStart = 0; phraseStart < words.length; phraseStart += WORDS_PER_PHRASE) {
+      const phrase = words.slice(phraseStart, phraseStart + WORDS_PER_PHRASE);
+      if (!phrase.length || phrase[0].start == null) continue;
 
-      chunk.forEach((w) => {
-        const wStart = w.start + offsets[sceneIdx];
-        const wEnd = w.end + offsets[sceneIdx];
-        const highlightText = chunk
-          .map((item) => {
-            if (item === w) {
-              // Active word "pops": snaps to 128% then settles to the style's
-              // 105% over ~100ms as it's spoken - a karaoke bounce that makes
-              // the captions feel alive and draws the eye to the current word.
-              // A word containing a number (the key fact in this niche) pops in
-              // a distinct green so stats stand out from ordinary highlights.
-              const hlStyle = /\d/.test(item.text) ? "CaptionKey" : "CaptionHL";
-              return `{\\r${hlStyle}\\fscx128\\fscy128\\t(0,100,\\fscx105\\fscy105)}${item.text}{\\r}`;
+      const phraseBegin = phrase[0].start + offsets[sceneIdx];
+      const phraseEnd = phrase[phrase.length - 1].end + offsets[sceneIdx];
+
+      // For each word in the phrase, emit a dialogue line showing the full phrase
+      // with only that word highlighted in yellow.
+      for (let w = 0; w < phrase.length; w++) {
+        const word = phrase[w];
+        const wStart = word.start + offsets[sceneIdx];
+        const wEnd = word.end + offsets[sceneIdx];
+
+        const line = phrase
+          .map((item, idx) => {
+            if (idx === w) {
+              return `{\\rCaptionHL}${item.text}{\\rCaption}`;
             }
             return item.text;
           })
           .join(" ");
 
-        events += `Dialogue: 0,${toAssTime(wStart)},${toAssTime(wEnd)},Caption,,0,0,0,,${highlightText}\n`;
-      });
+        events += `Dialogue: 0,${toAssTime(wStart)},${toAssTime(wEnd)},Caption,,0,0,0,,${line}\n`;
+      }
     }
   });
 
@@ -907,10 +965,25 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
       const isTemplate = scene?.visual_source === "template";
       const isStockVideo = !isTemplate && !!scene?.video_url;
+      const hasImage = !!(scene?.images_base64?.length || scene?.images?.length);
 
       if (isTemplate) {
         if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
-        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood);
+        // If the scene also has an image, pass it as backgroundImage to the template
+        let bgImagePath = null;
+        if (hasImage) {
+          const imageBase64s = scene?.images_base64;
+          const imageUrls = scene?.images;
+          bgImagePath = path.join(tmpDir, `scene_${i}_bg.png`);
+          if (Array.isArray(imageBase64s) && imageBase64s.length) {
+            await writeBase64(imageBase64s[0], bgImagePath);
+          } else if (Array.isArray(imageUrls) && imageUrls.length) {
+            await downloadFile(imageUrls[0], bgImagePath);
+          } else {
+            bgImagePath = null;
+          }
+        }
+        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, bgImagePath);
       } else if (isStockVideo) {
         const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
         await downloadFile(scene.video_url, stockVideoPath);

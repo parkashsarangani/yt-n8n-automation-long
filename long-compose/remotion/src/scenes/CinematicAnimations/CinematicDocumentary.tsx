@@ -5,10 +5,14 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicDocumentary = ({ startDelay = 0 }: {
+export const CinematicDocumentary = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "The Story";
+  const displaySubtitle = subtitle ?? "A Documentary Film";
 
   const lineProgress = lerp(frame, [startDelay, startDelay + 30], [0, 100], EASE.out);
   const titleOpacity = lerp(frame, [startDelay + 20, startDelay + 40], [0, 1]);
@@ -53,7 +57,7 @@ export const CinematicDocumentary = ({ startDelay = 0 }: {
           opacity: titleOpacity,
         }}
       >
-        The Story
+        {displayTitle}
       </div>
 
       {/* サブタイトル */}
@@ -71,7 +75,7 @@ export const CinematicDocumentary = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 30, startDelay + 50], [0, 1]),
         }}
       >
-        A Documentary Film
+        {displaySubtitle}
       </div>
 
       {/* 年号 */}

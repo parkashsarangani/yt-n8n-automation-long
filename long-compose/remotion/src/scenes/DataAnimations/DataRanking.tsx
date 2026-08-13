@@ -5,19 +5,24 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const DataRanking = ({ startDelay = 0 }: {
+export const DataRanking = ({ startDelay = 0, items: itemsProp, title, subtitle }: {
   startDelay?: number;
+  items?: Array<{ rank: number; name: string; value: string; change?: string }>;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = (itemsProp ?? [
     { rank: 1, name: "Tokyo", value: "37.4M", change: "up" },
     { rank: 2, name: "Delhi", value: "32.9M", change: "up" },
     { rank: 3, name: "Shanghai", value: "29.2M", change: "down" },
     { rank: 4, name: "São Paulo", value: "22.4M", change: "same" },
     { rank: 5, name: "Mexico City", value: "21.9M", change: "up" },
-  ];
+  ]).map(item => ({ ...item, change: item.change ?? "same" }));
+  const heading = title ?? "Top Cities";
+  const subheading = subtitle ?? "By population (2024)";
 
   return (
     <AbsoluteFill style={{ background: C.gray[950], padding: 60 }}>
@@ -32,7 +37,7 @@ export const DataRanking = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
         }}
       >
-        Top Cities
+        {heading}
       </div>
       <div
         style={{
@@ -43,7 +48,7 @@ export const DataRanking = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 10, startDelay + 30], [0, 1]),
         }}
       >
-        By population (2024)
+        {subheading}
       </div>
 
       {/* リスト */}
@@ -61,8 +66,8 @@ export const DataRanking = ({ startDelay = 0 }: {
           item.change === "up"
             ? C.success
             : item.change === "down"
-            ? C.danger
-            : C.gray[500];
+              ? C.danger
+              : C.gray[500];
 
         return (
           <div

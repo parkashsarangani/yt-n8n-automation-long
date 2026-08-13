@@ -5,18 +5,19 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, Easing } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerMultiSlot = ({ startDelay = 0 }: {
+export const RollerMultiSlot = ({ startDelay = 0, slots: slotsProp }: {
   startDelay?: number;
+  slots?: Array<{ words: string[]; stopFrame?: number }>;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   // 3列のスロット（最後のワードが最終結果）
-  const slots = [
+  const slots = (slotsProp ?? [
     { words: ["Make", "Build", "Create", "Design", "Craft", "CREATE"], stopFrame: 50 },
     { words: ["the", "a", "your", "our", "THE"], stopFrame: 65 },
     { words: ["magic", "future", "dream", "vision", "FUTURE"], stopFrame: 80 },
-  ];
+  ]).map((slot, i) => ({ ...slot, stopFrame: slot.stopFrame ?? 50 + i * 15 }));
 
   const wordHeight = 60;
   const t = frame - startDelay;
@@ -92,10 +93,10 @@ export const RollerMultiSlot = ({ startDelay = 0 }: {
           // 停止時の衝撃エフェクト
           const stopImpact = !isSpinning && t < slot.stopFrame + 8
             ? spring({
-                frame: t - slot.stopFrame,
-                fps,
-                config: { damping: 15, stiffness: 400 },
-              })
+              frame: t - slot.stopFrame,
+              fps,
+              config: { damping: 15, stiffness: 400 },
+            })
             : 1;
 
           // モーションブラー（回転中のみ）

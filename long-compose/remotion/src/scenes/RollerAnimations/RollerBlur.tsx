@@ -5,12 +5,15 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerBlur = ({ startDelay = 0 }: {
+export const RollerBlur = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["Creative", "Innovative", "Powerful", "Elegant"];
+  const words = wordsProp ?? ["Creative", "Innovative", "Powerful", "Elegant"];
+  const displayPrefix = prefix ?? "SOLUTIONS THAT ARE";
   const cycleDuration = 30;
   const finalIndex = words.length - 1;
 
@@ -47,7 +50,7 @@ export const RollerBlur = ({ startDelay = 0 }: {
             marginBottom: 20,
           }}
         >
-          SOLUTIONS THAT ARE
+          {displayPrefix}
         </div>
 
         {/* ブラーローラー */}

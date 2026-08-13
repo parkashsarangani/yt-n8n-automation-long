@@ -5,14 +5,18 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerCountdown = ({ startDelay = 0 }: {
+export const RollerCountdown = ({ startDelay = 0, numbers: numbersProp, finalWord: finalWordProp, subtitle }: {
   startDelay?: number;
+  numbers?: string[];
+  finalWord?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const numbers = ["5", "4", "3", "2", "1"];
-  const finalWord = "LAUNCH";
+  const numbers = numbersProp ?? ["5", "4", "3", "2", "1"];
+  const finalWord = finalWordProp ?? "LAUNCH";
+  const displaySubtitle = subtitle ?? "YOUR JOURNEY BEGINS";
   const wordHeight = 180;
   const t = frame - startDelay;
 
@@ -76,10 +80,10 @@ export const RollerCountdown = ({ startDelay = 0 }: {
   // LAUNCH時の強調
   const launchProgress = isStopping
     ? spring({
-        frame: t - (countdownDuration + spinDuration),
-        fps,
-        config: { damping: 8, stiffness: 150 },
-      })
+      frame: t - (countdownDuration + spinDuration),
+      fps,
+      config: { damping: 8, stiffness: 150 },
+    })
     : 0;
 
   // 回転中のブラー
@@ -236,7 +240,7 @@ export const RollerCountdown = ({ startDelay = 0 }: {
               letterSpacing: 5,
             }}
           >
-            YOUR JOURNEY BEGINS
+            {displaySubtitle}
           </div>
         )}
       </div>

@@ -5,13 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, Easing } from "remotion";
 import { C, font } from "../../common";
 
-export const Roller3DCarousel = ({ startDelay = 0 }: {
+export const Roller3DCarousel = ({ startDelay = 0, words: wordsProp }: {
   startDelay?: number;
+  words?: string[];
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Innovation", "Creation", "Evolution", "Revolution", "Transformation", "INSPIRATION"];
+  const words = wordsProp ?? ["Innovation", "Creation", "Evolution", "Revolution", "Transformation", "INSPIRATION"];
   const t = frame - startDelay;
   const finalIndex = words.length - 1;
 
@@ -71,7 +72,7 @@ export const Roller3DCarousel = ({ startDelay = 0 }: {
           {words.map((word, i) => {
             const itemAngle = i * anglePerItem;
             const isActive = Math.abs((rotation % 360) - itemAngle) < anglePerItem / 2 ||
-                           Math.abs((rotation % 360) - itemAngle - 360) < anglePerItem / 2;
+              Math.abs((rotation % 360) - itemAngle - 360) < anglePerItem / 2;
             const isFinal = i === finalIndex && t >= duration;
 
             return (

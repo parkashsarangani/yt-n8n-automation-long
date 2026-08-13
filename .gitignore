@@ -14,3 +14,7 @@ brain/.amos-data/
 # local credentials
 brain/.env
 .env
+
+# IDE / reference repos
+.vscode/
+_remotion-scenes-ref/

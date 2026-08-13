@@ -5,11 +5,15 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, random } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicAnime = ({ startDelay = 0 }: {
+export const CinematicAnime = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const displayTitle = title ?? "HERO";
+  const displaySubtitle = subtitle ?? "THE BEGINNING";
 
   const titleProgress = spring({
     frame: frame - startDelay - 10,
@@ -69,7 +73,7 @@ export const CinematicAnime = ({ startDelay = 0 }: {
             textShadow: `4px 4px 0 ${C.secondary}, 8px 8px 0 ${C.accent}`,
           }}
         >
-          HERO
+          {displayTitle}
         </div>
       </div>
 
@@ -87,7 +91,7 @@ export const CinematicAnime = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 40, startDelay + 60], [0, 1]),
         }}
       >
-        THE BEGINNING
+        {displaySubtitle}
       </div>
 
       {/* 装飾ライン */}

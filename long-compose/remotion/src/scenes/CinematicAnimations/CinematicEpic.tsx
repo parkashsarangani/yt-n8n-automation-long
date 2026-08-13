@@ -5,10 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicEpic = ({ startDelay = 0 }: {
+export const CinematicEpic = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "EPIC";
+  const displaySubtitle = subtitle ?? "A CINEMATIC EXPERIENCE";
 
   const titleScale = lerp(frame, [startDelay, startDelay + 40], [0.5, 1], EASE.out);
   const titleOpacity = lerp(frame, [startDelay, startDelay + 30], [0, 1]);
@@ -68,7 +72,7 @@ export const CinematicEpic = ({ startDelay = 0 }: {
             opacity: titleOpacity,
           }}
         >
-          EPIC
+          {displayTitle}
         </div>
         <div
           style={{
@@ -81,7 +85,7 @@ export const CinematicEpic = ({ startDelay = 0 }: {
             opacity: subtitleOpacity,
           }}
         >
-          A CINEMATIC EXPERIENCE
+          {displaySubtitle}
         </div>
       </div>
 

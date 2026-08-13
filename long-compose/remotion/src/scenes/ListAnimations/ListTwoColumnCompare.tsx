@@ -5,14 +5,23 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListTwoColumnCompare = ({ startDelay = 0 }: {
+export const ListTwoColumnCompare = ({ startDelay = 0, items: itemsProp, title }: {
   startDelay?: number;
+  items?: Array<{ label: string; value: string }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const leftItems = ["Speed", "Security", "Support"];
-  const rightValues = ["10x faster", "Enterprise-grade", "24/7 available"];
+  const defaultItems = [
+    { label: "Speed", value: "10x faster" },
+    { label: "Security", value: "Enterprise-grade" },
+    { label: "Support", value: "24/7 available" },
+  ];
+  const compareItems = itemsProp ?? defaultItems;
+  const leftItems = compareItems.map(i => i.label);
+  const rightValues = compareItems.map(i => i.value);
+  const heading = title ?? "Why Choose Us";
 
   return (
     <AbsoluteFill style={{ background: C.black }}>
@@ -33,7 +42,7 @@ export const ListTwoColumnCompare = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          Why Choose Us
+          {heading}
         </div>
       </div>
 

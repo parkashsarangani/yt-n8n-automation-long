@@ -5,12 +5,17 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const DataLineChart = ({ startDelay = 0 }: {
+export const DataLineChart = ({ startDelay = 0, dataPoints: dataPointsProp, title, subtitle }: {
   startDelay?: number;
+  dataPoints?: number[];
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
 
-  const dataPoints = [20, 45, 35, 60, 55, 80, 70, 95, 85, 100];
+  const dataPoints = dataPointsProp ?? [20, 45, 35, 60, 55, 80, 70, 95, 85, 100];
+  const heading = title ?? "Growth Trend";
+  const subheading = subtitle ?? "Performance over time";
   const chartWidth = 900;
   const chartHeight = 300;
 
@@ -49,7 +54,7 @@ export const DataLineChart = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
         }}
       >
-        Growth Trend
+        {heading}
       </div>
       <div
         style={{
@@ -60,7 +65,7 @@ export const DataLineChart = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 10, startDelay + 30], [0, 1]),
         }}
       >
-        Performance over time
+        {subheading}
       </div>
 
       {/* チャート */}
