@@ -121,6 +121,13 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    const retryMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)\/retry$/.exec(url.pathname);
+    if (req.method === "POST" && retryMatch) {
+      await service.retry(retryMatch[1]!);
+      json(res, 202, { ok: true });
+      return;
+    }
+
     // --- artifacts (for reviewing a script before approving it) ---
     const artMatch = /^\/api\/artifacts\/(sha256:[0-9a-f]{64})$/.exec(
       decodeURIComponent(url.pathname),

@@ -482,6 +482,13 @@
       <span class="err">${esc(f.error)}</span></div>`;
       }
 
+      if (run.failures.length > 0 && run.status !== "running") {
+        html += `<div class="row" style="margin-bottom:14px">
+          <button id="retryBtn">Retry from failure</button>
+          <span class="muted" id="retryMsg"></span>
+        </div>`;
+      }
+
       html += `<ol class="steps">` + run.nodes.map((n) => `
     <li>
       <span class="dot ${n.state}"></span>
@@ -500,6 +507,24 @@
       // Don't show the script/story for review when the run is just in progress.
       const reviewId = waiting?.artifact_id ?? null;
       if (reviewId) await renderReview(reviewId, waiting?.node_id ?? null);
+
+      // Wire retry button if present
+      const retryBtn = document.getElementById("retryBtn");
+      if (retryBtn) {
+        retryBtn.onclick = async () => {
+          retryBtn.disabled = true;
+          const msg = document.getElementById("retryMsg");
+          if (msg) msg.textContent = "retrying…";
+          try {
+            await api(`/api/runs/${selected}/retry`, { method: "POST", body: JSON.stringify({}) });
+            lastDetailJson = "";
+            await new Promise(r => setTimeout(r, 1000));
+            renderDetail().catch(() => { });
+          } catch (e) {
+            if (msg) msg.textContent = e.message;
+          }
+        };
+      }
     }
 
     async function renderReview(artifactId, gateNode) {
