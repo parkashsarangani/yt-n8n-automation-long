@@ -55,7 +55,7 @@ export class ComposeRenderer implements MediaRenderer {
   constructor(opts: ComposeRendererOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.pollIntervalMs = (opts.pollIntervalSec ?? 15) * 1000;
-    this.timeoutMs = (opts.timeoutSec ?? 1800) * 1000;
+    this.timeoutMs = (opts.timeoutSec ?? 3600) * 1000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleepImpl = opts.sleepImpl ?? sleep;
   }
