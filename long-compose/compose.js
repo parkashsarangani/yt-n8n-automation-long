@@ -313,24 +313,32 @@ function pickMusicTrack(mood) {
 // ---------------------------------------------------------------------------
 
 function renderRemotion(compositionId, outputPath, durationSec, props) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const bridgePath = path.join(REMOTION_DIR, "render-bridge.mjs");
+
+    // Write props to a temp file to avoid E2BIG when props contain large
+    // base64 images. The render-bridge reads from file when a path is passed.
+    const propsFile = path.join(path.dirname(outputPath), `props_${Date.now()}.json`);
+    await fsp.writeFile(propsFile, JSON.stringify(props));
+
     const args = [
       bridgePath,
       compositionId,
       outputPath,
       String(durationSec),
-      JSON.stringify(props),
+      `@${propsFile}`, // "@" prefix tells render-bridge to read from file
     ];
 
     console.log(`[remotion] Rendering ${compositionId} (${durationSec}s)...`);
-    const child = execFile("node", args, {
+    execFile("node", args, {
       cwd: REMOTION_DIR,
       timeout: 300000, // 5 min max
       maxBuffer: 10 * 1024 * 1024,
-    }, (err, stdout, stderr) => {
+    }, async (err, stdout, stderr) => {
       if (stdout) console.log("[remotion stdout]", stdout);
       if (stderr) console.log("[remotion stderr]", stderr);
+      // Clean up props file
+      fsp.unlink(propsFile).catch(() => { });
       if (err) {
         console.error("[remotion] Render failed:", err.message);
         return reject(err);

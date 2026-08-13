@@ -13,18 +13,24 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readFileSync } from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const [compositionId, outputPath, durationSecStr, propsJsonStr] = process.argv.slice(2);
 
 if (!compositionId || !outputPath) {
-    console.error("Usage: node render-bridge.mjs <compositionId> <outputPath> <durationSec> <propsJson>");
+    console.error("Usage: node render-bridge.mjs <compositionId> <outputPath> <durationSec> <propsJson|@filepath>");
     process.exit(1);
 }
 
+// Support reading props from a file to avoid E2BIG on large payloads
+const propsRaw = propsJsonStr?.startsWith("@")
+    ? readFileSync(propsJsonStr.slice(1), "utf8")
+    : (propsJsonStr || "{}");
+
 const durationSec = parseFloat(durationSecStr) || 4;
-const inputProps = JSON.parse(propsJsonStr || "{}");
+const inputProps = JSON.parse(propsRaw);
 const fps = 30;
 const durationInFrames = Math.ceil(durationSec * fps);
 
