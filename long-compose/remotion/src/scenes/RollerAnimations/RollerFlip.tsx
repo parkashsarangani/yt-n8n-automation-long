@@ -11,13 +11,18 @@ const C = {
   gray: { 600: "#666666", 400: "#999999" },
 };
 
-export const RollerFlip = ({ startDelay = 0 }: {
+export const RollerFlip = ({ startDelay = 0, words: wordsProp, prefix, suffix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
+  suffix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Ideas", "Dreams", "Goals", "Reality"];
+  const words = wordsProp ?? ["Ideas", "Dreams", "Goals", "Reality"];
+  const displayPrefix = prefix ?? "Turn your";
+  const displaySuffix = suffix ?? "into success";
   const cycleDuration = 30;
   const finalIndex = words.length - 1;
 
@@ -50,7 +55,7 @@ export const RollerFlip = ({ startDelay = 0 }: {
         }}
       >
         <div style={{ fontFamily: font, fontSize: 24, fontWeight: 400, color: C.gray[600], marginBottom: 10 }}>
-          Turn your
+          {displayPrefix}
         </div>
 
         <div style={{ perspective: "1000px", height: 80 }}>
@@ -70,7 +75,7 @@ export const RollerFlip = ({ startDelay = 0 }: {
         </div>
 
         <div style={{ fontFamily: font, fontSize: 24, fontWeight: 400, color: C.gray[600], marginTop: 10 }}>
-          into success
+          {displaySuffix}
         </div>
       </div>
 

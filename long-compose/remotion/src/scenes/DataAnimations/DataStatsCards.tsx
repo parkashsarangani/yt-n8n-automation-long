@@ -5,11 +5,26 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const DataStatsCards = ({ startDelay = 0 }: {
+export const DataStatsCards = ({ startDelay = 0, stats }: {
   startDelay?: number;
+  stats?: {
+    main?: { label?: string; value?: number; change?: string };
+    sub?: Array<{ label: string; value: string; color?: string }>;
+    footer?: string;
+  };
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  const mainLabel = stats?.main?.label ?? "TOTAL REVENUE";
+  const mainTarget = stats?.main?.value ?? 89420;
+  const mainChange = stats?.main?.change ?? "12.5% from last quarter";
+  const subStats = stats?.sub ?? [
+    { label: "ACTIVE USERS", value: "24,580", color: C.accent },
+    { label: "CONVERSION", value: "4.8%", color: C.secondary },
+    { label: "ONLINE NOW", value: "1,847", color: C.tertiary },
+  ];
+  const footer = stats?.footer ?? "Q4 2024 — OVERVIEW";
 
   // メイン数値のアニメーション
   const mainProgress = spring({
@@ -25,7 +40,7 @@ export const DataStatsCards = ({ startDelay = 0 }: {
   });
 
   const countProgress = lerp(frame, [startDelay + 10, startDelay + 50], [0, 1], EASE.out);
-  const mainValue = Math.floor(89420 * countProgress).toLocaleString();
+  const mainValue = Math.floor(mainTarget * countProgress).toLocaleString();
 
   return (
     <AbsoluteFill style={{ background: C.gray[950] }}>
@@ -48,7 +63,7 @@ export const DataStatsCards = ({ startDelay = 0 }: {
             marginBottom: 20,
           }}
         >
-          TOTAL REVENUE
+          {mainLabel}
         </div>
         <div
           style={{
@@ -74,7 +89,7 @@ export const DataStatsCards = ({ startDelay = 0 }: {
           }}
         >
           <span style={{ fontSize: 20 }}>↑</span>
-          <span>12.5% from last quarter</span>
+          <span>{mainChange}</span>
         </div>
       </div>
 
@@ -89,97 +104,38 @@ export const DataStatsCards = ({ startDelay = 0 }: {
           transform: `translateY(${(1 - subProgress) * 40}px)`,
         }}
       >
-        {/* サブ統計1 */}
-        <div
-          style={{
-            borderLeft: `2px solid ${C.accent}`,
-            paddingLeft: 20,
-            marginBottom: 50,
-          }}
-        >
+        {subStats.map((stat, i) => (
           <div
+            key={`sub-stat-${stat.label}`}
             style={{
-              fontFamily: font,
-              fontSize: 11,
-              color: C.gray[600],
-              letterSpacing: 2,
-              marginBottom: 8,
+              borderLeft: `2px solid ${stat.color ?? [C.accent, C.secondary, C.tertiary][i % 3]}`,
+              paddingLeft: 20,
+              marginBottom: i < subStats.length - 1 ? 50 : 0,
             }}
           >
-            ACTIVE USERS
+            <div
+              style={{
+                fontFamily: font,
+                fontSize: 11,
+                color: C.gray[600],
+                letterSpacing: 2,
+                marginBottom: 8,
+              }}
+            >
+              {stat.label}
+            </div>
+            <div
+              style={{
+                fontFamily: font,
+                fontSize: 36,
+                fontWeight: 700,
+                color: C.white,
+              }}
+            >
+              {stat.value}
+            </div>
           </div>
-          <div
-            style={{
-              fontFamily: font,
-              fontSize: 36,
-              fontWeight: 700,
-              color: C.white,
-            }}
-          >
-            24,580
-          </div>
-        </div>
-
-        {/* サブ統計2 */}
-        <div
-          style={{
-            borderLeft: `2px solid ${C.secondary}`,
-            paddingLeft: 20,
-            marginBottom: 50,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: font,
-              fontSize: 11,
-              color: C.gray[600],
-              letterSpacing: 2,
-              marginBottom: 8,
-            }}
-          >
-            CONVERSION
-          </div>
-          <div
-            style={{
-              fontFamily: font,
-              fontSize: 36,
-              fontWeight: 700,
-              color: C.white,
-            }}
-          >
-            4.8%
-          </div>
-        </div>
-
-        {/* サブ統計3 */}
-        <div
-          style={{
-            borderLeft: `2px solid ${C.tertiary}`,
-            paddingLeft: 20,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: font,
-              fontSize: 11,
-              color: C.gray[600],
-              letterSpacing: 2,
-              marginBottom: 8,
-            }}
-          >
-            ONLINE NOW
-          </div>
-          <div
-            style={{
-              fontFamily: font,
-              fontSize: 36,
-              fontWeight: 700,
-              color: C.white,
-            }}
-          >
-            1,847
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* 下部の装飾ライン */}
@@ -207,7 +163,7 @@ export const DataStatsCards = ({ startDelay = 0 }: {
           opacity: subProgress,
         }}
       >
-        Q4 2024 — OVERVIEW
+        {footer}
       </div>
     </AbsoluteFill>
   );

@@ -5,13 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const DataBarChart = ({ startDelay = 0 }: {
+export const DataBarChart = ({ startDelay = 0, items, title, subtitle }: {
   startDelay?: number;
+  items?: Array<{ label: string; value: number; color?: string }>;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const data = [
+  const data = (items ?? [
     { label: "Mon", value: 65, color: C.accent },
     { label: "Tue", value: 85, color: C.accent },
     { label: "Wed", value: 45, color: C.accent },
@@ -19,7 +22,9 @@ export const DataBarChart = ({ startDelay = 0 }: {
     { label: "Fri", value: 78, color: C.accent },
     { label: "Sat", value: 55, color: C.gray[600] },
     { label: "Sun", value: 40, color: C.gray[600] },
-  ];
+  ]).map(item => ({ ...item, color: item.color ?? C.accent }));
+  const heading = title ?? "Weekly Activity";
+  const subheading = subtitle ?? "User engagement metrics";
 
   return (
     <AbsoluteFill style={{ background: C.gray[950], padding: 60 }}>
@@ -34,7 +39,7 @@ export const DataBarChart = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
         }}
       >
-        Weekly Activity
+        {heading}
       </div>
       <div
         style={{
@@ -45,7 +50,7 @@ export const DataBarChart = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 10, startDelay + 30], [0, 1]),
         }}
       >
-        User engagement metrics
+        {subheading}
       </div>
 
       {/* チャートエリア */}

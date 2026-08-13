@@ -5,11 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const TextNeon = ({ text = "NEON", startDelay = 0 }: {
+export const TextNeon = ({ text = "NEON", subtitle, startDelay = 0 }: {
   text?: string;
+  subtitle?: string;
   startDelay?: number;
 }) => {
   const frame = useCurrentFrame();
+
+  const displaySubtitle = subtitle ?? "LIGHTS ON";
 
   const entryProgress = lerp(frame, [startDelay, startDelay + 30], [0, 1], EASE.out);
   const flicker = frame > startDelay + 30
@@ -73,7 +76,7 @@ export const TextNeon = ({ text = "NEON", startDelay = 0 }: {
           textShadow: `0 0 10px ${C.secondary}`,
         }}
       >
-        LIGHTS ON
+        {displaySubtitle}
       </div>
     </AbsoluteFill>
   );

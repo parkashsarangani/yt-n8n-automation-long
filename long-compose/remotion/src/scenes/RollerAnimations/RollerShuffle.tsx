@@ -5,13 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const RollerShuffle = ({ startDelay = 0 }: {
+export const RollerShuffle = ({ startDelay = 0, word: wordProp }: {
   startDelay?: number;
+  word?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const finalWord = "REVEALED";
+  const finalWord = wordProp ?? "REVEALED";
   const shuffleChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const t = frame - startDelay;
 
@@ -73,10 +74,10 @@ export const RollerShuffle = ({ startDelay = 0 }: {
             const confirmFrame = pos / charsPerFrame / 1.5;
             const confirmProgress = isConfirmed
               ? spring({
-                  frame: Math.max(0, t - confirmFrame),
-                  fps,
-                  config: { damping: 12, stiffness: 300 },
-                })
+                frame: Math.max(0, t - confirmFrame),
+                fps,
+                config: { damping: 12, stiffness: 300 },
+              })
               : 0;
 
             // finalWord="REVEALED"は固定なのでcharとposで一意

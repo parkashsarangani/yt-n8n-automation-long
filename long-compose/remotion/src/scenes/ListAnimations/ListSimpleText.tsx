@@ -5,13 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListSimpleText = ({ startDelay = 0 }: {
+export const ListSimpleText = ({ startDelay = 0, items: itemsProp }: {
   startDelay?: number;
+  items?: string[];
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = itemsProp ?? [
     "Intuitive interface",
     "Powerful automation",
     "Seamless integration",

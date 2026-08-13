@@ -5,12 +5,13 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const RollerGradientWave = ({ startDelay = 0 }: {
+export const RollerGradientWave = ({ startDelay = 0, words: wordsProp }: {
   startDelay?: number;
+  words?: string[];
 }) => {
   const frame = useCurrentFrame();
 
-  const words = ["Dream", "Design", "Develop", "Deliver", "DOMINATE"];
+  const words = wordsProp ?? ["Dream", "Design", "Develop", "Deliver", "DOMINATE"];
   const t = frame - startDelay;
 
   const wordDuration = 25;

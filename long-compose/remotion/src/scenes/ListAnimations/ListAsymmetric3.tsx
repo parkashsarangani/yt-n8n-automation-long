@@ -5,11 +5,19 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListAsymmetric3 = ({ startDelay = 0 }: {
+export const ListAsymmetric3 = ({ startDelay = 0, items: itemsProp }: {
   startDelay?: number;
+  items?: Array<{ label?: string; title: string; desc?: string }>;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  const defaultItems = [
+    { label: "01 — PRIMARY", title: "Speed &\nPerformance", desc: "10x faster than traditional solutions with optimized algorithms." },
+    { label: "02", title: "Security", desc: "Enterprise-grade encryption and compliance." },
+    { label: "03", title: "Scalability", desc: "From startup to enterprise, grow without limits." },
+  ];
+  const items = itemsProp ?? defaultItems;
 
   const mainProgress = spring({
     frame: frame - startDelay,
@@ -51,7 +59,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             marginBottom: 20,
           }}
         >
-          01 — PRIMARY
+          {items[0]?.label ?? "01 — PRIMARY"}
         </div>
         <div
           style={{
@@ -61,11 +69,10 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             color: C.white,
             lineHeight: 1.1,
             marginBottom: 20,
+            whiteSpace: "pre-line",
           }}
         >
-          Speed &amp;
-          <br />
-          Performance
+          {items[0]?.title ?? "Speed &\nPerformance"}
         </div>
         <div
           style={{
@@ -76,7 +83,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             maxWidth: 400,
           }}
         >
-          10x faster than traditional solutions with optimized algorithms.
+          {items[0]?.desc ?? "10x faster than traditional solutions with optimized algorithms."}
         </div>
       </div>
 
@@ -102,7 +109,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             marginBottom: 12,
           }}
         >
-          02
+          {items[1]?.label ?? "02"}
         </div>
         <div
           style={{
@@ -113,7 +120,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             marginBottom: 8,
           }}
         >
-          Security
+          {items[1]?.title ?? "Security"}
         </div>
         <div
           style={{
@@ -123,7 +130,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             lineHeight: 1.6,
           }}
         >
-          Enterprise-grade encryption and compliance.
+          {items[1]?.desc ?? "Enterprise-grade encryption and compliance."}
         </div>
       </div>
 
@@ -149,7 +156,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             marginBottom: 12,
           }}
         >
-          03
+          {items[2]?.label ?? "03"}
         </div>
         <div
           style={{
@@ -160,7 +167,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             marginBottom: 8,
           }}
         >
-          Scalability
+          {items[2]?.title ?? "Scalability"}
         </div>
         <div
           style={{
@@ -170,7 +177,7 @@ export const ListAsymmetric3 = ({ startDelay = 0 }: {
             lineHeight: 1.6,
           }}
         >
-          From startup to enterprise, grow without limits.
+          {items[2]?.desc ?? "From startup to enterprise, grow without limits."}
         </div>
       </div>
 

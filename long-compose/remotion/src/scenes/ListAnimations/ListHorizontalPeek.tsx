@@ -5,17 +5,24 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListHorizontalPeek = ({ startDelay = 0 }: {
+export const ListHorizontalPeek = ({ startDelay = 0, items: itemsProp, title }: {
   startDelay?: number;
+  items?: Array<{ num?: string; title: string; highlighted?: boolean }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = (itemsProp ?? [
     { num: "01", title: "Design", highlighted: true },
     { num: "02", title: "Develop", highlighted: false },
     { num: "03", title: "Deploy", highlighted: false },
-  ];
+  ]).map((item, i) => ({
+    num: item.num ?? String(i + 1).padStart(2, "0"),
+    title: item.title,
+    highlighted: item.highlighted ?? i === 0,
+  }));
+  const heading = title ?? "WORKFLOW";
 
   // 横スライド
   const slideX = lerp(frame, [startDelay + 30, startDelay + 70], [0, -100], EASE.smooth);
@@ -39,7 +46,7 @@ export const ListHorizontalPeek = ({ startDelay = 0 }: {
             letterSpacing: 3,
           }}
         >
-          WORKFLOW
+          {heading}
         </div>
       </div>
 

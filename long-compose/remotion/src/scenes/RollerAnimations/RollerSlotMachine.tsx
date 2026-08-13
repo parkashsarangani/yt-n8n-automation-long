@@ -12,13 +12,16 @@ const C = {
   gray: { 600: "#666666" },
 };
 
-export const RollerSlotMachine = ({ startDelay = 0 }: {
+export const RollerSlotMachine = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Feature", "Product", "Design", "Future"];
+  const words = wordsProp ?? ["Feature", "Product", "Design", "Future"];
+  const displayPrefix = prefix ?? "New";
   const wordHeight = 80;
   const cycleDuration = 25;
   const finalIndex = words.length - 1;
@@ -61,7 +64,7 @@ export const RollerSlotMachine = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          New
+          {displayPrefix}
         </div>
 
         <div

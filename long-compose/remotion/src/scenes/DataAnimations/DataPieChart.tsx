@@ -5,18 +5,21 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const DataPieChart = ({ startDelay = 0 }: {
+export const DataPieChart = ({ startDelay = 0, items, title }: {
   startDelay?: number;
+  items?: Array<{ label: string; value: number; color?: string }>;
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const data = [
+  const data = (items ?? [
     { label: "Product A", value: 35, color: C.accent },
     { label: "Product B", value: 25, color: C.secondary },
     { label: "Product C", value: 20, color: C.tertiary },
     { label: "Others", value: 20, color: C.gray[600] },
-  ];
+  ]).map((item, i) => ({ ...item, color: item.color ?? [C.accent, C.secondary, C.tertiary, C.gray[600]][i % 4] }));
+  const heading = title ?? "Market Share";
 
   const radius = 140;
   const cx = 200;
@@ -108,7 +111,7 @@ export const DataPieChart = ({ startDelay = 0 }: {
               opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
             }}
           >
-            Market Share
+            {heading}
           </div>
 
           {data.map((item, i) => {

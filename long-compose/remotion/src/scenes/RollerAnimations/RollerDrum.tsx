@@ -5,13 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerDrum = ({ startDelay = 0 }: {
+export const RollerDrum = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Today", "Tomorrow", "Forever", "Always"];
+  const words = wordsProp ?? ["Today", "Tomorrow", "Forever", "Always"];
+  const displayPrefix = prefix ?? "Start";
   const cycleDuration = 28;
   const finalIndex = words.length - 1;
 
@@ -47,7 +50,7 @@ export const RollerDrum = ({ startDelay = 0 }: {
             color: C.gray[400],
           }}
         >
-          Start
+          {displayPrefix}
         </div>
 
         {/* 3Dドラム */}

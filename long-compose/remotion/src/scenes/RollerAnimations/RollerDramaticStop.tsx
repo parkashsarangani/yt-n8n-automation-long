@@ -5,19 +5,22 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring, Easing } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const RollerDramaticStop = ({ startDelay = 0 }: {
+export const RollerDramaticStop = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = [
+  const words = wordsProp ?? [
     "Good",
     "Better",
     "Great",
     "Amazing",
-    "LEGENDARY", // 最終
+    "LEGENDARY",
   ];
+  const displayPrefix = prefix ?? "Not just good, but...";
 
   const wordHeight = 100;
   const t = frame - startDelay;
@@ -81,10 +84,10 @@ export const RollerDramaticStop = ({ startDelay = 0 }: {
   const isFinal = t >= duration;
   const finalEmphasis = isFinal
     ? spring({
-        frame: t - duration,
-        fps,
-        config: { damping: 8, stiffness: 150 },
-      })
+      frame: t - duration,
+      fps,
+      config: { damping: 8, stiffness: 150 },
+    })
     : 0;
 
   // フェイクストップ時の「止まりそう」演出
@@ -111,7 +114,7 @@ export const RollerDramaticStop = ({ startDelay = 0 }: {
             opacity: lerp(t, [0, 15], [0, 1]),
           }}
         >
-          Not just good, but...
+          {displayPrefix}
         </div>
 
         {/* ローラー */}

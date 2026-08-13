@@ -5,10 +5,17 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const CinematicMinimalEnd = ({ startDelay = 0 }: {
+export const CinematicMinimalEnd = ({ startDelay = 0, credits, endTitle }: {
   startDelay?: number;
+  credits?: Array<{ label: string; name: string }>;
+  endTitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayCredits = credits ?? [
+    { label: "Directed by", name: "John Smith" },
+    { label: "Written by", name: "Jane Doe" },
+  ];
+  const displayEndTitle = endTitle ?? "The End";
 
   const fadeInOut = (start: number, duration: number) => {
     const progress = frame - startDelay - start;
@@ -20,73 +27,42 @@ export const CinematicMinimalEnd = ({ startDelay = 0 }: {
 
   return (
     <AbsoluteFill style={{ background: C.black }}>
-      {/* "Directed by" */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: "35%",
-          transform: "translateX(-50%)",
-          textAlign: "center",
-          opacity: fadeInOut(0, 50),
-        }}
-      >
+      {/* Credits */}
+      {displayCredits.map((credit, i) => (
         <div
+          key={`credit-${credit.label}`}
           style={{
-            fontFamily: font,
-            fontSize: 14,
-            color: C.gray[500],
-            letterSpacing: 4,
-            marginBottom: 15,
+            position: "absolute",
+            left: "50%",
+            top: `${35 + i * 15}%`,
+            transform: "translateX(-50%)",
+            textAlign: "center",
+            opacity: fadeInOut(i * 30, 50),
           }}
         >
-          Directed by
+          <div
+            style={{
+              fontFamily: font,
+              fontSize: 14,
+              color: C.gray[500],
+              letterSpacing: 4,
+              marginBottom: 15,
+            }}
+          >
+            {credit.label}
+          </div>
+          <div
+            style={{
+              fontFamily: font,
+              fontSize: 36,
+              fontWeight: 300,
+              color: C.white,
+            }}
+          >
+            {credit.name}
+          </div>
         </div>
-        <div
-          style={{
-            fontFamily: font,
-            fontSize: 36,
-            fontWeight: 300,
-            color: C.white,
-          }}
-        >
-          John Smith
-        </div>
-      </div>
-
-      {/* "Written by" */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: "50%",
-          transform: "translateX(-50%)",
-          textAlign: "center",
-          opacity: fadeInOut(30, 50),
-        }}
-      >
-        <div
-          style={{
-            fontFamily: font,
-            fontSize: 14,
-            color: C.gray[500],
-            letterSpacing: 4,
-            marginBottom: 15,
-          }}
-        >
-          Written by
-        </div>
-        <div
-          style={{
-            fontFamily: font,
-            fontSize: 36,
-            fontWeight: 300,
-            color: C.white,
-          }}
-        >
-          Jane Doe
-        </div>
-      </div>
+      ))}
 
       {/* "The End" */}
       <div
@@ -108,7 +84,7 @@ export const CinematicMinimalEnd = ({ startDelay = 0 }: {
             color: C.white,
           }}
         >
-          The End
+          {displayEndTitle}
         </div>
       </div>
     </AbsoluteFill>

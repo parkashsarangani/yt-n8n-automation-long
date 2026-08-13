@@ -5,13 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, font } from "../../common";
 
-export const RollerVerticalList = ({ startDelay = 0 }: {
+export const RollerVerticalList = ({ startDelay = 0, words: wordsProp, prefix }: {
   startDelay?: number;
+  words?: string[];
+  prefix?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const words = ["Speed", "Quality", "Value", "Trust"];
+  const words = wordsProp ?? ["Speed", "Quality", "Value", "Trust"];
+  const displayPrefix = prefix ?? "We deliver";
   const itemHeight = 70;
   const cycleDuration = 25;
   const finalIndex = words.length - 1;
@@ -49,7 +52,7 @@ export const RollerVerticalList = ({ startDelay = 0 }: {
             color: C.gray[600],
           }}
         >
-          We deliver
+          {displayPrefix}
         </div>
 
         {/* スクロールウィンドウ */}

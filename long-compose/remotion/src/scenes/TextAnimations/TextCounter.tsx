@@ -9,11 +9,13 @@ export const TextCounter = ({
   targetNumber = 10000,
   prefix = "",
   suffix = "+",
+  label,
   startDelay = 0,
 }: {
   targetNumber?: number;
   prefix?: string;
   suffix?: string;
+  label?: string;
   startDelay?: number;
 }) => {
   const frame = useCurrentFrame();
@@ -22,6 +24,7 @@ export const TextCounter = ({
   const currentNumber = Math.floor(targetNumber * progress);
 
   const formattedNumber = currentNumber.toLocaleString();
+  const displayLabel = label ?? "ACTIVE USERS";
 
   return (
     <AbsoluteFill style={{ background: C.black }}>
@@ -60,7 +63,7 @@ export const TextCounter = ({
             opacity: lerp(frame, [startDelay + 40, startDelay + 60], [0, 1]),
           }}
         >
-          ACTIVE USERS
+          {displayLabel}
         </div>
       </div>
 

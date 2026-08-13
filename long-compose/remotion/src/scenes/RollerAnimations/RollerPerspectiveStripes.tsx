@@ -5,15 +5,18 @@
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const RollerPerspectiveStripes = ({ startDelay = 0 }: {
+export const RollerPerspectiveStripes = ({ startDelay = 0, phrases: phrasesProp, centerLines: centerLinesProp }: {
   startDelay?: number;
+  phrases?: Array<{ text: string; color?: string }>;
+  centerLines?: string[];
 }) => {
   const frame = useCurrentFrame();
 
-  const phrases = [
+  const phrases = (phrasesProp ?? [
     { text: "Create your", color: C.white },
     { text: "own video", color: C.success },
-  ];
+  ]).map(p => ({ text: p.text, color: p.color ?? C.white }));
+  const centerLines = centerLinesProp ?? phrases.map(p => p.text);
 
   const t = frame - startDelay;
   const stripeCount = 9;
@@ -111,7 +114,7 @@ export const RollerPerspectiveStripes = ({ startDelay = 0 }: {
             opacity: lerp(t, [20, 40], [0, 1]),
           }}
         >
-          Create your
+          {centerLines[0] ?? "Create your"}
         </div>
         <div
           style={{
@@ -123,7 +126,7 @@ export const RollerPerspectiveStripes = ({ startDelay = 0 }: {
             opacity: lerp(t, [30, 50], [0, 1]),
           }}
         >
-          own video
+          {centerLines[1] ?? "own video"}
         </div>
       </div>
     </AbsoluteFill>

@@ -5,17 +5,20 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const ListMinimalLeft = ({ startDelay = 0 }: {
+export const ListMinimalLeft = ({ startDelay = 0, items: itemsProp, title }: {
   startDelay?: number;
+  items?: string[];
+  title?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const items = [
+  const items = itemsProp ?? [
     "Faster development cycles",
     "Reduced operational costs",
     "Improved team collaboration",
   ];
+  const heading = title ?? "Benefits";
 
   return (
     <AbsoluteFill style={{ background: C.white }}>
@@ -37,7 +40,7 @@ export const ListMinimalLeft = ({ startDelay = 0 }: {
             marginBottom: 10,
           }}
         >
-          Benefits
+          {heading}
         </div>
         <div
           style={{

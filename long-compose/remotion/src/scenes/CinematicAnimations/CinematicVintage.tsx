@@ -5,10 +5,16 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { lerp, font } from "../../common";
 
-export const CinematicVintage = ({ startDelay = 0 }: {
+export const CinematicVintage = ({ startDelay = 0, title, subtitle, label }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
+  label?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "Memories";
+  const displaySubtitle = subtitle ?? "— 1952 —";
+  const displayLabel = label ?? "PRESENTS";
 
   const flickerSeed = Math.floor(frame / 2);
   const flicker = 0.9 + random(`vintage-${flickerSeed}`) * 0.1;
@@ -69,7 +75,7 @@ export const CinematicVintage = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay, startDelay + 20], [0, 1]),
           }}
         >
-          PRESENTS
+          {displayLabel}
         </div>
         <div
           style={{
@@ -81,7 +87,7 @@ export const CinematicVintage = ({ startDelay = 0 }: {
             opacity: titleOpacity * flicker,
           }}
         >
-          Memories
+          {displayTitle}
         </div>
         <div
           style={{
@@ -93,7 +99,7 @@ export const CinematicVintage = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 50, startDelay + 70], [0, 1]),
           }}
         >
-          — 1952 —
+          {displaySubtitle}
         </div>
       </div>
 

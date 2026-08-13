@@ -5,13 +5,15 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { C, lerp, font } from "../../common";
 
-export const TextScramble = ({ text = "SCRAMBLE", startDelay = 0 }: {
+export const TextScramble = ({ text = "SCRAMBLE", subtitle, startDelay = 0 }: {
   text?: string;
+  subtitle?: string;
   startDelay?: number;
 }) => {
   const frame = useCurrentFrame();
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
   const targetChars = text.split("");
+  const displaySubtitle = subtitle ?? "DECODING COMPLETE";
 
   const getDisplayChar = (index: number, targetChar: string) => {
     const charStartFrame = startDelay + index * 4;
@@ -74,7 +76,7 @@ export const TextScramble = ({ text = "SCRAMBLE", startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 50, startDelay + 70], [0, 1]),
           }}
         >
-          DECODING COMPLETE
+          {displaySubtitle}
         </div>
       </div>
     </AbsoluteFill>

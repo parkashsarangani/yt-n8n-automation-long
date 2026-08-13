@@ -5,10 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicRomance = ({ startDelay = 0 }: {
+export const CinematicRomance = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "Forever";
+  const displaySubtitle = subtitle ?? "A LOVE STORY";
 
   const titleOpacity = lerp(frame, [startDelay + 20, startDelay + 50], [0, 1]);
   const heartScale = lerp(frame, [startDelay, startDelay + 30], [0, 1], EASE.out);
@@ -78,7 +82,7 @@ export const CinematicRomance = ({ startDelay = 0 }: {
             opacity: titleOpacity,
           }}
         >
-          Forever
+          {displayTitle}
         </div>
         <div
           style={{
@@ -90,7 +94,7 @@ export const CinematicRomance = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 50, startDelay + 70], [0, 1]),
           }}
         >
-          A LOVE STORY
+          {displaySubtitle}
         </div>
       </div>
     </AbsoluteFill>

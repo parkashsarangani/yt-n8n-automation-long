@@ -5,11 +5,19 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, font } from "../../common";
 
-export const ListUnevenGrid = ({ startDelay = 0 }: {
+export const ListUnevenGrid = ({ startDelay = 0, items: itemsProp }: {
   startDelay?: number;
+  items?: Array<{ label?: string; title: string; desc?: string }>;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+
+  const defaultItems = [
+    { label: "FEATURED", title: "Enterprise\nSolutions", desc: "Comprehensive platform designed for large-scale operations and complex workflows." },
+    { label: "OPTION 02", title: "Startup", desc: "Perfect for growing teams" },
+    { label: "OPTION 03", title: "Individual", desc: "For solo professionals" },
+  ];
+  const items = itemsProp ?? defaultItems;
 
   const mainProgress = spring({
     frame: frame - startDelay,
@@ -69,7 +77,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
                 marginBottom: 20,
               }}
             >
-              FEATURED
+              {items[0]?.label ?? "FEATURED"}
             </div>
             <div
               style={{
@@ -78,11 +86,10 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
                 fontWeight: 700,
                 color: C.white,
                 lineHeight: 1.1,
+                whiteSpace: "pre-line",
               }}
             >
-              Enterprise
-              <br />
-              Solutions
+              {items[0]?.title ?? "Enterprise\nSolutions"}
             </div>
           </div>
           <div
@@ -94,7 +101,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               lineHeight: 1.7,
             }}
           >
-            Comprehensive platform designed for large-scale operations and complex workflows.
+            {items[0]?.desc ?? "Comprehensive platform designed for large-scale operations and complex workflows."}
           </div>
         </div>
 
@@ -117,7 +124,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               marginBottom: 15,
             }}
           >
-            OPTION 02
+            {items[1]?.label ?? "OPTION 02"}
           </div>
           <div
             style={{
@@ -128,7 +135,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               marginBottom: 10,
             }}
           >
-            Startup
+            {items[1]?.title ?? "Startup"}
           </div>
           <div
             style={{
@@ -137,7 +144,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               color: C.gray[500],
             }}
           >
-            Perfect for growing teams
+            {items[1]?.desc ?? "Perfect for growing teams"}
           </div>
         </div>
 
@@ -160,7 +167,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               marginBottom: 15,
             }}
           >
-            OPTION 03
+            {items[2]?.label ?? "OPTION 03"}
           </div>
           <div
             style={{
@@ -171,7 +178,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               marginBottom: 10,
             }}
           >
-            Individual
+            {items[2]?.title ?? "Individual"}
           </div>
           <div
             style={{
@@ -180,7 +187,7 @@ export const ListUnevenGrid = ({ startDelay = 0 }: {
               color: C.gray[500],
             }}
           >
-            For solo professionals
+            {items[2]?.desc ?? "For solo professionals"}
           </div>
         </div>
       </div>

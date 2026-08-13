@@ -5,8 +5,11 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig, spring } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const ListHeroWithList = ({ startDelay = 0 }: {
+export const ListHeroWithList = ({ startDelay = 0, heroLines, items: itemsProp, label }: {
   startDelay?: number;
+  heroLines?: string[];
+  items?: string[];
+  label?: string;
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -17,7 +20,9 @@ export const ListHeroWithList = ({ startDelay = 0 }: {
     config: { damping: 20, stiffness: 100 },
   });
 
-  const listItems = ["Fast", "Secure", "Reliable"];
+  const heroText = heroLines ?? ["BUILD", "BETTER"];
+  const listItems = itemsProp ?? ["Fast", "Secure", "Reliable"];
+  const sectionLabel = label ?? "WHAT WE OFFER";
 
   return (
     <AbsoluteFill style={{ background: C.gray[950] }}>
@@ -31,30 +36,21 @@ export const ListHeroWithList = ({ startDelay = 0 }: {
           opacity: heroProgress,
         }}
       >
-        <div
-          style={{
-            fontFamily: font,
-            fontSize: 120,
-            fontWeight: 900,
-            color: C.white,
-            lineHeight: 0.9,
-            letterSpacing: -5,
-          }}
-        >
-          BUILD
-        </div>
-        <div
-          style={{
-            fontFamily: font,
-            fontSize: 120,
-            fontWeight: 900,
-            color: C.accent,
-            lineHeight: 0.9,
-            letterSpacing: -5,
-          }}
-        >
-          BETTER
-        </div>
+        {heroText.map((line, i) => (
+          <div
+            key={`hero-line-${i}`}
+            style={{
+              fontFamily: font,
+              fontSize: 120,
+              fontWeight: 900,
+              color: i === 0 ? C.white : C.accent,
+              lineHeight: 0.9,
+              letterSpacing: -5,
+            }}
+          >
+            {line}
+          </div>
+        ))}
       </div>
 
       {/* サブリスト（右下に小さく） */}
@@ -76,7 +72,7 @@ export const ListHeroWithList = ({ startDelay = 0 }: {
             opacity: lerp(frame, [startDelay + 30, startDelay + 45], [0, 1]),
           }}
         >
-          WHAT WE OFFER
+          {sectionLabel}
         </div>
 
         {listItems.map((item, i) => {

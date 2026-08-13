@@ -5,10 +5,14 @@
 import { AbsoluteFill, useCurrentFrame, random } from "remotion";
 import { C, EASE, lerp, font } from "../../common";
 
-export const CinematicHorror = ({ startDelay = 0 }: {
+export const CinematicHorror = ({ startDelay = 0, title, subtitle }: {
   startDelay?: number;
+  title?: string;
+  subtitle?: string;
 }) => {
   const frame = useCurrentFrame();
+  const displayTitle = title ?? "FEAR";
+  const displaySubtitle = subtitle ?? "COMING SOON";
 
   const flickerSeed = Math.floor(frame / 3);
   const flicker = random(`horror-${flickerSeed}`) > 0.15 ? 1 : 0.2;
@@ -55,7 +59,7 @@ export const CinematicHorror = ({ startDelay = 0 }: {
           opacity: titleOpacity * flicker,
         }}
       >
-        FEAR
+        {displayTitle}
       </div>
 
       {/* サブテキスト */}
@@ -72,7 +76,7 @@ export const CinematicHorror = ({ startDelay = 0 }: {
           opacity: lerp(frame, [startDelay + 40, startDelay + 60], [0, flicker]),
         }}
       >
-        COMING SOON
+        {displaySubtitle}
       </div>
 
       {/* ノイズオーバーレイ */}
