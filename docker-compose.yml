@@ -1,4 +1,4 @@
-# AMOS — one command to run everything:
+# VidGen — one command to run everything:
 #
 #   docker compose up --build
 #   → http://localhost:4321
@@ -12,6 +12,22 @@
 name: amos
 
 services:
+  # Postgres: persistent state for runs, artifacts, blob registry.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vidgen
+      POSTGRES_USER: vidgen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vidgen_dev}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vidgen"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # The brain: reasoning agents, execution graph, artifact store, control UI.
   brain:
     build: ./brain
@@ -19,9 +35,9 @@ services:
     ports:
       - "127.0.0.1:4321:4321"
     environment:
+      # Postgres connection
+      DATABASE_URL: postgres://vidgen:${POSTGRES_PASSWORD:-vidgen_dev}@postgres:5432/vidgen
       # Inside the compose network the renderer is reachable by service name.
-      # This overrides anything in the stored .env, which is what we want:
-      # "localhost:4001" is a host-side address and is wrong from in here.
       COMPOSE_URL: http://long-compose:4000
       # Seeded from your shell or the .env beside this file. Empty is treated as
       # unset by the service, so a blank here never clobbers a key you saved in
@@ -38,9 +54,11 @@ services:
       # must never cause a publish. Uploads are private either way.
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
     volumes:
-      # Artifacts, blobs, the run log, and credentials entered in the UI.
+      # Blobs stay on filesystem (large binary files).
       - amos_data:/data
     depends_on:
+      postgres:
+        condition: service_healthy
       long-compose:
         condition: service_healthy
 
@@ -102,6 +120,7 @@ services:
       - long_n8n_data:/home/node/.n8n
 
 volumes:
+  pg_data:
   amos_data:
   long_outputs:
   long_data:
