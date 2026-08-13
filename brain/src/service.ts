@@ -79,6 +79,8 @@ interface RunState {
   createdAt: string;
   /** Node ids currently executing — the "which step is running" signal. */
   active: Set<string>;
+  /** Incrementally tracks node completions from executor events. */
+  completedOutputs: Map<string, string>;
   last: GraphRunResult | null;
   finished: boolean;
   error: string | null;
@@ -215,6 +217,7 @@ export class AmosService {
       state.active.delete(e.node_id);
     }
     if (e.type === "node_done") {
+      state.completedOutputs.set(e.node_id, e.artifact_id);
       console.log(`${tag} ✓ ${e.node_id}${e.cached ? " (cached)" : ""}`);
     }
     if (e.type === "node_failed") {
@@ -277,6 +280,7 @@ export class AmosService {
       brief: trimmed,
       createdAt: new Date().toISOString(),
       active: new Set(),
+      completedOutputs: new Map(),
       last: null,
       finished: false,
       error: null,
@@ -339,14 +343,14 @@ export class AmosService {
 
     const nodes: NodeView[] = this.graph.nodes.map((n) => {
       const kind = nodeType(n);
-      const artifact = outputs[n.id] ?? null;
+      // Use both the last settled result AND the live event-driven completions.
+      const artifact = outputs[n.id] ?? s.completedOutputs.get(n.id) ?? null;
       let state: NodeState = "pending";
       if (s.active.has(n.id)) state = "running";
       else if (artifact) state = "done";
       else if (s.finished && waitingBy.has(n.id)) state = "waiting";
       else if (s.finished && failureBy.has(n.id)) state = "failed";
       else if (s.finished && blocked.has(n.id)) state = "blocked";
-      else if (!s.finished && !artifact) state = s.active.size > 0 ? "pending" : "running";
 
       const wait = s.finished ? waitingBy.get(n.id) : undefined;
       const fail = s.finished ? failureBy.get(n.id) : undefined;
