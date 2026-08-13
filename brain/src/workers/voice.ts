@@ -16,7 +16,7 @@ import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface VoiceWorkerOptions {
   voiceId: string;
-  /** TTS providers rate-limit; long-form is ~50 calls per video. */
+  /** ElevenLabs does not allow concurrent requests to the same voice. */
   concurrency?: number;
   version?: string;
 }
@@ -46,7 +46,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
 
       const clips = await mapWithConcurrency(
         ordered,
-        opts.concurrency ?? 4,
+        opts.concurrency ?? 1,
         async (scene, i) => {
           const result = await speech.synthesize({
             text: scene.narration,
