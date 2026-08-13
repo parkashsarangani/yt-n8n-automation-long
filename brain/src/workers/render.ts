@@ -38,7 +38,8 @@ interface AssetScene {
   image_uri?: string;
   source: string;
   template_category?: string;
-  template_data?: Record<string, unknown>;
+  /** JSON-encoded string in the artifact, parsed at read time. */
+  template_data?: string;
 }
 
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
@@ -99,7 +100,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
           ...(alignment !== undefined ? { alignment } : {}),
           ...(scene.is_outro ? { is_outro: true } : {}),
           ...(asset?.template_category ? { template_category: asset.template_category } : {}),
-          ...(asset?.template_data ? { template_data: asset.template_data } : {}),
+          ...(asset?.template_data ? { template_data: JSON.parse(asset.template_data) } : {}),
         });
       }
 
