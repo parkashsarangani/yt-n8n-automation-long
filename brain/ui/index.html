@@ -453,14 +453,16 @@
 
     const STATE_LABEL = { pending: "", running: "running…", done: "done", waiting: "needs you", failed: "failed", blocked: "blocked" };
 
+    let deciding = false;
+
     async function renderDetail() {
       if (!selected) return;
+      if (deciding) return; // Don't overwrite the UI while a decision is in flight
       const { run } = await api(`/api/runs/${selected}`);
       const detailJson = JSON.stringify({ nodes: run.nodes, status: run.status, cost: run.cost_usd, waiting: run.waiting, failures: run.failures });
       if (detailJson === lastDetailJson) return;
       lastDetailJson = detailJson;
       const waiting = run.waiting[0];
-
       let html = `<h2>Run detail</h2>
     <div class="muted" style="margin-bottom:10px">
       ${esc(run.brief)} · <code>${esc(run.graph)}</code> · ${esc(run.status)} · $${run.cost_usd.toFixed(4)}
@@ -489,11 +491,9 @@
       html += `<div id="review"></div>`;
       $("detail").innerHTML = html;
 
-      // Review pane: whatever the gate is gating, or the newest reviewable artifact.
-      const reviewId =
-        waiting?.artifact_id ??
-        run.nodes.find((n) => n.node_id === "script" && n.artifact_id)?.artifact_id ??
-        run.nodes.find((n) => n.node_id === "story" && n.artifact_id)?.artifact_id;
+      // Review pane: only show when a gate is actively waiting for approval.
+      // Don't show the script/story for review when the run is just in progress.
+      const reviewId = waiting?.artifact_id ?? null;
       if (reviewId) await renderReview(reviewId, waiting?.node_id ?? null);
     }
 
@@ -540,14 +540,22 @@
     async function decide(nodeId, approve) {
       $("approve").disabled = $("reject").disabled = true;
       $("decideMsg").textContent = approve ? "continuing…" : "rejecting…";
+      deciding = true;
       try {
         await api(`/api/runs/${selected}/decide`, {
           method: "POST",
           body: JSON.stringify({ node_id: nodeId, approve }),
         });
-        await renderDetail();
+        // Give the executor a moment to transition before we poll again
+        lastDetailJson = "";
+        await new Promise(r => setTimeout(r, 1000));
       } catch (e) {
+        // Show error persistently — don't let the poller overwrite it
         $("decideMsg").textContent = e.message;
+        await new Promise(r => setTimeout(r, 5000));
+      } finally {
+        deciding = false;
+        renderDetail().catch(() => { });
       }
     }
 

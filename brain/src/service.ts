@@ -322,12 +322,13 @@ export class AmosService {
       let state: NodeState = "pending";
       if (s.active.has(n.id)) state = "running";
       else if (artifact) state = "done";
-      else if (waitingBy.has(n.id)) state = "waiting";
-      else if (failureBy.has(n.id)) state = "failed";
-      else if (blocked.has(n.id)) state = "blocked";
+      else if (s.finished && waitingBy.has(n.id)) state = "waiting";
+      else if (s.finished && failureBy.has(n.id)) state = "failed";
+      else if (s.finished && blocked.has(n.id)) state = "blocked";
+      else if (!s.finished && !artifact) state = s.active.size > 0 ? "pending" : "running";
 
-      const wait = waitingBy.get(n.id);
-      const fail = failureBy.get(n.id);
+      const wait = s.finished ? waitingBy.get(n.id) : undefined;
+      const fail = s.finished ? failureBy.get(n.id) : undefined;
       return {
         node_id: n.id,
         kind,
@@ -342,6 +343,12 @@ export class AmosService {
 
     const status = !s.finished ? "running" : s.error ? "blocked" : (s.last?.status ?? "blocked");
 
+    // While the run is actively executing, the old waiting/failures are stale
+    // (the decision that unblocked the run already happened). Only report them
+    // when the executor has settled and they represent the current truth.
+    const waiting = s.finished ? (s.last?.waiting ?? []) : [];
+    const failures = s.finished ? (s.last?.failures ?? []).map((f) => ({ node_id: f.node_id, error: f.error })) : [];
+
     return {
       run_id: s.runId,
       graph: s.last?.graph ?? `${this.graph.graph_id}@${this.graph.version}`,
@@ -350,8 +357,8 @@ export class AmosService {
       created_at: s.createdAt,
       nodes,
       cost_usd: 0, // filled in by the server, which can await
-      waiting: s.last?.waiting ?? [],
-      failures: (s.last?.failures ?? []).map((f) => ({ node_id: f.node_id, error: f.error })),
+      waiting,
+      failures,
     };
   }
 
