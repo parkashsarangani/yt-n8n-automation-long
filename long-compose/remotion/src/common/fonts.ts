@@ -1,9 +1,7 @@
 /**
- * Font loading for remotion-scenes
+ * Font family for remotion-scenes.
+ * Inter is installed system-wide in the Docker container (from motion-assets/fonts).
+ * No need for @remotion/google-fonts — the font is available via fontconfig.
  */
 
-import { loadFont as loadInter } from "@remotion/google-fonts/Inter";
-
-const { fontFamily } = loadInter();
-
-export const font = fontFamily;
+export const font = "Inter, system-ui, -apple-system, sans-serif";
