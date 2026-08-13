@@ -304,7 +304,20 @@
     <h1>AMOS</h1>
     <span class="muted" id="graph"></span>
     <span class="row" id="providers" style="margin-left:auto"></span>
+    <button class="ghost" id="settingsToggle" style="width:auto;padding:6px 10px;font-size:13px">⚙ Settings</button>
   </header>
+
+  <section id="settingsPanel" style="display:none;margin:0 20px 0 20px;">
+    <h2>Credentials</h2>
+    <div class="muted" style="margin-bottom:8px">
+      Stored server-side. Values are never sent back to this page.
+    </div>
+    <div id="creds"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="saveCreds">Save</button>
+      <span class="muted" id="credMsg"></span>
+    </div>
+  </section>
 
   <main>
     <div>
@@ -323,18 +336,6 @@
       <section>
         <h2>Runs</h2>
         <div id="runs"><span class="muted">none yet</span></div>
-      </section>
-
-      <section>
-        <h2>Credentials</h2>
-        <div class="muted" style="margin-bottom:8px">
-          Stored in <code id="envfile">.env</code>. Values are never sent back to this page.
-        </div>
-        <div id="creds"></div>
-        <div class="row" style="margin-top:14px">
-          <button id="saveCreds">Save</button>
-          <span class="muted" id="credMsg"></span>
-        </div>
       </section>
     </div>
 
@@ -369,7 +370,6 @@
     async function loadConfig() {
       const cfg = await api("/api/config");
       $("graph").textContent = cfg.graph;
-      $("envfile").textContent = cfg.env_file;
       $("providers").innerHTML = cfg.providers
         .map((p) => `<span class="pill ${p.real ? "real" : "fake"}">${esc(p.role)}: ${esc(p.provider)}</span>`)
         .join("");
@@ -384,6 +384,11 @@
     <div class="muted">${esc(c.help)} · without it: ${esc(c.fallback)}</div>
   `).join("");
     }
+
+    $("settingsToggle").onclick = () => {
+      const panel = $("settingsPanel");
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
+    };
 
     $("saveCreds").onclick = async () => {
       const updates = {};
