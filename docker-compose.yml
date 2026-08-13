@@ -31,6 +31,9 @@ services:
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       FAL_KEY: ${FAL_KEY:-}
       YOUTUBE_ACCESS_TOKEN: ${YOUTUBE_ACCESS_TOKEN:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
       # Set to 1 to allow real YouTube uploads. Off by default: a token alone
       # must never cause a publish. Uploads are private either way.
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}

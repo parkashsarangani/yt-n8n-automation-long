@@ -54,6 +54,65 @@ n8n            legacy — the pre-AMOS pipeline, see below
 Both published ports bind to `127.0.0.1` deliberately: the UI holds API keys and
 is unauthenticated by design. Do not expose it.
 
+## Running on the HP server
+
+AMOS shares the box with the Shorts stack. Ports are offset so the two never
+collide:
+
+| | Shorts | AMOS |
+|---|---|---|
+| renderer | `4000` | **`4001`** (`long-compose`) |
+| n8n | `5678` | **`5679`** (legacy, not started) |
+| control UI | — | **`4321`** (`brain`) |
+
+Deploy by pushing to `main` — the self-hosted runner builds both images, starts
+them, and health-checks each one. Or by hand on the box:
+
+```bash
+docker compose up -d --build
+```
+
+`restart: unless-stopped` brings both services back after a reboot.
+
+### One-time migration
+
+The compose project was renamed `yt-longform` → `amos`. Volumes are
+project-prefixed, so without this step the new stack starts with **empty**
+volumes and the old containers keep holding port 4001. The deploy runs it
+automatically; to do it manually:
+
+```bash
+bash scripts/migrate-from-yt-longform.sh
+```
+
+It stops the old project and copies each volume across. Non-destructive — the
+old volumes are left in place for you to delete once you are satisfied.
+
+### Reaching the UI from your laptop
+
+The UI binds to loopback on the server, so `http://server:4321` will not answer
+and is not meant to. Forward the port over SSH instead:
+
+```bash
+ssh -N -L 4321:127.0.0.1:4321 you@hp-server
+```
+
+Leave that running and open **http://localhost:4321** on your laptop. The
+browser sends `Host: localhost`, which is what the server's Host-header check
+requires, so this works with no configuration change.
+
+> **Do not put this behind a Cloudflare Tunnel or a reverse proxy.** Unlike n8n,
+> the UI has no login: anyone who reaches it can read your masked credentials,
+> overwrite your keys, and spend your API budget. Loopback plus SSH *is* the
+> auth. If you ever need real remote access, the UI needs an auth layer first.
+
+### Memory
+
+`long-compose` is capped at 6G because Remotion renders in headless Chromium.
+The Shorts renderer has its own budget on the same machine — if both render at
+once on a 16G box you are at the edge. Lower `COMPOSE_CONCURRENCY` (default 3)
+before raising the cap.
+
 ### The legacy n8n pipeline
 
 The original n8n A/B pipeline still exists but has no role in AMOS — the brain

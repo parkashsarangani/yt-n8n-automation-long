@@ -28,6 +28,7 @@ import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
 import { FalImageProvider } from "./providers/fal.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
+import { youtubeTokenFactory } from "./youtube-auth.ts";
 import {
   FakeImageProvider,
   FakePublishTarget,
@@ -155,9 +156,17 @@ export class AmosService {
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
     const target: PublishTarget =
-      this.allowPublish && env("YOUTUBE_ACCESS_TOKEN")
-        ? new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! })
-        : new FakePublishTarget({ id: "dry-run" });
+      this.allowPublish && env("YOUTUBE_CLIENT_ID") && env("YOUTUBE_CLIENT_SECRET") && env("YOUTUBE_REFRESH_TOKEN")
+        ? new YouTubeTarget({
+          accessToken: youtubeTokenFactory({
+            clientId: env("YOUTUBE_CLIENT_ID")!,
+            clientSecret: env("YOUTUBE_CLIENT_SECRET")!,
+            refreshToken: env("YOUTUBE_REFRESH_TOKEN")!,
+          }),
+        })
+        : this.allowPublish && env("YOUTUBE_ACCESS_TOKEN")
+          ? new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! })
+          : new FakePublishTarget({ id: "dry-run" });
 
     this.transformations = allTransformations(
       this.agents,
@@ -211,8 +220,8 @@ export class AmosService {
       { role: "renderer", provider: env("COMPOSE_URL") ? "long-compose" : "fake", real: env("COMPOSE_URL") },
       {
         role: "publish",
-        provider: this.allowPublish && env("YOUTUBE_ACCESS_TOKEN") ? "youtube" : "dry-run",
-        real: this.allowPublish && env("YOUTUBE_ACCESS_TOKEN"),
+        provider: this.allowPublish && (env("YOUTUBE_REFRESH_TOKEN") || env("YOUTUBE_ACCESS_TOKEN")) ? "youtube" : "dry-run",
+        real: this.allowPublish && (env("YOUTUBE_REFRESH_TOKEN") || env("YOUTUBE_ACCESS_TOKEN")),
       },
     ];
   }
