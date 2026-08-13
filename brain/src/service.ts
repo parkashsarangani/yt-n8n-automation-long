@@ -226,6 +226,19 @@ export class AmosService {
     if (e.type === "gate_waiting") {
       console.log(`${tag} ⏸ ${e.node_id} — ${e.reason}`);
     }
+    if (e.type === "gate_settled" && e.approved) {
+      // Gate approvals are identity pass-throughs — find the upstream artifact
+      // from the last result's outputs (the gate's input node).
+      const gateNode = this.graph.nodes.find(n => n.id === e.node_id);
+      const upstreamId = gateNode ? (inputsOf(gateNode)[0] ?? null) : null;
+      const upstreamArtifact = upstreamId
+        ? (state.last?.outputs?.[upstreamId] ?? state.completedOutputs.get(upstreamId) ?? null)
+        : null;
+      if (upstreamArtifact) {
+        state.completedOutputs.set(e.node_id, upstreamArtifact);
+      }
+      console.log(`${tag} ✓ ${e.node_id} (gate approved)`);
+    }
     if (e.type === "run_end") {
       console.log(`${tag} ■ ${e.status}`);
     }
