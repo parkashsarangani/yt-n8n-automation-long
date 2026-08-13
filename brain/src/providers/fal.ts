@@ -45,7 +45,7 @@ export class FalImageProvider implements ImageProvider {
     this.model = opts.model ?? "fal-ai/flux-2-pro";
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.steps = opts.steps ?? 28;
-    this.pricePerImage = opts.pricePerImage ?? 0.04;
+    this.pricePerImage = opts.pricePerImage ?? 0.05;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `fal/${this.model}`;
   }
