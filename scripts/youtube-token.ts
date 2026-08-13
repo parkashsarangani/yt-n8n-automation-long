@@ -29,7 +29,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createInterface } from "node:readline";
+import { createServer } from "node:http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = resolve(__dirname, "..", ".env");
@@ -90,16 +90,6 @@ function writeEnvKey(path: string, key: string, value: string): void {
     writeFileSync(path, lines.join("\n"));
 }
 
-function ask(question: string): Promise<string> {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => {
-        rl.question(question, (answer) => {
-            rl.close();
-            resolve(answer.trim());
-        });
-    });
-}
-
 function requireEnv(env: Record<string, string>, key: string): string {
     const val = env[key];
     if (!val) {
@@ -119,19 +109,52 @@ async function authFlow(): Promise<void> {
     const clientId = requireEnv(env, "YOUTUBE_CLIENT_ID");
     const clientSecret = requireEnv(env, "YOUTUBE_CLIENT_SECRET");
 
-    const authUrl = new URL(AUTH_URL);
-    authUrl.searchParams.set("client_id", clientId);
-    authUrl.searchParams.set("redirect_uri", "urn:ietf:wg:oauth:2.0:oob");
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("scope", SCOPES);
-    authUrl.searchParams.set("access_type", "offline");
-    authUrl.searchParams.set("prompt", "consent");
+    const REDIRECT_PORT = 8976;
+    const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}`;
 
-    console.log("\n1. Open this URL in your browser:\n");
-    console.log(`   ${authUrl.toString()}\n`);
-    console.log("2. Authorize the app and copy the authorization code.\n");
+    // Wait for Google to redirect back with the auth code
+    const code = await new Promise<string>((resolveCode, reject) => {
+        const server = createServer((req, res) => {
+            const url = new URL(req.url ?? "/", REDIRECT_URI);
+            const authCode = url.searchParams.get("code");
+            const error = url.searchParams.get("error");
 
-    const code = await ask("3. Paste the code here: ");
+            if (error) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                res.end(`<h2>Authorization failed: ${error}</h2><p>You can close this tab.</p>`);
+                server.close();
+                reject(new Error(`Google returned error: ${error}`));
+                return;
+            }
+            if (authCode) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                res.end(`<h2>Authorization successful!</h2><p>You can close this tab and return to the terminal.</p>`);
+                server.close();
+                resolveCode(authCode);
+                return;
+            }
+            res.writeHead(400);
+            res.end("Missing code parameter");
+        });
+
+        server.listen(REDIRECT_PORT, () => {
+            const authUrl = new URL(AUTH_URL);
+            authUrl.searchParams.set("client_id", clientId);
+            authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+            authUrl.searchParams.set("response_type", "code");
+            authUrl.searchParams.set("scope", SCOPES);
+            authUrl.searchParams.set("access_type", "offline");
+            authUrl.searchParams.set("prompt", "consent");
+
+            console.log("\n1. Open this URL in your browser:\n");
+            console.log(`   ${authUrl.toString()}\n`);
+            console.log("2. Authorize the app — you'll be redirected back automatically.\n");
+            console.log(`   Waiting for redirect on http://localhost:${REDIRECT_PORT} ...\n`);
+        });
+
+        // Timeout after 5 minutes
+        setTimeout(() => { server.close(); reject(new Error("Timed out waiting for authorization")); }, 300_000);
+    });
 
     const res = await fetch(TOKEN_URL, {
         method: "POST",
@@ -140,7 +163,7 @@ async function authFlow(): Promise<void> {
             code,
             client_id: clientId,
             client_secret: clientSecret,
-            redirect_uri: "urn:ietf:wg:oauth:2.0:oob",
+            redirect_uri: REDIRECT_URI,
             grant_type: "authorization_code",
         }),
     });
@@ -158,7 +181,7 @@ async function authFlow(): Promise<void> {
     };
 
     if (!data.refresh_token) {
-        console.error("\nERROR: no refresh_token in response. Try adding prompt=consent or revoking app access and retrying.");
+        console.error("\nERROR: no refresh_token in response. Try revoking app access at https://myaccount.google.com/permissions and retrying.");
         process.exit(1);
     }
 
@@ -180,8 +203,8 @@ async function authFlow(): Promise<void> {
         // brain/.env doesn't exist, skip
     }
 
-    console.log("\nAdd YOUTUBE_REFRESH_TOKEN to your .env if it wasn't already there.");
-    console.log("From now on, just run: node --import tsx scripts/youtube-token.ts");
+    console.log("\nDone. Add YOUTUBE_REFRESH_TOKEN to your GitHub Secrets — it doesn't expire.");
+    console.log("From now on, the brain auto-refreshes access tokens using it.");
 }
 
 // ---------------------------------------------------------------------------

@@ -42,10 +42,12 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_ACCESS_TOKEN: ${{ secrets.YOUTUBE_ACCESS_TOKEN }}
-          # Deliberately NOT wired to a secret. Publishing for real is a manual
-          # decision made on the box, not something a push to main can turn on.
-          AMOS_ALLOW_PUBLISH: ""
+          # Publishing enabled. Uploads are always PRIVATE regardless.
+          AMOS_ALLOW_PUBLISH: "1"
         run: |
           set -e
 

@@ -149,7 +149,7 @@ function generateSilentAudioBase64(durationSec) {
       (err) => {
         if (err) return reject(err);
         fs.readFile(tmpPath, (readErr, data) => {
-          fs.unlink(tmpPath, () => {});
+          fs.unlink(tmpPath, () => { });
           if (readErr) return reject(readErr);
           resolve(data.toString("base64"));
         });
@@ -238,9 +238,12 @@ function pickGradientBackground() {
 // bottom band for legibility, and the punchy thumbnail text in Inter-Black with
 // the niche accent color. Identical template across niches (only image + accent
 // differ) so the A/B comparison isn't confounded by thumbnail construction.
-async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath) {
+async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64) {
   let bgPath;
-  if (imageUrl) {
+  if (imageBase64) {
+    bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
+    await writeBase64(imageBase64, bgPath);
+  } else if (imageUrl) {
     bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
     try { await downloadFile(imageUrl, bgPath); } catch (e) { bgPath = pickGradientBackground(); }
   } else {
@@ -841,72 +844,82 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // (not throw-fast) so one bad scene doesn't orphan siblings mid-render.
     const startedAt = Date.now();
     const settled = await mapSettledWithConcurrency(scenes, COMPOSE_CONCURRENCY, async (scene, i) => {
-        const audioPath = path.join(tmpDir, `voice_${i}.mp3`);
-        if (scene?.audio?.audio_base64) {
-          await writeBase64(scene.audio.audio_base64, audioPath);
-        } else if (scene?.audio?.audio_url) {
-          await downloadFile(scene.audio.audio_url, audioPath);
-        } else {
-          throw new Error(`Scene ${i} missing audio`);
-        }
-
-        const duration = await ffprobeDuration(audioPath);
-        const outPath = path.join(tmpDir, `scene_${i}_final.mp4`);
-        let degraded = false;
-
-        const isTemplate = scene?.visual_source === "template";
-        const isStockVideo = !isTemplate && !!scene?.video_url;
-
-        if (isTemplate) {
-          if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
-          await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood);
-        } else if (isStockVideo) {
-          const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
-          await downloadFile(scene.video_url, stockVideoPath);
-          await buildStockVideoScene(stockVideoPath, audioPath, duration, outPath, i, mood);
-        } else {
-          const imageUrls = scene?.images;
-          let imagePaths;
-          if (Array.isArray(imageUrls) && imageUrls.length) {
-            imagePaths = await Promise.all(
-              imageUrls.map(async (url, j) => {
-                const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);
-                return await downloadFile(url, p);
-              })
-            );
-          } else {
-            // Degraded scene: Fal generation failed upstream (n8n flags _degraded
-            // and sends no images). Use a house-style gradient still so the video
-            // stays complete + audio-synced instead of failing the whole run.
-            degraded = true;
-            imagePaths = [pickGradientBackground()];
-            console.warn(`[job ${jobId}] scene ${i} degraded - using gradient placeholder`);
-          }
-
-          // Hybrid: animate the hook (first) and payoff scenes into real
-          // motion clips; keep the middle as Ken-Burns stills. Any failure
-          // (no key, model error, timeout) falls back to the still so a bad
-          // clip never breaks the video. Never animate a gradient placeholder.
-          const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && (i === 0 || i === emphasisIdx);
-          let animated = false;
-          if (animate) {
-            try {
-              const clipPath = path.join(tmpDir, `clip_${i}.mp4`);
-              await generateVideoFromImage(imageUrls[0], clipPath);
-              await buildStockVideoScene(clipPath, audioPath, duration, outPath, i, mood);
-              animated = true;
-              console.log(`[ltx] animated scene ${i} (${i === 0 ? "hook" : "payoff"})`);
-            } catch (e) {
-              console.warn(`[ltx] animation failed for scene ${i} (${e.message}) - using still`);
-            }
-          }
-          if (!animated) {
-            await buildImageScene(imagePaths, audioPath, duration, outPath, i, mood, i === emphasisIdx);
-          }
-        }
-
-        return { path: outPath, duration, degraded };
+      const audioPath = path.join(tmpDir, `voice_${i}.mp3`);
+      if (scene?.audio?.audio_base64) {
+        await writeBase64(scene.audio.audio_base64, audioPath);
+      } else if (scene?.audio?.audio_url) {
+        await downloadFile(scene.audio.audio_url, audioPath);
+      } else {
+        throw new Error(`Scene ${i} missing audio`);
       }
+
+      const duration = await ffprobeDuration(audioPath);
+      const outPath = path.join(tmpDir, `scene_${i}_final.mp4`);
+      let degraded = false;
+
+      const isTemplate = scene?.visual_source === "template";
+      const isStockVideo = !isTemplate && !!scene?.video_url;
+
+      if (isTemplate) {
+        if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
+        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood);
+      } else if (isStockVideo) {
+        const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
+        await downloadFile(scene.video_url, stockVideoPath);
+        await buildStockVideoScene(stockVideoPath, audioPath, duration, outPath, i, mood);
+      } else {
+        const imageUrls = scene?.images;
+        const imageBase64s = scene?.images_base64;
+        let imagePaths;
+        if (Array.isArray(imageBase64s) && imageBase64s.length) {
+          // AMOS brain sends images as base64 inline rather than URLs.
+          imagePaths = await Promise.all(
+            imageBase64s.map(async (b64, j) => {
+              const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);
+              await writeBase64(b64, p);
+              return p;
+            })
+          );
+        } else if (Array.isArray(imageUrls) && imageUrls.length) {
+          imagePaths = await Promise.all(
+            imageUrls.map(async (url, j) => {
+              const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);
+              return await downloadFile(url, p);
+            })
+          );
+        } else {
+          // Degraded scene: Fal generation failed upstream (n8n flags _degraded
+          // and sends no images). Use a house-style gradient still so the video
+          // stays complete + audio-synced instead of failing the whole run.
+          degraded = true;
+          imagePaths = [pickGradientBackground()];
+          console.warn(`[job ${jobId}] scene ${i} degraded - using gradient placeholder`);
+        }
+
+        // Hybrid: animate the hook (first) and payoff scenes into real
+        // motion clips; keep the middle as Ken-Burns stills. Any failure
+        // (no key, model error, timeout) falls back to the still so a bad
+        // clip never breaks the video. Never animate a gradient placeholder.
+        const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && (i === 0 || i === emphasisIdx);
+        let animated = false;
+        if (animate) {
+          try {
+            const clipPath = path.join(tmpDir, `clip_${i}.mp4`);
+            await generateVideoFromImage(imageUrls[0], clipPath);
+            await buildStockVideoScene(clipPath, audioPath, duration, outPath, i, mood);
+            animated = true;
+            console.log(`[ltx] animated scene ${i} (${i === 0 ? "hook" : "payoff"})`);
+          } catch (e) {
+            console.warn(`[ltx] animation failed for scene ${i} (${e.message}) - using still`);
+          }
+        }
+        if (!animated) {
+          await buildImageScene(imagePaths, audioPath, duration, outPath, i, mood, i === emphasisIdx);
+        }
+      }
+
+      return { path: outPath, duration, degraded };
+    }
     );
 
     const failures = settled
@@ -1064,7 +1077,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     if (reqBody.thumbnail) {
       try {
         const thumbFull = path.join(OUTPUT_DIR, `thumb_${jobId}.png`);
-        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull);
+        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64);
         thumbnailPath = thumbFull;
       } catch (e) {
         console.warn(`[job ${jobId}] thumbnail render failed (${e.message}) - continuing without a custom thumbnail`);
