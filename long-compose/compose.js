@@ -21,7 +21,7 @@ const { execFile } = require("child_process");
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "200mb" }));
 // In-memory job store for the async compose pattern
 const jobStore = new Map();
 
