@@ -33,9 +33,8 @@ interface PlanScene {
   template_data?: string;
 }
 
-const DEFAULT_PREFIX =
-  "Cinematic still frame, photorealistic, dramatic lighting, shallow depth of field.";
-const NEGATIVE = "No text, no words, no letters, no captions, no watermark, no logos, no UI elements.";
+const DEFAULT_PREFIX = "";
+const NEGATIVE = "";
 
 /** Safely parse a JSON string into an object; returns {} on failure. */
 function safeParseJson(str: string): Record<string, unknown> {
@@ -43,7 +42,8 @@ function safeParseJson(str: string): Record<string, unknown> {
 }
 
 export function buildPrompt(terms: string[], style: string, prefix = DEFAULT_PREFIX): string {
-  return `${prefix} ${terms.join(", ")}. ${style}. ${NEGATIVE}`;
+  // For stock search, just join the terms — no cinematic wrappers needed
+  return terms.join(", ");
 }
 
 export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {

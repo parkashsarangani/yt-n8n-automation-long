@@ -28,7 +28,7 @@ import {
 } from "./provider.ts";
 import { AnthropicProvider } from "./providers/anthropic.ts";
 import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
-import { FalImageProvider } from "./providers/fal.ts";
+import { StockImageProvider } from "./providers/stock.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
@@ -177,8 +177,8 @@ export class VidGenService {
     const speech: SpeechProvider = env("ELEVENLABS_API_KEY")
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
-    const images: ImageProvider = env("FAL_KEY")
-      ? new FalImageProvider({ apiKey: env("FAL_KEY")! })
+    const images: ImageProvider = (env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY"))
+      ? new StockImageProvider()
       : new FakeImageProvider();
     const renderer: MediaRenderer = env("COMPOSE_URL")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
@@ -347,7 +347,7 @@ export class VidGenService {
     return [
       { role: "reasoning", provider: "anthropic/claude-opus-5", real: env("ANTHROPIC_API_KEY") },
       { role: "speech", provider: env("ELEVENLABS_API_KEY") ? "elevenlabs" : "fake", real: env("ELEVENLABS_API_KEY") },
-      { role: "images", provider: env("FAL_KEY") ? "fal" : "fake", real: env("FAL_KEY") },
+      { role: "images", provider: (env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY")) ? "stock (pexels+unsplash)" : "fake", real: !!(env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY")) },
       { role: "renderer", provider: env("COMPOSE_URL") ? "long-compose" : "fake", real: env("COMPOSE_URL") },
       {
         role: "publish",
