@@ -144,12 +144,12 @@ reasoning over it now would be designing against imagined data.
 The existing long-form pipeline is not rewritten. `long-compose` becomes a **worker** behind
 the Production layer (it already satisfies rule 1 — it contains no model calls), and the
 YouTube upload nodes become the first **publish target**. The n8n workflow's Claude nodes are
-superseded by reasoning agents in the brain service; the workflow itself is reduced to
+superseded by reasoning agents in the engine service; the workflow itself is reduced to
 conducting (RFC 0005).
 
 ## Open Questions
 
-- Does n8n survive contact with a brain that owns the execution graph, or does it reduce to
+- Does n8n survive contact with an engine that owns the execution graph, or does it reduce to
   scheduling and human-gate UI only? Deferred to RFC 0005, which makes the call explicitly.
 - Is "human as a reasoning agent" worth modelling literally (same interface, different
   backend), or is a human gate a distinct node type? Currently the latter; revisit if the

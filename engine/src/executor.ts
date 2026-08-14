@@ -1,7 +1,7 @@
 /**
  * Graph executor (RFC 0005).
  *
- * The brain walks the DAG. n8n does not — if it did, topology would live in
+ * The engine walks the DAG. n8n does not — if it did, topology would live in
  * node wiring instead of in the versioned graph document, which is the thing
  * RFC 0005 exists to prevent.
  *

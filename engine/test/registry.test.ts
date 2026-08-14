@@ -15,7 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_DIR = path.join(HERE, "..", "schemas");
 
 async function tempRegistry(entries: SchemaEntry[]): Promise<SchemaRegistry> {
-  const dir = await mkdtemp(path.join(tmpdir(), "amos-schemas-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "vidgen-schemas-"));
   for (const e of entries) {
     await mkdir(path.join(dir, e.schema_id), { recursive: true });
     await writeFile(
@@ -114,7 +114,7 @@ test("assertCompatible enforces the consumer's declared range", async () => {
 });
 
 test("rejects entries whose declared version disagrees with the filename", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "amos-schemas-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "vidgen-schemas-"));
   await mkdir(path.join(dir, "thing"), { recursive: true });
   await writeFile(
     path.join(dir, "thing", "1.0.0.json"),

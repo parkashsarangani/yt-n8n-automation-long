@@ -6,7 +6,7 @@
  *
  * Scope: this takes an OAuth access token. Acquiring and refreshing that token
  * is deliberately out of scope — token custody belongs with whatever operates
- * the deployment, not in the brain.
+ * the deployment, not in the engine.
  *
  * NOT YET RUN AGAINST THE REAL API.
  */

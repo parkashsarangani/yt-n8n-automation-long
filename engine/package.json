@@ -1,9 +1,9 @@
 {
-  "name": "@amos/brain",
+  "name": "@vidgen/engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AMOS brain — artifact store, schema registry, agent/worker runner",
+  "description": "VidGen engine — artifact store, schema registry, agent/worker runner",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",

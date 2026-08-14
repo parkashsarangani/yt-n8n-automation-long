@@ -1,10 +1,10 @@
 name: Deploy to Production
 
-# Deploys AMOS to the self-hosted HP Linux server (the same box the Shorts
+# Deploys VidGen to the self-hosted HP Linux server (the same box the Shorts
 # stack runs on). Ports are offset from that stack on purpose:
 #
-#   AMOS brain        127.0.0.1:4321
-#   AMOS long-compose 127.0.0.1:4001    (Shorts uses 4000)
+#   VidGen engine      127.0.0.1:4321
+#   VidGen long-compose 127.0.0.1:4001    (Shorts uses 4000)
 #   legacy n8n        127.0.0.1:5679    (Shorts uses 5678) — not started here
 #
 # The UI is loopback-bound and unauthenticated. Reach it from a laptop with an
@@ -28,16 +28,16 @@ jobs:
         with:
           clean: true
 
-      # One-time move from the pre-AMOS compose project name. Idempotent: a
+      # One-time move from the pre-VidGen compose project name. Idempotent: a
       # no-op on every deploy after the first.
-      - name: Migrate compose project name (yt-longform -> amos)
+      - name: Migrate compose project name (yt-longform -> vidgen)
         run: bash scripts/migrate-from-yt-longform.sh
 
       - name: Build and deploy
         env:
-          # All optional. Unset secrets arrive as empty strings, which the brain
+          # All optional. Unset secrets arrive as empty strings, which the engine
           # treats as "not configured" — so a missing secret never clobbers a
-          # credential already saved through the UI (those live in amos_data).
+          # credential already saved through the UI (those live in vidgen_data).
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
@@ -53,13 +53,13 @@ jobs:
 
           echo "=== Building ==="
           # Layer cache kept: npm ci only reruns when package*.json changes.
-          docker compose build brain long-compose
+          docker compose build engine long-compose
 
           echo "=== Starting ==="
           # up -d recreates changed services and leaves the rest alone. The
           # legacy n8n profile is not included, so it stays down.
           # Postgres uses a stock image (no build needed) but must be up first.
-          docker compose up -d --remove-orphans postgres brain long-compose
+          docker compose up -d --remove-orphans postgres engine long-compose
 
       - name: Health check
         run: |
@@ -83,7 +83,7 @@ jobs:
           check long-compose http://127.0.0.1:4001/topic-history
           # The Host header matters: the UI refuses any request that did not
           # arrive at localhost, and curl would otherwise send "127.0.0.1".
-          check brain http://127.0.0.1:4321/api/config "Host: localhost"
+          check engine http://127.0.0.1:4321/api/config "Host: localhost"
 
       - name: Report
         run: |

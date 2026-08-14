@@ -1,4 +1,4 @@
-# AMOS — Autonomous Media Operating System
+# VidGen — Autonomous Media Operating System
 
 A compiler from ideas into publishable media. You give it a topic; it researches
 nothing yet, writes a story, writes the narration, plans the visuals, generates
@@ -26,7 +26,7 @@ from the first minute and gets more real as you add keys.
 | `FAL_KEY` | images | fake images |
 | `YOUTUBE_ACCESS_TOKEN` | publishing | dry-run target |
 
-Keys entered in the UI persist in the `amos_data` volume. You can also seed them
+Keys entered in the UI persist in the `vidgen_data` volume. You can also seed them
 from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example).
 
 **Publishing never happens by accident.** A YouTube token alone does nothing;
@@ -46,9 +46,9 @@ you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
 ## Services
 
 ```
-brain          the system: agents, execution graph, artifact store, control UI
+engine         the system: agents, execution graph, artifact store, control UI
 long-compose   video assembly (FFmpeg + Remotion)
-n8n            legacy — the pre-AMOS pipeline, see below
+n8n            legacy — the pre-VidGen pipeline, see below
 ```
 
 Both published ports bind to `127.0.0.1` deliberately: the UI holds API keys and
@@ -56,14 +56,14 @@ is unauthenticated by design. Do not expose it.
 
 ## Running on the HP server
 
-AMOS shares the box with the Shorts stack. Ports are offset so the two never
+VidGen shares the box with the Shorts stack. Ports are offset so the two never
 collide:
 
-| | Shorts | AMOS |
+| | Shorts | VidGen |
 |---|---|---|
 | renderer | `4000` | **`4001`** (`long-compose`) |
 | n8n | `5678` | **`5679`** (legacy, not started) |
-| control UI | — | **`4321`** (`brain`) |
+| control UI | — | **`4321`** (`engine`) |
 
 Deploy by pushing to `main` — the self-hosted runner builds both images, starts
 them, and health-checks each one. Or by hand on the box:
@@ -76,7 +76,7 @@ docker compose up -d --build
 
 ### One-time migration
 
-The compose project was renamed `yt-longform` → `amos`. Volumes are
+The compose project was renamed `yt-longform` → `vidgen`. Volumes are
 project-prefixed, so without this step the new stack starts with **empty**
 volumes and the old containers keep holding port 4001. The deploy runs it
 automatically; to do it manually:
@@ -115,7 +115,7 @@ before raising the cap.
 
 ### The legacy n8n pipeline
 
-The original n8n A/B pipeline still exists but has no role in AMOS — the brain
+The original n8n A/B pipeline still exists but has no role in VidGen — the engine
 owns the execution graph and the UI owns human approval. It is parked behind a
 profile so it does not start by default:
 
@@ -139,14 +139,14 @@ version, five rules everything else derives from:
 ## Developing
 
 ```bash
-cd brain
+cd engine
 npm install
 npm test          # 96 tests, no network, no API keys
 npm run typecheck
 npm run ui        # the UI without Docker, on the host
 ```
 
-See [`brain/README.md`](brain/README.md) for the module map, the invariants under
+See [`engine/README.md`](engine/README.md) for the module map, the invariants under
 test, and what implementation revealed about the RFCs.
 
 ## Status

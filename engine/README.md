@@ -1,6 +1,6 @@
-# brain
+# engine
 
-The AMOS brain service. Owns artifacts, schemas, agents, workers, and (later)
+The VidGen engine service. Owns artifacts, schemas, agents, workers, and (later)
 the execution graph. See [`../docs`](../docs) for the architecture RFCs — they
 are the source of truth; this package implements them.
 
@@ -23,7 +23,7 @@ The storage spine and the transformation runner. No graph executor yet.
 | `src/graph.ts` | 0005 | Graph document + static validation (arity, schema wiring, cycles) |
 | `src/predicate.ts` | 0005 | Declared predicates for auto-pass gates — not an expression language |
 | `src/executor.ts` | 0005 | Walks the DAG: readiness, bounded concurrency, gates, blocking, progress events |
-| `src/service.ts` | — | Assembles the brain for one operator; live run state |
+| `src/service.ts` | — | Assembles the engine for one operator; live run state |
 | `src/server.ts` + `ui/` | — | Loopback-only control UI |
 | `src/config.ts` | — | `.env` read/write; secrets masked on the way out |
 | `src/blobs.ts` | 0002 | Content-addressed byte storage — audio, images, alignment JSON |

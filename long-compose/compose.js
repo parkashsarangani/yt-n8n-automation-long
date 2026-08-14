@@ -955,7 +955,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         const imageBase64s = scene?.images_base64;
         let imagePaths;
         if (Array.isArray(imageBase64s) && imageBase64s.length) {
-          // AMOS brain sends images as base64 inline rather than URLs.
+          // VidGen engine sends images as base64 inline rather than URLs.
           imagePaths = await Promise.all(
             imageBase64s.map(async (b64, j) => {
               const p = path.join(tmpDir, `scene_${i}_img_${j}.png`);

@@ -4,7 +4,7 @@
  * One record per transformation execution — agent, worker, cache hit, or
  * failure. There is no code path that produces an artifact without one, and
  * this is the authoritative per-production provenance record when a
- * content-addressed artifact dedups (see brain/README.md).
+ * content-addressed artifact dedups (see engine/README.md).
  */
 
 import { appendFile, readFile, mkdir } from "node:fs/promises";

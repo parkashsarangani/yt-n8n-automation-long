@@ -61,7 +61,7 @@ const VISUAL_PLAN = {
 async function harness(handler: FakeHandler) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-exec-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-exec-")), registry);
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
   const speech = new FakeSpeechProvider();
@@ -264,7 +264,7 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
 //    does not get in the way of building an arbitrary test topology.
 
 async function tempSetup() {
-  const dir = await mkdtemp(path.join(tmpdir(), "amos-execschema-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "vidgen-execschema-"));
   for (const id of ["a", "b"]) {
     await mkdir(path.join(dir, id), { recursive: true });
     await writeFile(
@@ -285,7 +285,7 @@ async function tempSetup() {
     );
   }
   const registry = await SchemaRegistry.load(dir);
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-exec2-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-exec2-")), registry);
   const runLog = new MemoryRunLog();
 
   const passthrough = (name: string, from: string, to: string): WorkerDef => ({

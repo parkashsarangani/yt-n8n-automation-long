@@ -12,12 +12,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AmosService } from "./service.ts";
+import type { VidGenService } from "./service.ts";
 
 const MAX_BODY_BYTES = 1_000_000;
 
 export interface ServerOptions {
-  service: AmosService;
+  service: VidGenService;
   uiDir: string;
   port?: number;
   host?: string;

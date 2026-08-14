@@ -3,13 +3,13 @@
 #   docker compose up --build
 #   → http://localhost:4321
 #
-# Credentials can be set in the UI (they persist in the amos_data volume) or
+# Credentials can be set in the UI (they persist in the vidgen_data volume) or
 # seeded from a .env file next to this one. See .env.example.
 #
 # SECURITY: both published ports are bound to 127.0.0.1 on purpose. The UI holds
 # API keys and is unauthenticated by design; publishing it as "4321:4321" would
 # expose it to your whole network. Do not change that unless you add auth.
-name: amos
+name: vidgen
 
 services:
   # Postgres: persistent state for runs, artifacts, blob registry.
@@ -28,9 +28,9 @@ services:
       timeout: 3s
       retries: 5
 
-  # The brain: reasoning agents, execution graph, artifact store, control UI.
-  brain:
-    build: ./brain
+  # The engine: reasoning agents, execution graph, artifact store, control UI.
+  engine:
+    build: ./engine
     restart: unless-stopped
     ports:
       - "127.0.0.1:4321:4321"
@@ -55,19 +55,19 @@ services:
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
     volumes:
       # Blobs stay on filesystem (large binary files).
-      - amos_data:/data
+      - vidgen_data:/data
     depends_on:
       postgres:
         condition: service_healthy
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. Called by the brain's render worker.
+  # Video assembly: FFmpeg + Remotion. Called by the engine's render worker.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
     ports:
-      # Exposed only for debugging; the brain reaches it over the internal network.
+      # Exposed only for debugging; the engine reaches it over the internal network.
       - "127.0.0.1:4001:4000"
     environment:
       OUTPUT_DIR: /app/outputs
@@ -96,9 +96,9 @@ services:
         reservations:
           memory: 2G
 
-  # The pre-AMOS n8n pipeline. It no longer has a role: the brain owns the
+  # The pre-VidGen n8n pipeline. It no longer has a role: the engine owns the
   # execution graph and the UI owns human approval. Kept behind a profile so the
-  # old A/B pipeline stays runnable while AMOS is unproven, but it does NOT
+  # old A/B pipeline stays runnable while VidGen is unproven, but it does NOT
   # start with a plain `docker compose up`.
   #
   #   docker compose --profile legacy up
@@ -121,7 +121,7 @@ services:
 
 volumes:
   pg_data:
-  amos_data:
+  vidgen_data:
   long_outputs:
   long_data:
   long_n8n_data:

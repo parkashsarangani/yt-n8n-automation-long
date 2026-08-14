@@ -8,11 +8,11 @@ topic_history.json
 *.mp4
 !long-compose/motion-assets/**/*.mov
 
-# brain local artifact store (smoke runs)
-brain/.amos-data/
+# engine local artifact store (smoke runs)
+engine/.vidgen-data/
 
 # local credentials
-brain/.env
+engine/.env
 .env
 
 # IDE / reference repos

@@ -114,7 +114,7 @@ export interface RenderResult {
  * Polling is an implementation detail — the promise resolves when the render is
  * done. But the JOB IDENTITY is exposed via `onJob`, because a 20-minute render
  * that dies with the process is unrecoverable if nobody wrote the job id down.
- * See the RFC 0004 note in brain/README.md.
+ * See the RFC 0004 note in engine/README.md.
  */
 export interface MediaRenderer {
   readonly id: string;
