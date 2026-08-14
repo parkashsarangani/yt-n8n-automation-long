@@ -6,6 +6,7 @@
   "description": "VidGen engine — artifact store, schema registry, agent/worker runner",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
+    "test:integration": "node --import tsx --test test/*.itest.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "node --env-file-if-exists=.env --import tsx scripts/smoke.ts",
     "ui": "node --env-file-if-exists=.env --import tsx scripts/serve.ts"

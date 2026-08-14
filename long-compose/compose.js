@@ -686,8 +686,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,62,&H00FFFFFF,&H000000FF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
-Style: CaptionHL,Inter Bold,62,&H0000DFFF,&H000000FF,&H40000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
+Style: Caption,Inter Bold,62,&H00FFFFFF,&H0000DFFF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,420,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -733,24 +732,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const phraseBegin = phrase[0].start + offsets[sceneIdx];
       const phraseEnd = phrase[phrase.length - 1].end + offsets[sceneIdx];
 
-      // For each word in the phrase, emit a dialogue line showing the full phrase
-      // with only that word highlighted in yellow.
+      // One dialogue line per phrase. All words visible for the entire duration.
+      // Use ASS \kf (smooth karaoke fill) to progressively highlight each word
+      // in the CaptionHL color as it's spoken.
+      let line = "";
       for (let w = 0; w < phrase.length; w++) {
         const word = phrase[w];
-        const wStart = word.start + offsets[sceneIdx];
-        const wEnd = word.end + offsets[sceneIdx];
-
-        const line = phrase
-          .map((item, idx) => {
-            if (idx === w) {
-              return `{\\rCaptionHL}${item.text}{\\rCaption}`;
-            }
-            return item.text;
-          })
-          .join(" ");
-
-        events += `Dialogue: 0,${toAssTime(wStart)},${toAssTime(wEnd)},Caption,,0,0,0,,${line}\n`;
+        // \kf duration is in centiseconds (100ths of a second)
+        const wordDurationCs = Math.round((word.end - word.start) * 100);
+        line += `{\\kf${wordDurationCs}}${word.text} `;
       }
+
+      events += `Dialogue: 0,${toAssTime(phraseBegin)},${toAssTime(phraseEnd)},Caption,,0,0,0,,${line.trim()}\n`;
     }
   });
 
