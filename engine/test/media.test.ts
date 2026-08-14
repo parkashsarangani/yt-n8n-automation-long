@@ -17,7 +17,7 @@ import { makeVoiceWorker, makeAssetWorker, buildPrompt } from "../src/workers/in
 import type { Artifact } from "../src/artifact.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
+const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const SCRIPT = {
   scenes: [
@@ -181,9 +181,8 @@ test("asset worker generates one image per scene from the primary terms", async 
   assert.deepEqual(payload.scenes.map((s) => s.source), ["primary", "primary"]);
   assert.equal(payload.degraded_count, 0);
   assert.equal((out.artifact.blobs ?? []).length, 2);
-  // The prompt carries the terms, the style, and the no-text rule.
+  // The prompt carries the terms joined together (for stock search).
   assert.match(h.images.prompts[0]!, /aerial coastline, andes ridge, desert highway/);
-  assert.match(h.images.prompts[0]!, /No text, no words/);
 });
 
 test("asset worker falls back to the backup terms when the primary fails", async () => {
@@ -268,6 +267,6 @@ test("a worker without its provider fails clearly", async () => {
 
 test("buildPrompt is a pure function of terms and style", () => {
   const p = buildPrompt(["a", "b"], "moody");
-  assert.match(p, /a, b\. moody\./);
+  assert.equal(p, "a, b");
   assert.equal(buildPrompt(["a", "b"], "moody"), p);
 });
