@@ -120,14 +120,18 @@ export class VidGenService {
   }
 
   static async create(opts: ServiceOptions): Promise<VidGenService> {
+    console.log("[startup] creating VidGenService...");
     const svc = new VidGenService(opts.root, opts);
     // Load .env into the process so providers see it, without clobbering
     // variables the operator set explicitly in their shell.
     for (const [k, v] of Object.entries(await readEnvFile(svc.envFile))) {
       if (process.env[k] === undefined || process.env[k] === "") process.env[k] = v;
     }
+    console.log("[startup] loading schemas...");
     svc.registry = await SchemaRegistry.load(path.join(opts.root, "schemas"));
+    console.log("[startup] loading prompts...");
     svc.prompts = await PromptStore.load(path.join(opts.root, "prompts"));
+    console.log("[startup] loading agents...");
     svc.agents = (await loadAgentDefs(path.join(opts.root, "agents"))) as Map<
       string,
       TransformationDef
@@ -136,12 +140,16 @@ export class VidGenService {
       hasSchema: (id) => svc.registry.has(id),
       hasPrompt: (ref) => svc.prompts.has(ref),
     });
+    console.log("[startup] loading graph...");
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
+    console.log("[startup] opening artifact store...");
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
+    console.log("[startup] opening blob store...");
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
     // Use Postgres when DATABASE_URL is set, filesystem otherwise.
     if (hasDatabase()) {
+      console.log("[startup] connecting to Postgres...");
       await migrate();
       const pool = getPool();
       svc.runLog = new PgRunLog(pool);
@@ -151,8 +159,11 @@ export class VidGenService {
       console.log("[db] using filesystem (no DATABASE_URL)");
     }
 
+    console.log("[startup] rebuilding providers...");
     svc.rebuild();
+    console.log("[startup] reloading runs...");
     await svc.reloadRuns();
+    console.log("[startup] ready");
     return svc;
   }
 
@@ -370,14 +381,18 @@ export class VidGenService {
 
     // Persist run in Postgres if available
     if (this.runLog instanceof PgRunLog) {
+      console.log(`[run ${runId.slice(4, 12)}] creating run in Postgres...`);
       await this.runLog.createRun(runId, trimmed, `${this.graph.graph_id}@${this.graph.version}`);
+      console.log(`[run ${runId.slice(4, 12)}] Postgres run created`);
     }
 
+    console.log(`[run ${runId.slice(4, 12)}] storing intent artifact...`);
     const intent = await this.store.put({
       schema_id: "intent",
       payload: { brief: trimmed, target_duration_sec: durationSec },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
+    console.log(`[run ${runId.slice(4, 12)}] intent stored: ${intent.artifact.artifact_id.slice(0, 12)}...`);
 
     this.runs.set(runId, {
       runId,
@@ -391,9 +406,11 @@ export class VidGenService {
     });
 
     // Kick off in the background: a run takes minutes, and the UI polls.
+    console.log(`[run ${runId.slice(4, 12)}] launching executor (fire-and-forget)...`);
     void this.drive(runId, () =>
       this.executor.start(this.graph, { intent: intent.artifact.artifact_id }, { runId }),
     );
+    console.log(`[run ${runId.slice(4, 12)}] startRun returning to caller`);
     return runId;
   }
 
