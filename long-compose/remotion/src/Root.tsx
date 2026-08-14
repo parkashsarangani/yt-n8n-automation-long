@@ -82,8 +82,8 @@ import { CinematicVintage } from "./scenes/CinematicAnimations/CinematicVintage"
 import { CinematicMinimalEnd } from "./scenes/CinematicAnimations/CinematicMinimalEnd";
 
 const FPS = 30;
-const W = 1080;
-const H = 1920;
+const W = 1920;
+const H = 1080;
 const D = 120; // default frames
 
 // Helper to reduce boilerplate

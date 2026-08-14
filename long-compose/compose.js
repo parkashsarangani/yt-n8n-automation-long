@@ -35,8 +35,8 @@ const TOPIC_HISTORY_PATH = process.env.TOPIC_HISTORY_PATH || path.join(__dirname
 const TOPIC_HISTORY_MAX = 90;
 const RUN_LOG_PATH = process.env.RUN_LOG_PATH || path.join(path.dirname(TOPIC_HISTORY_PATH), "run_log.jsonl");
 
-const TARGET_W = 1080;
-const TARGET_H = 1920;
+const TARGET_W = 1920;
+const TARGET_H = 1080;
 const FPS = 30;
 
 // Long-form scaling knobs:
@@ -591,7 +591,10 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   }
 
   // Build props — pass all template_data through as props + mood + background
-  let props = { mood: mood || "neutral", ...(templateData || {}) };
+  // Parse template_data if it's still a string (shouldn't be, but defensive)
+  const parsedData = typeof templateData === "string" ? JSON.parse(templateData) : (templateData || {});
+  let props = { mood: mood || "neutral", ...parsedData };
+  console.log(`[template] ${compositionId} props keys: ${Object.keys(props).join(", ")}`);
   // Pass the background image as a data URI so Remotion can render it behind the template
   if (bgImagePath) {
     try {
@@ -648,15 +651,18 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         .run();
     });
 
-    // Composite: darken the background, overlay the template using screen blend
+    // Composite: darken the background image, then place template on top.
+    // The template has a dark background — we use it at reduced opacity over
+    // the darkened image so both are visible without color shifting.
     const compositePath = path.join(tmpDir, `tpl_comp_${Date.now()}.mp4`);
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(bgClipPath)
         .input(templateVideoPath)
         .complexFilter([
-          `[0:v]colorbalance=rs=-0.1:gs=-0.1:bs=-0.1,eq=brightness=-0.3:saturation=0.7[darkbg];` +
-          `[darkbg][1:v]blend=all_mode=screen:all_opacity=0.85[out]`
+          `[0:v]eq=brightness=-0.4:saturation=0.5[darkbg];` +
+          `[1:v]format=yuva420p,colorchannelmixer=aa=0.75[tpl];` +
+          `[darkbg][tpl]overlay=0:0:format=yuv420[out]`
         ])
         .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"])
         .output(compositePath)

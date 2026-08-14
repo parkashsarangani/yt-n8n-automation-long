@@ -11,7 +11,7 @@ import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../p
 
 const SIZES: Record<Aspect, { width: number; height: number }> = {
   "9:16": { width: 1024, height: 1792 },
-  "16:9": { width: 1280, height: 720 },
+  "16:9": { width: 1792, height: 1024 },
   "1:1": { width: 1024, height: 1024 },
 };
 
