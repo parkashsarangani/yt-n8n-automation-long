@@ -104,6 +104,7 @@ export class GraphExecutor {
     opts: { runId?: string } = {},
   ): Promise<GraphRunResult> {
     const runId = opts.runId ?? `run_${randomUUID()}`;
+    console.log(`[executor] start: validating seeds...`);
 
     for (const node of graph.nodes) {
       if (nodeType(node) !== "input") continue;
@@ -113,10 +114,14 @@ export class GraphExecutor {
         throw new ExecutorError(`graph ${graphRef(graph)} needs a seed for input "${input.id}"`);
       }
       // Validate the seed against its declared schema before anything runs.
+      console.log(`[executor] start: validating seed "${input.id}" (${artifactId.slice(0, 12)}...)`);
       await this.deps.store.require(artifactId, { schema_id: input.schema_id });
+      console.log(`[executor] start: recording input node "${input.id}"...`);
       await this.recordNode(runId, graph, input.id, "input", artifactId, "ok");
+      console.log(`[executor] start: input "${input.id}" recorded`);
     }
 
+    console.log(`[executor] start: entering drive loop...`);
     return this.drive(graph, runId, {});
   }
 
@@ -138,7 +143,9 @@ export class GraphExecutor {
   ): Promise<GraphRunResult> {
     const ref = graphRef(graph);
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    console.log(`[executor] drive: deriving completed state...`);
     const completed = await this.deriveCompleted(runId, ref);
+    console.log(`[executor] drive: ${completed.size} nodes already completed`);
 
     const failures: NodeFailure[] = [];
     const waiting: GateWait[] = [];
@@ -153,6 +160,7 @@ export class GraphExecutor {
           !stalled.has(n.id) &&
           inputsOf(n).every((up) => completed.has(up)),
       );
+      console.log(`[executor] drive: ${ready.length} nodes ready (${ready.map(n => n.id).join(", ")})`);
       if (ready.length === 0) break;
 
       // Gates first: they are cheap and may unblock work in the same pass.
@@ -364,14 +372,15 @@ export class GraphExecutor {
 
   /** Nodes already completed for this run, from the run log (last success wins). */
   private async deriveCompleted(runId: string, ref: string): Promise<Map<string, string>> {
+    console.log(`[executor] deriveCompleted: fetching records for run ${runId.slice(4, 12)}...`);
     const out = new Map<string, string>();
     const retried = new Set<string>();
     const records = await this.deps.runLog.all();
+    console.log(`[executor] deriveCompleted: got ${records.length} total records, filtering...`);
     // Scan in order: a "retry" record invalidates the prior success for that node.
     for (const r of records) {
       if (r.run_id !== runId || r.graph_id !== ref || !r.node_id) continue;
       if (r.status === "retry") {
-        // The upstream was rejected — any prior completion for the upstream is invalid.
         retried.add(r.node_id);
         out.delete(r.node_id);
         continue;
@@ -379,8 +388,9 @@ export class GraphExecutor {
       if (!r.output) continue;
       if (r.status !== "ok" && r.status !== "cache_hit") continue;
       out.set(r.node_id, r.output);
-      retried.delete(r.node_id); // a new success after a retry is valid
+      retried.delete(r.node_id);
     }
+    console.log(`[executor] deriveCompleted: done, ${out.size} completed nodes`);
     return out;
   }
 
@@ -395,6 +405,7 @@ export class GraphExecutor {
     version = "1",
     inputs: string[] = [],
   ): Promise<void> {
+    console.log(`[executor] recordNode: ${nodeId} (${status})...`);
     await this.deps.runLog.record({
       run_id: runId,
       graph_id: graphRef(graph),
