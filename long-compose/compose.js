@@ -629,54 +629,13 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     props.line = templateData?.line || props.line || "";
   }
 
-  // Render template via Remotion
+  // Render template via Remotion (full-screen, no image composite).
+  // Templates look best on their own dark backgrounds. Overlaying on images
+  // makes text harder to read and panels invisible. The visual planner should
+  // use templates for data-heavy scenes and images for atmospheric scenes —
+  // mixing them in a single frame adds complexity without visual benefit.
   const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${Date.now()}.mp4`);
   await renderRemotion(compositionId, templateVideoPath, duration, props);
-
-  // If we have a background image, composite the template over it.
-  // Templates render on a solid dark background. We use ffmpeg's "lighten"
-  // blend: wherever the template is bright (text, graphics), it shows through;
-  // wherever it's dark (#0a0a0a background), the image shows instead.
-  if (bgImagePath) {
-    const bgClipPath = path.join(tmpDir, `tpl_bg_${Date.now()}.mp4`);
-    // Create a simple still clip from the background image (no Ken Burns — keep it clean)
-    const totalFrames = Math.ceil(duration * FPS);
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(bgImagePath)
-        .inputOptions(["-loop", "1", "-framerate", String(FPS)])
-        .complexFilter([
-          `[0:v]scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=increase,` +
-          `crop=${TARGET_W}:${TARGET_H},` +
-          `eq=brightness=-0.3:saturation=0.6,` +
-          `format=yuv420p[bg]`
-        ])
-        .outputOptions(["-map", "[bg]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an"])
-        .output(bgClipPath)
-        .on("end", resolve)
-        .on("error", reject)
-        .run();
-    });
-
-    // Composite: lighten blend — template's bright content shows over the dark image
-    const compositePath = path.join(tmpDir, `tpl_comp_${Date.now()}.mp4`);
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(bgClipPath)
-        .input(templateVideoPath)
-        .complexFilter([
-          `[0:v][1:v]blend=all_mode=lighten[out]`
-        ])
-        .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-an"])
-        .output(compositePath)
-        .on("end", resolve)
-        .on("error", reject)
-        .run();
-    });
-
-    // Use the composite as the template video for muxing with audio
-    await fsp.rename(compositePath, templateVideoPath);
-  }
 
   // Mux template video (or composite) with audio
   const templateDuration = await ffprobeDuration(templateVideoPath);
@@ -982,25 +941,11 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
       const isTemplate = scene?.visual_source === "template";
       const isStockVideo = !isTemplate && !!scene?.video_url;
-      const hasImage = !!(scene?.images_base64?.length || scene?.images?.length);
 
       if (isTemplate) {
         if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
-        // If the scene also has an image, pass it as backgroundImage to the template
-        let bgImagePath = null;
-        if (hasImage) {
-          const imageBase64s = scene?.images_base64;
-          const imageUrls = scene?.images;
-          bgImagePath = path.join(tmpDir, `scene_${i}_bg.png`);
-          if (Array.isArray(imageBase64s) && imageBase64s.length) {
-            await writeBase64(imageBase64s[0], bgImagePath);
-          } else if (Array.isArray(imageUrls) && imageUrls.length) {
-            await downloadFile(imageUrls[0], bgImagePath);
-          } else {
-            bgImagePath = null;
-          }
-        }
-        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, bgImagePath);
+        // Templates render full-screen on their own dark background — no image composite.
+        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, null);
       } else if (isStockVideo) {
         const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
         await downloadFile(scene.video_url, stockVideoPath);
