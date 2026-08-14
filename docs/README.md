@@ -1,6 +1,6 @@
-# AMOS — Architecture RFCs
+# VidGen — Architecture RFCs
 
-**AMOS** (Autonomous Media Operating System) is a compiler from ideas into publishable media.
+**VidGen** (Autonomous Media Operating System) is a compiler from ideas into publishable media.
 YouTube is one output target, not the system.
 
 These RFCs cover the **irreversible** decisions only — the ones that are expensive to change
@@ -27,7 +27,7 @@ design against.
 | [0002](0002-artifact-model.md) | Artifact Model | Accepted | Immutable content-addressed artifacts in a lineage DAG; artifacts over episodes |
 | [0003](0003-agent-worker-contract.md) | Agent–Worker Contract | Accepted | Reasoning agents vs workers, structural enforcement, the declarative runner |
 | [0004](0004-provider-and-output-abstractions.md) | Provider & Output Abstractions | Accepted | Five vendor interfaces, capability-based selection, publish targets as plugins |
-| [0005](0005-execution-graph.md) | Execution Graph | Accepted | Topology as versioned data; the brain executes, n8n conducts |
+| [0005](0005-execution-graph.md) | Execution Graph | Accepted | Topology as versioned data; the engine executes, n8n conducts |
 | [0006](0006-observability-and-qa.md) | Observability & QA | Accepted | Per-transformation run records; QA as six narrow checks with PASS/FAIL/WARN |
 | [0007](0007-schema-registry.md) | Artifact Schema Registry | Accepted | One schema per artifact type, versioned; validate on write and read; migrators |
 

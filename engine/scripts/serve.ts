@@ -10,7 +10,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AmosService } from "../src/service.ts";
+import { VidGenService } from "../src/service.ts";
 import { createUiServer } from "../src/server.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,7 +23,7 @@ const port = Number(process.env["AMOS_PORT"] ?? 4321);
 // 127.0.0.1:4321:4321 on the host, plus the Host-header check in the server.
 const host = process.env["AMOS_HOST"] ?? "127.0.0.1";
 
-const service = await AmosService.create({
+const service = await VidGenService.create({
   root: ROOT,
   allowPublish,
   ...(process.env["AMOS_DATA"] ? { dataDir: process.env["AMOS_DATA"] } : {}),
@@ -32,7 +32,7 @@ const service = await AmosService.create({
 const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port, host });
 const url = await server.listen();
 
-console.log(`AMOS UI  ${url}${host === "0.0.0.0" ? "  (published on the host as 127.0.0.1:" + port + ")" : ""}`);
+console.log(`VidGen UI  ${url}${host === "0.0.0.0" ? "  (published on the host as 127.0.0.1:" + port + ")" : ""}`);
 console.log(`config   ${service.envFile}`);
 for (const p of service.providerSummary()) {
   console.log(`  ${p.role.padEnd(10)} ${p.provider}${p.real ? "" : "  (fake)"}`);

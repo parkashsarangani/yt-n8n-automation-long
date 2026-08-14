@@ -47,7 +47,7 @@ const PLAN = {
 async function harness(opts: { speech?: FakeSpeechProvider; images?: FakeImageProvider } = {}) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-media-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-media-")), registry);
   const blobs = new MemoryBlobStore();
   const speech = opts.speech ?? new FakeSpeechProvider();
   const images = opts.images ?? new FakeImageProvider();
@@ -75,7 +75,7 @@ async function harness(opts: { speech?: FakeSpeechProvider; images?: FakeImagePr
 // -- blob store ---------------------------------------------------------
 
 test("blobs are content-addressed, immutable, and dedup", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "amos-blobs-"));
+  const root = await mkdtemp(path.join(tmpdir(), "vidgen-blobs-"));
   const blobs = await FsBlobStore.open(root);
   const bytes = new TextEncoder().encode("hello andes");
 
@@ -91,7 +91,7 @@ test("blobs are content-addressed, immutable, and dedup", async () => {
 });
 
 test("a tampered blob is detected on read", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "amos-blobs-"));
+  const root = await mkdtemp(path.join(tmpdir(), "vidgen-blobs-"));
   const blobs = await FsBlobStore.open(root);
   const ref = await blobs.put(new TextEncoder().encode("original"), { role: "image" });
 
@@ -241,7 +241,7 @@ test("identical prompts across scenes cost one blob, not two", async () => {
 
 test("a worker without its provider fails clearly", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-nomedia-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-nomedia-")), registry);
   const runner = new Runner({
     store,
     registry,

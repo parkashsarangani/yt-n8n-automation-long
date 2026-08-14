@@ -34,7 +34,7 @@ const STORY = {
 
 async function harness(target = new FakePublishTarget()) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-pub-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-pub-")), registry);
   const blobs = new MemoryBlobStore();
   const runLog = new MemoryRunLog();
   const runner = new Runner({

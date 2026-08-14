@@ -74,12 +74,12 @@ Conditional edges are permitted only as **declared predicates over artifact fiel
 (`confidence.overall >= 0.9`), never as arbitrary code. Anything needing richer logic is a
 transformation that emits a decision artifact, which an edge then reads.
 
-### The brain executes the graph; n8n conducts
+### The engine executes the graph; n8n conducts
 
 This is the consequence the previous design left open, and it needs stating plainly rather
 than discovering it in implementation.
 
-If the graph is data owned by the brain service, then **the brain walks the DAG** — resolving
+If the graph is data owned by the engine service, then **the engine walks the DAG** — resolving
 ready nodes, checking the artifact cache, dispatching transformations, persisting artifacts,
 recording runs. n8n cannot be the executor without the topology leaking back into node wiring,
 which is the thing this RFC exists to prevent.
@@ -93,7 +93,7 @@ n8n's remaining, real jobs:
 
 n8n therefore holds **no logic**, which satisfies RFC 0001's software-first principle. It is
 also honest to record that this makes n8n replaceable: if the human-gate UI is later built into
-the brain, n8n's remaining role is cron. That is an acceptable end state, not a failure.
+the engine, n8n's remaining role is cron. That is an acceptable end state, not a failure.
 
 ### Resumability and caching
 
@@ -118,7 +118,7 @@ loop node than by a planner, and that is the next thing to design if it becomes 
 
 ## Alternatives Considered
 
-**Hardcoded state machine in the brain (my earlier proposal).** Rejected. Simplest to write,
+**Hardcoded state machine in the engine (my earlier proposal).** Rejected. Simplest to write,
 and it makes every topology change a code change — including the variant/branch futures that
 are the point of the Creative layer. Graph-as-data costs almost nothing extra now.
 
@@ -141,7 +141,7 @@ so that adopting one later does not invalidate the artifact store.
 - Topology changes are reviewable diffs; a graph version is a first-class thing to point at
   when explaining why episode 41 differs from episode 12.
 - Parallelism is free and implicit from the edges.
-- The brain must implement a DAG executor — scheduling, readiness, concurrency limits, failure
+- The engine must implement a DAG executor — scheduling, readiness, concurrency limits, failure
   propagation. This is real work (a few hundred lines) that n8n would otherwise have donated.
 - n8n's role shrinks to scheduling and human-gate UI. Accepted, and stated openly above.
 - Partial re-builds ("re-render only") become natural, which materially reduces the cost of

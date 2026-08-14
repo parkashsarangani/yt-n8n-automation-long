@@ -121,7 +121,7 @@ the edges immutability already forces us to record:
 - `(episode) → (entity)` via an `entities` field on research/story payloads
 
 Because these are captured from day one, materializing a knowledge graph later is an
-indexing job over existing data, not a migration. **Capture the edges; defer the brain.**
+indexing job over existing data, not a migration. **Capture the edges; defer the graph.**
 
 ### Retention
 

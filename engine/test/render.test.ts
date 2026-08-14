@@ -17,7 +17,7 @@ import { Runner } from "../src/runner.ts";
 import { makeRenderWorker } from "../src/workers/index.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
+const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const SCRIPT = {
   scenes: [
@@ -28,7 +28,7 @@ const SCRIPT = {
 
 async function harness(renderer = new FakeRenderer()) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-rend-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-rend-")), registry);
   const blobs = new MemoryBlobStore();
   const runLog = new MemoryRunLog();
   const runner = new Runner({
@@ -231,7 +231,7 @@ function composeStub(script: Array<Record<string, unknown>>) {
   return { fetchImpl, calls };
 }
 
-const noSleep = async () => {};
+const noSleep = async () => { };
 
 test("compose renderer polls until done and surfaces the job id immediately", async () => {
   const { fetchImpl, calls } = composeStub([

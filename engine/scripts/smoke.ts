@@ -14,7 +14,7 @@
  * Publishing needs BOTH a YouTube token AND an explicit --publish flag, and
  * always uploads as private.
  *
- * Artifacts and the run log land in ./.amos-data.
+ * Artifacts and the run log land in ./.vidgen-data.
  */
 
 import path from "node:path";
@@ -43,7 +43,7 @@ import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".amos-data");
+const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".vidgen-data");
 
 async function main() {
   if (!process.env["ANTHROPIC_API_KEY"]) {
@@ -91,9 +91,9 @@ async function main() {
   console.log(`  renderer   ${renderer.id}`);
   console.log(
     `  publish    ${target.id}` +
-      (env("YOUTUBE_ACCESS_TOKEN") && !reallyPublish
-        ? "  (token present; pass --publish to actually upload)"
-        : ""),
+    (env("YOUTUBE_ACCESS_TOKEN") && !reallyPublish
+      ? "  (token present; pass --publish to actually upload)"
+      : ""),
   );
   if (canPublish) console.log("  !! will upload to YouTube as PRIVATE");
   console.log();
@@ -168,7 +168,7 @@ async function main() {
     const conf = a?.confidence?.overall;
     console.log(
       `  ${nodeId.padEnd(14)} ${a?.schema_id.padEnd(12)} ${artifactId.slice(0, 20)}…` +
-        (conf === undefined || conf === null ? "" : `  confidence ${conf}`),
+      (conf === undefined || conf === null ? "" : `  confidence ${conf}`),
     );
   }
 

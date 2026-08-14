@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# One-time migration: docker compose project "yt-longform" -> "amos".
+# One-time migration: docker compose project "yt-longform" -> "vidgen".
 #
-# Dockerizing AMOS renamed the compose project. Volumes are project-prefixed, so
+# Dockerizing VidGen renamed the compose project. Volumes are project-prefixed, so
 # without this the new stack starts with empty volumes and the old containers
 # keep holding port 4001.
 #
@@ -15,14 +15,14 @@ set -euo pipefail
 
 # Overridable so the migration can be rehearsed against throwaway names.
 OLD=${OLD_PROJECT:-yt-longform}
-NEW=${NEW_PROJECT:-amos}
+NEW=${NEW_PROJECT:-vidgen}
 VOLUMES=(long_n8n_data long_data long_outputs)
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 if ! docker volume ls --format '{{.Name}}' | grep -qx "${OLD}_long_n8n_data"; then
   say "Nothing to migrate — no ${OLD}_* volumes found."
-  echo "This server has probably never run the pre-AMOS stack. Just start normally:"
+  echo "This server has probably never run the pre-VidGen stack. Just start normally:"
   echo "  docker compose up -d --build"
   exit 0
 fi

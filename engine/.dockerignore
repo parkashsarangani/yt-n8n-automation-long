@@ -1,4 +1,4 @@
 node_modules
-.amos-data
+.vidgen-data
 .env
 *.log

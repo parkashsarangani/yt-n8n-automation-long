@@ -6,7 +6,7 @@
  * video is on YouTube. Mark them for cleanup and periodically sweep the disk.
  *
  * The final video blob is NOT cleaned (it stays in long-compose outputs).
- * Only brain-side blobs (per-scene images, per-scene audio) are removed.
+ * Only engine-side blobs (per-scene images, per-scene audio) are removed.
  */
 
 import { unlink } from "node:fs/promises";

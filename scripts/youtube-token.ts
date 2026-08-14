@@ -33,7 +33,7 @@ import { createServer } from "node:http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = resolve(__dirname, "..", ".env");
-const BRAIN_ENV_PATH = resolve(__dirname, "..", "brain", ".env");
+const ENGINE_ENV_PATH = resolve(__dirname, "..", "engine", ".env");
 
 const SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -194,17 +194,18 @@ async function authFlow(): Promise<void> {
     writeEnvKey(ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
     console.log(`Written to ${ENV_PATH}`);
 
-    // Also write to brain .env if it exists
+    // Also write to engine .env if it exists
     try {
-        readFileSync(BRAIN_ENV_PATH, "utf-8");
-        writeEnvKey(BRAIN_ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
-        console.log(`Written to ${BRAIN_ENV_PATH}`);
+        readFileSync(ENGINE_ENV_PATH, "utf-8");
+        writeEnvKey(ENGINE_ENV_PATH, "YOUTUBE_REFRESH_TOKEN", data.refresh_token);
+        writeEnvKey(ENGINE_ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
+        console.log(`Written to ${ENGINE_ENV_PATH}`);
     } catch {
-        // brain/.env doesn't exist, skip
+        // engine/.env doesn't exist, skip
     }
 
     console.log("\nDone. Add YOUTUBE_REFRESH_TOKEN to your GitHub Secrets — it doesn't expire.");
-    console.log("From now on, the brain auto-refreshes access tokens using it.");
+    console.log("From now on, the engine auto-refreshes access tokens using it.");
 }
 
 // ---------------------------------------------------------------------------
@@ -248,13 +249,13 @@ async function refreshFlow(): Promise<void> {
     writeEnvKey(ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
     console.log(`Access token updated in ${ENV_PATH}`);
 
-    // Also write to brain .env if it exists
+    // Also write to engine .env if it exists
     try {
-        readFileSync(BRAIN_ENV_PATH, "utf-8");
-        writeEnvKey(BRAIN_ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
-        console.log(`Access token updated in ${BRAIN_ENV_PATH}`);
+        readFileSync(ENGINE_ENV_PATH, "utf-8");
+        writeEnvKey(ENGINE_ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);
+        console.log(`Access token updated in ${ENGINE_ENV_PATH}`);
     } catch {
-        // brain/.env doesn't exist, skip
+        // engine/.env doesn't exist, skip
     }
 
     console.log(`\nDone. Token valid for ${Math.floor(data.expires_in / 60)} minutes.`);

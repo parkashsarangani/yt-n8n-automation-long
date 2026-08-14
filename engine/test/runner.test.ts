@@ -43,7 +43,7 @@ const SCRIPT_PAYLOAD = {
 async function harness(handler: FakeHandler) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "amos-run-")), registry);
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-run-")), registry);
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
   const providers = new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider });
@@ -53,12 +53,12 @@ async function harness(handler: FakeHandler) {
 }
 
 function silent() {
-  return { log: () => {}, warn: () => {}, error: () => {} };
+  return { log: () => { }, warn: () => { }, error: () => { } };
 }
 
 /** A throwaway registry with one unrestricted schema, for worker-path tests. */
 async function tempRegistry(): Promise<SchemaRegistry> {
-  const dir = await mkdtemp(path.join(tmpdir(), "amos-tmpschema-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "vidgen-tmpschema-"));
   await mkdir(path.join(dir, "note"), { recursive: true });
   await writeFile(
     path.join(dir, "note", "1.0.0.json"),
@@ -207,7 +207,7 @@ test("inputs are validated on read against the declared schema", async () => {
 test("the producer allowlist blocks a transformation that is not declared", async () => {
   // Found by an earlier version of the worker test below: `script` lists only
   // script_writer, so any other producer — including a legitimate deterministic
-  // one — is refused. See the RFC 0007 note in brain/README.md.
+  // one — is refused. See the RFC 0007 note in engine/README.md.
   const h = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.9 } }));
   const intent = await seedIntent(h);
   const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]);
@@ -235,7 +235,7 @@ test("workers run through the same harness and are given no model", async () => 
   // worker path rather than the allowlist (which the test above covers).
   const registry = await tempRegistry();
   const store = await FsArtifactStore.open(
-    await mkdtemp(path.join(tmpdir(), "amos-worker-")),
+    await mkdtemp(path.join(tmpdir(), "vidgen-worker-")),
     registry,
   );
   const runner = new Runner({

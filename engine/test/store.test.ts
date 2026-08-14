@@ -33,7 +33,7 @@ const STORY = {
 
 async function freshStore() {
   const registry = await SchemaRegistry.load(SCHEMA_DIR);
-  const root = await mkdtemp(path.join(tmpdir(), "amos-store-"));
+  const root = await mkdtemp(path.join(tmpdir(), "vidgen-store-"));
   return { store: await FsArtifactStore.open(root, registry), root, registry };
 }
 

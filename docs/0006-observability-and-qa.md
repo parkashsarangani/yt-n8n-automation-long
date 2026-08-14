@@ -122,7 +122,7 @@ the correlation is absent, the thresholds are theatre and should be dropped rath
 
 1. **Run log** (above) — the queryable substrate. Postgres.
 2. **Lineage view** — given any artifact, walk `parents` to show what produced it and from what.
-   A CLI (`amos why <artifact_id>`) is sufficient at first; the DAG is already in the data.
+   A CLI (`vidgen why <artifact_id>`) is sufficient at first; the DAG is already in the data.
 3. **Cost/quality rollup** — per episode and per graph version: total cost by stage, QA warn
    counts, human interventions, wall-clock. This is the Feedback layer's input, and the direct
    descendant of the A/B run log.

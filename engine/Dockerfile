@@ -1,4 +1,4 @@
-# AMOS brain: agents, execution graph, artifact store, control UI.
+# VidGen engine: agents, execution graph, artifact store, control UI.
 #
 # TypeScript runs directly via tsx rather than through a build step, so the
 # container runs exactly the source in the repo — no compiled artifact that can
@@ -7,7 +7,7 @@ FROM node:22-slim
 
 # curl is only here for the container healthcheck.
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -21,13 +21,13 @@ COPY . .
 # Artifacts, blobs, the run log, and the credential file all live here so they
 # survive `docker compose down` in a named volume.
 ENV AMOS_DATA=/data \
-    AMOS_ENV_FILE=/data/.env \
-    AMOS_PORT=4321 \
-    # Must bind all interfaces to be reachable through a published port. The
-    # loopback guarantee comes from the host-side 127.0.0.1 binding in
-    # docker-compose.yml plus the Host-header check in src/server.ts.
-    AMOS_HOST=0.0.0.0 \
-    NODE_ENV=production
+  AMOS_ENV_FILE=/data/.env \
+  AMOS_PORT=4321 \
+  # Must bind all interfaces to be reachable through a published port. The
+  # loopback guarantee comes from the host-side 127.0.0.1 binding in
+  # docker-compose.yml plus the Host-header check in src/server.ts.
+  AMOS_HOST=0.0.0.0 \
+  NODE_ENV=production
 
 RUN mkdir -p /data
 

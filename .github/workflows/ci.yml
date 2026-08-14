@@ -18,21 +18,21 @@ jobs:
           # invariant that legacy n8n stays behind its profile.
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "default services: $services"
-          [ "$services" = "brain long-compose postgres " ] || {
-            echo "ERROR: expected exactly 'brain long-compose postgres' by default"
+          [ "$services" = "engine long-compose postgres " ] || {
+            echo "ERROR: expected exactly 'engine long-compose postgres' by default"
             exit 1
           }
 
-      - name: Build brain image
-        run: docker build -t brain:pr-${{ github.event.pull_request.number }} ./brain
+      - name: Build engine image
+        run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
 
       # Run against the image rather than the runner's Node, so the tests
       # execute on exactly the runtime production uses.
       - name: Typecheck
-        run: docker run --rm brain:pr-${{ github.event.pull_request.number }} npm run typecheck
+        run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
 
       - name: Test
-        run: docker run --rm brain:pr-${{ github.event.pull_request.number }} npm test
+        run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
@@ -40,5 +40,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rmi -f brain:pr-${{ github.event.pull_request.number }} \
+          docker rmi -f engine:pr-${{ github.event.pull_request.number }} \
                         long-compose:pr-${{ github.event.pull_request.number }} 2>/dev/null || true

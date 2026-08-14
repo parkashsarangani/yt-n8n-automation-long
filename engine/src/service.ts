@@ -1,7 +1,7 @@
 /**
  * Application service.
  *
- * Assembles the brain for a single local operator and exposes the handful of
+ * Assembles the engine for a single local operator and exposes the handful of
  * operations a UI needs: start a run, watch which step is executing, review a
  * gated artifact, approve or reject it, and manage credentials.
  *
@@ -97,7 +97,7 @@ export interface ServiceOptions {
   allowPublish?: boolean;
 }
 
-export class AmosService {
+export class VidGenService {
   private registry!: SchemaRegistry;
   private prompts!: PromptStore;
   private agents!: Map<string, TransformationDef>;
@@ -114,13 +114,13 @@ export class AmosService {
   private allowPublish: boolean;
 
   private constructor(private readonly root: string, opts: ServiceOptions) {
-    this.dataDir = opts.dataDir ?? path.join(root, ".amos-data");
+    this.dataDir = opts.dataDir ?? path.join(root, ".vidgen-data");
     this.envFile = opts.envFile ?? path.join(root, ".env");
     this.allowPublish = opts.allowPublish ?? false;
   }
 
-  static async create(opts: ServiceOptions): Promise<AmosService> {
-    const svc = new AmosService(opts.root, opts);
+  static async create(opts: ServiceOptions): Promise<VidGenService> {
+    const svc = new VidGenService(opts.root, opts);
     // Load .env into the process so providers see it, without clobbering
     // variables the operator set explicitly in their shell.
     for (const [k, v] of Object.entries(await readEnvFile(svc.envFile))) {
