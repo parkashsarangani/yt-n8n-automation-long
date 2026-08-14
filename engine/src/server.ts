@@ -83,7 +83,8 @@ export function createUiServer(opts: ServerOptions) {
     // --- runs ---
     if (route === "GET /api/runs") {
       const runs = service.listRuns();
-      for (const r of runs) r.cost_usd = await service.costOf(r.run_id);
+      // Don't compute cost for every run on every poll — too many DB queries.
+      // Cost is computed on the detail view only.
       json(res, 200, { runs });
       return;
     }
