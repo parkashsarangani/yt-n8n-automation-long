@@ -47,7 +47,7 @@ export function buildPrompt(terms: string[], style: string, prefix = DEFAULT_PRE
 }
 
 export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
-  const aspect: Aspect = opts.aspect ?? "9:16";
+  const aspect: Aspect = opts.aspect ?? "16:9";
   const prefix = opts.housePrefix ?? DEFAULT_PREFIX;
 
   return {

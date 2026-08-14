@@ -35,8 +35,8 @@ const TOPIC_HISTORY_PATH = process.env.TOPIC_HISTORY_PATH || path.join(__dirname
 const TOPIC_HISTORY_MAX = 90;
 const RUN_LOG_PATH = process.env.RUN_LOG_PATH || path.join(path.dirname(TOPIC_HISTORY_PATH), "run_log.jsonl");
 
-const TARGET_W = 1080;
-const TARGET_H = 1920;
+const TARGET_W = 1920;
+const TARGET_H = 1080;
 const FPS = 30;
 
 // Long-form scaling knobs:
@@ -591,7 +591,20 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   }
 
   // Build props — pass all template_data through as props + mood + background
-  let props = { mood: mood || "neutral", ...(templateData || {}) };
+  // Parse template_data if it's still a string (shouldn't be, but defensive)
+  const parsedData = typeof templateData === "string" ? JSON.parse(templateData) : (templateData || {});
+  let props = { mood: mood || "neutral", ...parsedData };
+
+  // Normalize props: the AI outputs generic structures (items, events, title)
+  // but each template expects specific prop names. Map common patterns.
+  if (parsedData.text && !props.line) props.line = parsedData.text;
+  if (parsedData.title && !props.heroLines) props.heroLines = [parsedData.title];
+  if (parsedData.from !== undefined && !props.words) {
+    // Counter templates: pass as words for roller, or text for TextCounter
+    props.text = props.text || `${parsedData.from} → ${parsedData.to}${parsedData.unit || ""}`;
+  }
+
+  console.log(`[template] ${compositionId} props keys: ${Object.keys(props).join(", ")}`);
   // Pass the background image as a data URI so Remotion can render it behind the template
   if (bgImagePath) {
     try {
@@ -616,58 +629,13 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     props.line = templateData?.line || props.line || "";
   }
 
-  // Render template via Remotion
+  // Render template via Remotion (full-screen, no image composite).
+  // Templates look best on their own dark backgrounds. Overlaying on images
+  // makes text harder to read and panels invisible. The visual planner should
+  // use templates for data-heavy scenes and images for atmospheric scenes —
+  // mixing them in a single frame adds complexity without visual benefit.
   const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${Date.now()}.mp4`);
   await renderRemotion(compositionId, templateVideoPath, duration, props);
-
-  // If we have a background image, composite the template over it.
-  // The template renders on a dark background — we blend it over the image
-  // using lighten mode so the bright template content shows through.
-  if (bgImagePath) {
-    const bgClipPath = path.join(tmpDir, `tpl_bg_${Date.now()}.mp4`);
-    // Create a Ken Burns still from the background image
-    const totalFrames = Math.ceil(duration * FPS);
-    const startScale = 1.05;
-    const endScale = 1.15;
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(bgImagePath)
-        .loop(duration)
-        .inputOptions(["-framerate", String(FPS)])
-        .complexFilter([
-          `scale=${KENBURNS_UPSCALE}:-1,` +
-          `zoompan=z='${startScale}+((${endScale}-${startScale})*(on/${totalFrames}))':` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-          `d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${FPS},` +
-          `format=yuv420p[bg]`
-        ])
-        .outputOptions(["-map", "[bg]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"])
-        .output(bgClipPath)
-        .on("end", resolve)
-        .on("error", reject)
-        .run();
-    });
-
-    // Composite: darken the background, overlay the template using screen blend
-    const compositePath = path.join(tmpDir, `tpl_comp_${Date.now()}.mp4`);
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(bgClipPath)
-        .input(templateVideoPath)
-        .complexFilter([
-          `[0:v]colorbalance=rs=-0.1:gs=-0.1:bs=-0.1,eq=brightness=-0.3:saturation=0.7[darkbg];` +
-          `[darkbg][1:v]blend=all_mode=screen:all_opacity=0.85[out]`
-        ])
-        .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"])
-        .output(compositePath)
-        .on("end", resolve)
-        .on("error", reject)
-        .run();
-    });
-
-    // Use the composite as the template video for muxing with audio
-    await fsp.rename(compositePath, templateVideoPath);
-  }
 
   // Mux template video (or composite) with audio
   const templateDuration = await ffprobeDuration(templateVideoPath);
@@ -973,25 +941,11 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
       const isTemplate = scene?.visual_source === "template";
       const isStockVideo = !isTemplate && !!scene?.video_url;
-      const hasImage = !!(scene?.images_base64?.length || scene?.images?.length);
 
       if (isTemplate) {
         if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
-        // If the scene also has an image, pass it as backgroundImage to the template
-        let bgImagePath = null;
-        if (hasImage) {
-          const imageBase64s = scene?.images_base64;
-          const imageUrls = scene?.images;
-          bgImagePath = path.join(tmpDir, `scene_${i}_bg.png`);
-          if (Array.isArray(imageBase64s) && imageBase64s.length) {
-            await writeBase64(imageBase64s[0], bgImagePath);
-          } else if (Array.isArray(imageUrls) && imageUrls.length) {
-            await downloadFile(imageUrls[0], bgImagePath);
-          } else {
-            bgImagePath = null;
-          }
-        }
-        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, bgImagePath);
+        // Templates render full-screen on their own dark background — no image composite.
+        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, null);
       } else if (isStockVideo) {
         const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
         await downloadFile(scene.video_url, stockVideoPath);

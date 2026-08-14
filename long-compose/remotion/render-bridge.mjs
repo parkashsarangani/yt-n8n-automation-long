@@ -51,8 +51,8 @@ async function main() {
     // Override duration to match actual audio/scene length
     composition.durationInFrames = durationInFrames;
     composition.fps = fps;
-    composition.width = 1080;
-    composition.height = 1920;
+    composition.width = 1920;
+    composition.height = 1080;
 
     console.log(`[remotion] Rendering ${durationInFrames} frames (${durationSec}s)...`);
     await renderMedia({
