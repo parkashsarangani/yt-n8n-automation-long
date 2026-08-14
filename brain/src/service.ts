@@ -16,6 +16,9 @@ import { PromptStore } from "./prompts.ts";
 import { FsArtifactStore, type ArtifactStore } from "./store.ts";
 import { FsBlobStore, type BlobStore } from "./blobs.ts";
 import { JsonlRunLog, rollup, type RunLog, type RunRecord } from "./runlog.ts";
+import { hasDatabase, getPool, migrate } from "./db.ts";
+import { PgRunLog } from "./pg-runlog.ts";
+import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
 import {
   ProviderRouter,
   type ImageProvider,
@@ -136,7 +139,18 @@ export class AmosService {
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
-    svc.runLog = new JsonlRunLog(path.join(svc.dataDir, "runs.jsonl"));
+
+    // Use Postgres when DATABASE_URL is set, filesystem otherwise.
+    if (hasDatabase()) {
+      await migrate();
+      const pool = getPool();
+      svc.runLog = new PgRunLog(pool);
+      console.log("[db] using Postgres for run persistence");
+    } else {
+      svc.runLog = new JsonlRunLog(path.join(svc.dataDir, "runs.jsonl"));
+      console.log("[db] using filesystem (no DATABASE_URL)");
+    }
+
     svc.rebuild();
     await svc.reloadRuns();
     return svc;
@@ -353,6 +367,12 @@ export class AmosService {
 
     const runId = `run_${randomUUID()}`;
     console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)`);
+
+    // Persist run in Postgres if available
+    if (this.runLog instanceof PgRunLog) {
+      await this.runLog.createRun(runId, trimmed, `${this.graph.graph_id}@${this.graph.version}`);
+    }
+
     const intent = await this.store.put({
       schema_id: "intent",
       payload: { brief: trimmed, target_duration_sec: durationSec },
@@ -407,6 +427,23 @@ export class AmosService {
     } finally {
       state.active.clear();
       state.finished = true;
+
+      // Persist status to Postgres
+      if (this.runLog instanceof PgRunLog) {
+        const status = state.error ? "blocked" : (state.last?.status ?? "blocked");
+        await this.runLog.updateRunStatus(runId, status, state.error);
+        const cost = rollup(await this.runLog.forRun(runId)).cost_usd;
+        await this.runLog.updateRunCost(runId, cost);
+
+        // Cleanup: if the run completed, mark intermediate blobs for deletion
+        if (status === "completed") {
+          const marked = await markRunForCleanup(this.runLog, runId);
+          if (marked > 0) {
+            console.log(`[run ${runId.slice(4, 12)}] marked ${marked} blobs for cleanup`);
+            await sweepBlobs(this.runLog, path.join(this.dataDir, "blobs"));
+          }
+        }
+      }
     }
   }
 
