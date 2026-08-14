@@ -594,6 +594,16 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   // Parse template_data if it's still a string (shouldn't be, but defensive)
   const parsedData = typeof templateData === "string" ? JSON.parse(templateData) : (templateData || {});
   let props = { mood: mood || "neutral", ...parsedData };
+
+  // Normalize props: the AI outputs generic structures (items, events, title)
+  // but each template expects specific prop names. Map common patterns.
+  if (parsedData.text && !props.line) props.line = parsedData.text;
+  if (parsedData.title && !props.heroLines) props.heroLines = [parsedData.title];
+  if (parsedData.from !== undefined && !props.words) {
+    // Counter templates: pass as words for roller, or text for TextCounter
+    props.text = props.text || `${parsedData.from} → ${parsedData.to}${parsedData.unit || ""}`;
+  }
+
   console.log(`[template] ${compositionId} props keys: ${Object.keys(props).join(", ")}`);
   // Pass the background image as a data URI so Remotion can render it behind the template
   if (bgImagePath) {
@@ -624,47 +634,40 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   await renderRemotion(compositionId, templateVideoPath, duration, props);
 
   // If we have a background image, composite the template over it.
-  // The template renders on a dark background — we blend it over the image
-  // using lighten mode so the bright template content shows through.
+  // Templates render on a solid dark background. We use ffmpeg's "lighten"
+  // blend: wherever the template is bright (text, graphics), it shows through;
+  // wherever it's dark (#0a0a0a background), the image shows instead.
   if (bgImagePath) {
     const bgClipPath = path.join(tmpDir, `tpl_bg_${Date.now()}.mp4`);
-    // Create a Ken Burns still from the background image
+    // Create a simple still clip from the background image (no Ken Burns — keep it clean)
     const totalFrames = Math.ceil(duration * FPS);
-    const startScale = 1.05;
-    const endScale = 1.15;
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(bgImagePath)
-        .loop(duration)
-        .inputOptions(["-framerate", String(FPS)])
+        .inputOptions(["-loop", "1", "-framerate", String(FPS)])
         .complexFilter([
-          `scale=${KENBURNS_UPSCALE}:-1,` +
-          `zoompan=z='${startScale}+((${endScale}-${startScale})*(on/${totalFrames}))':` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':` +
-          `d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${FPS},` +
+          `[0:v]scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=increase,` +
+          `crop=${TARGET_W}:${TARGET_H},` +
+          `eq=brightness=-0.3:saturation=0.6,` +
           `format=yuv420p[bg]`
         ])
-        .outputOptions(["-map", "[bg]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"])
+        .outputOptions(["-map", "[bg]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an"])
         .output(bgClipPath)
         .on("end", resolve)
         .on("error", reject)
         .run();
     });
 
-    // Composite: darken the background image, then place template on top.
-    // The template has a dark background — we use it at reduced opacity over
-    // the darkened image so both are visible without color shifting.
+    // Composite: lighten blend — template's bright content shows over the dark image
     const compositePath = path.join(tmpDir, `tpl_comp_${Date.now()}.mp4`);
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(bgClipPath)
         .input(templateVideoPath)
         .complexFilter([
-          `[0:v]eq=brightness=-0.4:saturation=0.5[darkbg];` +
-          `[1:v]format=yuva420p,colorchannelmixer=aa=0.75[tpl];` +
-          `[darkbg][tpl]overlay=0:0:format=yuv420[out]`
+          `[0:v][1:v]blend=all_mode=lighten[out]`
         ])
-        .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"])
+        .outputOptions(["-map", "[out]", "-t", String(duration), "-c:v", V_ENCODER, "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-an"])
         .output(compositePath)
         .on("end", resolve)
         .on("error", reject)
