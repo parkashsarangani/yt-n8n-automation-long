@@ -477,6 +477,9 @@ export class VidGenService {
 
   /** Records for one run, so the UI can show cost and the current job. */
   async runRecords(runId: string): Promise<RunRecord[]> {
+    if (this.runLog instanceof PgRunLog) {
+      return this.runLog.forRun(runId);
+    }
     return (await this.runLog.all()).filter((r) => r.run_id === runId);
   }
 
