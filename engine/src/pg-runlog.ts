@@ -25,13 +25,14 @@ export class PgRunLog implements RunLog {
     async record(r: RunRecord): Promise<void> {
         await this.pool.query(
             `INSERT INTO run_records (
-        run_id, node_id, transformation, transformation_version,
+        run_id, graph_id, node_id, transformation, transformation_version,
         inputs, output_artifact_id, status, attempt, max_attempts,
         provider, model, prompt_ref, usage_json, confidence_json,
         error, external_job_id, detail, started_at, duration_ms
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
             [
                 r.run_id,
+                r.graph_id ?? null,
                 r.node_id ?? null,
                 r.transformation,
                 r.transformation_version,

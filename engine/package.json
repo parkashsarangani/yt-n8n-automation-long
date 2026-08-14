@@ -18,9 +18,11 @@
     "semver": "^7.6.3"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^12.1.0",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.0",
     "@types/semver": "^7.5.8",
+    "testcontainers": "^12.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
