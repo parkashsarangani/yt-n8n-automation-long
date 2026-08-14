@@ -156,6 +156,7 @@ export class GraphExecutor {
     for (; ;) {
       const ready = graph.nodes.filter(
         (n) =>
+          nodeType(n) !== "input" &&
           !completed.has(n.id) &&
           !stalled.has(n.id) &&
           inputsOf(n).every((up) => completed.has(up)),
