@@ -47,7 +47,6 @@ export function createUiServer(opts: ServerOptions) {
 
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     const route = `${req.method} ${url.pathname}`;
-    console.log(`[http] → ${route}`);
 
     // --- static ---
     if (route === "GET /") {
