@@ -9,7 +9,7 @@
 import { readFile } from "node:fs/promises";
 import type { SchemaRegistry } from "./registry.ts";
 import type { TransformationDef } from "./runner.ts";
-import { parsePredicate } from "./predicate.ts";
+import { assertValidPredicate } from "./predicate.ts";
 
 export class GraphError extends Error {
   override name = "GraphError";
@@ -164,7 +164,7 @@ export function validateGraph(graph: GraphDoc, deps: ValidateGraphDeps): void {
       }
       if (gate.policy?.auto_pass_if) {
         try {
-          parsePredicate(gate.policy.auto_pass_if);
+          assertValidPredicate(gate.policy.auto_pass_if);
         } catch (err) {
           problems.push(`human_gate "${n.id}": ${String(err)}`);
         }

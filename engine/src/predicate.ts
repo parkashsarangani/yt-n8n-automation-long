@@ -22,6 +22,29 @@ export interface Predicate {
   value: number | string | boolean | null;
 }
 
+/**
+ * The one non-comparison predicate: a gate that never blocks.
+ *
+ * Written explicitly rather than smuggled in as a comparison that happens to
+ * always hold (`confidence.overall >= 0`). Two reasons. It says plainly, in the
+ * graph, that a gate is unattended — someone reading skeleton.json should not
+ * have to evaluate arithmetic to discover that nobody is reviewing. And a
+ * threshold predicate silently *fails* when its path is missing, so an artifact
+ * without confidence would park the run forever waiting for a human who is not
+ * coming, which is the worst outcome for an unattended pipeline.
+ */
+export const ALWAYS = "always";
+
+/**
+ * Static check used by graph validation. Accepts ALWAYS as well as a
+ * comparison, so both the validator and the evaluator agree on what is legal —
+ * they diverged once already and the graph failed to load.
+ */
+export function assertValidPredicate(expr: string): void {
+  if (expr.trim() === ALWAYS) return;
+  parsePredicate(expr);
+}
+
 /** `confidence.overall >= 0.9` / `payload.acts.length > 2` / `labels.variant == "a"` */
 export function parsePredicate(expr: string): Predicate {
   const trimmed = expr.trim();
@@ -66,6 +89,8 @@ export function resolvePath(artifact: Artifact, path: string): unknown {
 }
 
 export function evaluatePredicate(expr: string, artifact: Artifact): boolean {
+  if (expr.trim() === ALWAYS) return true;
+
   const { path, op, value } = parsePredicate(expr);
   const actual = resolvePath(artifact, path);
 

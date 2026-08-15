@@ -159,3 +159,17 @@ test("predicates are not a general expression language", () => {
   assert.throws(() => parsePredicate("process.exit(1) > 0"), PredicateError);
   assert.throws(() => evaluatePredicate('confidence.overall >= "high"', ARTIFACT), PredicateError);
 });
+
+test("a gate can declare itself unattended, and the validator accepts it", async () => {
+  // The evaluator and the static validator disagreed about "always" once, and
+  // the whole graph then failed to load. Both paths are pinned here.
+  const { evaluatePredicate, assertValidPredicate, ALWAYS } = await import("../src/predicate.ts");
+
+  assert.doesNotThrow(() => assertValidPredicate(ALWAYS));
+  // An artifact with no confidence at all still passes — the case a threshold
+  // would silently fail on, parking an unattended run forever.
+  assert.equal(evaluatePredicate(ALWAYS, { schema_id: "x" } as never), true);
+
+  // Nonsense is still rejected: this is an explicit escape, not a hole.
+  assert.throws(() => assertValidPredicate("sometimes"), /must be/);
+});
