@@ -53,9 +53,15 @@ cd engine && npm run youtube-token -- --auth
 ```
 
 It prints a URL, waits on `http://localhost:8976` for the redirect, and writes a
-new refresh token. **`http://localhost:8976` must be listed as an authorized
-redirect URI** on your OAuth client in the Google Cloud console, or the consent
-screen will reject it.
+new refresh token.
+
+Whether you need a console change first depends on your OAuth client type:
+
+- **Desktop app** — nothing to do. Google accepts loopback redirects on any
+  port for installed apps without registering them.
+- **Web application** — add `http://localhost:8976` to the client's authorized
+  redirect URIs, or the consent screen rejects the request before issuing a
+  code.
 
 > Run it from `engine/`, not the repo root — `tsx` is a dependency of that
 > package, so `node --import tsx` cannot resolve from the root.
