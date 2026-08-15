@@ -1,0 +1,15 @@
+{
+  "name": "thumbnail_designer",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [{ "schema_id": "story", "range": "^1", "as": "story" }],
+  "produces": "thumbnail_brief",
+  "prompt": "thumbnail_designer@1",
+  "model": {
+    "capability": "reasoning_fast",
+    "max_output_tokens": 2000,
+    "effort": "medium"
+  },
+  "confidence_dimensions": ["clarity", "curiosity"],
+  "retry": { "max_attempts": 3 }
+}

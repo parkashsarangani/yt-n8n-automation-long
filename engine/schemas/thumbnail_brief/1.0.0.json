@@ -1,0 +1,45 @@
+{
+  "schema_id": "thumbnail_brief",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "What the thumbnail should say and show. Reasoning only — no bytes. Kept separate from the rendered thumbnail so text can be reworked without touching the image pipeline, and so alternatives can be carried for a later A/B.",
+  "produced_by": ["thumbnail_designer"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ThumbnailBriefArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["text", "background_query", "accent", "rationale"],
+    "properties": {
+      "text": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 30,
+        "description": "Overlay text. Hard-capped at 30 characters: the renderer truncates at 48 and anything longer than about four words is unreadable at the size YouTube shows in a sidebar."
+      },
+      "background_query": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 120,
+        "description": "Stock photo search terms for the background. Concrete nouns only — stock libraries match subjects, not concepts."
+      },
+      "accent": {
+        "type": "string",
+        "pattern": "^#[0-9A-Fa-f]{6}$",
+        "description": "Text colour as #RRGGBB. Must stay legible on a darkened band."
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600,
+        "description": "Why this framing earns the click. Recorded so a weak thumbnail can be diagnosed rather than guessed at."
+      },
+      "alternatives": {
+        "type": "array",
+        "maxItems": 4,
+        "description": "Other text options, strongest first. Unused today; the raw material for thumbnail A/B once the feedback loop exists.",
+        "items": { "type": "string", "minLength": 2, "maxLength": 30 }
+      }
+    }
+  }
+}

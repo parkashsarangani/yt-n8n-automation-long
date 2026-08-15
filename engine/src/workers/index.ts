@@ -10,15 +10,17 @@ import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
+import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
 
-export { makeVoiceWorker, makeAssetWorker, makeRenderWorker, makePublishWorker };
+export { makeVoiceWorker, makeAssetWorker, makeRenderWorker, makeThumbnailWorker, makePublishWorker };
 export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
   assets?: AssetWorkerOptions;
   render?: RenderWorkerOptions;
+  thumbnail?: ThumbnailWorkerOptions;
   /** Omit to build a graph that stops at render (no destination configured). */
   publish?: PublishWorkerOptions;
 }
@@ -28,6 +30,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
     makeRenderWorker(opts.render ?? {}),
+    makeThumbnailWorker(opts.thumbnail ?? {}),
     ...(opts.publish ? [makePublishWorker(opts.publish)] : []),
   ];
   return new Map(workers.map((w) => [w.name, w]));

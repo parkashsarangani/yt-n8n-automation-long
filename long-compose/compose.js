@@ -238,14 +238,69 @@ function pickGradientBackground() {
 // bottom band for legibility, and the punchy thumbnail text in Inter-Black with
 // the niche accent color. Identical template across niches (only image + accent
 // differ) so the A/B comparison isn't confounded by thumbnail construction.
+// ---------------------------------------------------------------------------
+// drawtext-capable ffmpeg
+//
+// The bundled ffmpeg-static binary is FFmpeg 7.x built WITHOUT libharfbuzz.
+// Since 7.0 harfbuzz is a hard requirement for the drawtext filter, so that
+// build silently has no drawtext at all — every thumbnail attempt died with
+// "No such filter: 'drawtext'", and the /compose path swallowed it in a
+// try/catch and carried on. The result was months of videos published with
+// YouTube's auto-selected frame instead of a designed thumbnail, with nothing
+// louder than a warning to say so.
+//
+// The image also installs Debian's ffmpeg (5.1.x), which does have drawtext.
+// Probe for a binary that actually supports it rather than assuming, and leave
+// the video pipeline on ffmpeg-static — that part works and is not worth
+// disturbing.
+// ---------------------------------------------------------------------------
+const execFileAsync = require("util").promisify(require("child_process").execFile);
+let _textFfmpeg;
+function hasDrawtext(bin) {
+  try {
+    const out = require("child_process").execFileSync(bin, ["-hide_banner", "-filters"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15000,
+    });
+    return /^\s*\S+\s+drawtext\s/m.test(out);
+  } catch { return false; }
+}
+function textFfmpegPath() {
+  if (_textFfmpeg !== undefined) return _textFfmpeg;
+  const candidates = [process.env.FFMPEG_TEXT_PATH, "/usr/bin/ffmpeg", "ffmpeg", ffmpegPath]
+    .filter(Boolean);
+  _textFfmpeg = candidates.find(hasDrawtext) || null;
+  if (_textFfmpeg) {
+    console.log(`[thumbnail] drawtext-capable ffmpeg: ${_textFfmpeg}`);
+  } else {
+    console.error(
+      "[thumbnail] NO ffmpeg with drawtext found — thumbnails cannot have text burned in. " +
+      "Install an ffmpeg built with libharfbuzz/libfreetype, or set FFMPEG_TEXT_PATH.",
+    );
+  }
+  return _textFfmpeg;
+}
+
+// Records which background was actually used, so callers can report a gradient
+// fallback rather than claiming the supplied image was applied. Read via
+// lastThumbnailBackground() immediately after the call.
+let _lastThumbnailBackground = "gradient";
+function lastThumbnailBackground() { return _lastThumbnailBackground; }
+
 async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64) {
   let bgPath;
+  _lastThumbnailBackground = "gradient";
   if (imageBase64) {
     bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
     await writeBase64(imageBase64, bgPath);
+    _lastThumbnailBackground = "supplied";
   } else if (imageUrl) {
     bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
-    try { await downloadFile(imageUrl, bgPath); } catch (e) { bgPath = pickGradientBackground(); }
+    try {
+      await downloadFile(imageUrl, bgPath);
+      _lastThumbnailBackground = "supplied";
+    } catch (e) { bgPath = pickGradientBackground(); }
   } else {
     bgPath = pickGradientBackground();
   }
@@ -260,9 +315,27 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
     "drawbox=x=0:y=468:w=1280:h=252:color=black@0.55:t=fill",
     `drawtext=fontfile='${safeFont}':text='${txt}':fontcolor=${accentHex}:fontsize=76:borderw=5:bordercolor=black:x=(w-text_w)/2:y=545`,
   ].join(",");
-  await run(
-    ffmpeg().input(bgPath).outputOptions(["-vf", vf, "-frames:v", "1"]).output(outPath)
-  );
+  const textBin = textFfmpegPath();
+  if (!textBin) {
+    throw new Error(
+      "no ffmpeg with the drawtext filter is available; cannot render thumbnail text",
+    );
+  }
+
+  // Spawned directly rather than through fluent-ffmpeg.
+  //
+  // fluent-ffmpeg re-splits option values on whitespace, and the -vf value
+  // contains the thumbnail text. The damage was word-count dependent — one
+  // word worked, two words produced a corrupt filtergraph, three worked again —
+  // which is why this looked like a mysterious per-text failure. execFile takes
+  // argv verbatim, so spaces in the overlay text are simply not special.
+  await execFileAsync(textBin, [
+    "-y",
+    "-i", bgPath,
+    "-vf", vf,
+    "-frames:v", "1",
+    outPath,
+  ], { timeout: 60000 });
   return outPath;
 }
 
@@ -1193,6 +1266,43 @@ app.post("/compose", (req, res) => {
     });
 
   return res.status(202).json({ job_id: jobId, status: "processing" });
+});
+
+// Build a thumbnail on its own, without rendering a video.
+//
+// The same buildThumbnail() the /compose path uses, exposed directly. A
+// thumbnail is the highest-leverage thing to iterate on and the cheapest thing
+// to produce, so it must not be chained to a 10-minute render: changing five
+// words of overlay text should cost seconds, not a full re-encode.
+//
+// Synchronous — no job store. This is image compositing, not video encoding.
+app.post("/thumbnail", async (req, res) => {
+  const tmpDir = newTmpDir();
+  const outPath = path.join(tmpDir, "thumbnail.png");
+  try {
+    const { image_url = null, image_base64 = null, text = null, accent = null } = req.body || {};
+
+    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64);
+
+    const bytes = await fsp.readFile(outPath);
+    return res.json({
+      success: true,
+      media_type: "image/png",
+      width: 1280,
+      height: 720,
+      // Base64 rather than a file path: unlike a render, there is nothing to
+      // keep on disk afterwards, and the caller wants the bytes.
+      image_base64: bytes.toString("base64"),
+      // buildThumbnail falls back to a gradient when the background cannot be
+      // fetched. Report what was actually used, not what was asked for, so the
+      // engine never records a stock background it did not get.
+      background: lastThumbnailBackground(),
+    });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: e.message });
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => { });
+  }
 });
 
 app.get("/compose-status/:jobId", (req, res) => {

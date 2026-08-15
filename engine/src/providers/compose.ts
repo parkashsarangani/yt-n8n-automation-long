@@ -20,6 +20,8 @@ import {
   type MediaRenderer,
   type RenderRequest,
   type RenderResult,
+  type ThumbnailRequest,
+  type ThumbnailResult,
 } from "../provider.ts";
 
 export interface ComposeRendererOptions {
@@ -58,6 +60,57 @@ export class ComposeRenderer implements MediaRenderer {
     this.timeoutMs = (opts.timeoutSec ?? 3600) * 1000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleepImpl = opts.sleepImpl ?? sleep;
+  }
+
+  /**
+   * Synchronous, unlike render(): compositing a still is fast enough that a job
+   * store and polling would be pure overhead.
+   */
+  async renderThumbnail(req: ThumbnailRequest): Promise<ThumbnailResult> {
+    const res = await this.fetchImpl(`${this.baseUrl}/thumbnail`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image_base64: req.image ? toBase64(req.image) : null,
+        text: req.text,
+        accent: req.accent ?? null,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new ProviderError(
+        `thumbnail render failed (${res.status}): ${(await res.text()).slice(0, 300)}`,
+      );
+    }
+
+    const body = (await res.json()) as {
+      success?: boolean;
+      image_base64?: string;
+      media_type?: string;
+      width?: number;
+      height?: number;
+      background?: "supplied" | "gradient";
+      error?: string;
+    };
+    if (!body.success || !body.image_base64) {
+      throw new ProviderError(`thumbnail render failed: ${body.error ?? "no image returned"}`);
+    }
+
+    return {
+      bytes: fromBase64(body.image_base64),
+      media_type: body.media_type ?? "image/png",
+      width: body.width ?? 1280,
+      height: body.height ?? 720,
+      background: body.background === "supplied" ? "supplied" : "gradient",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 1,
+        cost_usd: 0, // self-hosted
+        provider: "long-compose",
+        model: "ffmpeg-thumbnail",
+      },
+    };
   }
 
   async render(
@@ -193,4 +246,11 @@ export class ComposeRenderer implements MediaRenderer {
 
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
+}
+
+function fromBase64(b64: string): Uint8Array {
+  const buf = Buffer.from(b64, "base64");
+  // Zero-copy view: Buffer is a Uint8Array, but returning it directly would
+  // leak a Node type through an interface that promises Uint8Array.
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
