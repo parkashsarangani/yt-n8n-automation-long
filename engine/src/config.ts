@@ -67,6 +67,14 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "the image search stops after Pexels and Unsplash",
   },
   {
+    key: "MEASURE_EXCLUDE_IDS",
+    label: "Exclude from analytics",
+    secret: false,
+    placeholder: "videoId1,videoId2",
+    help: "Comma-separated YouTube video ids to keep out of the feedback loop — test uploads, one-offs, anything whose numbers would mislead",
+    fallback: "every public published episode is measured",
+  },
+  {
     key: "COMPOSE_URL",
     label: "long-compose URL",
     secret: false,

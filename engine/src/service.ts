@@ -44,7 +44,7 @@ import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
-import { buildPerformanceWindow } from "./performance-window.ts";
+import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import {
   GraphExecutor,
   type ExecutorEvent,
@@ -646,7 +646,15 @@ export class VidGenService {
       }
     }
 
+    // Operator exclusions come first: a test upload should not cost an API call
+    // or leave an artifact, regardless of how public it is.
+    const excluded = excludedIds();
+
     for (const { artifactId: rowId, externalId } of candidates) {
+      if (excluded.has(externalId)) {
+        skipped.push({ external_id: externalId, visibility: "excluded" });
+        continue;
+      }
       const vis = visibility[externalId] ?? "unknown";
       if (vis !== "public") {
         skipped.push({ external_id: externalId, visibility: vis });
@@ -655,9 +663,26 @@ export class VidGenService {
       const row = { artifact_id: rowId };
 
       try {
-        const result = await this.executor.start(this.measureGraph, {
-          episode: row.artifact_id,
-        });
+        // The measure graph is a real run and writes run records, so the run
+        // row has to exist first — run_records.run_id has a foreign key onto
+        // runs(run_id). startRun() does this for production runs; measurement
+        // went straight to the executor and violated the constraint the moment
+        // it met Postgres. Invisible on the filesystem run log, which has no
+        // referential integrity to violate.
+        const runId = `run_${randomUUID()}`;
+        if (this.runLog instanceof PgRunLog) {
+          await this.runLog.createRun(
+            runId,
+            `measure ${externalId}`,
+            `${this.measureGraph.graph_id}@${this.measureGraph.version}`,
+          );
+        }
+
+        const result = await this.executor.start(
+          this.measureGraph,
+          { episode: row.artifact_id },
+          { runId },
+        );
         const outId = result.outputs["performance"];
         const perf = outId ? await this.store.get(outId) : null;
         const views = (perf?.payload as { metrics?: { views?: number } })?.metrics?.views ?? 0;

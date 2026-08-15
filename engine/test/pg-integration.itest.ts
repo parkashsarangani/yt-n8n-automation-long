@@ -35,6 +35,39 @@ describe("PgRunLog integration", () => {
         runLog = new PgRunLog(pool);
     }, { timeout: 60_000 });
 
+    test("a run record cannot be written before its run row exists", async () => {
+        // The constraint that broke the first real measurement on the server:
+        // run_records.run_id has a foreign key onto runs(run_id). measureAll
+        // went straight to the executor without calling createRun, which the
+        // filesystem run log tolerates and Postgres does not — so the bug was
+        // invisible until it met production.
+        const orphan: RunRecord = {
+            run_id: "run_orphan_never_created",
+            graph_id: "measure@1",
+            node_id: "performance",
+            transformation: "measure",
+            transformation_version: "1",
+            inputs: [],
+            output: null,
+            status: "ok",
+            attempt: 1,
+            max_attempts: 1,
+            started_at: new Date().toISOString(),
+            duration_ms: 0,
+            error: null,
+        };
+
+        await assert.rejects(
+            () => runLog.record(orphan),
+            /foreign key|run_records_run_id_fkey/i,
+            "an orphan run record must be refused, not silently accepted",
+        );
+
+        // With the run row created first, the same record is accepted.
+        await runLog.createRun("run_orphan_never_created", "measure test", "measure@1");
+        await assert.doesNotReject(() => runLog.record(orphan));
+    });
+
     after(async () => {
         await pool.end();
         await container.stop();
