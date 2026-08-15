@@ -95,10 +95,23 @@ async function harness(target = new FakePublishTarget()) {
       },
       "thumbnail",
     );
+    // Publish consumes the QA verdict now; these tests are about platform
+    // limits, so QA is clean and the tag check under test is publish's own.
+    const qa = await seed(
+      "qa_report",
+      {
+        verdict: "pass",
+        failed: 0,
+        warned: 0,
+        checks: [{ id: "images_resolved", status: "pass", message: "all good" }],
+      },
+      "qa",
+    );
     return runner.run(makePublishWorker({ target }), [
       video.artifact_id,
       seo.artifact_id,
       thumb.artifact_id,
+      qa.artifact_id,
     ]);
   };
 

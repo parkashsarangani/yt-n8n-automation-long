@@ -1,0 +1,87 @@
+{
+  "schema_id": "qa_report",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Objective checks on a finished episode, run before publishing. Not judgement — every check is a measurement against a declared threshold, which is what makes it safe to gate on automatically. The verdict gates publication; warnings are recorded and do not block, so a slightly short script ships while placeholder images do not.",
+  "produced_by": [
+    "qa"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "QaReportArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "verdict",
+      "checks",
+      "failed",
+      "warned"
+    ],
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "pass",
+          "fail"
+        ],
+        "description": "fail when any check failed. The publish gate reads exactly this field."
+      },
+      "failed": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "warned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "checks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 40,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "status",
+            "message"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "warn",
+                "fail"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 300,
+              "description": "Written for whoever reads it at 7am wondering why nothing published."
+            },
+            "measured": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The value the check measured, when it is numeric. Kept numeric so thresholds can be compared and trended rather than parsed out of prose."
+            },
+            "threshold": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The bound it was measured against."
+            }
+          }
+        }
+      }
+    }
+  }
+}

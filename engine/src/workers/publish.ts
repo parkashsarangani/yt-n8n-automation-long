@@ -1,5 +1,5 @@
 /**
- * Publish worker: rendered_video + seo_metadata + thumbnail -> published_episode.
+ * Publish worker: rendered_video + seo_metadata + thumbnail + qa_report -> published_episode.
  *
  * Reads the target's `requirements()` rather than knowing anything about a
  * specific platform — this is the seam that keeps YouTube a plugin. Swapping in
@@ -27,6 +27,12 @@ interface SeoMetadata {
   primary_keyword: string;
 }
 
+interface QaReport {
+  verdict: "pass" | "fail";
+  failed: number;
+  checks: Array<{ id: string; status: string; message: string }>;
+}
+
 interface ThumbnailArtifact {
   thumbnail_uri: string;
   media_type: "image/png" | "image/jpeg";
@@ -51,6 +57,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
+      { schema_id: "qa_report", range: "^1", as: "qa" },
     ],
     produces: "published_episode",
 
@@ -58,6 +65,19 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       const video = inputs["video"]!.payload as RenderedVideo;
       const seo = inputs["seo"]!.payload as SeoMetadata;
       const reqs = target.requirements();
+
+      // Belt and braces. The graph already gates on this verdict, but publishing
+      // is the one irreversible step, and a graph edit that accidentally routes
+      // around the gate should not be able to put a broken episode on the
+      // channel. Enforcing a declared verdict is not judgement.
+      const qa = inputs["qa"]!.payload as QaReport;
+      if (qa.verdict !== "pass") {
+        const reasons = qa.checks
+          .filter((c) => c.status === "fail")
+          .map((c) => `${c.id}: ${c.message}`)
+          .join("; ");
+        throw new Error(`publish refused — QA verdict is ${qa.verdict}: ${reasons}`);
+      }
 
       // Taken wholesale from the SEO artifact. This worker deliberately does no
       // fallback logic: it used to reach into the story and substitute the
