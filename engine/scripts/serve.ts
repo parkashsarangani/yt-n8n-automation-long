@@ -33,12 +33,31 @@ const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port, hos
 const url = await server.listen();
 
 console.log(`VidGen UI  ${url}${host === "0.0.0.0" ? "  (published on the host as 127.0.0.1:" + port + ")" : ""}`);
-console.log(`config   ${service.envFile}`);
-for (const p of service.providerSummary()) {
-  console.log(`  ${p.role.padEnd(10)} ${p.provider}${p.real ? "" : "  (fake)"}`);
+console.log(`config     ${service.envFile}`);
+
+// Capability check: say plainly which stages will do the real thing on the next
+// run, and for the rest, the exact key that would fix it. Quietly substituting
+// placeholders is the failure mode worth shouting about — the run "succeeds",
+// produces a video, and the result is unusable.
+console.log("\nwhat will actually run:");
+const stages = service.capabilities();
+for (const s of stages) {
+  console.log(`  ${s.real ? "✓" : "✗"} ${s.label.padEnd(30)} ${s.provider}`);
+  if (!s.real) {
+    console.log(`      ${s.consequence}`);
+    console.log(`      fix: ${s.blockedBy ?? `set ${s.missing.join(" + ")}`}`);
+  }
 }
-if (allowPublish) console.log("\n  !! --publish is on: approved runs will upload to YouTube as PRIVATE");
-else console.log("\n  publishing is a dry run; restart with --publish to upload for real");
+
+const degraded = stages.filter((s) => !s.real).length;
+console.log(
+  degraded === 0
+    ? "\n  every stage is live."
+    : `\n  ${degraded} of ${stages.length} stages will use a stand-in.`,
+);
+
+if (allowPublish) console.log("  !! --publish is on: approved runs will upload to YouTube as PRIVATE");
+else console.log("  publishing is a dry run; restart with --publish to upload for real");
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {

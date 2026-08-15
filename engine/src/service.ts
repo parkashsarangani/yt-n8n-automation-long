@@ -49,7 +49,19 @@ import {
   type GraphRunResult,
 } from "./executor.ts";
 import { validateGraph } from "./graph.ts";
-import { credentialStatus, readEnvFile, writeEnvFile, type CredentialStatus } from "./config.ts";
+import {
+  credentialStatus,
+  readEnvFile,
+  writeEnvFile,
+  type CredentialStatus,
+  type EnvWriteResult,
+} from "./config.ts";
+import {
+  STAGES,
+  capabilityReport,
+  credentialsSatisfied,
+  type StageStatus,
+} from "./capabilities.ts";
 
 export type NodeState = "pending" | "running" | "done" | "waiting" | "failed" | "blocked";
 
@@ -160,17 +172,31 @@ export class VidGenService {
       return v && v.trim() ? v.trim() : undefined;
     };
 
-    const speech: SpeechProvider = env("ELEVENLABS_API_KEY")
+    // Whether a stage runs for real is decided in exactly one place
+    // (capabilities.ts) so this and providerSummary() cannot disagree.
+    const can = (id: string): boolean => {
+      const spec = STAGES.find((s) => s.id === id);
+      if (!spec) throw new Error(`unknown stage ${id}`);
+      return credentialsSatisfied(spec);
+    };
+
+    const speech: SpeechProvider = can("speech")
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
-    const images: ImageProvider = (env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY"))
+    const images: ImageProvider = can("images")
       ? new StockImageProvider()
       : new FakeImageProvider();
-    const renderer: MediaRenderer = env("COMPOSE_URL")
+    const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
-    const target: PublishTarget =
-      this.allowPublish && env("YOUTUBE_CLIENT_ID") && env("YOUTUBE_CLIENT_SECRET") && env("YOUTUBE_REFRESH_TOKEN")
+
+    // The OAuth trio is preferred: it refreshes itself. The bare access token
+    // is the one-hour stopgap, and only used when the trio is incomplete.
+    const hasOauthTrio =
+      env("YOUTUBE_CLIENT_ID") && env("YOUTUBE_CLIENT_SECRET") && env("YOUTUBE_REFRESH_TOKEN");
+    const target: PublishTarget = !(this.allowPublish && can("publish"))
+      ? new FakePublishTarget({ id: "dry-run" })
+      : hasOauthTrio
         ? new YouTubeTarget({
           accessToken: youtubeTokenFactory({
             clientId: env("YOUTUBE_CLIENT_ID")!,
@@ -178,9 +204,7 @@ export class VidGenService {
             refreshToken: env("YOUTUBE_REFRESH_TOKEN")!,
           }),
         })
-        : this.allowPublish && env("YOUTUBE_ACCESS_TOKEN")
-          ? new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! })
-          : new FakePublishTarget({ id: "dry-run" });
+        : new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! });
 
     this.transformations = allTransformations(
       this.agents,
@@ -328,29 +352,28 @@ export class VidGenService {
 
   // -- providers / credentials -------------------------------------------
 
+  /** Which pipeline stages will do the real thing on the next run, and why not. */
+  capabilities(): StageStatus[] {
+    return capabilityReport({ allowPublish: this.allowPublish });
+  }
+
+  /** Back-compat shape for the startup banner and the existing /api/config. */
   providerSummary(): Array<{ role: string; provider: string; real: boolean }> {
-    const env = (k: string) => Boolean(process.env[k]?.trim());
-    return [
-      { role: "reasoning", provider: "anthropic/claude-opus-5", real: env("ANTHROPIC_API_KEY") },
-      { role: "speech", provider: env("ELEVENLABS_API_KEY") ? "elevenlabs" : "fake", real: env("ELEVENLABS_API_KEY") },
-      { role: "images", provider: (env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY")) ? "stock (pexels+unsplash)" : "fake", real: !!(env("PEXELS_API_KEY") || env("UNSPLASH_ACCESS_KEY")) },
-      { role: "renderer", provider: env("COMPOSE_URL") ? "long-compose" : "fake", real: env("COMPOSE_URL") },
-      {
-        role: "publish",
-        provider: this.allowPublish && (env("YOUTUBE_REFRESH_TOKEN") || env("YOUTUBE_ACCESS_TOKEN")) ? "youtube" : "dry-run",
-        real: this.allowPublish && (env("YOUTUBE_REFRESH_TOKEN") || env("YOUTUBE_ACCESS_TOKEN")),
-      },
-    ];
+    return this.capabilities().map((s) => ({
+      role: s.id,
+      provider: s.provider,
+      real: s.real,
+    }));
   }
 
   credentials(): CredentialStatus[] {
     return credentialStatus();
   }
 
-  async saveCredentials(updates: Record<string, string>): Promise<string[]> {
-    const applied = await writeEnvFile(this.envFile, updates);
+  async saveCredentials(updates: Record<string, string>): Promise<EnvWriteResult> {
+    const result = await writeEnvFile(this.envFile, updates);
     this.rebuild(); // a key entered now takes effect on the next run
-    return applied;
+    return result;
   }
 
   // -- runs ---------------------------------------------------------------
