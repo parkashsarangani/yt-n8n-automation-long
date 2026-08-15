@@ -95,6 +95,30 @@ jobs:
 
       - name: Cleanup
         run: |
-          docker image prune -f
+          # `docker image prune -f` only removes dangling images and does not
+          # touch the build cache at all. Every deploy adds layers, so the cache
+          # grew unbounded — it reached 103 GB on an 84%-full disk before anyone
+          # looked, which would eventually have failed renders and deploys with
+          # an error pointing nowhere near the cause.
+          docker builder prune -f --keep-storage 20GB
+          # Unused images older than a week. Recent ones stay so rebuilds are
+          # still fast; -a without the filter would evict base images on every
+          # deploy and make each build re-pull them.
+          docker image prune -af --filter "until=168h"
+
           echo "=== Deploy complete ==="
           docker compose ps
+
+      - name: Disk
+        if: always()
+        run: |
+          df -h / | tail -1
+          docker system df
+          # Fail the deploy loudly while there is still room to fix it, rather
+          # than silently at 100% during a render.
+          used=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "$used" -ge 85 ]; then
+            echo "::error::disk is ${used}% full after cleanup — investigate before it fills"
+            exit 1
+          fi
+          echo "disk ${used}% used"
