@@ -49,8 +49,12 @@ cd engine && npm run youtube-token
 If it reports the analytics scope missing, re-authorize once:
 
 ```bash
-cd engine && npm run youtube-token -- --auth
+cd engine && npm run youtube-auth
 ```
+
+(A separate script rather than `youtube-token -- --auth`: PowerShell eats the
+`--` separator, so npm parses `--auth` as its own config and silently runs the
+refresh path instead.)
 
 It prints a URL, waits on `http://localhost:8976` for the redirect, and writes a
 new refresh token.
