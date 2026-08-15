@@ -14,6 +14,7 @@ import {
   type CompletionRequest,
   type CompletionResult,
   type AnalyticsProvider,
+  type Visibility,
   type AnalyticsWindow,
   type EpisodeMetrics,
   type ImageProvider,
@@ -272,8 +273,16 @@ export class FakeAnalyticsProvider implements AnalyticsProvider {
       withoutDiscoveryMetrics?: boolean;
       failWith?: string;
       overrides?: Partial<EpisodeMetrics>;
+      visibility?: Record<string, Visibility>;
     } = {},
   ) {}
+
+  /** Everything public unless a test says otherwise. */
+  async fetchVisibility(externalIds: string[]): Promise<Record<string, Visibility>> {
+    const out: Record<string, Visibility> = {};
+    for (const id of externalIds) out[id] = this.opts.visibility?.[id] ?? "public";
+    return out;
+  }
 
   async fetchEpisodeMetrics(externalId: string, window: AnalyticsWindow) {
     this.calls.push({ externalId, window });

@@ -291,6 +291,43 @@ test("a 403 explains that the token predates the analytics scope", async () => {
   );
 });
 
+test("the REAL rejection shape from YouTube triggers the fallback", async () => {
+  // Captured from the live API on 2026-08-15. Every thumbnail-metric query is
+  // refused as reason=badRequest / "The query is not supported" — with and
+  // without dimensions. Pinned here because the fallback is regex-driven and a
+  // near-miss would turn a graceful degrade into a hard measurement failure.
+  let call = 0;
+  const { impl, calls } = stubFetch(() => {
+    call += 1;
+    if (call === 1) {
+      return {
+        status: 400,
+        body: {
+          error: {
+            code: 400,
+            message:
+              "The query is not supported. Check the documentation at " +
+              "https://developers.google.com/youtube/analytics/v2/available_reports",
+            errors: [{ reason: "badRequest", domain: "global" }],
+          },
+        },
+      };
+    }
+    return { status: 200, body: ROW(["views", "likes"], [59489, 861]) };
+  });
+
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+  const { metrics } = await p.fetchEpisodeMetrics("vid", {
+    start_date: "2026-07-18",
+    end_date: "2026-08-14",
+  });
+
+  assert.equal(calls.length, 2, "must retry without the thumbnail metrics");
+  assert.equal(metrics.views, 59489);
+  assert.equal(metrics.click_through_rate, null, "not zero — the platform refused to answer");
+  assert.ok(metrics.unavailable.length > 0);
+});
+
 test("an API-not-enabled 403 is not misreported as a scope problem", async () => {
   // Both arrive as 403 and the fixes are unrelated: one is a Google Cloud
   // console setting, the other needs re-authorization. Conflating them sends
@@ -334,4 +371,55 @@ test("a video with no data in the window reports zeros, not an error", async () 
 
   assert.equal(metrics.views, 0);
   assert.equal(metrics.likes, 0);
+});
+
+// -- public content only ------------------------------------------------
+
+test("visibility is read live, in one batched call", async () => {
+  const p = new FakeAnalyticsProvider({
+    visibility: { a: "public", b: "private", c: "unlisted" },
+  });
+  const vis = await p.fetchVisibility(["a", "b", "c", "d"]);
+
+  assert.equal(vis["a"], "public");
+  assert.equal(vis["b"], "private");
+  assert.equal(vis["c"], "unlisted");
+  assert.equal(vis["d"], "public", "unlisted ids default to the fake's public");
+});
+
+test("the real provider reads privacyStatus from the Data API", async () => {
+  const { impl, calls } = stubFetch(() => ({
+    status: 200,
+    body: {
+      items: [
+        { id: "pub", status: { privacyStatus: "public" } },
+        { id: "priv", status: { privacyStatus: "private" } },
+      ],
+    },
+  }));
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+  const vis = await p.fetchVisibility(["pub", "priv"]);
+
+  assert.equal(calls.length, 1, "one batched request, not one per video");
+  assert.match(calls[0]!, /part=status/);
+  assert.equal(vis["pub"], "public");
+  assert.equal(vis["priv"], "private");
+});
+
+test("a video the Data API does not return is unknown, not assumed public", async () => {
+  // Deleted, or owned by someone else. Guessing "public" here would measure
+  // something we cannot see and record zeros as if they were a result.
+  const { impl } = stubFetch(() => ({ status: 200, body: { items: [] } }));
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+  const vis = await p.fetchVisibility(["gone"]);
+
+  assert.equal(vis["gone"], "unknown");
+});
+
+test("a failed visibility lookup degrades to unknown rather than throwing", async () => {
+  const { impl } = stubFetch(() => ({ status: 500, body: { error: { message: "boom" } } }));
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+
+  const vis = await p.fetchVisibility(["a"]);
+  assert.equal(vis["a"], "unknown", "measurement must not die because a status check failed");
 });

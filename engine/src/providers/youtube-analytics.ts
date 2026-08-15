@@ -29,6 +29,7 @@ import {
   type AnalyticsWindow,
   type EpisodeMetrics,
   type Usage,
+  type Visibility,
 } from "../provider.ts";
 
 const CORE_METRICS = [
@@ -51,6 +52,8 @@ const DISCOVERY_METRICS = [
 export interface YouTubeAnalyticsOptions {
   accessToken: string | (() => Promise<string>);
   baseUrl?: string;
+  /** YouTube Data API, used only to read current visibility. */
+  dataApiUrl?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -64,6 +67,7 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
   readonly id = "youtube-analytics";
   private readonly token: () => Promise<string>;
   private readonly baseUrl: string;
+  private readonly dataApiUrl: string;
   private readonly fetchImpl: typeof fetch;
   /** Latched once the API tells us the discovery metrics are unknown. */
   private discoverySupported = true;
@@ -74,7 +78,45 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
         ? async () => opts.accessToken as string
         : opts.accessToken;
     this.baseUrl = opts.baseUrl ?? "https://youtubeanalytics.googleapis.com/v2";
+    this.dataApiUrl = opts.dataApiUrl ?? "https://www.googleapis.com/youtube/v3";
     this.fetchImpl = opts.fetchImpl ?? fetch;
+  }
+
+  /**
+   * Batched: videos.list takes up to 50 ids per call, so measuring a whole
+   * channel costs a handful of requests rather than one per episode.
+   */
+  async fetchVisibility(externalIds: string[]): Promise<Record<string, Visibility>> {
+    const out: Record<string, Visibility> = {};
+    for (const id of externalIds) out[id] = "unknown";
+
+    for (let i = 0; i < externalIds.length; i += 50) {
+      const batch = externalIds.slice(i, i + 50);
+      const url = new URL(`${this.dataApiUrl}/videos`);
+      url.searchParams.set("part", "status");
+      url.searchParams.set("id", batch.join(","));
+
+      const res = await this.fetchImpl(url.toString(), {
+        headers: { Authorization: `Bearer ${await this.token()}` },
+      });
+      if (!res.ok) {
+        // Unknown rather than a throw: not being able to check visibility must
+        // not take down measurement, and "unknown" is excluded anyway.
+        continue;
+      }
+      const body = (await res.json()) as {
+        items?: Array<{ id?: string; status?: { privacyStatus?: string } }>;
+      };
+      for (const item of body.items ?? []) {
+        const status = item.status?.privacyStatus;
+        if (!item.id) continue;
+        out[item.id] =
+          status === "public" || status === "unlisted" || status === "private"
+            ? status
+            : "unknown";
+      }
+    }
+    return out;
   }
 
   async fetchEpisodeMetrics(

@@ -21,6 +21,7 @@ import { PgRunLog } from "./pg-runlog.ts";
 import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
 import {
   ProviderRouter,
+  type AnalyticsProvider,
   type ImageProvider,
   type MediaRenderer,
   type PublishTarget,
@@ -122,6 +123,8 @@ export class VidGenService {
   private runLog!: RunLog;
   private executor!: GraphExecutor;
   private transformations!: Map<string, TransformationDef>;
+  /** Held so measureAll can check live visibility before spending a call. */
+  private analyticsProvider: AnalyticsProvider | undefined;
 
   private readonly runs = new Map<string, RunState>();
   readonly envFile: string;
@@ -210,6 +213,7 @@ export class VidGenService {
         }),
       })
       : undefined;
+    this.analyticsProvider = analytics;
     const target: PublishTarget = !(this.allowPublish && can("publish"))
       ? new FakePublishTarget({ id: "dry-run" })
       : hasOauthTrio
@@ -600,6 +604,7 @@ export class VidGenService {
    */
   async measureAll(): Promise<{
     measured: Array<{ external_id: string; views: number }>;
+    skipped: Array<{ external_id: string; visibility: string }>;
     failed: Array<{ external_id: string; error: string }>;
   }> {
     const rows = (await this.store.index()).filter(
@@ -607,15 +612,47 @@ export class VidGenService {
     );
 
     const measured: Array<{ external_id: string; views: number }> = [];
+    const skipped: Array<{ external_id: string; visibility: string }> = [];
     const failed: Array<{ external_id: string; error: string }> = [];
     const seen = new Set<string>();
 
+    // Collect candidates first so visibility can be checked in one batch.
+    const candidates: Array<{ artifactId: string; externalId: string }> = [];
     for (const row of rows) {
       const episode = await this.store.get(row.artifact_id);
       if (!episode) continue;
       const externalId = (episode.payload as { external_id?: string }).external_id;
       if (!externalId || seen.has(externalId)) continue;
       seen.add(externalId);
+      candidates.push({ artifactId: row.artifact_id, externalId });
+    }
+
+    // PUBLIC CONTENT ONLY.
+    //
+    // Episodes are uploaded private and made public by hand, so the privacy
+    // recorded on the artifact is stale the moment that happens — visibility is
+    // read live instead. A private or unlisted video accrues no impressions and
+    // barely any views, so measuring it would feed the strategist zeros that
+    // look like failure and drag every median down.
+    const analytics = this.analyticsProvider;
+    let visibility: Record<string, string> = {};
+    if (analytics && candidates.length > 0) {
+      try {
+        visibility = await analytics.fetchVisibility(candidates.map((c) => c.externalId));
+      } catch {
+        // Leave empty; each candidate then reads as "unknown" and is skipped
+        // rather than measured on a guess.
+        visibility = {};
+      }
+    }
+
+    for (const { artifactId: rowId, externalId } of candidates) {
+      const vis = visibility[externalId] ?? "unknown";
+      if (vis !== "public") {
+        skipped.push({ external_id: externalId, visibility: vis });
+        continue;
+      }
+      const row = { artifact_id: rowId };
 
       try {
         const result = await this.executor.start(this.measureGraph, {
@@ -633,7 +670,7 @@ export class VidGenService {
       }
     }
 
-    return { measured, failed };
+    return { measured, skipped, failed };
   }
 
   get graphDoc(): GraphDoc {

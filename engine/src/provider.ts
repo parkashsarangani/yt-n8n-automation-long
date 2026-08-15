@@ -149,12 +149,23 @@ export interface AnalyticsWindow {
   end_date: string;
 }
 
+export type Visibility = "public" | "unlisted" | "private" | "unknown";
+
 export interface AnalyticsProvider {
   readonly id: string;
   fetchEpisodeMetrics(
     externalId: string,
     window: AnalyticsWindow,
   ): Promise<{ metrics: EpisodeMetrics; usage: Usage }>;
+  /**
+   * Current visibility of each video, batched.
+   *
+   * Must be read live rather than taken from the published_episode artifact:
+   * episodes are uploaded private on purpose and made public by hand later, so
+   * the value recorded at publish time is stale almost immediately and would
+   * permanently exclude everything.
+   */
+  fetchVisibility(externalIds: string[]): Promise<Record<string, Visibility>>;
 }
 
 export interface ThumbnailRequest {
