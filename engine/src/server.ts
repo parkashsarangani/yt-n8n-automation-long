@@ -96,6 +96,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "POST /api/discover") {
+      json(res, 200, await service.discoverTopics());
+      return;
+    }
+
     // --- runs ---
     if (route === "GET /api/runs") {
       const runs = service.listRuns();

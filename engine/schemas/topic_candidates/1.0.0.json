@@ -1,0 +1,72 @@
+{
+  "schema_id": "topic_candidates",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Proposed subjects for the next episode, ranked. Deliberately a list rather than a single intent: picking what to make is the cheapest decision in the pipeline and the one with the largest effect on the result, so it stays with the operator rather than being auto-selected.",
+  "produced_by": [
+    "discovery"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "TopicCandidatesArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "candidates",
+      "basis"
+    ],
+    "properties": {
+      "basis": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600,
+        "description": "What these were derived from, including how thin the evidence was. With no measured episodes this must say so plainly."
+      },
+      "candidates": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 8,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "brief",
+            "angle",
+            "why_it_earns_attention",
+            "novelty"
+          ],
+          "properties": {
+            "brief": {
+              "type": "string",
+              "minLength": 15,
+              "maxLength": 300,
+              "description": "Phrased as a brief the story architect can take verbatim — this becomes intent.brief."
+            },
+            "angle": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 300,
+              "description": "The specific take. A subject is not an idea; the angle is what makes it one."
+            },
+            "why_it_earns_attention": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 400
+            },
+            "novelty": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 300,
+              "description": "How this differs from what the channel has already covered. Checked against topic_history."
+            },
+            "evidence": {
+              "type": "string",
+              "maxLength": 400,
+              "description": "Which measured episodes support this, when any do. Absent means instinct, and should be stated as such."
+            }
+          }
+        }
+      }
+    }
+  }
+}

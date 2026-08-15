@@ -1,0 +1,32 @@
+{
+  "graph_id": "discover",
+  "version": "1",
+  "description": "Topic discovery. A separate flow, not part of production: choosing a subject is a decision the operator makes, so this proposes candidates and stops. It derives insights itself from the performance window rather than depending on a stored channel_insights artifact — that keeps the producer allowlist intact (only channel_strategist may produce insights) and means the guidance is always current.",
+  "nodes": [
+    {
+      "id": "history",
+      "type": "input",
+      "schema_id": "topic_history"
+    },
+    {
+      "id": "performance",
+      "type": "input",
+      "schema_id": "performance_window"
+    },
+    {
+      "id": "insights",
+      "transformation": "channel_strategist",
+      "in": [
+        "performance"
+      ]
+    },
+    {
+      "id": "candidates",
+      "transformation": "discovery",
+      "in": [
+        "history",
+        "insights"
+      ]
+    }
+  ]
+}

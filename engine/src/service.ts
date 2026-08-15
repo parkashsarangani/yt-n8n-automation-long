@@ -45,6 +45,7 @@ import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
+import { buildTopicHistory } from "./topic-history.ts";
 import {
   GraphExecutor,
   type ExecutorEvent,
@@ -118,6 +119,7 @@ export class VidGenService {
   private agents!: Map<string, TransformationDef>;
   private graph!: GraphDoc;
   private measureGraph!: GraphDoc;
+  private discoverGraph!: GraphDoc;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
   private runLog!: RunLog;
@@ -154,6 +156,7 @@ export class VidGenService {
     });
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
     svc.measureGraph = await loadGraph(path.join(opts.root, "graphs", "measure.json"));
+    svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -696,6 +699,62 @@ export class VidGenService {
     }
 
     return { measured, skipped, failed };
+  }
+
+  /**
+   * Propose topics for the next episode.
+   *
+   * A separate flow that stops at candidates. Choosing the subject is the
+   * cheapest decision in the pipeline and the one that most decides whether the
+   * result is worth making, so it stays with the operator rather than being
+   * auto-selected into a run.
+   */
+  async discoverTopics(): Promise<{
+    candidates: unknown;
+    history_count: number;
+    measured_episodes: number;
+  }> {
+    const exclude = excludedIds();
+    const history = await buildTopicHistory(this.store, { exclude });
+    const window = await buildPerformanceWindow(this.store, { exclude });
+
+    const runId = `run_${randomUUID()}`;
+    if (this.runLog instanceof PgRunLog) {
+      await this.runLog.createRun(
+        runId,
+        "discover topics",
+        `${this.discoverGraph.graph_id}@${this.discoverGraph.version}`,
+      );
+    }
+
+    const historyArt = await this.store.put({
+      schema_id: "topic_history",
+      payload: history,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+    const perfArt = await this.store.put({
+      schema_id: "performance_window",
+      payload: window,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+
+    const result = await this.executor.start(
+      this.discoverGraph,
+      {
+        history: historyArt.artifact.artifact_id,
+        performance: perfArt.artifact.artifact_id,
+      },
+      { runId },
+    );
+
+    const outId = result.outputs["candidates"];
+    const artifact = outId ? await this.store.get(outId) : null;
+
+    return {
+      candidates: artifact?.payload ?? null,
+      history_count: history.count,
+      measured_episodes: window.episode_count,
+    };
   }
 
   get graphDoc(): GraphDoc {
