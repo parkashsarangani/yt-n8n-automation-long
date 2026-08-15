@@ -44,6 +44,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/yt-analytics.readonly",
 ].join(" ");
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
 // ---------------------------------------------------------------------------
@@ -250,7 +251,28 @@ async function refreshFlow(): Promise<void> {
     const data = (await res.json()) as {
         access_token: string;
         expires_in: number;
+        scope?: string;
     };
+
+    // Google echoes the scopes this refresh token was actually granted. Report
+    // whether analytics is among them: a token minted before that scope was
+    // requested authenticates perfectly and then 403s on every Analytics call,
+    // and Google will not widen an existing grant — only re-authorizing will.
+    const granted = (data.scope ?? "").split(/\s+/).filter(Boolean);
+    if (granted.length > 0) {
+        const hasAnalytics = granted.includes(ANALYTICS_SCOPE);
+        console.log("\nScopes on this refresh token:");
+        for (const g of granted) console.log(`  ${g}`);
+        if (hasAnalytics) {
+            console.log("\n  OK  analytics readable — the feedback loop can measure episodes.");
+        } else {
+            console.log(
+                "\n  !!  yt-analytics.readonly is MISSING.\n" +
+                "      Publishing works; measurement will return 403.\n" +
+                "      Fix: re-run this script with --auth to re-authorize.",
+            );
+        }
+    }
 
     // Write to root .env
     writeEnvKey(ENV_PATH, "YOUTUBE_ACCESS_TOKEN", data.access_token);

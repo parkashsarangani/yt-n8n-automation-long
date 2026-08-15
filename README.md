@@ -38,11 +38,27 @@ the run still reports success, which is the expensive way to find out.
 **Measuring needs a re-authorization.** The feedback loop reads YouTube
 Analytics, which needs the `yt-analytics.readonly` scope. A refresh token minted
 before this existed authenticates fine and then returns 403 — Google will not
-widen an existing grant. Re-run the token helper once:
+widen an existing grant.
+
+Check what your current token has (this also refreshes the access token):
 
 ```bash
-node --import tsx scripts/youtube-token.ts --auth
+cd engine && npm run youtube-token
 ```
+
+If it reports the analytics scope missing, re-authorize once:
+
+```bash
+cd engine && npm run youtube-token -- --auth
+```
+
+It prints a URL, waits on `http://localhost:8976` for the redirect, and writes a
+new refresh token. **`http://localhost:8976` must be listed as an authorized
+redirect URI** on your OAuth client in the Google Cloud console, or the consent
+screen will reject it.
+
+> Run it from `engine/`, not the repo root — `tsx` is a dependency of that
+> package, so `node --import tsx` cannot resolve from the root.
 
 **Publishing never happens by accident.** A YouTube token alone does nothing;
 you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
