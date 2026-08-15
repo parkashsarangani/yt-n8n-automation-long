@@ -105,6 +105,16 @@ async function harness(handler: FakeHandler) {
   return { registry, store, runLog, provider, speech, images, renderer, runner, executor, graph, transformations, seed };
 }
 
+const SEO = {
+  title: "Why Chile Is So Absurdly Long (It Is Not Politics)",
+  description:
+    "Why is Chile so long? The Andes drew the border millions of years before " +
+    "any treaty did. Here is how a mountain range decided a country's shape.",
+  tags: ["why is chile so long", "chile geography", "andes", "borders", "maps"],
+  primary_keyword: "why is chile so long",
+  rationale: "Targets the literal question; the narration answers it directly.",
+};
+
 /** Routes on each prompt's opening line, so every agent gets valid output. */
 const storyThen = (conf: number): FakeHandler => (req) => {
   if (req.prompt.includes("head writer")) return { payload: STORY, confidence: { overall: conf } };
@@ -113,6 +123,9 @@ const storyThen = (conf: number): FakeHandler => (req) => {
   }
   if (req.prompt.includes("design the thumbnail")) {
     return { payload: THUMBNAIL_BRIEF, confidence: { overall: 0.82 } };
+  }
+  if (req.prompt.includes("how this episode appears in search")) {
+    return { payload: SEO, confidence: { overall: 0.8 } };
   }
   return { payload: SCRIPT, confidence: { overall: 0.8 } };
 };
@@ -127,19 +140,19 @@ const THUMBNAIL_BRIEF = {
 
 const ALL_NODES = [
   "approve_script", "approve_story", "assets", "intent", "publish", "render",
-  "script", "story", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
+  "script", "seo", "story", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the story gate. */
 const AFTER_GATE = [
-  "approve_script", "assets", "publish", "render", "script", "thumbnail",
+  "approve_script", "assets", "publish", "render", "script", "seo", "thumbnail",
   "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the script gate. */
 // The thumbnail branch depends on approve_story, not approve_script, so it is
 // deliberately absent here — it runs while the script is still being reviewed.
-const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "visual_plan", "voice"];
-/** story, script, visual_plan, thumbnail_designer are agents; the rest are workers. */
-const MODEL_CALLS_PER_RUN = 4;
+const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "seo", "visual_plan", "voice"];
+/** story, script, visual_plan, thumbnail_designer, seo_optimizer are agents. */
+const MODEL_CALLS_PER_RUN = 5;
 
 test("a confident story auto-passes its gate, then the script gate always asks", async () => {
   const h = await harness(storyThen(0.95));
@@ -278,10 +291,10 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);
-  // Story was reused; script, visual_plan and thumbnail_designer still cost
-  // calls. (Agents are not cached by default — re-running is how variants
-  // happen — so this is opt-in.)
-  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 3);
+  // Story was reused; script, visual_plan, thumbnail_designer and seo_optimizer
+  // still cost calls. (Agents are not cached by default — re-running is how
+  // variants happen — so this is opt-in.)
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 4);
 });
 
 // -- failure isolation, on a throwaway registry so the producer allowlist

@@ -57,7 +57,10 @@ export class YouTubeTarget implements PublishTarget {
       max_duration_sec: 12 * 60 * 60,
       max_title_chars: 100,
       max_description_chars: 5000,
-      max_tags: 500,
+      // YouTube does not publish a tag-count cap; the real constraint is the
+      // 500-character aggregate below. The count here is a sanity bound.
+      max_tags: 30,
+      max_tag_chars: 500,
       requires_synthetic_media_disclosure: true,
       supports_custom_thumbnail: true,
     };

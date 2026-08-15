@@ -161,7 +161,16 @@ export interface TargetRequirements {
   max_duration_sec?: number;
   max_title_chars: number;
   max_description_chars?: number;
+  /** Maximum number of tags. */
   max_tags?: number;
+  /**
+   * Total characters across all tags combined.
+   *
+   * Distinct from max_tags and the one that actually bites: YouTube's documented
+   * limit is 500 characters in aggregate, not 500 tags. Fifteen 40-character
+   * tags is a legal tag *count* and an illegal upload.
+   */
+  max_tag_chars?: number;
   /** Platform requires declaring AI-generated content. */
   requires_synthetic_media_disclosure?: boolean;
   supports_custom_thumbnail?: boolean;

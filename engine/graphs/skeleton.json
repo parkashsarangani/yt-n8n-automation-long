@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "6",
-  "description": "Walking skeleton, end to end. Two human gates: the story premise, and the narration script — the script gate sits before any paid media work, so a rewrite costs nothing but the script. The thumbnail branch hangs off the approved story rather than the script, so it runs while the video renders and adds no wall-clock time.",
+  "version": "7",
+  "description": "Walking skeleton, end to end. Two human gates: the story premise, and the narration script — the script gate sits before any paid media work, so a rewrite costs nothing but the script. The thumbnail branch hangs off the approved story and the SEO branch off the approved script, so both run while the video renders and neither adds wall-clock time.",
   "nodes": [
     {
       "id": "intent",
@@ -61,6 +61,14 @@
       ]
     },
     {
+      "id": "seo",
+      "transformation": "seo_optimizer",
+      "in": [
+        "approve_story",
+        "approve_script"
+      ]
+    },
+    {
       "id": "thumbnail_brief",
       "transformation": "thumbnail_designer",
       "in": [
@@ -88,7 +96,7 @@
       "transformation": "publish",
       "in": [
         "render",
-        "approve_story",
+        "seo",
         "thumbnail"
       ]
     }

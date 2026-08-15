@@ -73,6 +73,20 @@ const rendered = (h: Awaited<ReturnType<typeof harness>>, withThumb = true) => (
 });
 
 
+const SEO = {
+  title: "Why Chile Is So Absurdly Long (It Is Not Politics)",
+  description:
+    "Why is Chile so long? The border was drawn by the Andes millions of years " +
+    "before any treaty existed. Here is how a mountain range decided the shape " +
+    "of a country, and why nobody could have drawn it differently.",
+  tags: ["why is chile so long", "chile geography", "andes", "borders", "south america"],
+  primary_keyword: "why is chile so long",
+  rationale: "Targets the literal question people type; the video answers it directly.",
+};
+
+const seedSeo = (h: Awaited<ReturnType<typeof harness>>, over: Partial<typeof SEO> = {}) =>
+  h.seed("seo_metadata", { ...SEO, ...over }, "seo_optimizer");
+
 /**
  * Publish now requires a designed thumbnail (schema `thumbnail`), so every case
  * seeds one. Inputs bind positionally, in the worker's `consumes` order:
@@ -113,21 +127,24 @@ test("story@1.1.0 is an additive minor bump: 1.0.0 artifacts stay valid", async 
   );
 });
 
-test("publish reads a story@1.0.0 artifact written before the new fields existed", async () => {
+test("publish uses the SEO metadata verbatim and substitutes nothing", async () => {
+  // This replaced a fallback: publish used to reach into the story and swap in
+  // the payoff when a description was missing. That is a decision, and it hid
+  // the absence of one. The metadata now arrives reasoned-about or not at all.
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect", "1.0.0");
+  const seo = await seedSeo(h);
 
-  const out = await h.runner.run(makePublishWorker({ target: h.target }), [
+  await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
-    story.artifact_id,
+    seo.artifact_id,
     (await seedThumb(h)).artifact_id,
   ]);
 
-  assert.equal(story.schema_version, "1.0.0");
-  assert.equal((out.artifact.payload as { external_id: string }).external_id, "fakevid_1");
-  // Falls back to the payoff rather than publishing an empty description.
-  assert.equal(h.target.published[0]!.metadata.description, STORY.payoff);
+  const sent = h.target.published[0]!.metadata;
+  assert.equal(sent.title, SEO.title);
+  assert.equal(sent.description, SEO.description);
+  assert.deepEqual(sent.tags, SEO.tags);
 });
 
 // -- publish worker -----------------------------------------------------
@@ -135,15 +152,11 @@ test("publish reads a story@1.0.0 artifact written before the new fields existed
 test("publish uploads and records where the video went", async () => {
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed(
-    "story",
-    { ...STORY, seo_description: "Why Chile looks like that.", tags: ["geography", "chile", "andes", "maps", "borders"] },
-    "story_architect",
-  );
+  const seo = await seedSeo(h);
 
   const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "unlisted" }), [
     video.artifact_id,
-    story.artifact_id,
+    seo.artifact_id,
     (await seedThumb(h)).artifact_id,
   ]);
   const payload = out.artifact.payload as {
@@ -156,15 +169,15 @@ test("publish uploads and records where the video went", async () => {
   };
 
   assert.equal(payload.target, "fake-target");
-  assert.equal(payload.title, STORY.title);
+  assert.equal(payload.title, SEO.title);
   assert.equal(payload.thumbnail_set, true);
   assert.equal(payload.synthetic_media_disclosed, true);
   assert.equal(payload.privacy, "unlisted");
   assert.match(payload.url, /^https:\/\/example\.test\//);
 
   const sent = h.target.published[0]!;
-  assert.equal(sent.metadata.description, "Why Chile looks like that.");
-  assert.deepEqual(sent.metadata.tags, ["geography", "chile", "andes", "maps", "borders"]);
+  assert.equal(sent.metadata.description, SEO.description);
+  assert.deepEqual(sent.metadata.tags, SEO.tags);
   assert.ok(sent.thumbnail);
 });
 
@@ -173,11 +186,11 @@ test("a refused thumbnail is recorded, not swallowed", async () => {
   // be visible in the artifact.
   const h = await harness(new FakePublishTarget({ rejectThumbnail: true }));
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
 
   const out = await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
-    story.artifact_id,
+    seo.artifact_id,
     (await seedThumb(h)).artifact_id,
   ]);
   assert.equal((out.artifact.payload as { thumbnail_set: boolean }).thumbnail_set, false);
@@ -188,11 +201,11 @@ test("a refused thumbnail is recorded, not swallowed", async () => {
 test("metadata that exceeds the target's limits is rejected before upload", async () => {
   const h = await harness(new FakePublishTarget({ requirements: { max_title_chars: 10 } }));
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
     /rejected before upload: title is \d+ chars/,
   );
   // Nothing was uploaded — publishing is irreversible, so validation is fatal
@@ -203,11 +216,11 @@ test("metadata that exceeds the target's limits is rejected before upload", asyn
 test("a video longer than the target allows is rejected", async () => {
   const h = await harness(new FakePublishTarget({ requirements: { max_duration_sec: 60 } }));
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
     /video is 540s, fake-target allows 60s/,
   );
 });
@@ -217,11 +230,11 @@ test("a target that cannot take a custom thumbnail is never sent one", async () 
     new FakePublishTarget({ requirements: { supports_custom_thumbnail: false } }),
   );
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
 
   await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
-    story.artifact_id,
+    seo.artifact_id,
     (await seedThumb(h)).artifact_id,
   ]);
   assert.equal(h.target.published[0]!.thumbnail, undefined);
@@ -237,7 +250,7 @@ test("the designed thumbnail wins over the one the render happened to emit", asy
   });
 
   const video = await h.seed("rendered_video", rendered(h), "render"); // carries h.thumb
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
   const designed = await h.seed(
     "thumbnail",
     {
@@ -253,7 +266,7 @@ test("the designed thumbnail wins over the one the render happened to emit", asy
 
   await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
-    story.artifact_id,
+    seo.artifact_id,
     designed.artifact_id,
   ]);
 
@@ -268,11 +281,11 @@ test("the designed thumbnail wins over the one the render happened to emit", asy
 test("a publish failure produces no artifact", async () => {
   const h = await harness(new FakePublishTarget({ failWith: "quota exceeded" }));
   const video = await h.seed("rendered_video", rendered(h), "render");
-  const story = await h.seed("story", STORY, "story_architect");
+  const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
     /quota exceeded/,
   );
   assert.equal(

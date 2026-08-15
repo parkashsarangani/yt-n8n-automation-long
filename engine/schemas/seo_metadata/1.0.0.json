@@ -1,0 +1,52 @@
+{
+  "schema_id": "seo_metadata",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "How the episode is presented to search and to the browse feed: title, description, tags. Separate from the story because the narrative title and the listing title are different jobs — one has to read well, the other has to be findable and clickable.",
+  "produced_by": ["seo_optimizer"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SeoMetadataArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["title", "description", "tags", "primary_keyword", "rationale"],
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 100,
+        "description": "YouTube's hard limit is 100 characters, but only ~60 survive before truncation in most surfaces, which the prompt pushes for."
+      },
+      "description": {
+        "type": "string",
+        "minLength": 50,
+        "maxLength": 4800,
+        "description": "Capped below YouTube's 5000 so a chapter list can be appended later without a schema change."
+      },
+      "tags": {
+        "type": "array",
+        "minItems": 5,
+        "maxItems": 15,
+        "items": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "description": "YouTube's real constraint is 500 characters TOTAL across all tags, not a tag count. maxItems/maxLength here keep the worst case near that; the publish worker enforces the character budget for real."
+      },
+      "primary_keyword": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 60,
+        "description": "The single phrase this listing is aimed at. Recorded so ranking can be checked against an intention rather than guessed at."
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 800
+      },
+      "alternative_titles": {
+        "type": "array",
+        "maxItems": 4,
+        "items": { "type": "string", "minLength": 5, "maxLength": 100 },
+        "description": "Other angles, strongest first. Raw material for title A/B once the feedback loop exists."
+      }
+    }
+  }
+}

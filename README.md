@@ -147,7 +147,7 @@ version, five rules everything else derives from:
 ```bash
 cd engine
 npm install
-npm test          # 96 tests, no network, no API keys
+npm test          # 124 tests, no network, no API keys
 npm run typecheck
 npm run ui        # the UI without Docker, on the host
 ```
@@ -166,9 +166,9 @@ Being built now, in dependency order:
 | | Status |
 |---|---|
 | Credentials + capability check | **done** |
-| Thumbnail | next |
-| SEO (title, description, tags) | |
-| Feedback loop (YouTube Analytics → strategy) | |
+| Thumbnail | **done** |
+| SEO (title, description, tags) | **done** |
+| Feedback loop (YouTube Analytics → strategy) | next |
 | Discovery (topic selection, informed by feedback) | |
 | Scheduler | |
 
