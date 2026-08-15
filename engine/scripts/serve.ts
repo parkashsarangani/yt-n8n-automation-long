@@ -29,6 +29,10 @@ const service = await VidGenService.create({
   ...(process.env["AMOS_DATA"] ? { dataDir: process.env["AMOS_DATA"] } : {}),
   ...(process.env["AMOS_ENV_FILE"] ? { envFile: process.env["AMOS_ENV_FILE"] } : {}),
 });
+// Started here rather than in the service, so importing the service in a test
+// never spawns timers.
+const scheduler = service.startScheduler();
+
 const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port, host });
 const url = await server.listen();
 
@@ -59,8 +63,24 @@ console.log(
 if (allowPublish) console.log("  !! --publish is on: approved runs will upload to YouTube as PRIVATE");
 else console.log("  publishing is a dry run; restart with --publish to upload for real");
 
+// What will happen without anyone pressing anything. Printed last because it is
+// the part most likely to surprise: a job that quietly starts runs costs money.
+console.log("\nscheduled jobs:");
+for (const j of scheduler.status()) {
+  console.log(
+    `  ${j.enabled ? "on " : "off"} ${j.id.padEnd(9)} every ${String(j.every_hours).padStart(3)}h  ${j.description}`,
+  );
+}
+if (scheduler.status().some((j) => j.id === "produce" && j.enabled)) {
+  console.log(
+    "\n  !! auto-production is ON: runs will start on their own.\n" +
+    "     They still stop at the story and script gates — nothing publishes unreviewed.",
+  );
+}
+
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
+    scheduler.stop();
     void server.close().then(() => process.exit(0));
   });
 }

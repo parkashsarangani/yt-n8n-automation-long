@@ -207,6 +207,11 @@ Being built now, in dependency order:
 | Discovery (topic selection, informed by feedback) | next |
 | Scheduler | |
 
+**Automation is opt-in where it spends money.** Measurement runs itself once a
+day (read-only). Auto-starting production runs is off unless you set
+`SCHEDULE_PRODUCE_HOURS`, and even then every run stops at the story and script
+gates — nothing publishes without you.
+
 Deliberately still out: Research, Fact Checking, and the knowledge graph.
 
 ## Licensing

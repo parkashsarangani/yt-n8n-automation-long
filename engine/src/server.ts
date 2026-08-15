@@ -96,6 +96,18 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "GET /api/schedule") {
+      json(res, 200, { jobs: service.scheduleStatus() });
+      return;
+    }
+
+    const jobMatch = /^\/api\/schedule\/([a-z_]+)\/run$/.exec(url.pathname);
+    if (req.method === "POST" && jobMatch) {
+      await service.runJobNow(jobMatch[1]!);
+      json(res, 202, { ok: true, jobs: service.scheduleStatus() });
+      return;
+    }
+
     if (route === "POST /api/discover") {
       json(res, 200, await service.discoverTopics());
       return;
