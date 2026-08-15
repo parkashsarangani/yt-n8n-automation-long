@@ -207,10 +207,15 @@ Being built now, in dependency order:
 | Discovery (topic selection, informed by feedback) | next |
 | Scheduler | |
 
-**Automation is opt-in where it spends money.** Measurement runs itself once a
-day (read-only). Auto-starting production runs is off unless you set
-`SCHEDULE_PRODUCE_HOURS`, and even then every run stops at the story and script
-gates — nothing publishes without you.
+**Unattended by design, private by default.** With `SCHEDULE_PRODUCE_HOURS` set,
+the pipeline picks a topic, makes the video and uploads it — **as a private
+video**. That upload is the review: you watch it and decide whether to make it
+public or throw it away and let the next run try again. Both gates auto-pass
+(`auto_pass_if: "always"`), because a gate that parks a run leaves nothing to
+review, which is worse than a weak draft you can watch and delete.
+
+Nothing ever becomes public on its own. To put a human back before render, set
+either gate's policy to a threshold like `confidence.overall >= 0.9`.
 
 Deliberately still out: Research, Fact Checking, and the knowledge graph.
 

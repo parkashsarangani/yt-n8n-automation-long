@@ -171,6 +171,25 @@ const THUMBNAIL_BRIEF = {
   alternatives: ["The 400-Year Mistake"],
 };
 
+/**
+ * The shipped graph runs unattended, so gate *mechanics* — waiting, rejecting,
+ * resuming — are exercised against a supervised copy. Testing them against the
+ * live graph would mean the day someone re-enables review, the machinery that
+ * implements it has no coverage.
+ */
+function supervised(graph: GraphDoc): GraphDoc {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) =>
+      n.id === "approve_story"
+        ? { ...n, policy: { auto_pass_if: "confidence.overall >= 0.9" } }
+        : n.id === "approve_script"
+          ? { ...n, policy: undefined }
+          : n,
+    ) as GraphDoc["nodes"],
+  };
+}
+
 const ALL_NODES = [
   "approve_script", "approve_story", "assets", "insights", "intent", "performance",
   "publish", "render", "script", "seo", "story", "thumbnail", "thumbnail_brief",
@@ -188,9 +207,28 @@ const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "seo", "visual_plan", 
 /** channel_strategist, story, script, visual_plan, thumbnail_designer, seo_optimizer. */
 const MODEL_CALLS_PER_RUN = 6;
 
+test("THE SHIPPED GRAPH RUNS UNATTENDED: no gate can park it", async () => {
+  // The operator's choice: the private upload is the review. A gate that parks
+  // the run would leave nothing to review at all, so both gates must pass on
+  // their own — including for a story the model is not confident about, which
+  // is exactly the case a threshold would have stalled.
+  const h = await harness(storyThen(0.2));
+  const result = await h.executor.start(h.graph, h.inputs);
+
+  assert.equal(result.status, "completed", `unattended run parked: ${JSON.stringify(result.waiting)}`);
+  assert.deepEqual(result.waiting, []);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(Object.keys(result.outputs).sort(), ALL_NODES);
+
+  // The gates still exist and still pass the artifact through untouched, so
+  // putting a human back is a one-line policy change, not a graph rebuild.
+  assert.equal(result.outputs["approve_story"], result.outputs["story"]);
+  assert.equal(result.outputs["approve_script"], result.outputs["script"]);
+});
+
 test("a confident story auto-passes its gate, then the script gate always asks", async () => {
   const h = await harness(storyThen(0.95));
-  const result = await h.executor.start(h.graph, h.inputs);
+  const result = await h.executor.start(supervised(h.graph), h.inputs);
 
   // The story gate has an auto-pass policy; the script gate deliberately has
   // none, so narration is always reviewed before any paid media work.
@@ -203,8 +241,9 @@ test("a confident story auto-passes its gate, then the script gate always asks",
 
 test("approving the script gate runs the rest of the graph to completion", async () => {
   const h = await harness(storyThen(0.95));
-  const first = await h.executor.start(h.graph, h.inputs);
-  const done = await h.executor.resume(h.graph, first.run_id, {
+  const g = supervised(h.graph);
+  const first = await h.executor.start(g, h.inputs);
+  const done = await h.executor.resume(g, first.run_id, {
     approve_script: { result: "approve" },
   });
 
@@ -216,7 +255,7 @@ test("approving the script gate runs the rest of the graph to completion", async
 
 test("a low-confidence story parks the run at the gate", async () => {
   const h = await harness(storyThen(0.4));
-  const result = await h.executor.start(h.graph, h.inputs);
+  const result = await h.executor.start(supervised(h.graph), h.inputs);
 
   assert.equal(result.status, "waiting");
   assert.equal(result.waiting.length, 1);
@@ -234,10 +273,11 @@ test("a low-confidence story parks the run at the gate", async () => {
 
 test("resuming with approval continues without re-running completed nodes", async () => {
   const h = await harness(storyThen(0.4));
-  const first = await h.executor.start(h.graph, h.inputs);
+  const g = supervised(h.graph);
+  const first = await h.executor.start(g, h.inputs);
   assert.equal(first.status, "waiting");
 
-  const resumed = await h.executor.resume(h.graph, first.run_id, {
+  const resumed = await h.executor.resume(g, first.run_id, {
     approve_story: { result: "approve" },
   });
 
@@ -257,7 +297,7 @@ test("resuming with approval continues without re-running completed nodes", asyn
     "the thumbnail brief should be ready before the script gate is approved",
   );
 
-  const done = await h.executor.resume(h.graph, first.run_id, {
+  const done = await h.executor.resume(g, first.run_id, {
     approve_script: { result: "approve" },
   });
   assert.equal(done.status, "completed");
@@ -269,13 +309,14 @@ test("resuming with approval continues without re-running completed nodes", asyn
 
 test("resuming with a rejection retries the upstream transformation", async () => {
   const h = await harness(storyThen(0.4));
-  const first = await h.executor.start(h.graph, h.inputs);
+  const g = supervised(h.graph);
+  const first = await h.executor.start(g, h.inputs);
   // First attempt produced a story; gate waits because confidence < 0.9.
   assert.equal(first.status, "waiting");
   assert.equal(h.provider.calls.length, 2); // strategist + story
 
   // Reject → upstream reruns, then gate parks again (new story, still < 0.9).
-  const resumed = await h.executor.resume(h.graph, first.run_id, {
+  const resumed = await h.executor.resume(g, first.run_id, {
     approve_story: { result: "reject", reason: "hook is weak" },
   });
 
