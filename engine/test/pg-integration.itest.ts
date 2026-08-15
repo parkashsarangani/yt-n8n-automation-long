@@ -68,6 +68,22 @@ describe("PgRunLog integration", () => {
         await assert.doesNotReject(() => runLog.record(orphan));
     });
 
+    test("a run left at 'running' is a lie the runs table tells", async () => {
+        // Found on the server: measurement created run rows and never closed
+        // them, so measure@1 rows sat at "running" indefinitely. Nothing broke,
+        // but the table misreports what is in flight — which is precisely what
+        // an operator looks at when something seems stuck.
+        await runLog.createRun("run_closeout", "measure vid", "measure@1");
+
+        const before = (await runLog.listRuns()).find(r => r.run_id === "run_closeout");
+        assert.equal(before?.status, "running", "a fresh run starts as running");
+
+        await runLog.updateRunStatus("run_closeout", "completed", null);
+
+        const after = (await runLog.listRuns()).find(r => r.run_id === "run_closeout");
+        assert.equal(after?.status, "completed");
+    });
+
     after(async () => {
         await pool.end();
         await container.stop();

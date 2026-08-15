@@ -598,6 +598,22 @@ export class VidGenService {
   }
 
   /**
+   * Close out a run row.
+   *
+   * Only the production drive() path did this, so measurement and discovery
+   * runs sat at "running" forever — visible on the server as measure@1 rows
+   * that never finish. Harmless to the artifacts, but it makes the runs table
+   * lie about what is in flight, which is exactly the thing an operator checks
+   * when something seems stuck.
+   */
+  private async closeRun(runId: string, status: string, error?: string | null): Promise<void> {
+    if (!(this.runLog instanceof PgRunLog)) return;
+    await this.runLog.updateRunStatus(runId, status, error ?? null);
+    const cost = rollup(await this.runLog.forRun(runId)).cost_usd;
+    await this.runLog.updateRunCost(runId, cost);
+  }
+
+  /**
    * Measure every published episode.
    *
    * Detached from production on purpose: a video measured an hour after upload
@@ -667,6 +683,8 @@ export class VidGenService {
       }
       const row = { artifact_id: rowId };
 
+      // Declared outside the try so the catch can close the run out too.
+      const runId = `run_${randomUUID()}`;
       try {
         // The measure graph is a real run and writes run records, so the run
         // row has to exist first — run_records.run_id has a foreign key onto
@@ -674,7 +692,6 @@ export class VidGenService {
         // went straight to the executor and violated the constraint the moment
         // it met Postgres. Invisible on the filesystem run log, which has no
         // referential integrity to violate.
-        const runId = `run_${randomUUID()}`;
         if (this.runLog instanceof PgRunLog) {
           await this.runLog.createRun(
             runId,
@@ -691,12 +708,12 @@ export class VidGenService {
         const outId = result.outputs["performance"];
         const perf = outId ? await this.store.get(outId) : null;
         const views = (perf?.payload as { metrics?: { views?: number } })?.metrics?.views ?? 0;
+        await this.closeRun(runId, result.status);
         measured.push({ external_id: externalId, views });
       } catch (err) {
-        failed.push({
-          external_id: externalId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const message = err instanceof Error ? err.message : String(err);
+        await this.closeRun(runId, "failed", message).catch(() => {});
+        failed.push({ external_id: externalId, error: message });
       }
     }
 
@@ -751,6 +768,7 @@ export class VidGenService {
 
     const outId = result.outputs["candidates"];
     const artifact = outId ? await this.store.get(outId) : null;
+    await this.closeRun(runId, result.status);
 
     return {
       candidates: artifact?.payload ?? null,
