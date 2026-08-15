@@ -291,6 +291,35 @@ test("a 403 explains that the token predates the analytics scope", async () => {
   );
 });
 
+test("an API-not-enabled 403 is not misreported as a scope problem", async () => {
+  // Both arrive as 403 and the fixes are unrelated: one is a Google Cloud
+  // console setting, the other needs re-authorization. Conflating them sends
+  // the operator through an OAuth flow that cannot possibly help.
+  const { impl } = stubFetch(() => ({
+    status: 403,
+    body: {
+      error: {
+        code: 403,
+        message:
+          "YouTube Analytics API has not been used in project 324428902922 before " +
+          "or it is disabled.",
+        errors: [{ reason: "accessNotConfigured" }],
+      },
+    },
+  }));
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+
+  await assert.rejects(
+    () => p.fetchEpisodeMetrics("vid", { start_date: "2026-07-18", end_date: "2026-08-14" }),
+    (err: Error) => {
+      assert.match(err.message, /not enabled on this Google Cloud project/);
+      assert.match(err.message, /project=324428902922/, "should link straight to the project");
+      assert.doesNotMatch(err.message, /re-authorize/, "must not send them back through OAuth");
+      return true;
+    },
+  );
+});
+
 test("a video with no data in the window reports zeros, not an error", async () => {
   // A freshly published video legitimately has no rows yet.
   const { impl } = stubFetch(() => ({

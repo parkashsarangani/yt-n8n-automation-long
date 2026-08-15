@@ -160,9 +160,21 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
         return "unknown-metric";
       }
       if (res.status === 403) {
+        // Two very different problems arrive as 403, and confusing them sends
+        // the operator to re-authorize when the grant was never the issue.
+        // Google distinguishes them with an error reason.
+        if (/accessNotConfigured|has not been used in project/i.test(text)) {
+          const project = /project (\d+)/.exec(text)?.[1];
+          throw new ProviderError(
+            "the YouTube Analytics API is not enabled on this Google Cloud project. " +
+            "The OAuth grant is fine — the API itself has to be switched on: " +
+            `https://console.developers.google.com/apis/api/youtubeanalytics.googleapis.com/overview` +
+            `${project ? `?project=${project}` : ""} — then wait a few minutes for it to propagate.`,
+          );
+        }
         throw new ProviderError(
           "youtube analytics returned 403 — the refresh token probably predates the " +
-          "yt-analytics.readonly scope. Re-run scripts/youtube-token.ts --auth to " +
+          "yt-analytics.readonly scope. Re-run `npm run youtube-auth` from engine/ to " +
           `re-authorize. (${text.slice(0, 200)})`,
         );
       }
