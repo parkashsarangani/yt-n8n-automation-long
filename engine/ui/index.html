@@ -343,6 +343,11 @@
       </section>
 
       <section>
+        <h2>Scheduled</h2>
+        <div id="schedule"><span class="muted">loading…</span></div>
+      </section>
+
+      <section>
         <h2>Runs</h2>
         <div id="runs"><span class="muted">none yet</span></div>
       </section>
@@ -408,6 +413,9 @@
   `).join("");
     }
 
+    void loadSchedule();
+    setInterval(() => void loadSchedule(), 30_000);
+
     $("settingsToggle").onclick = () => {
       const panel = $("settingsPanel");
       panel.style.display = panel.style.display === "none" ? "block" : "none";
@@ -436,6 +444,43 @@
         $("saveCreds").disabled = false;
       }
     };
+
+    // ---------- schedule ----------
+    async function loadSchedule() {
+      try {
+        const { jobs } = await api("/api/schedule");
+        $("schedule").innerHTML = jobs.length === 0
+          ? `<span class="muted">scheduler not running</span>`
+          : jobs.map((j) => `
+        <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid #1e1e24">
+          <span class="pill ${j.enabled ? (j.last_error ? "fake" : "real") : ""}">${
+            j.running ? "running" : j.enabled ? "on" : "off"
+          }</span>
+          <div style="flex:1">
+            <div>${esc(j.description)}</div>
+            <div class="muted" style="font-size:12px">
+              ${j.enabled ? `every ${j.every_hours}h` : "disabled"}
+              ${j.last_run ? ` · last ${esc(j.last_run.replace("T", " ").slice(0, 16))}` : " · never run"}
+              ${j.next_run ? ` · next ${esc(j.next_run.replace("T", " ").slice(0, 16))}` : ""}
+            </div>
+            ${j.last_error ? `<div style="color:#f87171;font-size:12px">${esc(j.last_error)}</div>` : ""}
+          </div>
+          <button data-job="${esc(j.id)}" class="runJob" ${j.running ? "disabled" : ""}
+                  style="background:#1f2937">Run now</button>
+        </div>`).join("");
+
+        for (const b of document.querySelectorAll(".runJob")) {
+          b.onclick = async () => {
+            b.disabled = true;
+            try { await api(`/api/schedule/${b.dataset.job}/run`, { method: "POST" }); }
+            catch (e) { /* surfaced by the status refresh below */ }
+            await loadSchedule();
+          };
+        }
+      } catch {
+        $("schedule").innerHTML = `<span class="muted">unavailable</span>`;
+      }
+    }
 
     // ---------- discovery ----------
     $("suggest").onclick = async () => {

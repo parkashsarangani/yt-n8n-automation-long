@@ -75,6 +75,22 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "every public published episode is measured",
   },
   {
+    key: "SCHEDULE_MEASURE_HOURS",
+    label: "Auto-measure every N hours",
+    secret: false,
+    placeholder: "24",
+    help: "Measurement is read-only, so this is on by default once analytics works. Set 0 to disable",
+    fallback: "measures once a day",
+  },
+  {
+    key: "SCHEDULE_PRODUCE_HOURS",
+    label: "Auto-start a run every N hours",
+    secret: false,
+    placeholder: "leave empty to keep manual",
+    help: "OFF unless set. Picks the top discovery candidate and starts a run — which still stops at the story and script gates for your approval",
+    fallback: "runs are started by hand only",
+  },
+  {
     key: "COMPOSE_URL",
     label: "long-compose URL",
     secret: false,

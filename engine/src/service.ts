@@ -46,6 +46,7 @@ import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
+import { Scheduler, type Job, type JobStatus } from "./scheduler.ts";
 import {
   GraphExecutor,
   type ExecutorEvent,
@@ -120,6 +121,7 @@ export class VidGenService {
   private graph!: GraphDoc;
   private measureGraph!: GraphDoc;
   private discoverGraph!: GraphDoc;
+  private scheduler: Scheduler | undefined;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
   private runLog!: RunLog;
@@ -755,6 +757,78 @@ export class VidGenService {
       history_count: history.count,
       measured_episodes: window.episode_count,
     };
+  }
+
+  /**
+   * Wire up recurring jobs. Called explicitly by the entry point rather than in
+   * create(), so importing the service in a test never starts timers.
+   */
+  startScheduler(opts: { tickMs?: number } = {}): Scheduler {
+    const num = (key: string): number | null => {
+      const raw = process.env[key]?.trim();
+      if (!raw) return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+
+    const jobs: Job[] = [
+      {
+        id: "measure",
+        description: "Measure published episodes and feed the strategist",
+        // Read-only, so it defaults on. 0 or a non-number disables it.
+        everyHours: num("SCHEDULE_MEASURE_HOURS") ?? 24,
+        enabled:
+          process.env["SCHEDULE_MEASURE_HOURS"]?.trim() !== "0" &&
+          Boolean(this.analyticsProvider),
+        run: async () => {
+          const r = await this.measureAll();
+          console.log(
+            `[scheduler] measured ${r.measured.length}, skipped ${r.skipped.length}, failed ${r.failed.length}`,
+          );
+        },
+      },
+      {
+        id: "produce",
+        description: "Pick the top discovery candidate and start a run (still gated)",
+        everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
+        // OFF unless explicitly configured. This one spends money and makes
+        // videos; it must never become active because a default changed.
+        enabled: num("SCHEDULE_PRODUCE_HOURS") !== null,
+        run: async () => {
+          const found = await this.discoverTopics();
+          const first = (found.candidates as { candidates?: Array<{ brief?: string }> } | null)
+            ?.candidates?.[0]?.brief;
+          if (!first) {
+            console.log("[scheduler] discovery returned no candidate; not starting a run");
+            return;
+          }
+          const runId = await this.startRun(first);
+          // The run stops at the story and script gates on its own, so this
+          // automates choosing and starting — never approving or publishing.
+          console.log(`[scheduler] started ${runId} for: ${first}`);
+        },
+      },
+    ];
+
+    this.scheduler = new Scheduler({
+      jobs,
+      ...(opts.tickMs !== undefined ? { tickMs: opts.tickMs } : {}),
+    });
+    this.scheduler.start();
+    return this.scheduler;
+  }
+
+  scheduleStatus(): JobStatus[] {
+    return this.scheduler?.status() ?? [];
+  }
+
+  async runJobNow(id: string): Promise<void> {
+    if (!this.scheduler) throw new Error("the scheduler is not running");
+    await this.scheduler.runNow(id);
+  }
+
+  stopScheduler(): void {
+    this.scheduler?.stop();
   }
 
   get graphDoc(): GraphDoc {

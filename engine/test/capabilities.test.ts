@@ -38,7 +38,12 @@ test("the UI does not offer credentials nothing reads", () => {
   // Settings that tune a stage rather than enable one are legitimately absent
   // from STAGES. Everything else unused is dead weight that will mislead
   // whoever fills the form in.
-  const TUNING_NOT_GATING = ["ELEVENLABS_VOICE_ID", "MEASURE_EXCLUDE_IDS"];
+  const TUNING_NOT_GATING = [
+    "ELEVENLABS_VOICE_ID",
+    "MEASURE_EXCLUDE_IDS",
+    "SCHEDULE_MEASURE_HOURS",
+    "SCHEDULE_PRODUCE_HOURS",
+  ];
   const used = new Set([...credentialKeysUsed(), ...TUNING_NOT_GATING]);
   const dead = CREDENTIALS.map((c) => c.key).filter((k) => !used.has(k));
 
