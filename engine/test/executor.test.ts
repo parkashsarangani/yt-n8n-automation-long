@@ -105,27 +105,41 @@ async function harness(handler: FakeHandler) {
   return { registry, store, runLog, provider, speech, images, renderer, runner, executor, graph, transformations, seed };
 }
 
-/** Routes on each prompt's opening line, so all three agents get valid output. */
+/** Routes on each prompt's opening line, so every agent gets valid output. */
 const storyThen = (conf: number): FakeHandler => (req) => {
   if (req.prompt.includes("head writer")) return { payload: STORY, confidence: { overall: conf } };
   if (req.prompt.includes("choose what the viewer sees")) {
     return { payload: VISUAL_PLAN, confidence: { overall: 0.85 } };
   }
+  if (req.prompt.includes("design the thumbnail")) {
+    return { payload: THUMBNAIL_BRIEF, confidence: { overall: 0.82 } };
+  }
   return { payload: SCRIPT, confidence: { overall: 0.8 } };
+};
+
+const THUMBNAIL_BRIEF = {
+  text: "It Never Existed",
+  background_query: "ancient stone map carved in rock",
+  accent: "#FFD34D",
+  rationale: "Contradiction: the video is about a place people believe in.",
+  alternatives: ["The 400-Year Mistake"],
 };
 
 const ALL_NODES = [
   "approve_script", "approve_story", "assets", "intent", "publish", "render",
-  "script", "story", "visual_plan", "voice",
+  "script", "story", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the story gate. */
 const AFTER_GATE = [
-  "approve_script", "assets", "publish", "render", "script", "visual_plan", "voice",
+  "approve_script", "assets", "publish", "render", "script", "thumbnail",
+  "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the script gate. */
+// The thumbnail branch depends on approve_story, not approve_script, so it is
+// deliberately absent here — it runs while the script is still being reviewed.
 const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "visual_plan", "voice"];
-/** story, script, visual_plan are agents; voice and assets are workers (no model call). */
-const MODEL_CALLS_PER_RUN = 3;
+/** story, script, visual_plan, thumbnail_designer are agents; the rest are workers. */
+const MODEL_CALLS_PER_RUN = 4;
 
 test("a confident story auto-passes its gate, then the script gate always asks", async () => {
   const h = await harness(storyThen(0.95));
@@ -182,8 +196,17 @@ test("resuming with approval continues without re-running completed nodes", asyn
   assert.equal(resumed.status, "waiting");
   assert.deepEqual(resumed.waiting.map((w) => w.node_id), ["approve_script"]);
   assert.equal(resumed.outputs["story"], first.outputs["story"]); // derived, not recomputed
-  // The story was not re-run: only the script cost a model call this time.
-  assert.equal(h.provider.calls.length, 2);
+
+  // The story was not re-run. Two new calls: the script, and the thumbnail
+  // designer — the thumbnail branch depends on approve_story, not
+  // approve_script, so it proceeds while the narration is still under review
+  // rather than waiting for it. That parallelism is the point of hanging it
+  // off the story gate, so assert it rather than just counting.
+  assert.equal(h.provider.calls.length, 3);
+  assert.ok(
+    resumed.outputs["thumbnail_brief"],
+    "the thumbnail brief should be ready before the script gate is approved",
+  );
 
   const done = await h.executor.resume(h.graph, first.run_id, {
     approve_script: { result: "approve" },
@@ -255,9 +278,10 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);
-  // Story was reused; only script and visual_plan cost calls. (Agents are not
-  // cached by default — re-running is how variants happen — so this is opt-in.)
-  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 2);
+  // Story was reused; script, visual_plan and thumbnail_designer still cost
+  // calls. (Agents are not cached by default — re-running is how variants
+  // happen — so this is opt-in.)
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 3);
 });
 
 // -- failure isolation, on a throwaway registry so the producer allowlist

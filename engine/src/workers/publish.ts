@@ -27,6 +27,12 @@ interface StoryPayload {
   tags?: string[];
 }
 
+interface ThumbnailArtifact {
+  thumbnail_uri: string;
+  media_type: "image/png" | "image/jpeg";
+  bytes?: number;
+}
+
 interface RenderedVideo {
   video_uri: string;
   media_type: string;
@@ -44,6 +50,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "story", range: "^1", as: "story" },
+      { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
     ],
     produces: "published_episode",
 
@@ -65,11 +72,21 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       assertFits(metadata, video, reqs, target.id);
 
       const bytes = await ctx.blobs.get(video.video_uri);
+
+      // The designed thumbnail wins over whatever the video render happened to
+      // emit: it was reasoned about, and the render's is a by-product.
+      const designed = inputs["thumbnail"]?.payload as ThumbnailArtifact | undefined;
+      const thumbSource = designed?.thumbnail_uri
+        ? { uri: designed.thumbnail_uri, media_type: designed.media_type }
+        : video.thumbnail_uri
+          ? { uri: video.thumbnail_uri, media_type: "image/png" }
+          : null;
+
       const thumbnail =
-        video.thumbnail_uri && reqs.supports_custom_thumbnail
+        thumbSource && reqs.supports_custom_thumbnail
           ? {
-              bytes: await ctx.blobs.get(video.thumbnail_uri),
-              media_type: "image/png",
+              bytes: await ctx.blobs.get(thumbSource.uri),
+              media_type: thumbSource.media_type,
             }
           : undefined;
 

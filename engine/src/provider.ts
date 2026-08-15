@@ -116,8 +116,35 @@ export interface RenderResult {
  * that dies with the process is unrecoverable if nobody wrote the job id down.
  * See the RFC 0004 note in engine/README.md.
  */
+export interface ThumbnailRequest {
+  /** Background photo. Omitted or unusable, the renderer falls back to a gradient. */
+  image?: Uint8Array;
+  text: string;
+  accent?: string;
+}
+
+export interface ThumbnailResult {
+  bytes: Uint8Array;
+  media_type: string;
+  width: number;
+  height: number;
+  /** What the renderer actually used — "supplied" or "gradient". */
+  background: "supplied" | "gradient";
+  usage: Usage;
+}
+
 export interface MediaRenderer {
   readonly id: string;
+
+  /**
+   * Composite a thumbnail without rendering a video.
+   *
+   * Separate from render() on purpose. A thumbnail is the highest-leverage
+   * asset and the cheapest to make; tying it to a ten-minute encode would mean
+   * a five-word text change costs a full re-render.
+   */
+  renderThumbnail(req: ThumbnailRequest): Promise<ThumbnailResult>;
+
   render(
     req: RenderRequest,
     opts?: { onJob?: (jobId: string) => void | Promise<void>; signal?: AbortSignal },

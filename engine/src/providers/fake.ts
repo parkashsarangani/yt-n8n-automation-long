@@ -20,6 +20,8 @@ import {
   type PublishRequest,
   type PublishTarget,
   type RenderRequest,
+  type ThumbnailRequest,
+  type ThumbnailResult,
   type SpeechProvider,
   type TargetRequirements,
 } from "../provider.ts";
@@ -144,8 +146,31 @@ export class FakeImageProvider implements ImageProvider {
 export class FakeRenderer implements MediaRenderer {
   readonly id = "fake/renderer";
   readonly requests: RenderRequest[] = [];
+  readonly thumbnailRequests: ThumbnailRequest[] = [];
   readonly jobIds: string[] = [];
   constructor(private readonly failWith?: string) {}
+
+  async renderThumbnail(req: ThumbnailRequest): Promise<ThumbnailResult> {
+    this.thumbnailRequests.push(req);
+    if (this.failWith) throw new ProviderError(this.failWith);
+    return {
+      // Deterministic in the text, so an identical brief yields an identical
+      // artifact id — the property the artifact model depends on.
+      bytes: fakeBytes(`thumb:${req.text}`, 96),
+      media_type: "image/png",
+      width: 1280,
+      height: 720,
+      background: req.image ? "supplied" : "gradient",
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 1,
+        cost_usd: 0,
+        provider: this.id,
+        model: "fake-thumbnail",
+      },
+    };
+  }
 
   async render(
     req: RenderRequest,

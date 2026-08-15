@@ -72,6 +72,26 @@ const rendered = (h: Awaited<ReturnType<typeof harness>>, withThumb = true) => (
   duration_sec: 540,
 });
 
+
+/**
+ * Publish now requires a designed thumbnail (schema `thumbnail`), so every case
+ * seeds one. Inputs bind positionally, in the worker's `consumes` order:
+ * rendered_video, story, thumbnail.
+ */
+const seedThumb = (h: Awaited<ReturnType<typeof harness>>) =>
+  h.seed(
+    "thumbnail",
+    {
+      thumbnail_uri: h.thumb.uri,
+      media_type: "image/png",
+      width: 1280,
+      height: 720,
+      text: "It Never Existed",
+      background: "supplied",
+    },
+    "thumbnail",
+  );
+
 // -- schema versioning (RFC 0007 minor bump, exercised for real) --------
 
 test("story@1.1.0 is an additive minor bump: 1.0.0 artifacts stay valid", async () => {
@@ -101,6 +121,7 @@ test("publish reads a story@1.0.0 artifact written before the new fields existed
   const out = await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
     story.artifact_id,
+    (await seedThumb(h)).artifact_id,
   ]);
 
   assert.equal(story.schema_version, "1.0.0");
@@ -123,6 +144,7 @@ test("publish uploads and records where the video went", async () => {
   const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "unlisted" }), [
     video.artifact_id,
     story.artifact_id,
+    (await seedThumb(h)).artifact_id,
   ]);
   const payload = out.artifact.payload as {
     target: string;
@@ -156,6 +178,7 @@ test("a refused thumbnail is recorded, not swallowed", async () => {
   const out = await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
     story.artifact_id,
+    (await seedThumb(h)).artifact_id,
   ]);
   assert.equal((out.artifact.payload as { thumbnail_set: boolean }).thumbnail_set, false);
   // The publish itself still succeeded.
@@ -166,9 +189,10 @@ test("metadata that exceeds the target's limits is rejected before upload", asyn
   const h = await harness(new FakePublishTarget({ requirements: { max_title_chars: 10 } }));
   const video = await h.seed("rendered_video", rendered(h), "render");
   const story = await h.seed("story", STORY, "story_architect");
+  const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
     /rejected before upload: title is \d+ chars/,
   );
   // Nothing was uploaded — publishing is irreversible, so validation is fatal
@@ -180,9 +204,10 @@ test("a video longer than the target allows is rejected", async () => {
   const h = await harness(new FakePublishTarget({ requirements: { max_duration_sec: 60 } }));
   const video = await h.seed("rendered_video", rendered(h), "render");
   const story = await h.seed("story", STORY, "story_architect");
+  const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
     /video is 540s, fake-target allows 60s/,
   );
 });
@@ -197,17 +222,57 @@ test("a target that cannot take a custom thumbnail is never sent one", async () 
   await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
     story.artifact_id,
+    (await seedThumb(h)).artifact_id,
   ]);
   assert.equal(h.target.published[0]!.thumbnail, undefined);
+});
+
+test("the designed thumbnail wins over the one the render happened to emit", async () => {
+  // render() produces a thumbnail as a by-product; thumbnail_designer produces
+  // one on purpose. If both exist the designed one must be uploaded, otherwise
+  // the whole thumbnail branch is decorative.
+  const h = await harness();
+  const designedBlob = await h.blobs.put(new TextEncoder().encode("DESIGNED-PNG"), {
+    role: "thumbnail",
+  });
+
+  const video = await h.seed("rendered_video", rendered(h), "render"); // carries h.thumb
+  const story = await h.seed("story", STORY, "story_architect");
+  const designed = await h.seed(
+    "thumbnail",
+    {
+      thumbnail_uri: designedBlob.uri,
+      media_type: "image/png",
+      width: 1280,
+      height: 720,
+      text: "It Never Existed",
+      background: "supplied",
+    },
+    "thumbnail",
+  );
+
+  await h.runner.run(makePublishWorker({ target: h.target }), [
+    video.artifact_id,
+    story.artifact_id,
+    designed.artifact_id,
+  ]);
+
+  const sent = h.target.published[0]!.thumbnail!;
+  assert.equal(
+    new TextDecoder().decode(sent.bytes),
+    "DESIGNED-PNG",
+    "publish uploaded the render's by-product instead of the designed thumbnail",
+  );
 });
 
 test("a publish failure produces no artifact", async () => {
   const h = await harness(new FakePublishTarget({ failWith: "quota exceeded" }));
   const video = await h.seed("rendered_video", rendered(h), "render");
   const story = await h.seed("story", STORY, "story_architect");
+  const thumb = await seedThumb(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, story.artifact_id, thumb.artifact_id]),
     /quota exceeded/,
   );
   assert.equal(
