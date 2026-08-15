@@ -21,13 +21,19 @@ from the first minute and gets more real as you add keys.
 
 | Credential | Powers | Without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | story, script, visual plan | **required** |
-| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | fake audio |
-| `FAL_KEY` | images | fake images |
-| `YOUTUBE_ACCESS_TOKEN` | publishing | dry-run target |
+| `ANTHROPIC_API_KEY` | story, script, visual plan | **required** — runs fail at the first node |
+| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | silent placeholder audio |
+| `PEXELS_API_KEY` **or** `UNSPLASH_ACCESS_KEY` | scene images (free stock) | placeholder images |
+| `PIXABAY_API_KEY` | third image fallback | search stops after the first two |
+| `YOUTUBE_CLIENT_ID` + `_SECRET` + `_REFRESH_TOKEN` | publishing, self-refreshing | dry-run target |
 
 Keys entered in the UI persist in the `vidgen_data` volume. You can also seed them
 from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example).
+
+**Check what will actually run.** The settings panel and the startup log both
+list every stage as ✓ or ✗, with the exact key that would fix it. A stage
+without its credential does not fail — it silently substitutes a stand-in and
+the run still reports success, which is the expensive way to find out.
 
 **Publishing never happens by accident.** A YouTube token alone does nothing;
 you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
@@ -151,14 +157,22 @@ test, and what implementation revealed about the RFCs.
 
 ## Status
 
-The skeleton is structurally complete: intent → published episode. **No adapter
-has made a live API call yet** — Anthropic, ElevenLabs, Fal, long-compose and
-YouTube are written from known-good request shapes and tested against stubs, so
-treat the first real run as the actual test.
+The pipeline runs end to end for real: intent → published episode. Every adapter
+has made live calls, and the scars are in the log — Remotion argv limits, payload
+caps, render timeouts, connection-pool exhaustion.
 
-Deliberately not built yet: Discovery, Research, Fact Checking, and the
-knowledge graph. Each is designed to be additive, and each is better designed
-against real episodes than against assumptions.
+Being built now, in dependency order:
+
+| | Status |
+|---|---|
+| Credentials + capability check | **done** |
+| Thumbnail | next |
+| SEO (title, description, tags) | |
+| Feedback loop (YouTube Analytics → strategy) | |
+| Discovery (topic selection, informed by feedback) | |
+| Scheduler | |
+
+Deliberately still out: Research, Fact Checking, and the knowledge graph.
 
 ## Licensing
 

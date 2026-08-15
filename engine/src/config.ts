@@ -46,12 +46,25 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "a placeholder voice id is used",
   },
   {
-    key: "FAL_KEY",
-    label: "Fal key",
+    key: "PEXELS_API_KEY",
+    label: "Pexels API key",
     secret: true,
-    placeholder: "id:secret",
-    help: "fal.ai/dashboard/keys",
-    fallback: "fake images are generated instead",
+    help: "pexels.com/api → your key. Free, no card. First choice for scene images",
+    fallback: "Unsplash is tried instead; without either, placeholder images",
+  },
+  {
+    key: "UNSPLASH_ACCESS_KEY",
+    label: "Unsplash access key",
+    secret: true,
+    help: "unsplash.com/oauth/applications → Access Key (not the Secret Key)",
+    fallback: "used only when Pexels has no match, or as the sole source",
+  },
+  {
+    key: "PIXABAY_API_KEY",
+    label: "Pixabay API key",
+    secret: true,
+    help: "pixabay.com/api/docs — optional third fallback",
+    fallback: "the image search stops after Pexels and Unsplash",
   },
   {
     key: "COMPOSE_URL",
@@ -61,11 +74,38 @@ export const CREDENTIALS: CredentialSpec[] = [
     help: "your own render service — docker compose up -d --build",
     fallback: "a fake renderer produces placeholder bytes",
   },
+  // --- YouTube -------------------------------------------------------------
+  // The OAuth trio is the durable path: refresh tokens do not expire, so the
+  // engine mints access tokens itself. The bare access token below is the
+  // one-hour stopgap kept for a quick manual test.
+  {
+    key: "YOUTUBE_CLIENT_ID",
+    label: "YouTube OAuth client ID",
+    secret: false,
+    placeholder: "…apps.googleusercontent.com",
+    help: "Google Cloud console → Credentials → OAuth 2.0 Client ID (Desktop app)",
+    fallback: "publishing falls back to the short-lived access token, then dry-run",
+  },
+  {
+    key: "YOUTUBE_CLIENT_SECRET",
+    label: "YouTube OAuth client secret",
+    secret: true,
+    placeholder: "GOCSPX-…",
+    help: "shown next to the client ID in the Google Cloud console",
+    fallback: "publishing falls back to the short-lived access token, then dry-run",
+  },
+  {
+    key: "YOUTUBE_REFRESH_TOKEN",
+    label: "YouTube refresh token",
+    secret: true,
+    help: "from the repo root, once: node --import tsx scripts/youtube-token.ts --auth",
+    fallback: "publishing falls back to the short-lived access token, then dry-run",
+  },
   {
     key: "YOUTUBE_ACCESS_TOKEN",
-    label: "YouTube OAuth access token",
+    label: "YouTube access token (stopgap)",
     secret: true,
-    help: "OAuth2 token (expires ~1h), scope youtube.upload — not an API key",
+    help: "expires in ~1h. Prefer the OAuth trio above, which refreshes itself",
     fallback: "publishing runs against a dry-run target",
   },
 ];
@@ -142,6 +182,18 @@ function formatValue(v: string): string {
   return /[\s#"']/.test(v) ? JSON.stringify(v) : v;
 }
 
+export interface EnvWriteResult {
+  applied: string[];
+  /**
+   * Keys refused because they are not in CREDENTIALS. Reported rather than
+   * dropped in silence: a caller that submits a key the engine has never heard
+   * of has made a mistake, and swallowing it turns a typo — or a credential
+   * list that has fallen behind the code — into a config that looks saved and
+   * is not.
+   */
+  rejected: string[];
+}
+
 /**
  * Update `.env` in place, preserving comments, ordering, and unrelated keys.
  * An empty string clears a key. Only keys in CREDENTIALS may be written, so a
@@ -150,9 +202,10 @@ function formatValue(v: string): string {
 export async function writeEnvFile(
   file: string,
   updates: Record<string, string>,
-): Promise<string[]> {
+): Promise<EnvWriteResult> {
   const allowed = new Set(CREDENTIALS.map((c) => c.key));
   const applied: string[] = [];
+  const rejected = Object.keys(updates).filter((k) => !allowed.has(k));
 
   let existing = "";
   try {
@@ -195,5 +248,5 @@ export async function writeEnvFile(
     if (v === "") delete process.env[k];
     else process.env[k] = v;
   }
-  return applied;
+  return { applied, rejected };
 }

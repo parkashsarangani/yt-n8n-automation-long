@@ -61,6 +61,7 @@ export function createUiServer(opts: ServerOptions) {
       json(res, 200, {
         credentials: service.credentials(),
         providers: service.providerSummary(),
+        capabilities: service.capabilities(),
         env_file: service.envFile,
         graph: `${service.graphDoc.graph_id}@${service.graphDoc.version}`,
       });
@@ -73,9 +74,17 @@ export function createUiServer(opts: ServerOptions) {
       for (const [k, v] of Object.entries(body.updates ?? {})) {
         if (typeof v === "string") updates[k] = v;
       }
-      const applied = await service.saveCredentials(updates);
-      // Echo only which keys changed — never their values.
-      json(res, 200, { applied, credentials: service.credentials(), providers: service.providerSummary() });
+      const { applied, rejected } = await service.saveCredentials(updates);
+      // Echo only which keys changed — never their values. `rejected` is
+      // reported so a key the engine does not recognise fails loudly in the UI
+      // instead of looking saved.
+      json(res, 200, {
+        applied,
+        rejected,
+        credentials: service.credentials(),
+        providers: service.providerSummary(),
+        capabilities: service.capabilities(),
+      });
       return;
     }
 
