@@ -1,0 +1,142 @@
+{
+  "schema_id": "performance_window",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Every measured episode, joined to what was chosen for it — title, keyword, thumbnail text — so performance can be attributed to a decision rather than admired in the abstract. Assembled by the service, not a worker: it is a query across the whole store, and workers only ever see their declared inputs. Seeded as a graph input exactly like intent.",
+  "produced_by": [
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "PerformanceWindowArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "episode_count",
+      "episodes",
+      "generated_at"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "episode_count": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Zero is normal and must stay usable: a new channel has no history, and the strategist has to say so rather than invent guidance."
+      },
+      "ctr_available": {
+        "type": "boolean",
+        "description": "False when the platform withheld thumbnail impressions for every episode. Bounds what any conclusion about thumbnails can claim."
+      },
+      "aggregates": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "median_views": {
+            "type": "number",
+            "minimum": 0
+          },
+          "median_view_percentage": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "median_ctr": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "total_subscribers_gained": {
+            "type": "integer"
+          }
+        }
+      },
+      "episodes": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "external_id",
+            "metrics"
+          ],
+          "properties": {
+            "external_id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "primary_keyword": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "thumbnail_text": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "published_at": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "window_days": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "views"
+              ],
+              "properties": {
+                "views": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "average_view_percentage": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "click_through_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "subscribers_gained": {
+                  "type": "integer"
+                },
+                "likes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "comments": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

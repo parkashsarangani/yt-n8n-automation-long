@@ -12,8 +12,16 @@ import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
+import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 
-export { makeVoiceWorker, makeAssetWorker, makeRenderWorker, makeThumbnailWorker, makePublishWorker };
+export {
+  makeVoiceWorker,
+  makeAssetWorker,
+  makeRenderWorker,
+  makeThumbnailWorker,
+  makePublishWorker,
+  makeMeasureWorker,
+};
 export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
@@ -21,6 +29,7 @@ export interface WorkerSetOptions {
   assets?: AssetWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
+  measure?: MeasureWorkerOptions;
   /** Omit to build a graph that stops at render (no destination configured). */
   publish?: PublishWorkerOptions;
 }
@@ -31,6 +40,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeAssetWorker(opts.assets ?? {}),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
+    makeMeasureWorker(opts.measure ?? {}),
     ...(opts.publish ? [makePublishWorker(opts.publish)] : []),
   ];
   return new Map(workers.map((w) => [w.name, w]));

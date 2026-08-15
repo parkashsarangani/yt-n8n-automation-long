@@ -19,6 +19,7 @@ import {
   ProviderRefusal,
   ProviderRouter,
   wrapWithConfidence,
+  type AnalyticsProvider,
   type ImageProvider,
   type MediaRenderer,
   type SpeechProvider,
@@ -73,6 +74,7 @@ export interface WorkerContext {
     speech?: SpeechProvider;
     images?: ImageProvider;
     renderer?: MediaRenderer;
+    analytics?: AnalyticsProvider;
   };
   /**
    * Emit an interim run-log record for a long-running job (RFC 0006: everything
@@ -127,7 +129,12 @@ export interface RunnerDeps {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Required only if any worker produces bytes. */
   blobs?: BlobStore;
-  media?: { speech?: SpeechProvider; images?: ImageProvider; renderer?: MediaRenderer };
+  media?: {
+    speech?: SpeechProvider;
+    images?: ImageProvider;
+    renderer?: MediaRenderer;
+    analytics?: AnalyticsProvider;
+  };
 }
 
 export class Runner {

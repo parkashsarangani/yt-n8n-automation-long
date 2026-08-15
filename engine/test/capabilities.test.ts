@@ -112,7 +112,10 @@ test("a fully configured deployment reports every stage live", () => {
       ELEVENLABS_API_KEY: "el",
       PEXELS_API_KEY: "px",
       COMPOSE_URL: "http://long-compose:4000",
-      YOUTUBE_ACCESS_TOKEN: "ya29.",
+      // The OAuth trio, not the stopgap token: analytics needs it.
+      YOUTUBE_CLIENT_ID: "id",
+      YOUTUBE_CLIENT_SECRET: "secret",
+      YOUTUBE_REFRESH_TOKEN: "refresh",
     },
   });
 
@@ -120,6 +123,40 @@ test("a fully configured deployment reports every stage live", () => {
     report.filter((s) => !s.real).map((s) => s.id),
     [],
   );
+});
+
+test("the stopgap access token can publish but cannot measure", () => {
+  // Publishing accepts a bare access token; analytics needs the refreshable
+  // trio, because a one-hour token is useless for a job that runs days later.
+  const report = capabilityReport({
+    allowPublish: true,
+    env: { YOUTUBE_ACCESS_TOKEN: "ya29." },
+  });
+
+  assert.equal(report.find((s) => s.id === "publish")!.real, true);
+  const analytics = report.find((s) => s.id === "analytics")!;
+  assert.equal(analytics.real, false);
+  assert.deepEqual(analytics.missing, [
+    "YOUTUBE_CLIENT_ID",
+    "YOUTUBE_CLIENT_SECRET",
+    "YOUTUBE_REFRESH_TOKEN",
+  ]);
+});
+
+test("measurement is not gated behind the publish switch", () => {
+  // Reading numbers is not publishing. AMOS_ALLOW_PUBLISH exists to prevent
+  // accidental uploads, and must not also disable the feedback loop.
+  const report = capabilityReport({
+    allowPublish: false,
+    env: {
+      YOUTUBE_CLIENT_ID: "id",
+      YOUTUBE_CLIENT_SECRET: "secret",
+      YOUTUBE_REFRESH_TOKEN: "refresh",
+    },
+  });
+
+  assert.equal(report.find((s) => s.id === "analytics")!.real, true);
+  assert.equal(report.find((s) => s.id === "publish")!.real, false);
 });
 
 test("an empty deployment reports every stage down with a fix for each", () => {

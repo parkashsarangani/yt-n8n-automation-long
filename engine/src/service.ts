@@ -21,6 +21,7 @@ import { PgRunLog } from "./pg-runlog.ts";
 import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
 import {
   ProviderRouter,
+  type AnalyticsProvider,
   type ImageProvider,
   type MediaRenderer,
   type PublishTarget,
@@ -31,6 +32,7 @@ import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
 import { StockImageProvider } from "./providers/stock.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
+import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
 import {
   FakeImageProvider,
@@ -42,6 +44,7 @@ import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
+import { buildPerformanceWindow } from "./performance-window.ts";
 import {
   GraphExecutor,
   type ExecutorEvent,
@@ -114,11 +117,14 @@ export class VidGenService {
   private prompts!: PromptStore;
   private agents!: Map<string, TransformationDef>;
   private graph!: GraphDoc;
+  private measureGraph!: GraphDoc;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
   private runLog!: RunLog;
   private executor!: GraphExecutor;
   private transformations!: Map<string, TransformationDef>;
+  /** Held so measureAll can check live visibility before spending a call. */
+  private analyticsProvider: AnalyticsProvider | undefined;
 
   private readonly runs = new Map<string, RunState>();
   readonly envFile: string;
@@ -147,6 +153,7 @@ export class VidGenService {
       hasPrompt: (ref) => svc.prompts.has(ref),
     });
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
+    svc.measureGraph = await loadGraph(path.join(opts.root, "graphs", "measure.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -194,6 +201,19 @@ export class VidGenService {
     // is the one-hour stopgap, and only used when the trio is incomplete.
     const hasOauthTrio =
       env("YOUTUBE_CLIENT_ID") && env("YOUTUBE_CLIENT_SECRET") && env("YOUTUBE_REFRESH_TOKEN");
+
+    // Measurement is read-only, so it is deliberately NOT behind allowPublish —
+    // that switch exists to stop accidental uploads, not to stop reading.
+    const analytics = can("analytics")
+      ? new YouTubeAnalyticsProvider({
+        accessToken: youtubeTokenFactory({
+          clientId: env("YOUTUBE_CLIENT_ID")!,
+          clientSecret: env("YOUTUBE_CLIENT_SECRET")!,
+          refreshToken: env("YOUTUBE_REFRESH_TOKEN")!,
+        }),
+      })
+      : undefined;
+    this.analyticsProvider = analytics;
     const target: PublishTarget = !(this.allowPublish && can("publish"))
       ? new FakePublishTarget({ id: "dry-run" })
       : hasOauthTrio
@@ -227,7 +247,7 @@ export class VidGenService {
       providers,
       runLog: this.runLog,
       blobs: this.blobs,
-      media: { speech, images, renderer },
+      media: { speech, images, renderer, ...(analytics ? { analytics } : {}) },
       logger: console,
     });
 
@@ -398,6 +418,22 @@ export class VidGenService {
       payload: { brief: trimmed, target_duration_sec: durationSec },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
+
+    // The feedback loop's entry point. Assembled here rather than in a worker
+    // because it is a query across the whole store; seeded as a graph input in
+    // the same way as intent. On a channel with nothing measured yet this is a
+    // valid, empty window, and the strategist is instructed to return no
+    // guidance rather than invent some.
+    const window = await buildPerformanceWindow(this.store);
+    const performance = await this.store.put({
+      schema_id: "performance_window",
+      payload: window,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+    console.log(
+      `[run ${runId.slice(4, 12)}] performance window: ${window.episode_count} measured episode(s)` +
+      `${window.episode_count > 0 && !window.ctr_available ? ", no click-through data" : ""}`,
+    );
     console.log(`[run ${runId.slice(4, 12)}] intent stored: ${intent.artifact.artifact_id.slice(0, 12)}...`);
 
     this.runs.set(runId, {
@@ -413,7 +449,7 @@ export class VidGenService {
 
     // Kick off in the background: a run takes minutes, and the UI polls.
     void this.drive(runId, () =>
-      this.executor.start(this.graph, { intent: intent.artifact.artifact_id }, { runId }),
+      this.executor.start(this.graph, { intent: intent.artifact.artifact_id, performance: performance.artifact.artifact_id }, { runId }),
     );
     return runId;
   }
@@ -554,6 +590,87 @@ export class VidGenService {
   gateSubject(nodeId: string): string | null {
     const node = this.graph.nodes.find((n) => n.id === nodeId);
     return node ? (inputsOf(node)[0] ?? null) : null;
+  }
+
+  /**
+   * Measure every published episode.
+   *
+   * Detached from production on purpose: a video measured an hour after upload
+   * tells you nothing, so this is triggered separately (by you, or later by the
+   * scheduler) rather than tacked onto the end of a run.
+   *
+   * One episode failing does not stop the rest — a single deleted or private
+   * video must not block the whole feedback loop.
+   */
+  async measureAll(): Promise<{
+    measured: Array<{ external_id: string; views: number }>;
+    skipped: Array<{ external_id: string; visibility: string }>;
+    failed: Array<{ external_id: string; error: string }>;
+  }> {
+    const rows = (await this.store.index()).filter(
+      (r) => r.schema_id === "published_episode",
+    );
+
+    const measured: Array<{ external_id: string; views: number }> = [];
+    const skipped: Array<{ external_id: string; visibility: string }> = [];
+    const failed: Array<{ external_id: string; error: string }> = [];
+    const seen = new Set<string>();
+
+    // Collect candidates first so visibility can be checked in one batch.
+    const candidates: Array<{ artifactId: string; externalId: string }> = [];
+    for (const row of rows) {
+      const episode = await this.store.get(row.artifact_id);
+      if (!episode) continue;
+      const externalId = (episode.payload as { external_id?: string }).external_id;
+      if (!externalId || seen.has(externalId)) continue;
+      seen.add(externalId);
+      candidates.push({ artifactId: row.artifact_id, externalId });
+    }
+
+    // PUBLIC CONTENT ONLY.
+    //
+    // Episodes are uploaded private and made public by hand, so the privacy
+    // recorded on the artifact is stale the moment that happens — visibility is
+    // read live instead. A private or unlisted video accrues no impressions and
+    // barely any views, so measuring it would feed the strategist zeros that
+    // look like failure and drag every median down.
+    const analytics = this.analyticsProvider;
+    let visibility: Record<string, string> = {};
+    if (analytics && candidates.length > 0) {
+      try {
+        visibility = await analytics.fetchVisibility(candidates.map((c) => c.externalId));
+      } catch {
+        // Leave empty; each candidate then reads as "unknown" and is skipped
+        // rather than measured on a guess.
+        visibility = {};
+      }
+    }
+
+    for (const { artifactId: rowId, externalId } of candidates) {
+      const vis = visibility[externalId] ?? "unknown";
+      if (vis !== "public") {
+        skipped.push({ external_id: externalId, visibility: vis });
+        continue;
+      }
+      const row = { artifact_id: rowId };
+
+      try {
+        const result = await this.executor.start(this.measureGraph, {
+          episode: row.artifact_id,
+        });
+        const outId = result.outputs["performance"];
+        const perf = outId ? await this.store.get(outId) : null;
+        const views = (perf?.payload as { metrics?: { views?: number } })?.metrics?.views ?? 0;
+        measured.push({ external_id: externalId, views });
+      } catch (err) {
+        failed.push({
+          external_id: externalId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { measured, skipped, failed };
   }
 
   get graphDoc(): GraphDoc {

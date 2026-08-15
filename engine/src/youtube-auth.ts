@@ -31,12 +31,19 @@ interface CachedToken {
  * Returns a function that resolves to a fresh YouTube access token.
  * Caches the token in memory and refreshes only when it's about to expire.
  */
-export function youtubeTokenFactory(opts: YouTubeAuthOptions): () => Promise<string> {
+export interface TokenFactory {
+    (): Promise<string>;
+    grantedScopes(): string[] | null;
+    probeScopes(): Promise<string[]>;
+}
+
+export function youtubeTokenFactory(opts: YouTubeAuthOptions): TokenFactory {
     const { clientId, clientSecret, refreshToken } = opts;
     const fetchImpl = opts.fetchImpl ?? fetch;
 
     let cached: CachedToken | null = null;
     let inflight: Promise<string> | null = null;
+    let granted: string[] | null = null;
 
     async function refresh(): Promise<string> {
         const res = await fetchImpl(TOKEN_URL, {
@@ -57,7 +64,15 @@ export function youtubeTokenFactory(opts: YouTubeAuthOptions): () => Promise<str
             );
         }
 
-        const data = (await res.json()) as { access_token: string; expires_in: number };
+        const data = (await res.json()) as {
+            access_token: string;
+            expires_in: number;
+            scope?: string;
+        };
+        // Google echoes the scopes the refresh token was actually granted.
+        // Recorded so a token minted before yt-analytics.readonly existed can be
+        // reported as "re-authorize" rather than surfacing as an opaque 403.
+        if (typeof data.scope === "string") granted = data.scope.split(/\s+/).filter(Boolean);
         cached = {
             accessToken: data.access_token,
             expiresAt: Date.now() + data.expires_in * 1000 - MARGIN_MS,
@@ -65,7 +80,7 @@ export function youtubeTokenFactory(opts: YouTubeAuthOptions): () => Promise<str
         return cached.accessToken;
     }
 
-    return async () => {
+    const token = async () => {
         if (cached && Date.now() < cached.expiresAt) {
             return cached.accessToken;
         }
@@ -75,4 +90,16 @@ export function youtubeTokenFactory(opts: YouTubeAuthOptions): () => Promise<str
         }
         return inflight;
     };
+
+    return Object.assign(token, {
+        /** Scopes on the refresh token; null until the first refresh has happened. */
+        grantedScopes: (): string[] | null => granted,
+        /** Force one refresh so the scopes are known, then report them. */
+        probeScopes: async (): Promise<string[]> => {
+            await token();
+            return granted ?? [];
+        },
+    });
 }
+
+export const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly";

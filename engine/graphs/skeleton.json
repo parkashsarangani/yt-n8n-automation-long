@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "7",
-  "description": "Walking skeleton, end to end. Two human gates: the story premise, and the narration script — the script gate sits before any paid media work, so a rewrite costs nothing but the script. The thumbnail branch hangs off the approved story and the SEO branch off the approved script, so both run while the video renders and neither adds wall-clock time.",
+  "version": "8",
+  "description": "Walking skeleton, end to end, with the feedback loop closed. Every run begins by reading what past episodes actually did: the service seeds a performance_window, the strategist turns it into guidance, and the story architect writes against that evidence. Two human gates: the story premise and the narration script. The thumbnail branch hangs off the approved story and the SEO branch off the approved script, so both run while the video renders.",
   "nodes": [
     {
       "id": "intent",
@@ -9,10 +9,23 @@
       "schema_id": "intent"
     },
     {
+      "id": "performance",
+      "type": "input",
+      "schema_id": "performance_window"
+    },
+    {
+      "id": "insights",
+      "transformation": "channel_strategist",
+      "in": [
+        "performance"
+      ]
+    },
+    {
       "id": "story",
       "transformation": "story_architect",
       "in": [
-        "intent"
+        "intent",
+        "insights"
       ]
     },
     {

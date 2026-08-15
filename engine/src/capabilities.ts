@@ -87,6 +87,21 @@ export const STAGES: StageSpec[] = [
       why: "a token alone must never cause an upload",
     },
   },
+  {
+    id: "analytics",
+    label: "Performance measurement",
+    // Same credentials as publishing, but NOT the same grant: analytics needs
+    // the yt-analytics.readonly scope, which the upload scopes do not imply.
+    // A refresh token minted before that scope was requested authenticates
+    // fine and then 403s, so credentials being present is necessary and not
+    // sufficient here.
+    requires: [["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]],
+    real: "youtube-analytics",
+    fallback: "unavailable",
+    consequence:
+      "no feedback loop — nothing measures whether a published episode worked, " +
+      "so titles and thumbnails stay guesses",
+  },
 ];
 
 export interface StageStatus {

@@ -88,6 +88,14 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // --- feedback loop ---
+    if (route === "POST /api/measure") {
+      // Read-only against YouTube; safe to trigger by hand while the scheduler
+      // does not exist yet.
+      json(res, 200, await service.measureAll());
+      return;
+    }
+
     // --- runs ---
     if (route === "GET /api/runs") {
       const runs = service.listRuns();

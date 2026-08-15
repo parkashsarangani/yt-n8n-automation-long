@@ -88,11 +88,36 @@ async function seedIntent(h: Awaited<ReturnType<typeof harness>>) {
   return artifact;
 }
 
+/**
+ * story_architect now also reads channel_insights, so every call seeds one.
+ * The empty shape is deliberate: it is exactly what a channel with nothing
+ * measured yet produces, and it must be a first-class case rather than a gap.
+ */
+async function seedInsights(h: Awaited<ReturnType<typeof harness>>) {
+  const { artifact } = await h.store.put({
+    schema_id: "channel_insights",
+    payload: {
+      sample_size: 0,
+      confidence_note: "Nothing measured yet; no guidance can be supported.",
+      guidance: [],
+    },
+    produced_by: { transformation: "channel_strategist", version: "1", run_id: "run_seed", provider: null },
+  });
+  return artifact;
+}
+
 test("the catalog loads every agent as pure data", async () => {
   const agents = await loadAgentDefs(path.join(ROOT, "agents"));
   assert.deepEqual(
     [...agents.keys()].sort(),
-    ["script_writer", "seo_optimizer", "story_architect", "thumbnail_designer", "visual_planner"],
+    [
+      "channel_strategist",
+      "script_writer",
+      "seo_optimizer",
+      "story_architect",
+      "thumbnail_designer",
+      "visual_planner",
+    ],
   );
   for (const def of agents.values()) {
     // RFC 0004: agents declare capabilities, never vendors.
@@ -126,7 +151,7 @@ test("THE CLAIM: two different agents run through one harness, no agent-specific
   );
   const intent = await seedIntent(h);
 
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]);
+  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
   const script = await h.runner.run(h.agents.get("script_writer")!, [story.artifact.artifact_id]);
 
   assert.equal(story.artifact.schema_id, "story");
@@ -134,14 +159,17 @@ test("THE CLAIM: two different agents run through one harness, no agent-specific
   // Provenance chains without anyone wiring it up.
   assert.deepEqual(script.artifact.parents, [story.artifact.artifact_id]);
   const ancestors = await h.store.lineage(script.artifact.artifact_id);
-  assert.deepEqual(ancestors.map((a) => a.schema_id), ["story", "intent"]);
+  // channel_insights is a parent of the story now — the feedback loop is part
+  // of provenance, so a published video can be traced to the evidence that
+  // shaped it, not just to the brief.
+  assert.deepEqual(ancestors.map((a) => a.schema_id), ["story", "intent", "channel_insights"]);
 });
 
 test("confidence lands on the envelope and does not affect the content hash", async () => {
   const h1 = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.95 } }));
   const h2 = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.12 } }));
-  const a = await h1.runner.run(h1.agents.get("story_architect")!, [(await seedIntent(h1)).artifact_id]);
-  const b = await h2.runner.run(h2.agents.get("story_architect")!, [(await seedIntent(h2)).artifact_id]);
+  const a = await h1.runner.run(h1.agents.get("story_architect")!, [(await seedIntent(h1)).artifact_id, (await seedInsights(h1)).artifact_id]);
+  const b = await h2.runner.run(h2.agents.get("story_architect")!, [(await seedIntent(h2)).artifact_id, (await seedInsights(h2)).artifact_id]);
 
   assert.equal(a.artifact.confidence?.overall, 0.95);
   assert.equal(b.artifact.confidence?.overall, 0.12);
@@ -156,7 +184,7 @@ test("an invalid output is retried, and the retry prompt carries the errors", as
       : { payload: STORY_PAYLOAD, confidence: { overall: 0.88 } },
   );
   const intent = await seedIntent(h);
-  const out = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]);
+  const out = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
 
   assert.equal(out.attempts, 2);
   assert.equal(h.provider.calls.length, 2);
@@ -174,22 +202,31 @@ test("an invalid output is retried, and the retry prompt carries the errors", as
 test("an invalid output never becomes an artifact, even after exhausting retries", async () => {
   const h = await harness(() => ({ payload: { ...STORY_PAYLOAD, acts: [] }, confidence: { overall: 0.5 } }));
   const intent = await seedIntent(h);
+  const insights = await seedInsights(h);
 
   await assert.rejects(
-    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]),
+    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, insights.artifact_id]),
     /invalid story after 3 attempts/,
   );
+  // Only the two seeded inputs — no story artifact was written. That is the
+  // claim: three failed attempts leave nothing behind but run-log entries.
   const stored = await h.store.index();
-  assert.deepEqual(stored.map((r) => r.schema_id), ["intent"]); // only the seed
+  assert.deepEqual(stored.map((r) => r.schema_id).sort(), ["channel_insights", "intent"]);
+  assert.equal(
+    stored.filter((r) => r.schema_id === "story").length,
+    0,
+    "an invalid output must never be stored",
+  );
   assert.equal((await h.runLog.all()).length, 3);
 });
 
 test("a refusal is not retried", async () => {
   const h = await harness(() => ({ __refuse: "cyber" }));
   const intent = await seedIntent(h);
+  const insights = await seedInsights(h);
 
   await assert.rejects(
-    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]),
+    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, insights.artifact_id]),
     ProviderRefusal,
   );
   assert.equal(h.provider.calls.length, 1); // no point re-asking the same question
@@ -213,7 +250,7 @@ test("the producer allowlist blocks a transformation that is not declared", asyn
   // one — is refused. See the RFC 0007 note in engine/README.md.
   const h = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.9 } }));
   const intent = await seedIntent(h);
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]);
+  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
 
   const impostor: WorkerDef = {
     name: "act_counter",
@@ -293,7 +330,7 @@ test("run log rolls up cost per transformation", async () => {
       : { payload: SCRIPT_PAYLOAD, confidence: { overall: 0.8 } },
   );
   const intent = await seedIntent(h);
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id]);
+  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
   await h.runner.run(h.agents.get("script_writer")!, [story.artifact.artifact_id]);
 
   const summary = rollup(await h.runLog.all());

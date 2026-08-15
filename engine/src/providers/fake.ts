@@ -13,6 +13,10 @@ import {
   type Aspect,
   type CompletionRequest,
   type CompletionResult,
+  type AnalyticsProvider,
+  type Visibility,
+  type AnalyticsWindow,
+  type EpisodeMetrics,
   type ImageProvider,
   type MediaRenderer,
   type ModelProvider,
@@ -243,6 +247,70 @@ export class FakePublishTarget implements PublishTarget {
       url: `https://example.test/${id}`,
       thumbnail_set: Boolean(req.thumbnail) && !this.opts.rejectThumbnail,
       synthetic_media_disclosed: true,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 1,
+        cost_usd: 0,
+        provider: "fake",
+        model: this.id,
+      },
+    };
+  }
+}
+
+/**
+ * Deterministic analytics, derived from the video id so a given episode always
+ * reports the same numbers.
+ */
+export class FakeAnalyticsProvider implements AnalyticsProvider {
+  readonly id = "fake/analytics";
+  readonly calls: Array<{ externalId: string; window: AnalyticsWindow }> = [];
+
+  constructor(
+    private readonly opts: {
+      /** Simulate a platform that does not expose thumbnail impressions. */
+      withoutDiscoveryMetrics?: boolean;
+      failWith?: string;
+      overrides?: Partial<EpisodeMetrics>;
+      visibility?: Record<string, Visibility>;
+    } = {},
+  ) {}
+
+  /** Everything public unless a test says otherwise. */
+  async fetchVisibility(externalIds: string[]): Promise<Record<string, Visibility>> {
+    const out: Record<string, Visibility> = {};
+    for (const id of externalIds) out[id] = this.opts.visibility?.[id] ?? "public";
+    return out;
+  }
+
+  async fetchEpisodeMetrics(externalId: string, window: AnalyticsWindow) {
+    this.calls.push({ externalId, window });
+    if (this.opts.failWith) throw new ProviderError(this.opts.failWith);
+
+    const seed = createHash("sha256").update(externalId).digest();
+    const n = (i: number, mod: number) => seed[i]! % mod;
+
+    const views = n(0, 5000) + 50;
+    const noDiscovery = this.opts.withoutDiscoveryMetrics === true;
+
+    return {
+      metrics: {
+        views,
+        estimated_minutes_watched: views * (n(1, 6) + 1),
+        average_view_duration_sec: n(2, 400) + 60,
+        average_view_percentage: (n(3, 60) + 10),
+        subscribers_gained: n(4, 50),
+        likes: n(5, 300),
+        comments: n(6, 60),
+        shares: n(7, 40),
+        impressions: noDiscovery ? null : views * (n(8, 20) + 5),
+        click_through_rate: noDiscovery ? null : (n(9, 90) + 10) / 1000,
+        unavailable: noDiscovery
+          ? ["videoThumbnailImpressions, videoThumbnailImpressionsClickRate (not supported)"]
+          : [],
+        ...this.opts.overrides,
+      } satisfies EpisodeMetrics,
       usage: {
         input_tokens: 0,
         output_tokens: 0,

@@ -116,6 +116,58 @@ export interface RenderResult {
  * that dies with the process is unrecoverable if nobody wrote the job id down.
  * See the RFC 0004 note in engine/README.md.
  */
+/**
+ * Performance data for a published episode (RFC 0004, layer 6).
+ *
+ * Metrics are split deliberately. The core set is guaranteed by the platform's
+ * deprecation policy; the discovery set — thumbnail impressions and click rate —
+ * is the one that actually tells you whether a thumbnail worked, and its
+ * availability is not something we can assume. Providers report which of the
+ * requested metrics came back so downstream reasoning can tell "the number was
+ * zero" from "the number does not exist here".
+ */
+export interface EpisodeMetrics {
+  views: number;
+  estimated_minutes_watched: number;
+  average_view_duration_sec: number;
+  average_view_percentage: number | null;
+  subscribers_gained: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  /** Thumbnail impressions, when the platform exposes them. */
+  impressions: number | null;
+  /** Click-through rate as a fraction (0..1), when exposed. */
+  click_through_rate: number | null;
+  /** Metrics that were asked for and not returned, with the reason. */
+  unavailable: string[];
+}
+
+export interface AnalyticsWindow {
+  /** ISO date, inclusive. */
+  start_date: string;
+  end_date: string;
+}
+
+export type Visibility = "public" | "unlisted" | "private" | "unknown";
+
+export interface AnalyticsProvider {
+  readonly id: string;
+  fetchEpisodeMetrics(
+    externalId: string,
+    window: AnalyticsWindow,
+  ): Promise<{ metrics: EpisodeMetrics; usage: Usage }>;
+  /**
+   * Current visibility of each video, batched.
+   *
+   * Must be read live rather than taken from the published_episode artifact:
+   * episodes are uploaded private on purpose and made public by hand later, so
+   * the value recorded at publish time is stale almost immediately and would
+   * permanently exclude everything.
+   */
+  fetchVisibility(externalIds: string[]): Promise<Record<string, Visibility>>;
+}
+
 export interface ThumbnailRequest {
   /** Background photo. Omitted or unusable, the renderer falls back to a gradient. */
   image?: Uint8Array;
