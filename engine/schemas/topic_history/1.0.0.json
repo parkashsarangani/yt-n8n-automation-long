@@ -1,0 +1,74 @@
+{
+  "schema_id": "topic_history",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Every topic this channel has already made, with how it did where that is known. Exists so discovery can avoid repeating itself and can see which subjects earned attention. Assembled by the service as a store-wide query and seeded as a graph input, like intent and performance_window.",
+  "produced_by": [
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "TopicHistoryArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "count",
+      "topics"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "topics": {
+        "type": "array",
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "topic"
+          ],
+          "properties": {
+            "topic": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "created_at": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "published": {
+              "type": "boolean",
+              "description": "False for topics that were written but never shipped — still counts as covered ground for novelty purposes."
+            },
+            "views": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "average_view_percentage": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    }
+  }
+}

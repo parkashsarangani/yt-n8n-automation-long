@@ -336,8 +336,10 @@
         <input id="dur" type="number" value="540" min="30" max="3600" />
         <div class="row" style="margin-top:12px">
           <button id="start">Start run</button>
+          <button id="suggest" style="background:#1f2937">Suggest topics</button>
           <span class="muted" id="startMsg"></span>
         </div>
+        <div id="candidates" style="margin-top:14px"></div>
       </section>
 
       <section>
@@ -432,6 +434,49 @@
         $("credMsg").textContent = e.message;
       } finally {
         $("saveCreds").disabled = false;
+      }
+    };
+
+    // ---------- discovery ----------
+    $("suggest").onclick = async () => {
+      const btn = $("suggest");
+      btn.disabled = true;
+      $("startMsg").textContent = "thinking about what to make next…";
+      $("candidates").innerHTML = "";
+      try {
+        const out = await api("/api/discover", { method: "POST" });
+        const c = out.candidates;
+        if (!c || !c.candidates?.length) {
+          $("startMsg").textContent = "no candidates returned";
+          return;
+        }
+        $("startMsg").textContent =
+          `${c.candidates.length} ideas · ${out.history_count} topics already covered · ` +
+          `${out.measured_episodes} measured`;
+        $("candidates").innerHTML = `
+      <div class="muted" style="margin-bottom:8px">${esc(c.basis)}</div>
+      ${c.candidates.map((x, i) => `
+        <div style="border:1px solid #1e1e24;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-weight:600">${esc(x.angle)}</div>
+          <div class="muted" style="margin:4px 0">${esc(x.why_it_earns_attention)}</div>
+          <div class="muted" style="font-size:12px">new: ${esc(x.novelty)}</div>
+          <button data-brief="${esc(x.brief)}" class="useBrief"
+                  style="margin-top:8px;background:#1f2937">Use this</button>
+        </div>`).join("")}`;
+
+        // Fills the brief rather than starting a run: the operator still
+        // decides, and can edit the wording first.
+        for (const b of document.querySelectorAll(".useBrief")) {
+          b.onclick = () => {
+            $("brief").value = b.dataset.brief;
+            $("candidates").innerHTML = "";
+            $("startMsg").textContent = "brief filled — edit it or press Start run";
+          };
+        }
+      } catch (e) {
+        $("startMsg").textContent = e.message;
+      } finally {
+        btn.disabled = false;
       }
     };
 

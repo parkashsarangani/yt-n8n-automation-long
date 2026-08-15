@@ -1,0 +1,18 @@
+{
+  "name": "discovery",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "topic_history", "range": "^1", "as": "history" },
+    { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
+  ],
+  "produces": "topic_candidates",
+  "prompt": "discovery@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 6000,
+    "effort": "high"
+  },
+  "confidence_dimensions": ["novelty", "evidence_strength"],
+  "retry": { "max_attempts": 3 }
+}

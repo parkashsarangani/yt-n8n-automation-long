@@ -112,6 +112,7 @@ test("the catalog loads every agent as pure data", async () => {
     [...agents.keys()].sort(),
     [
       "channel_strategist",
+      "discovery",
       "script_writer",
       "seo_optimizer",
       "story_architect",
