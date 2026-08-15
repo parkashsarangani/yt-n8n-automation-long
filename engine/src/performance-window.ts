@@ -57,12 +57,26 @@ function round6(n: number | null): number | null {
   return n === null ? null : Math.round(n * 1e6) / 1e6;
 }
 
+/** Video ids the operator has excluded from the feedback loop. */
+export function excludedIds(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  return new Set(
+    (env["MEASURE_EXCLUDE_IDS"] ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
 export async function buildPerformanceWindow(
   store: ArtifactStore,
-  opts: { now?: () => Date; maxEpisodes?: number } = {},
+  opts: { now?: () => Date; maxEpisodes?: number; exclude?: Set<string> } = {},
 ): Promise<PerformanceWindow> {
   const now = opts.now ?? (() => new Date());
   const maxEpisodes = opts.maxEpisodes ?? 200;
+  // Enforced here as well as at collection time: an episode measured before it
+  // was excluded still has an artifact on disk, and the exclusion has to hold
+  // wherever the data is read, not only where it is gathered.
+  const exclude = opts.exclude ?? excludedIds();
 
   const rows = (await store.index()).filter((r) => r.schema_id === "episode_performance");
 
@@ -79,7 +93,7 @@ export async function buildPerformanceWindow(
       measured_at?: string;
     };
     const id = payload.external_id;
-    if (!id) continue;
+    if (!id || exclude.has(id)) continue;
 
     const createdAt = payload.measured_at ?? row.created_at;
     const seen = latest.get(id);

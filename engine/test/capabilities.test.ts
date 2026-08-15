@@ -35,10 +35,11 @@ test("every credential a stage depends on can be set in the UI", () => {
 });
 
 test("the UI does not offer credentials nothing reads", () => {
-  // ELEVENLABS_VOICE_ID is a worker option rather than a stage gate, so it is
-  // legitimately absent from STAGES; anything else unused is dead weight that
-  // will mislead whoever fills the form in.
-  const used = new Set([...credentialKeysUsed(), "ELEVENLABS_VOICE_ID"]);
+  // Settings that tune a stage rather than enable one are legitimately absent
+  // from STAGES. Everything else unused is dead weight that will mislead
+  // whoever fills the form in.
+  const TUNING_NOT_GATING = ["ELEVENLABS_VOICE_ID", "MEASURE_EXCLUDE_IDS"];
+  const used = new Set([...credentialKeysUsed(), ...TUNING_NOT_GATING]);
   const dead = CREDENTIALS.map((c) => c.key).filter((k) => !used.has(k));
 
   assert.deepEqual(dead, [], `offered in the UI but read by nothing: ${dead.join(", ")}`);
