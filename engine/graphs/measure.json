@@ -1,0 +1,19 @@
+{
+  "graph_id": "measure",
+  "version": "1",
+  "description": "Measurement flow. Deliberately separate from production: a video measured an hour after upload tells you nothing, so this runs days later against an already-published episode. Re-running it over a longer window produces another artifact rather than replacing the first.",
+  "nodes": [
+    {
+      "id": "episode",
+      "type": "input",
+      "schema_id": "published_episode"
+    },
+    {
+      "id": "performance",
+      "transformation": "measure",
+      "in": [
+        "episode"
+      ]
+    }
+  ]
+}

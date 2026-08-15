@@ -102,8 +102,38 @@ async function harness(handler: FakeHandler) {
     produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
   });
 
-  return { registry, store, runLog, provider, speech, images, renderer, runner, executor, graph, transformations, seed };
+  // An empty performance window: what a channel with nothing measured looks
+  // like, and the state every first run starts in.
+  const perfSeed = await store.put({
+    schema_id: "performance_window",
+    payload: {
+      generated_at: "2026-08-15T12:00:00.000Z",
+      episode_count: 0,
+      ctr_available: false,
+      aggregates: {
+        median_views: 0,
+        median_view_percentage: null,
+        median_ctr: null,
+        total_subscribers_gained: 0,
+      },
+      episodes: [],
+    },
+    produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
+  });
+
+  const inputs = {
+    intent: seed.artifact.artifact_id,
+    performance: perfSeed.artifact.artifact_id,
+  };
+
+  return { registry, store, runLog, provider, speech, images, renderer, runner, executor, graph, transformations, seed, perfSeed, inputs };
 }
+
+const INSIGHTS = {
+  sample_size: 0,
+  confidence_note: "Nothing measured yet; no guidance can be supported.",
+  guidance: [],
+};
 
 const SEO = {
   title: "Why Chile Is So Absurdly Long (It Is Not Politics)",
@@ -127,6 +157,9 @@ const storyThen = (conf: number): FakeHandler => (req) => {
   if (req.prompt.includes("how this episode appears in search")) {
     return { payload: SEO, confidence: { overall: 0.8 } };
   }
+  if (req.prompt.includes("say what that")) {
+    return { payload: INSIGHTS, confidence: { overall: 0.5 } };
+  }
   return { payload: SCRIPT, confidence: { overall: 0.8 } };
 };
 
@@ -139,8 +172,9 @@ const THUMBNAIL_BRIEF = {
 };
 
 const ALL_NODES = [
-  "approve_script", "approve_story", "assets", "intent", "publish", "render",
-  "script", "seo", "story", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
+  "approve_script", "approve_story", "assets", "insights", "intent", "performance",
+  "publish", "render", "script", "seo", "story", "thumbnail", "thumbnail_brief",
+  "visual_plan", "voice",
 ];
 /** Everything downstream of the story gate. */
 const AFTER_GATE = [
@@ -151,12 +185,12 @@ const AFTER_GATE = [
 // The thumbnail branch depends on approve_story, not approve_script, so it is
 // deliberately absent here — it runs while the script is still being reviewed.
 const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "seo", "visual_plan", "voice"];
-/** story, script, visual_plan, thumbnail_designer, seo_optimizer are agents. */
-const MODEL_CALLS_PER_RUN = 5;
+/** channel_strategist, story, script, visual_plan, thumbnail_designer, seo_optimizer. */
+const MODEL_CALLS_PER_RUN = 6;
 
 test("a confident story auto-passes its gate, then the script gate always asks", async () => {
   const h = await harness(storyThen(0.95));
-  const result = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const result = await h.executor.start(h.graph, h.inputs);
 
   // The story gate has an auto-pass policy; the script gate deliberately has
   // none, so narration is always reviewed before any paid media work.
@@ -169,7 +203,7 @@ test("a confident story auto-passes its gate, then the script gate always asks",
 
 test("approving the script gate runs the rest of the graph to completion", async () => {
   const h = await harness(storyThen(0.95));
-  const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const first = await h.executor.start(h.graph, h.inputs);
   const done = await h.executor.resume(h.graph, first.run_id, {
     approve_script: { result: "approve" },
   });
@@ -182,7 +216,7 @@ test("approving the script gate runs the rest of the graph to completion", async
 
 test("a low-confidence story parks the run at the gate", async () => {
   const h = await harness(storyThen(0.4));
-  const result = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const result = await h.executor.start(h.graph, h.inputs);
 
   assert.equal(result.status, "waiting");
   assert.equal(result.waiting.length, 1);
@@ -191,14 +225,16 @@ test("a low-confidence story parks the run at the gate", async () => {
   // Downstream work was not attempted, so no tokens were spent on it.
   assert.deepEqual([...result.blocked].sort(), AFTER_GATE);
   assert.equal(result.outputs["script"], undefined);
-  assert.equal(h.provider.calls.length, 1);
+  // Two calls: the strategist reads past performance, then the story is
+  // written against it. Nothing downstream of the gate was attempted.
+  assert.equal(h.provider.calls.length, 2);
   assert.equal(h.speech.calls.length, 0);
   assert.equal(h.images.prompts.length, 0);
 });
 
 test("resuming with approval continues without re-running completed nodes", async () => {
   const h = await harness(storyThen(0.4));
-  const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const first = await h.executor.start(h.graph, h.inputs);
   assert.equal(first.status, "waiting");
 
   const resumed = await h.executor.resume(h.graph, first.run_id, {
@@ -215,7 +251,7 @@ test("resuming with approval continues without re-running completed nodes", asyn
   // approve_script, so it proceeds while the narration is still under review
   // rather than waiting for it. That parallelism is the point of hanging it
   // off the story gate, so assert it rather than just counting.
-  assert.equal(h.provider.calls.length, 3);
+  assert.equal(h.provider.calls.length, 4);
   assert.ok(
     resumed.outputs["thumbnail_brief"],
     "the thumbnail brief should be ready before the script gate is approved",
@@ -233,10 +269,10 @@ test("resuming with approval continues without re-running completed nodes", asyn
 
 test("resuming with a rejection retries the upstream transformation", async () => {
   const h = await harness(storyThen(0.4));
-  const first = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const first = await h.executor.start(h.graph, h.inputs);
   // First attempt produced a story; gate waits because confidence < 0.9.
   assert.equal(first.status, "waiting");
-  assert.equal(h.provider.calls.length, 1);
+  assert.equal(h.provider.calls.length, 2); // strategist + story
 
   // Reject → upstream reruns, then gate parks again (new story, still < 0.9).
   const resumed = await h.executor.resume(h.graph, first.run_id, {
@@ -244,8 +280,9 @@ test("resuming with a rejection retries the upstream transformation", async () =
   });
 
   assert.equal(resumed.status, "waiting");
-  // The story_architect ran again (2 calls total now).
-  assert.equal(h.provider.calls.length, 2);
+  // The story_architect ran again. The strategist did not: its output is
+  // already complete and a rejection upstream of it changes nothing.
+  assert.equal(h.provider.calls.length, 3);
   // The gate is waiting again with the new artifact.
   assert.equal(resumed.waiting.length, 1);
   assert.equal(resumed.waiting[0]!.node_id, "approve_story");
@@ -272,7 +309,7 @@ test("seeds are validated against the input node's schema before anything runs",
 
 test("reuse:true picks up a matching output from an earlier run", async () => {
   const h = await harness(storyThen(0.95));
-  const started = await h.executor.start(h.graph, { intent: h.seed.artifact.artifact_id });
+  const started = await h.executor.start(h.graph, h.inputs);
   const first = await h.executor.resume(h.graph, started.run_id, {
     approve_script: { result: "approve" },
   });
@@ -284,17 +321,17 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
       n.id === "story" ? { ...n, reuse: true } : n,
     ) as GraphDoc["nodes"],
   };
-  const startedAgain = await h.executor.start(reusing, { intent: h.seed.artifact.artifact_id });
+  const startedAgain = await h.executor.start(reusing, h.inputs);
   const second = await h.executor.resume(reusing, startedAgain.run_id, {
     approve_script: { result: "approve" },
   });
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);
-  // Story was reused; script, visual_plan, thumbnail_designer and seo_optimizer
-  // still cost calls. (Agents are not cached by default — re-running is how
-  // variants happen — so this is opt-in.)
-  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 4);
+  // Story was reused; the strategist, script, visual_plan, thumbnail_designer
+  // and seo_optimizer still cost calls. (Agents are not cached by default —
+  // re-running is how variants happen — so this is opt-in.)
+  assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 5);
 });
 
 // -- failure isolation, on a throwaway registry so the producer allowlist

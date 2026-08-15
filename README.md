@@ -25,7 +25,7 @@ from the first minute and gets more real as you add keys.
 | `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | silent placeholder audio |
 | `PEXELS_API_KEY` **or** `UNSPLASH_ACCESS_KEY` | scene images (free stock) | placeholder images |
 | `PIXABAY_API_KEY` | third image fallback | search stops after the first two |
-| `YOUTUBE_CLIENT_ID` + `_SECRET` + `_REFRESH_TOKEN` | publishing, self-refreshing | dry-run target |
+| `YOUTUBE_CLIENT_ID` + `_SECRET` + `_REFRESH_TOKEN` | publishing **and** measurement | dry-run target, no feedback loop |
 
 Keys entered in the UI persist in the `vidgen_data` volume. You can also seed them
 from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example).
@@ -34,6 +34,15 @@ from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example)
 list every stage as ✓ or ✗, with the exact key that would fix it. A stage
 without its credential does not fail — it silently substitutes a stand-in and
 the run still reports success, which is the expensive way to find out.
+
+**Measuring needs a re-authorization.** The feedback loop reads YouTube
+Analytics, which needs the `yt-analytics.readonly` scope. A refresh token minted
+before this existed authenticates fine and then returns 403 — Google will not
+widen an existing grant. Re-run the token helper once:
+
+```bash
+node --import tsx scripts/youtube-token.ts --auth
+```
 
 **Publishing never happens by accident.** A YouTube token alone does nothing;
 you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
@@ -147,7 +156,7 @@ version, five rules everything else derives from:
 ```bash
 cd engine
 npm install
-npm test          # 124 tests, no network, no API keys
+npm test          # 148 tests, no network, no API keys
 npm run typecheck
 npm run ui        # the UI without Docker, on the host
 ```
@@ -168,8 +177,8 @@ Being built now, in dependency order:
 | Credentials + capability check | **done** |
 | Thumbnail | **done** |
 | SEO (title, description, tags) | **done** |
-| Feedback loop (YouTube Analytics → strategy) | next |
-| Discovery (topic selection, informed by feedback) | |
+| Feedback loop (YouTube Analytics → strategy) | **done** |
+| Discovery (topic selection, informed by feedback) | next |
 | Scheduler | |
 
 Deliberately still out: Research, Fact Checking, and the knowledge graph.

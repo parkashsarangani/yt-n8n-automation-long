@@ -21,7 +21,7 @@
  * Requirements:
  *   - YouTube Data API v3 enabled in your Google Cloud project
  *   - OAuth 2.0 Client ID (type: Desktop app)
- *   - Scope: https://www.googleapis.com/auth/youtube.upload
+ *   - Scopes: youtube.upload, youtube, yt-analytics.readonly
  *
  * No dependencies beyond Node.js built-ins.
  */
@@ -35,7 +35,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = resolve(__dirname, "..", ".env");
 const ENGINE_ENV_PATH = resolve(__dirname, "..", "engine", ".env");
 
-const SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube";
+// yt-analytics.readonly is NOT implied by the upload scopes. A refresh token
+// minted before this line existed will 403 on every analytics call, and the
+// only fix is re-authorizing — Google will not widen an existing grant.
+const SCOPES = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube",
+  "https://www.googleapis.com/auth/yt-analytics.readonly",
+].join(" ");
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 

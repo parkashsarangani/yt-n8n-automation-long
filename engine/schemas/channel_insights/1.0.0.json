@@ -1,0 +1,78 @@
+{
+  "schema_id": "channel_insights",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "What the measured episodes suggest about what to make next. Explicitly separate from performance_window: that is the observation, this is the opinion, and keeping them apart means a bad conclusion can be revised without re-measuring and a good one can be traced to the numbers it came from.",
+  "produced_by": [
+    "channel_strategist"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ChannelInsightsArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "sample_size",
+      "confidence_note",
+      "guidance"
+    ],
+    "properties": {
+      "sample_size": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Episodes the guidance is based on. Carried alongside the advice so a reader can weigh it."
+      },
+      "confidence_note": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 400,
+        "description": "What this sample can and cannot support. With a handful of videos the honest answer is 'not much yet', and saying so is the point."
+      },
+      "guidance": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "area",
+            "advice",
+            "evidence"
+          ],
+          "properties": {
+            "area": {
+              "type": "string",
+              "enum": [
+                "topic",
+                "title",
+                "thumbnail",
+                "structure",
+                "length"
+              ]
+            },
+            "advice": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 400
+            },
+            "evidence": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 400,
+              "description": "The specific episodes and numbers behind it. Guidance without evidence is a hunch wearing a suit."
+            }
+          }
+        }
+      },
+      "avoid": {
+        "type": "array",
+        "maxItems": 6,
+        "items": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200
+        }
+      }
+    }
+  }
+}
