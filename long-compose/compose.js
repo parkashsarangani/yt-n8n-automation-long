@@ -288,6 +288,67 @@ function textFfmpegPath() {
 let _lastThumbnailBackground = "gradient";
 function lastThumbnailBackground() { return _lastThumbnailBackground; }
 
+/**
+ * Lay out thumbnail text: at most two lines, sized to fill the frame.
+ *
+ * A fixed 76px was the single biggest problem with the old thumbnails. YouTube
+ * shows these ~210px wide in a sidebar, where 76px of a 1280px frame renders
+ * around 12px tall — legible only if you already stopped to look, which is the
+ * thing a thumbnail is supposed to make you do.
+ */
+function layoutThumbnailText(raw) {
+  const clean = String(raw || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").trim();
+  if (!clean) return { lines: [], fontSize: 0 };
+
+  const words = clean.split(/\s+/);
+  // Inter-Black is heavy: ~0.6em average advance across mixed case.
+  const CHAR_W = 0.62;
+  const SAFE_W = 1060;           // 83% of 1280 — the first pass ran to the edges
+  const MAX_ONE_LINE = 118;      // beyond this it starts to feel like a poster
+  const MAX_TWO_LINE = 104;
+
+  const sizeFor = (chars) => Math.floor(SAFE_W / (CHAR_W * Math.max(chars, 1)));
+
+  const oneLine = Math.min(sizeFor(clean.length), MAX_ONE_LINE);
+  // Split well before the type gets small. A 25-character title on one line
+  // came out at the 74px floor and ran the full width of the frame; the same
+  // words over two lines are half again as large and read at sidebar size.
+  if (oneLine >= 88 || words.length < 2) {
+    return { lines: [clean], fontSize: oneLine };
+  }
+
+  // Balance the split so neither line is a stub.
+  let best = null;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(" ");
+    const b = words.slice(i).join(" ");
+    const score = Math.abs(a.length - b.length);
+    if (!best || score < best.score) best = { a, b, score };
+  }
+  const longest = Math.max(best.a.length, best.b.length);
+  return { lines: [best.a, best.b], fontSize: Math.min(sizeFor(longest), MAX_TWO_LINE) };
+}
+
+/**
+ * A bottom-up scrim, built from stacked bands rather than one box.
+ *
+ * The old single drawbox left a hard horizontal seam across the image — clearly
+ * visible as a straight edge cutting through the photo, and it read as a bug
+ * rather than a design. Stepping the opacity produces a gradient with no edge,
+ * and only darkens where the text actually sits.
+ */
+function scrimFilters(topY, height, maxAlpha, steps = 60) {
+  const band = Math.ceil(height / steps);
+  const out = [];
+  for (let i = 0; i < steps; i++) {
+    const y = topY + i * band;
+    // Quadratic ramp: stays subtle for longer, then commits near the bottom.
+    const alpha = (maxAlpha * Math.pow((i + 1) / steps, 2)).toFixed(3);
+    out.push(`drawbox=x=0:y=${y}:w=1280:h=${band}:color=black@${alpha}:t=fill`);
+  }
+  return out;
+}
+
 async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64) {
   let bgPath;
   _lastThumbnailBackground = "gradient";
@@ -304,17 +365,54 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
   } else {
     bgPath = pickGradientBackground();
   }
+
   const fontPath = path.join(MOTION_ASSETS_DIR, "fonts", "Inter-Black.ttf");
   const safeFont = fontPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-  const txt = String(text || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").trim().slice(0, 48);
   const accentHex = "0x" + String(accent || "#FFFFFF").replace(/^#/, "");
+
+  const { lines, fontSize } = layoutThumbnailText(text);
+
+  // Bottom margin clears YouTube's duration badge, which sits in the lower
+  // right of every thumbnail and will happily cover a descender.
+  const BOTTOM_MARGIN = 96;
+  const lineGap = Math.round(fontSize * 0.14);
+  const blockH = lines.length * fontSize + (lines.length - 1) * lineGap;
+  const firstBaselineY = 720 - BOTTOM_MARGIN - blockH;
+
+  // The scrim covers the text block plus a generous fade above it.
+  const scrimTop = Math.max(0, firstBaselineY - Math.round(fontSize * 1.1));
+  const border = Math.max(6, Math.round(fontSize * 0.075));
+
+  const textFilters = lines.map((line, i) => {
+    const y = firstBaselineY + i * (fontSize + lineGap);
+    const escaped = line.replace(/'/g, "");
+    return (
+      `drawtext=fontfile='${safeFont}':text='${escaped}':fontcolor=${accentHex}` +
+      `:fontsize=${fontSize}:borderw=${border}:bordercolor=black` +
+      // A soft shadow under the outline: the outline guarantees legibility, the
+      // shadow gives the type some weight against a busy photo.
+      `:shadowcolor=black@0.55:shadowx=${Math.round(fontSize * 0.045)}` +
+      `:shadowy=${Math.round(fontSize * 0.05)}` +
+      `:x=(w-text_w)/2:y=${y}`
+    );
+  });
+
   const vf = [
     "scale=1280:720:force_original_aspect_ratio=increase",
     "crop=1280:720",
-    "eq=contrast=1.08:saturation=1.15",
-    "drawbox=x=0:y=468:w=1280:h=252:color=black@0.55:t=fill",
-    `drawtext=fontfile='${safeFont}':text='${txt}':fontcolor=${accentHex}:fontsize=76:borderw=5:bordercolor=black:x=(w-text_w)/2:y=545`,
+    // Punchier than before. The old 1.08/1.15 left dull stock photos looking
+    // exactly as dull as they arrived; a thumbnail has to compete in a grid.
+    "eq=contrast=1.22:saturation=1.45:brightness=0.02",
+    "unsharp=5:5:0.8",
+    // Draws the eye inward and stops flat photos reading as grey wallpaper.
+    "vignette=PI/5",
+    // 60 steps, not 24: at 24 the alpha jumps between bands were visible as
+    // horizontal stripes across a bright photo. Finer steps put each increment
+    // below the threshold where the eye picks out an edge.
+    ...scrimFilters(scrimTop, 720 - scrimTop, 0.88),
+    ...textFilters,
   ].join(",");
+
   const textBin = textFfmpegPath();
   if (!textBin) {
     throw new Error(
