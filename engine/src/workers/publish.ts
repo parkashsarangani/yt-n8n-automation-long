@@ -1,5 +1,5 @@
 /**
- * Publish worker: rendered_video + story -> published_episode.
+ * Publish worker: rendered_video + seo_metadata + thumbnail -> published_episode.
  *
  * Reads the target's `requirements()` rather than knowing anything about a
  * specific platform — this is the seam that keeps YouTube a plugin. Swapping in
@@ -20,11 +20,11 @@ export interface PublishWorkerOptions {
   version?: string;
 }
 
-interface StoryPayload {
+interface SeoMetadata {
   title: string;
-  payoff: string;
-  seo_description?: string;
-  tags?: string[];
+  description: string;
+  tags: string[];
+  primary_keyword: string;
 }
 
 interface ThumbnailArtifact {
@@ -49,22 +49,24 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
     version: opts.version ?? "1",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
-      { schema_id: "story", range: "^1", as: "story" },
+      { schema_id: "seo_metadata", range: "^1", as: "seo" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
     ],
     produces: "published_episode",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const video = inputs["video"]!.payload as RenderedVideo;
-      const story = inputs["story"]!.payload as StoryPayload;
+      const seo = inputs["seo"]!.payload as SeoMetadata;
       const reqs = target.requirements();
 
+      // Taken wholesale from the SEO artifact. This worker deliberately does no
+      // fallback logic: it used to reach into the story and substitute the
+      // payoff for a missing description, which is a decision, and decisions
+      // belong to an agent (RFC 0003 rule 1 — workers never think).
       const metadata: PublishMetadata = {
-        title: story.title,
-        // Falls back to the payoff so a description is never empty, even on a
-        // story artifact written before seo_description existed (story@1.0.0).
-        description: story.seo_description ?? story.payoff,
-        tags: story.tags ?? [],
+        title: seo.title,
+        description: seo.description,
+        tags: seo.tags,
         privacy: opts.privacy ?? "private",
         made_for_kids: opts.madeForKids ?? false,
       };
@@ -151,6 +153,16 @@ function assertFits(
   }
   if (reqs.max_tags !== undefined && (metadata.tags?.length ?? 0) > reqs.max_tags) {
     problems.push(`${metadata.tags!.length} tags, ${targetId} allows ${reqs.max_tags}`);
+  }
+  // The aggregate budget, which is the one that actually rejects uploads. A
+  // legal tag count can still be an illegal payload.
+  if (reqs.max_tag_chars !== undefined) {
+    const total = (metadata.tags ?? []).reduce((n, t) => n + t.length, 0);
+    if (total > reqs.max_tag_chars) {
+      problems.push(
+        `tags total ${total} characters, ${targetId} allows ${reqs.max_tag_chars}`,
+      );
+    }
   }
   if (
     reqs.max_duration_sec !== undefined &&

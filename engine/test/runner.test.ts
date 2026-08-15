@@ -92,7 +92,7 @@ test("the catalog loads every agent as pure data", async () => {
   const agents = await loadAgentDefs(path.join(ROOT, "agents"));
   assert.deepEqual(
     [...agents.keys()].sort(),
-    ["script_writer", "story_architect", "thumbnail_designer", "visual_planner"],
+    ["script_writer", "seo_optimizer", "story_architect", "thumbnail_designer", "visual_planner"],
   );
   for (const def of agents.values()) {
     // RFC 0004: agents declare capabilities, never vendors.
