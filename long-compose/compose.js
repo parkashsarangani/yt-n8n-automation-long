@@ -289,67 +289,168 @@ let _lastThumbnailBackground = "gradient";
 function lastThumbnailBackground() { return _lastThumbnailBackground; }
 
 /**
- * Lay out thumbnail text: at most two lines, sized to fill the frame.
+ * Lay out thumbnail text as a left-hand column of stacked capitals.
  *
- * A fixed 76px was the single biggest problem with the old thumbnails. YouTube
- * shows these ~210px wide in a sidebar, where 76px of a 1280px frame renders
- * around 12px tall — legible only if you already stopped to look, which is the
- * thing a thumbnail is supposed to make you do.
+ * Modelled on the channel's own thumbnail style: the type occupies the left
+ * side in big stacked caps, the photograph keeps the right, and the words that
+ * carry the hook are picked out in the accent colour while the connective words
+ * stay white. Centring a single line across the bottom — what this did before —
+ * competes with the image instead of sitting beside it, and gives every episode
+ * the same flat emphasis.
+ *
+ * Lines are broken so each one is a single colour. That is what makes the
+ * two-tone readable: mixing colours mid-line needs per-word positioning, and
+ * ffmpeg cannot measure a string before drawing it.
  */
-function layoutThumbnailText(raw) {
-  const clean = String(raw || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").trim();
-  if (!clean) return { lines: [], fontSize: 0 };
+function layoutThumbnailText(raw, emphasis, colWidth) {
+  const clean = (v) =>
+    String(v || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
 
-  const words = clean.split(/\s+/);
-  // Inter-Black is heavy: ~0.6em average advance across mixed case.
-  const CHAR_W = 0.62;
-  const SAFE_W = 1060;           // 83% of 1280 — the first pass ran to the edges
-  const MAX_ONE_LINE = 118;      // beyond this it starts to feel like a poster
-  const MAX_TWO_LINE = 104;
+  const text = clean(raw).toUpperCase();
+  if (!text) return { lines: [], colWidth: 0 };
 
-  const sizeFor = (chars) => Math.floor(SAFE_W / (CHAR_W * Math.max(chars, 1)));
+  const emph = clean(emphasis).toUpperCase();
+  const COL_W = colWidth || 600;   // set from the photo, not fixed
+  // Uppercase Inter-Black, not mixed case: capitals carry noticeably more
+  // advance, and the 0.62 tuned for sentence case let ANCIENT run past the
+  // safe margin on its first real render.
+  const CHAR_W = 0.70;
+  const MAX_SIZE = 132;
+  const MIN_SIZE = 46;
+  const MAX_LINES = 4;
 
-  const oneLine = Math.min(sizeFor(clean.length), MAX_ONE_LINE);
-  // Split well before the type gets small. A 25-character title on one line
-  // came out at the 74px floor and ran the full width of the frame; the same
-  // words over two lines are half again as large and read at sidebar size.
-  if (oneLine >= 88 || words.length < 2) {
-    return { lines: [clean], fontSize: oneLine };
+  // Split into [before, emphasis, after] so an emphasised run stays whole.
+  let segments;
+  const at = emph ? text.indexOf(emph) : -1;
+  if (at >= 0) {
+    segments = [
+      { words: text.slice(0, at).trim().split(/\s+/).filter(Boolean), hot: false },
+      { words: emph.split(/\s+/).filter(Boolean), hot: true },
+      { words: text.slice(at + emph.length).trim().split(/\s+/).filter(Boolean), hot: false },
+    ].filter((s) => s.words.length > 0);
+  } else {
+    // No usable emphasis: treat the whole thing as the hook rather than
+    // inventing one, so it still reads as deliberate.
+    segments = [{ words: text.split(/\s+/).filter(Boolean), hot: true }];
   }
 
-  // Balance the split so neither line is a stub.
-  let best = null;
-  for (let i = 1; i < words.length; i++) {
-    const a = words.slice(0, i).join(" ");
-    const b = words.slice(i).join(" ");
-    const score = Math.abs(a.length - b.length);
-    if (!best || score < best.score) best = { a, b, score };
+  // Wrap each segment independently — a segment boundary is always a line break.
+  const sizeFor = (chars) => Math.floor(COL_W / (CHAR_W * Math.max(chars, 1)));
+  const lines = [];
+  for (const seg of segments) {
+    let current = [];
+    for (const word of seg.words) {
+      const candidate = [...current, word].join(" ");
+      // Keep the hook large: break early rather than shrink it to fit.
+      if (current.length > 0 && sizeFor(candidate.length) < (seg.hot ? 84 : 58)) {
+        lines.push({ text: current.join(" "), hot: seg.hot });
+        current = [word];
+      } else {
+        current.push(word);
+      }
+    }
+    if (current.length > 0) lines.push({ text: current.join(" "), hot: seg.hot });
   }
-  const longest = Math.max(best.a.length, best.b.length);
-  return { lines: [best.a, best.b], fontSize: Math.min(sizeFor(longest), MAX_TWO_LINE) };
+
+  // Too many lines: merge the quietest neighbours until it fits.
+  while (lines.length > MAX_LINES) {
+    let idx = -1;
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (lines[i].hot === lines[i + 1].hot) { idx = i; break; }
+    }
+    if (idx === -1) idx = 0;
+    lines[idx] = {
+      text: `${lines[idx].text} ${lines[idx + 1].text}`,
+      hot: lines[idx].hot || lines[idx + 1].hot,
+    };
+    lines.splice(idx + 1, 1);
+  }
+
+  // Size each group to the column, then let the hook dominate.
+  const longest = (hot) =>
+    Math.max(0, ...lines.filter((l) => l.hot === hot).map((l) => l.text.length));
+  const hotSize = Math.min(sizeFor(longest(true) || 1), MAX_SIZE);
+  const coolFit = longest(false) ? sizeFor(longest(false)) : MAX_SIZE;
+  const coolSize = Math.max(MIN_SIZE, Math.min(Math.round(hotSize * 0.62), coolFit));
+
+  for (const l of lines) l.size = Math.max(MIN_SIZE, l.hot ? hotSize : coolSize);
+  return { lines, colWidth: COL_W };
 }
 
 /**
- * A bottom-up scrim, built from stacked bands rather than one box.
+ * Read the photograph before deciding where the type goes.
  *
- * The old single drawbox left a hard horizontal seam across the image — clearly
- * visible as a straight edge cutting through the photo, and it read as a bug
- * rather than a design. Stepping the opacity produces a gradient with no edge,
- * and only darkens where the text actually sits.
+ * The layout pattern is fixed — stacked capitals, hook in the accent colour,
+ * connectives in white — but the position and size are not. Stock search
+ * returns whatever it returns: sometimes the subject is on the right and the
+ * left is open sky, sometimes the reverse. Committing to one side means half
+ * the thumbnails bury their own subject under the headline.
+ *
+ * So: downscale to a coarse grid of edge energy and brightness, and put the
+ * text where the picture is quietest. Cheap — one extra ffmpeg pass on a single
+ * frame — and it is the difference between a layout that happens to work on the
+ * photo you tested and one that works on the photo you get.
  */
-function scrimFilters(topY, height, maxAlpha, steps = 60) {
-  const band = Math.ceil(height / steps);
+async function analyseBackground(bin, bgPath) {
+  const COLS = 8, ROWS = 4;
+  const read = async (pre) => {
+    const { stdout } = await execFileAsync(
+      bin,
+      ["-v", "error", "-i", bgPath, "-vf", `${pre}scale=${COLS}:${ROWS},format=gray`,
+       "-frames:v", "1", "-f", "rawvideo", "-"],
+      { encoding: "buffer", timeout: 30000, maxBuffer: 1 << 20 },
+    );
+    return Array.from(stdout.subarray(0, COLS * ROWS));
+  };
+
+  // edgedetect first: busyness matters more than brightness for legibility.
+  const [detail, luma] = await Promise.all([read("edgedetect=low=0.1:high=0.3,"), read("")]);
+
+  const half = (cells, from, to) => {
+    let sum = 0, n = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = from; c < to; c++) { sum += cells[r * COLS + c]; n++; }
+    }
+    return n ? sum / n : 0;
+  };
+
+  const leftDetail = half(detail, 0, Math.floor(COLS / 2));
+  const rightDetail = half(detail, Math.ceil(COLS / 2), COLS);
+  const side = leftDetail <= rightDetail ? "left" : "right";
+
+  return {
+    side,
+    // How lopsided the picture is. A near-tie means neither side is really
+    // clear, so the scrim has to work harder.
+    contrastGap: Math.abs(leftDetail - rightDetail),
+    brightness: half(luma, 0, COLS) / 255,
+    sideBrightness: (side === "left" ? half(luma, 0, 4) : half(luma, 4, COLS)) / 255,
+  };
+}
+
+/**
+ * A left-to-right scrim: dark under the type, clear over the photograph.
+ *
+ * Vertical columns rather than one box. A single drawbox left a hard edge down
+ * the middle of the frame; stepping the alpha hides the boundary, and the type
+ * stays legible whatever the stock photo happens to have on its left side —
+ * which we cannot choose, since the search returns what it returns.
+ */
+function scrimFilters(side, width, maxAlpha, steps = 64) {
+  const band = Math.ceil(width / steps);
   const out = [];
   for (let i = 0; i < steps; i++) {
-    const y = topY + i * band;
-    // Quadratic ramp: stays subtle for longer, then commits near the bottom.
-    const alpha = (maxAlpha * Math.pow((i + 1) / steps, 2)).toFixed(3);
-    out.push(`drawbox=x=0:y=${y}:w=1280:h=${band}:color=black@${alpha}:t=fill`);
+    // Densest against the edge the type sits on, fading toward the subject.
+    // 1.6 rather than a square: the steeper ramp turned the corner of a bright
+    // photo almost black where there was no text to justify it.
+    const alpha = (maxAlpha * Math.pow(1 - i / steps, 1.6)).toFixed(3);
+    const x = side === "left" ? i * band : 1280 - (i + 1) * band;
+    out.push(`drawbox=x=${x}:y=0:w=${band}:h=720:color=black@${alpha}:t=fill`);
   }
   return out;
 }
 
-async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64) {
+async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64, emphasis) {
   let bgPath;
   _lastThumbnailBackground = "gradient";
   if (imageBase64) {
@@ -368,50 +469,7 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
 
   const fontPath = path.join(MOTION_ASSETS_DIR, "fonts", "Inter-Black.ttf");
   const safeFont = fontPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-  const accentHex = "0x" + String(accent || "#FFFFFF").replace(/^#/, "");
-
-  const { lines, fontSize } = layoutThumbnailText(text);
-
-  // Bottom margin clears YouTube's duration badge, which sits in the lower
-  // right of every thumbnail and will happily cover a descender.
-  const BOTTOM_MARGIN = 96;
-  const lineGap = Math.round(fontSize * 0.14);
-  const blockH = lines.length * fontSize + (lines.length - 1) * lineGap;
-  const firstBaselineY = 720 - BOTTOM_MARGIN - blockH;
-
-  // The scrim covers the text block plus a generous fade above it.
-  const scrimTop = Math.max(0, firstBaselineY - Math.round(fontSize * 1.1));
-  const border = Math.max(6, Math.round(fontSize * 0.075));
-
-  const textFilters = lines.map((line, i) => {
-    const y = firstBaselineY + i * (fontSize + lineGap);
-    const escaped = line.replace(/'/g, "");
-    return (
-      `drawtext=fontfile='${safeFont}':text='${escaped}':fontcolor=${accentHex}` +
-      `:fontsize=${fontSize}:borderw=${border}:bordercolor=black` +
-      // A soft shadow under the outline: the outline guarantees legibility, the
-      // shadow gives the type some weight against a busy photo.
-      `:shadowcolor=black@0.55:shadowx=${Math.round(fontSize * 0.045)}` +
-      `:shadowy=${Math.round(fontSize * 0.05)}` +
-      `:x=(w-text_w)/2:y=${y}`
-    );
-  });
-
-  const vf = [
-    "scale=1280:720:force_original_aspect_ratio=increase",
-    "crop=1280:720",
-    // Punchier than before. The old 1.08/1.15 left dull stock photos looking
-    // exactly as dull as they arrived; a thumbnail has to compete in a grid.
-    "eq=contrast=1.22:saturation=1.45:brightness=0.02",
-    "unsharp=5:5:0.8",
-    // Draws the eye inward and stops flat photos reading as grey wallpaper.
-    "vignette=PI/5",
-    // 60 steps, not 24: at 24 the alpha jumps between bands were visible as
-    // horizontal stripes across a bright photo. Finer steps put each increment
-    // below the threshold where the eye picks out an edge.
-    ...scrimFilters(scrimTop, 720 - scrimTop, 0.88),
-    ...textFilters,
-  ].join(",");
+  const accentHex = "0x" + String(accent || "#FFC712").replace(/^#/, "");
 
   const textBin = textFfmpegPath();
   if (!textBin) {
@@ -419,6 +477,51 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
       "no ffmpeg with the drawtext filter is available; cannot render thumbnail text",
     );
   }
+
+  // Decide the composition from the photograph rather than assuming one.
+  let look = { side: "left", contrastGap: 0, brightness: 0.5, sideBrightness: 0.5 };
+  try {
+    look = await analyseBackground(textBin, bgPath);
+  } catch (e) {
+    console.warn(`[thumbnail] background analysis failed (${e.message}) — defaulting to a left column`);
+  }
+
+  // A busy or bright side needs a narrower column and a heavier scrim; an open
+  // sky can carry wider type.
+  const colWidth = look.contrastGap > 12 ? 620 : 560;
+  const scrimAlpha = Math.min(0.84, 0.62 + look.sideBrightness * 0.22);
+
+  const { lines } = layoutThumbnailText(text, emphasis, colWidth);
+
+  const MARGIN = 56;
+  const LEFT = look.side === "left" ? MARGIN : 1280 - MARGIN - colWidth;
+  const lineGap = 0.06;
+  const blockH = lines.reduce((h, l, i) => h + l.size + (i ? l.size * lineGap : 0), 0);
+  let y = Math.max(28, Math.round((720 - blockH) / 2));
+
+  const textFilters = lines.map((l) => {
+    const thisY = Math.round(y);
+    y += l.size * (1 + lineGap);
+    const border = Math.max(5, Math.round(l.size * 0.055));
+    const colour = l.hot ? accentHex : "white";
+    return (
+      `drawtext=fontfile='${safeFont}':text='${l.text.replace(/'/g, "")}'` +
+      `:fontcolor=${colour}:fontsize=${l.size}` +
+      `:borderw=${border}:bordercolor=black@0.9` +
+      `:shadowcolor=black@0.6:shadowx=${Math.round(l.size * 0.04)}:shadowy=${Math.round(l.size * 0.05)}` +
+      `:x=${LEFT}:y=${thisY}`
+    );
+  });
+
+  const vf = [
+    "scale=1280:720:force_original_aspect_ratio=increase",
+    "crop=1280:720",
+    "eq=contrast=1.22:saturation=1.45:brightness=0.02",
+    "unsharp=5:5:0.8",
+    "vignette=PI/5",
+    ...scrimFilters(look.side, colWidth + 220, scrimAlpha),
+    ...textFilters,
+  ].join(",");
 
   // Spawned directly rather than through fluent-ffmpeg.
   //
@@ -434,6 +537,10 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
     "-frames:v", "1",
     outPath,
   ], { timeout: 60000 });
+  console.log(
+    `[thumbnail] ${look.side} column, ${lines.length} line(s), ` +
+    `gap=${look.contrastGap.toFixed(1)} brightness=${look.sideBrightness.toFixed(2)}`,
+  );
   return outPath;
 }
 
@@ -1324,7 +1431,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     if (reqBody.thumbnail) {
       try {
         const thumbFull = path.join(OUTPUT_DIR, `thumb_${jobId}.png`);
-        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64);
+        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64, reqBody.thumbnail.emphasis);
         thumbnailPath = thumbFull;
       } catch (e) {
         console.warn(`[job ${jobId}] thumbnail render failed (${e.message}) - continuing without a custom thumbnail`);
@@ -1378,9 +1485,10 @@ app.post("/thumbnail", async (req, res) => {
   const tmpDir = newTmpDir();
   const outPath = path.join(tmpDir, "thumbnail.png");
   try {
-    const { image_url = null, image_base64 = null, text = null, accent = null } = req.body || {};
+    const { image_url = null, image_base64 = null, text = null, accent = null, emphasis = null } =
+      req.body || {};
 
-    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64);
+    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64, emphasis);
 
     const bytes = await fsp.readFile(outPath);
     return res.json({
