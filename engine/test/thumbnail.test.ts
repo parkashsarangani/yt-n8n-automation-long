@@ -29,8 +29,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const BRIEF = {
-  text: "How Ancient Humans Used To Live",
-  emphasis: "Ancient Humans",
+  // A hook, not a title — two words, well inside the 30-char cap.
+  text: "Ancient Life",
+  emphasis: "Ancient",
   background_query: "ancient stone map carved in rock",
   accent: "#FFD34D",
   rationale: "The subject is what people stop for; the rest is context.",
@@ -194,7 +195,7 @@ test("the emphasised phrase reaches the renderer, not just the text", async () =
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);
-  assert.equal(sent.emphasis, "Ancient Humans");
+  assert.equal(sent.emphasis, "Ancient");
 });
 
 test("a brief without emphasis still renders", async () => {
