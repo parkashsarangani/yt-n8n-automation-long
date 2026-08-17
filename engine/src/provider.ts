@@ -172,6 +172,8 @@ export interface ThumbnailRequest {
   /** Background photo. Omitted or unusable, the renderer falls back to a gradient. */
   image?: Uint8Array;
   text: string;
+  /** Contiguous phrase within `text` set large in the accent colour. */
+  emphasis?: string;
   accent?: string;
 }
 

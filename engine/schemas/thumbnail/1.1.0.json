@@ -1,0 +1,71 @@
+{
+  "schema_id": "thumbnail",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "A rendered thumbnail image. Holds a blob reference, never bytes — RFC 0002: artifacts are metadata in a lineage DAG, binaries live in the blob store. Adds the emphasised phrase so a later A/B can tell which framing was on screen. Additive optional field: a MINOR bump per RFC 0007.",
+  "produced_by": [
+    "thumbnail"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ThumbnailArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "thumbnail_uri",
+      "media_type",
+      "width",
+      "height",
+      "text",
+      "background"
+    ],
+    "properties": {
+      "thumbnail_uri": {
+        "type": "string",
+        "pattern": "^blob://sha256:[0-9a-f]{64}$"
+      },
+      "media_type": {
+        "type": "string",
+        "enum": [
+          "image/png",
+          "image/jpeg"
+        ]
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 640
+      },
+      "height": {
+        "type": "integer",
+        "minimum": 360
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 30,
+        "description": "The text actually burned in, copied from the brief so the artifact is self-describing."
+      },
+      "background": {
+        "type": "string",
+        "enum": [
+          "supplied",
+          "gradient"
+        ],
+        "description": "What the renderer really used. 'gradient' means the stock background could not be fetched — recorded rather than hidden, because a gradient thumbnail is a materially worse thumbnail."
+      },
+      "background_query": {
+        "type": "string",
+        "maxLength": 120
+      },
+      "bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Payload size. YouTube rejects custom thumbnails over 2 MiB, so this is worth carrying."
+      },
+      "emphasis": {
+        "type": "string",
+        "maxLength": 30,
+        "description": "The phrase rendered large in the accent colour, copied from the brief."
+      }
+    }
+  }
+}

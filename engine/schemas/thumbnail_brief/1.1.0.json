@@ -1,0 +1,62 @@
+{
+  "schema_id": "thumbnail_brief",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "What the thumbnail should say and show, plus which words carry the hook. Additive optional fields only, so this is a MINOR bump per RFC 0007: existing 1.0.0 briefs stay valid and no migrator is needed.",
+  "produced_by": [
+    "thumbnail_designer"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ThumbnailBriefArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "text",
+      "background_query",
+      "accent",
+      "rationale"
+    ],
+    "properties": {
+      "text": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 30,
+        "description": "A visual HOOK, not the video title. Two to five words, ideally under 25 characters. The renderer sets it in stacked capitals over two or three lines. 30 is the hard cap rather than 25 so that briefs written under 1.0.0 stay valid — tightening below an existing bound would be a MAJOR bump per RFC 0007."
+      },
+      "background_query": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 120,
+        "description": "Stock photo search terms for the background. Concrete nouns only — stock libraries match subjects, not concepts."
+      },
+      "accent": {
+        "type": "string",
+        "pattern": "^#[0-9A-Fa-f]{6}$",
+        "description": "Text colour as #RRGGBB. Must stay legible on a darkened band."
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600,
+        "description": "Why this framing earns the click. Recorded so a weak thumbnail can be diagnosed rather than guessed at."
+      },
+      "alternatives": {
+        "type": "array",
+        "maxItems": 4,
+        "description": "Other text options, strongest first. Unused today; the raw material for thumbnail A/B once the feedback loop exists.",
+        "items": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 30
+        }
+      },
+      "emphasis": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 30,
+        "description": "The words within `text` that carry the hook — a contiguous phrase, copied exactly. Rendered large in the accent colour while the rest stays white and smaller. Omit only when every word matters equally; a thumbnail with no emphasis has no focal point."
+      }
+    }
+  }
+}

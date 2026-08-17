@@ -24,6 +24,7 @@ export interface ThumbnailWorkerOptions {
 
 interface ThumbnailBrief {
   text: string;
+  emphasis?: string;
   background_query: string;
   accent: string;
   rationale: string;
@@ -73,6 +74,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       const result = await renderer.renderThumbnail({
         ...(background ? { image: background } : {}),
         text: brief.text,
+        ...(brief.emphasis ? { emphasis: brief.emphasis } : {}),
         accent: brief.accent,
       });
 
@@ -96,6 +98,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
           width: result.width,
           height: result.height,
           text: brief.text,
+          ...(brief.emphasis ? { emphasis: brief.emphasis } : {}),
           background: result.background,
           background_query: brief.background_query,
           bytes: result.bytes.byteLength,

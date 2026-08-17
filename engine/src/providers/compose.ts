@@ -73,6 +73,7 @@ export class ComposeRenderer implements MediaRenderer {
       body: JSON.stringify({
         image_base64: req.image ? toBase64(req.image) : null,
         text: req.text,
+        emphasis: req.emphasis ?? null,
         accent: req.accent ?? null,
       }),
     });

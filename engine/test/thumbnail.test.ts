@@ -29,10 +29,12 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const BRIEF = {
-  text: "It Never Existed",
+  // A hook, not a title — two words, well inside the 30-char cap.
+  text: "Ancient Life",
+  emphasis: "Ancient",
   background_query: "ancient stone map carved in rock",
   accent: "#FFD34D",
-  rationale: "The video is about a place people are sure is real.",
+  rationale: "The subject is what people stop for; the rest is context.",
   alternatives: ["The 400-Year Mistake"],
 };
 
@@ -168,7 +170,11 @@ test("a renderer outage does fail the node — there is nothing to degrade to", 
 test("the artifact validates against the registry schema", async () => {
   const h = await harness();
   const out = await run(h);
-  assert.doesNotThrow(() => h.registry.validate("thumbnail", "1.0.0", out));
+  // Resolved, not hardcoded: a MINOR schema bump must not break this test —
+  // that trap has already been hit once in this repo.
+  assert.doesNotThrow(() =>
+    h.registry.validate("thumbnail", h.registry.resolveVersion("thumbnail"), out),
+  );
 });
 
 test("an identical brief produces an identical artifact id", async () => {
@@ -179,4 +185,51 @@ test("an identical brief produces an identical artifact id", async () => {
   const second = await b.runner.run(makeThumbnailWorker(), [b.brief.artifact_id]);
 
   assert.equal(first.artifact.artifact_id, second.artifact.artifact_id);
+});
+
+test("the emphasised phrase reaches the renderer, not just the text", async () => {
+  // Without this the renderer has no focal point and sets everything in one
+  // colour — which is the flat look the redesign existed to remove.
+  const h = await harness();
+  await run(h);
+
+  const sent = h.renderer.thumbnailRequests[0]!;
+  assert.equal(sent.text, BRIEF.text);
+  assert.equal(sent.emphasis, "Ancient");
+});
+
+test("a brief without emphasis still renders", async () => {
+  // thumbnail_brief@1.0.0 artifacts predate the field, and emphasis is optional
+  // in 1.1.0 — neither may break the worker.
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const store = await FsArtifactStore.open(
+    await mkdtemp(path.join(tmpdir(), "vidgen-thumb-noemph-")),
+    registry,
+  );
+  const renderer = new FakeRenderer();
+  const runner = new Runner({
+    store,
+    registry,
+    prompts: await PromptStore.load(path.join(ROOT, "prompts")),
+    providers: new ProviderRouter({}),
+    runLog: new MemoryRunLog(),
+    logger: silent(),
+    blobs: new MemoryBlobStore(),
+    media: { renderer, images: new FakeImageProvider() },
+  });
+
+  const { emphasis: _dropped, ...withoutEmphasis } = BRIEF;
+  const brief = (
+    await store.put({
+      schema_id: "thumbnail_brief",
+      payload: withoutEmphasis,
+      produced_by: {
+        transformation: "thumbnail_designer", version: "1", run_id: "t", provider: null,
+      },
+    })
+  ).artifact;
+
+  const out = await runner.run(makeThumbnailWorker(), [brief.artifact_id]);
+  assert.equal((out.artifact.payload as ThumbPayload).text, BRIEF.text);
+  assert.equal(renderer.thumbnailRequests[0]!.emphasis, undefined);
 });

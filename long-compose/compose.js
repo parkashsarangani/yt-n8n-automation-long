@@ -288,7 +288,184 @@ function textFfmpegPath() {
 let _lastThumbnailBackground = "gradient";
 function lastThumbnailBackground() { return _lastThumbnailBackground; }
 
-async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64) {
+// What the layout actually chose. Reported so the guideline checks — headline
+// legible at small size, text inside its column, right region proportion — can
+// be asserted downstream instead of eyeballed.
+let _lastThumbnailLayout = null;
+function lastThumbnailLayout() { return _lastThumbnailLayout; }
+
+/**
+ * Lay out thumbnail text as a left-hand column of stacked capitals.
+ *
+ * Modelled on the channel's own thumbnail style: the type occupies the left
+ * side in big stacked caps, the photograph keeps the right, and the words that
+ * carry the hook are picked out in the accent colour while the connective words
+ * stay white. Centring a single line across the bottom — what this did before —
+ * competes with the image instead of sitting beside it, and gives every episode
+ * the same flat emphasis.
+ *
+ * Lines are broken so each one is a single colour. That is what makes the
+ * two-tone readable: mixing colours mid-line needs per-word positioning, and
+ * ffmpeg cannot measure a string before drawing it.
+ */
+function layoutThumbnailText(raw, emphasis, colWidth) {
+  const clean = (v) =>
+    String(v || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+
+  const text = clean(raw).toUpperCase();
+  if (!text) return { lines: [], colWidth: 0 };
+
+  const emph = clean(emphasis).toUpperCase();
+  const COL_W = colWidth || 500;   // set from the photo, not fixed
+  // Uppercase Inter-Black, not mixed case: capitals carry noticeably more
+  // advance, and the 0.62 tuned for sentence case let ANCIENT run past the
+  // safe margin on its first real render.
+  const CHAR_W = 0.70;
+  // Guideline ranges: headline 90-160, secondary 45-80, at most three lines.
+  const MAX_SIZE = 160;
+  const MIN_HEADLINE = 90;
+  const MIN_SIZE = 45;
+  const MAX_SECONDARY = 80;
+  const MAX_LINES = 3;
+
+  // Split into [before, emphasis, after] so an emphasised run stays whole.
+  let segments;
+  const at = emph ? text.indexOf(emph) : -1;
+  if (at >= 0) {
+    segments = [
+      { words: text.slice(0, at).trim().split(/\s+/).filter(Boolean), hot: false },
+      { words: emph.split(/\s+/).filter(Boolean), hot: true },
+      { words: text.slice(at + emph.length).trim().split(/\s+/).filter(Boolean), hot: false },
+    ].filter((s) => s.words.length > 0);
+  } else {
+    // No usable emphasis: treat the whole thing as the hook rather than
+    // inventing one, so it still reads as deliberate.
+    segments = [{ words: text.split(/\s+/).filter(Boolean), hot: true }];
+  }
+
+  // Wrap each segment independently — a segment boundary is always a line break.
+  const sizeFor = (chars) => Math.floor(COL_W / (CHAR_W * Math.max(chars, 1)));
+  const lines = [];
+  for (const seg of segments) {
+    let current = [];
+    for (const word of seg.words) {
+      const candidate = [...current, word].join(" ");
+      // Keep the hook large: break early rather than shrink it to fit.
+      if (current.length > 0 && sizeFor(candidate.length) < (seg.hot ? MIN_HEADLINE : 58)) {
+        lines.push({ text: current.join(" "), hot: seg.hot });
+        current = [word];
+      } else {
+        current.push(word);
+      }
+    }
+    if (current.length > 0) lines.push({ text: current.join(" "), hot: seg.hot });
+  }
+
+  // Too many lines: merge the quietest neighbours until it fits.
+  while (lines.length > MAX_LINES) {
+    let idx = -1;
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (lines[i].hot === lines[i + 1].hot) { idx = i; break; }
+    }
+    if (idx === -1) idx = 0;
+    lines[idx] = {
+      text: `${lines[idx].text} ${lines[idx + 1].text}`,
+      hot: lines[idx].hot || lines[idx + 1].hot,
+    };
+    lines.splice(idx + 1, 1);
+  }
+
+  // Size each group to the column, then let the hook dominate.
+  const longest = (hot) =>
+    Math.max(0, ...lines.filter((l) => l.hot === hot).map((l) => l.text.length));
+  const hotSize = Math.min(sizeFor(longest(true) || 1), MAX_SIZE);
+  const coolFit = longest(false) ? sizeFor(longest(false)) : MAX_SECONDARY;
+  const coolSize = Math.max(
+    MIN_SIZE,
+    Math.min(Math.round(hotSize * 0.58), coolFit, MAX_SECONDARY),
+  );
+
+  for (const l of lines) l.size = Math.max(MIN_SIZE, l.hot ? hotSize : coolSize);
+  return { lines, colWidth: COL_W };
+}
+
+/**
+ * Read the photograph before deciding where the type goes.
+ *
+ * The layout pattern is fixed — stacked capitals, hook in the accent colour,
+ * connectives in white — but the position and size are not. Stock search
+ * returns whatever it returns: sometimes the subject is on the right and the
+ * left is open sky, sometimes the reverse. Committing to one side means half
+ * the thumbnails bury their own subject under the headline.
+ *
+ * So: downscale to a coarse grid of edge energy and brightness, and put the
+ * text where the picture is quietest. Cheap — one extra ffmpeg pass on a single
+ * frame — and it is the difference between a layout that happens to work on the
+ * photo you tested and one that works on the photo you get.
+ */
+async function analyseBackground(bin, bgPath) {
+  const COLS = 8, ROWS = 4;
+  const read = async (pre) => {
+    const { stdout } = await execFileAsync(
+      bin,
+      ["-v", "error", "-i", bgPath, "-vf", `${pre}scale=${COLS}:${ROWS},format=gray`,
+       "-frames:v", "1", "-f", "rawvideo", "-"],
+      { encoding: "buffer", timeout: 30000, maxBuffer: 1 << 20 },
+    );
+    return Array.from(stdout.subarray(0, COLS * ROWS));
+  };
+
+  // edgedetect first: busyness matters more than brightness for legibility.
+  const [detail, luma] = await Promise.all([read("edgedetect=low=0.1:high=0.3,"), read("")]);
+
+  const half = (cells, from, to) => {
+    let sum = 0, n = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = from; c < to; c++) { sum += cells[r * COLS + c]; n++; }
+    }
+    return n ? sum / n : 0;
+  };
+
+  const leftDetail = half(detail, 0, Math.floor(COLS / 2));
+  const rightDetail = half(detail, Math.ceil(COLS / 2), COLS);
+  const side = leftDetail <= rightDetail ? "left" : "right";
+
+  return {
+    side,
+    // Busyness of the side the type will sit on, which decides whether
+    // darkening is enough or the region needs blurring too.
+    sideDetail: side === "left" ? leftDetail : rightDetail,
+    // How lopsided the picture is. A near-tie means neither side is really
+    // clear, so the scrim has to work harder.
+    contrastGap: Math.abs(leftDetail - rightDetail),
+    brightness: half(luma, 0, COLS) / 255,
+    sideBrightness: (side === "left" ? half(luma, 0, 4) : half(luma, 4, COLS)) / 255,
+  };
+}
+
+/**
+ * A left-to-right scrim: dark under the type, clear over the photograph.
+ *
+ * Vertical columns rather than one box. A single drawbox left a hard edge down
+ * the middle of the frame; stepping the alpha hides the boundary, and the type
+ * stays legible whatever the stock photo happens to have on its left side —
+ * which we cannot choose, since the search returns what it returns.
+ */
+function scrimFilters(side, width, maxAlpha, steps = 64) {
+  const band = Math.ceil(width / steps);
+  const out = [];
+  for (let i = 0; i < steps; i++) {
+    // Densest against the edge the type sits on, fading toward the subject.
+    // 1.6 rather than a square: the steeper ramp turned the corner of a bright
+    // photo almost black where there was no text to justify it.
+    const alpha = (maxAlpha * Math.pow(1 - i / steps, 1.6)).toFixed(3);
+    const x = side === "left" ? i * band : 1280 - (i + 1) * band;
+    out.push(`drawbox=x=${x}:y=0:w=${band}:h=720:color=black@${alpha}:t=fill`);
+  }
+  return out;
+}
+
+async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64, emphasis) {
   let bgPath;
   _lastThumbnailBackground = "gradient";
   if (imageBase64) {
@@ -304,23 +481,88 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
   } else {
     bgPath = pickGradientBackground();
   }
+
   const fontPath = path.join(MOTION_ASSETS_DIR, "fonts", "Inter-Black.ttf");
   const safeFont = fontPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-  const txt = String(text || "").replace(/[\\':]/g, " ").replace(/[{}]/g, "").trim().slice(0, 48);
-  const accentHex = "0x" + String(accent || "#FFFFFF").replace(/^#/, "");
-  const vf = [
-    "scale=1280:720:force_original_aspect_ratio=increase",
-    "crop=1280:720",
-    "eq=contrast=1.08:saturation=1.15",
-    "drawbox=x=0:y=468:w=1280:h=252:color=black@0.55:t=fill",
-    `drawtext=fontfile='${safeFont}':text='${txt}':fontcolor=${accentHex}:fontsize=76:borderw=5:bordercolor=black:x=(w-text_w)/2:y=545`,
-  ].join(",");
+  const accentHex = "0x" + String(accent || "#FFC712").replace(/^#/, "");
+
   const textBin = textFfmpegPath();
   if (!textBin) {
     throw new Error(
       "no ffmpeg with the drawtext filter is available; cannot render thumbnail text",
     );
   }
+
+  // Decide the composition from the photograph rather than assuming one.
+  let look = { side: "left", sideDetail: 0, contrastGap: 0, brightness: 0.5, sideBrightness: 0.5 };
+  try {
+    look = await analyseBackground(textBin, bgPath);
+  } catch (e) {
+    console.warn(`[thumbnail] background analysis failed (${e.message}) — defaulting to a left column`);
+  }
+
+  // A busy or bright side needs a narrower column and a heavier scrim; an open
+  // sky can carry wider type.
+  // Text region 36-41% of the frame, inside the 30-45% guideline. The wider
+  // option is only taken when the picture is clearly lopsided and the quiet
+  // side can genuinely spare it.
+  const colWidth = look.contrastGap > 12 ? 520 : 460;
+  const scrimAlpha = Math.min(0.84, 0.62 + look.sideBrightness * 0.22);
+
+  const { lines } = layoutThumbnailText(text, emphasis, colWidth);
+
+  const MARGIN = 56;
+  const LEFT = look.side === "left" ? MARGIN : 1280 - MARGIN - colWidth;
+
+  // YouTube stamps the duration in the bottom-right of every thumbnail. On a
+  // right-hand column the last line can land under it, so the block is clamped
+  // above that zone rather than trusting vertical centring to stay clear.
+  const BADGE_TOP = 620;
+  const lineGap = 0.06;
+  const blockH = lines.reduce((h, l, i) => h + l.size + (i ? l.size * lineGap : 0), 0);
+  let y = Math.max(28, Math.round((720 - blockH) / 2));
+  if (look.side === "right" && y + blockH > BADGE_TOP) {
+    y = Math.max(28, BADGE_TOP - blockH);
+  }
+
+  const textFilters = lines.map((l) => {
+    const thisY = Math.round(y);
+    y += l.size * (1 + lineGap);
+    const border = Math.max(5, Math.round(l.size * 0.055));
+    const colour = l.hot ? accentHex : "white";
+    return (
+      `drawtext=fontfile='${safeFont}':text='${l.text.replace(/'/g, "")}'` +
+      `:fontcolor=${colour}:fontsize=${l.size}` +
+      `:borderw=${border}:bordercolor=black@0.9` +
+      `:shadowcolor=black@0.6:shadowx=${Math.round(l.size * 0.04)}:shadowy=${Math.round(l.size * 0.05)}` +
+      `:x=${LEFT}:y=${thisY}`
+    );
+  });
+
+  const base = [
+    "scale=1280:720:force_original_aspect_ratio=increase",
+    "crop=1280:720",
+    "eq=contrast=1.22:saturation=1.45:brightness=0.02",
+    "unsharp=5:5:0.8",
+    "vignette=PI/5",
+  ].join(",");
+
+  const overlays = [...scrimFilters(look.side, colWidth + 220, scrimAlpha), ...textFilters].join(",");
+
+  // Darkening alone stops working when the type sits over fine detail — a
+  // gravel field or foliage keeps punching through the scrim. Blur only that
+  // region, and only when the analysis says it is busy, so a clean sky is left
+  // sharp.
+  const blurW = colWidth + 120;
+  const blurX = look.side === "left" ? 0 : 1280 - blurW;
+  const needsBlur = look.sideDetail > 26;
+
+  const vf = needsBlur
+    ? `${base},split[bg][cut];[cut]crop=${blurW}:720:${blurX}:0,boxblur=12:1[blur];` +
+      `[bg][blur]overlay=${blurX}:0,${overlays}`
+    : `${base},${overlays}`;
+
+  const filterFlag = needsBlur ? "-filter_complex" : "-vf";
 
   // Spawned directly rather than through fluent-ffmpeg.
   //
@@ -332,10 +574,29 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
   await execFileAsync(textBin, [
     "-y",
     "-i", bgPath,
-    "-vf", vf,
+    filterFlag, vf,
     "-frames:v", "1",
     outPath,
   ], { timeout: 60000 });
+  console.log(
+    `[thumbnail] ${look.side} column, ${lines.length} line(s), ` +
+    `detail=${look.sideDetail.toFixed(1)}${needsBlur ? " (blurred)" : ""} ` +
+    `brightness=${look.sideBrightness.toFixed(2)}`,
+  );
+  _lastThumbnailLayout = {
+    side: look.side,
+    lines: lines.length,
+    headline_px: Math.max(0, ...lines.filter((l) => l.hot).map((l) => l.size)),
+    secondary_px: Math.max(0, ...lines.filter((l) => !l.hot).map((l) => l.size)),
+    // Estimated, not measured — ffmpeg cannot report drawn extents. Enough to
+    // catch a line that has run past its column.
+    overflow_px: Math.max(
+      0,
+      ...lines.map((l) => Math.round(l.text.length * 0.70 * l.size) - colWidth),
+    ),
+    blurred: needsBlur,
+    text_region_pct: Math.round((colWidth / 1280) * 100),
+  };
   return outPath;
 }
 
@@ -1226,7 +1487,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     if (reqBody.thumbnail) {
       try {
         const thumbFull = path.join(OUTPUT_DIR, `thumb_${jobId}.png`);
-        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64);
+        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64, reqBody.thumbnail.emphasis);
         thumbnailPath = thumbFull;
       } catch (e) {
         console.warn(`[job ${jobId}] thumbnail render failed (${e.message}) - continuing without a custom thumbnail`);
@@ -1280,9 +1541,10 @@ app.post("/thumbnail", async (req, res) => {
   const tmpDir = newTmpDir();
   const outPath = path.join(tmpDir, "thumbnail.png");
   try {
-    const { image_url = null, image_base64 = null, text = null, accent = null } = req.body || {};
+    const { image_url = null, image_base64 = null, text = null, accent = null, emphasis = null } =
+      req.body || {};
 
-    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64);
+    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64, emphasis);
 
     const bytes = await fsp.readFile(outPath);
     return res.json({
@@ -1297,6 +1559,7 @@ app.post("/thumbnail", async (req, res) => {
       // fetched. Report what was actually used, not what was asked for, so the
       // engine never records a stock background it did not get.
       background: lastThumbnailBackground(),
+      layout: lastThumbnailLayout(),
     });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });
