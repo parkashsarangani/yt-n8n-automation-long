@@ -349,6 +349,13 @@
 
       <section>
         <h2>Runs</h2>
+        <div class="row" style="margin-bottom:8px">
+          <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="checkbox" id="showAllRuns" />
+            show measurement runs
+          </label>
+          <span class="muted" id="runsHidden" style="margin-left:auto"></span>
+        </div>
         <div id="runs"><span class="muted">none yet</span></div>
       </section>
     </div>
@@ -560,17 +567,30 @@
       const json = JSON.stringify(runs.map(r => ({ id: r.run_id, s: r.status, c: r.cost_usd, sel: r.run_id === selected })));
       if (json === lastRunsJson) return;
       lastRunsJson = json;
-      $("runs").innerHTML = runs.length
-        ? runs.map((r) => `
+      // Measurement runs outnumber production ones roughly ten to one and grow
+      // by three a day, so they are hidden unless asked for. Hidden, not
+      // dropped: a failed measurement still has to be findable.
+      const showAll = $("showAllRuns").checked;
+      const shown = showAll ? runs : runs.filter((r) => r.kind !== "measure");
+      const hidden = runs.length - shown.length;
+      $("runsHidden").textContent = hidden > 0 ? `${hidden} measurement run${hidden === 1 ? "" : "s"} hidden` : "";
+
+      $("runs").innerHTML = shown.length
+        ? shown.map((r) => `
         <div class="run-item ${r.run_id === selected ? "sel" : ""}" data-id="${r.run_id}">
           <div class="brief">${esc(r.brief.slice(0, 70))}${r.brief.length > 70 ? "…" : ""}</div>
-          <div class="muted">${esc(r.status)} · $${r.cost_usd.toFixed(4)} · ${esc(r.run_id.slice(4, 12))}</div>
+          <div class="muted">
+            ${r.kind !== "production" ? `<span class="pill">${esc(r.kind)}</span> ` : ""}
+            ${esc(r.status)} · $${r.cost_usd.toFixed(4)} · ${esc(r.graph)}
+          </div>
         </div>`).join("")
-        : `<span class="muted">none yet</span>`;
+        : `<span class="muted">${runs.length ? "no production runs yet" : "none yet"}</span>`;
       for (const el of document.querySelectorAll(".run-item")) {
         el.onclick = () => { select(el.dataset.id); refresh(); };
       }
     }
+
+    $("showAllRuns").onchange = () => { lastRunsJson = ""; void refresh(); };
 
     const STATE_LABEL = { pending: "", running: "running…", done: "done", waiting: "needs you", failed: "failed", blocked: "blocked" };
 
