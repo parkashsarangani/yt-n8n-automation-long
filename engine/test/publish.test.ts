@@ -87,6 +87,23 @@ const SEO = {
 const seedSeo = (h: Awaited<ReturnType<typeof harness>>, over: Partial<typeof SEO> = {}) =>
   h.seed("seo_metadata", { ...SEO, ...over }, "seo_optimizer");
 
+/** Publish also consumes the QA verdict now; a clean one unless a test says otherwise. */
+const seedQa = (h: Awaited<ReturnType<typeof harness>>, verdict: "pass" | "fail" = "pass") =>
+  h.seed(
+    "qa_report",
+    verdict === "pass"
+      ? { verdict, failed: 0, warned: 0, checks: [{ id: "images_resolved", status: "pass", message: "all good" }] }
+      : {
+        verdict,
+        failed: 1,
+        warned: 0,
+        checks: [
+          { id: "images_resolved", status: "fail", message: "18 of 20 scenes are placeholders" },
+        ],
+      },
+    "qa",
+  );
+
 /**
  * Publish now requires a designed thumbnail (schema `thumbnail`), so every case
  * seeds one. Inputs bind positionally, in the worker's `consumes` order:
@@ -139,6 +156,7 @@ test("publish uses the SEO metadata verbatim and substitutes nothing", async () 
     video.artifact_id,
     seo.artifact_id,
     (await seedThumb(h)).artifact_id,
+    (await seedQa(h)).artifact_id,
   ]);
 
   const sent = h.target.published[0]!.metadata;
@@ -158,6 +176,7 @@ test("publish uploads and records where the video went", async () => {
     video.artifact_id,
     seo.artifact_id,
     (await seedThumb(h)).artifact_id,
+    (await seedQa(h)).artifact_id,
   ]);
   const payload = out.artifact.payload as {
     target: string;
@@ -192,6 +211,7 @@ test("a refused thumbnail is recorded, not swallowed", async () => {
     video.artifact_id,
     seo.artifact_id,
     (await seedThumb(h)).artifact_id,
+    (await seedQa(h)).artifact_id,
   ]);
   assert.equal((out.artifact.payload as { thumbnail_set: boolean }).thumbnail_set, false);
   // The publish itself still succeeded.
@@ -203,9 +223,10 @@ test("metadata that exceeds the target's limits is rejected before upload", asyn
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
+  const qa = await seedQa(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id, qa.artifact_id]),
     /rejected before upload: title is \d+ chars/,
   );
   // Nothing was uploaded — publishing is irreversible, so validation is fatal
@@ -218,9 +239,10 @@ test("a video longer than the target allows is rejected", async () => {
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
+  const qa = await seedQa(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id, qa.artifact_id]),
     /video is 540s, fake-target allows 60s/,
   );
 });
@@ -236,6 +258,7 @@ test("a target that cannot take a custom thumbnail is never sent one", async () 
     video.artifact_id,
     seo.artifact_id,
     (await seedThumb(h)).artifact_id,
+    (await seedQa(h)).artifact_id,
   ]);
   assert.equal(h.target.published[0]!.thumbnail, undefined);
 });
@@ -268,6 +291,7 @@ test("the designed thumbnail wins over the one the render happened to emit", asy
     video.artifact_id,
     seo.artifact_id,
     designed.artifact_id,
+    (await seedQa(h)).artifact_id,
   ]);
 
   const sent = h.target.published[0]!.thumbnail!;
@@ -283,9 +307,10 @@ test("a publish failure produces no artifact", async () => {
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
   const thumb = await seedThumb(h);
+  const qa = await seedQa(h);
 
   await assert.rejects(
-    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id]),
+    () => h.runner.run(makePublishWorker({ target: h.target }), [video.artifact_id, seo.artifact_id, thumb.artifact_id, qa.artifact_id]),
     /quota exceeded/,
   );
   assert.equal(

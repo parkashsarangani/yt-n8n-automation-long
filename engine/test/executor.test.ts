@@ -98,7 +98,11 @@ async function harness(handler: FakeHandler) {
 
   const seed = await store.put({
     schema_id: "intent",
-    payload: { brief: "why Chile is so incredibly long", target_duration_sec: 540 },
+    // 15s is the schema minimum, and the fake renderer reports scenes.length*12
+    // — so one scene gives a 12s video, 20% off target and inside QA's 25%
+    // tolerance. A 540s target would fail every fixture episode on duration and
+    // mask whatever each test is actually about.
+    payload: { brief: "why Chile is so incredibly long", target_duration_sec: 15 },
     produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
   });
 
@@ -191,19 +195,21 @@ function supervised(graph: GraphDoc): GraphDoc {
 }
 
 const ALL_NODES = [
-  "approve_script", "approve_story", "assets", "insights", "intent", "performance",
-  "publish", "render", "script", "seo", "story", "thumbnail", "thumbnail_brief",
-  "visual_plan", "voice",
+  "approve_publish", "approve_script", "approve_story", "assets", "insights",
+  "intent", "performance", "publish", "qa", "render", "script", "seo", "story",
+  "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the story gate. */
 const AFTER_GATE = [
-  "approve_script", "assets", "publish", "render", "script", "seo", "thumbnail",
-  "thumbnail_brief", "visual_plan", "voice",
+  "approve_publish", "approve_script", "assets", "publish", "qa", "render",
+  "script", "seo", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the script gate. */
 // The thumbnail branch depends on approve_story, not approve_script, so it is
 // deliberately absent here — it runs while the script is still being reviewed.
-const AFTER_SCRIPT_GATE = ["assets", "publish", "render", "seo", "visual_plan", "voice"];
+const AFTER_SCRIPT_GATE = [
+  "approve_publish", "assets", "publish", "qa", "render", "seo", "visual_plan", "voice",
+];
 /** channel_strategist, story, script, visual_plan, thumbnail_designer, seo_optimizer. */
 const MODEL_CALLS_PER_RUN = 6;
 
@@ -224,6 +230,34 @@ test("THE SHIPPED GRAPH RUNS UNATTENDED: no gate can park it", async () => {
   // putting a human back is a one-line policy change, not a graph rebuild.
   assert.equal(result.outputs["approve_story"], result.outputs["story"]);
   assert.equal(result.outputs["approve_script"], result.outputs["script"]);
+});
+
+test("a broken episode stops at the QA gate instead of publishing", async () => {
+  // The counterpart to the unattended test: gates never park on human judgement,
+  // but they DO park on a measurable defect. Here the intent asks for 600s and
+  // the fake renderer produces 12s, which QA fails on duration.
+  const h = await harness(storyThen(0.95));
+  const longIntent = await h.store.put({
+    schema_id: "intent",
+    payload: { brief: "why Chile is so incredibly long", target_duration_sec: 600 },
+    produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
+  });
+
+  const result = await h.executor.start(h.graph, {
+    ...h.inputs,
+    intent: longIntent.artifact.artifact_id,
+  });
+
+  assert.equal(result.status, "waiting");
+  assert.deepEqual(result.waiting.map((w) => w.node_id), ["approve_publish"]);
+  assert.match(result.waiting[0]!.reason, /verdict/);
+
+  // Nothing was published, and the report says why in a readable way.
+  assert.equal(result.outputs["publish"], undefined);
+  const report = await h.store.get(result.outputs["qa"]!);
+  const payload = report!.payload as { verdict: string; checks: Array<{ id: string; status: string }> };
+  assert.equal(payload.verdict, "fail");
+  assert.equal(payload.checks.find((c) => c.id === "duration")!.status, "fail");
 });
 
 test("a confident story auto-passes its gate, then the script gate always asks", async () => {

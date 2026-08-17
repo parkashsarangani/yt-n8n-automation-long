@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "9",
-  "description": "Walking skeleton, end to end, running unattended. Both gates auto-pass: the finished video is uploaded PRIVATE and that upload is the review — a gate that parks the run would leave nothing to review at all, which is worse than a weak draft you can watch and delete. Set either gate's policy back to a threshold, or remove it, to put a human back in the loop. Nothing becomes public without one.",
+  "version": "10",
+  "description": "Walking skeleton, end to end, running unattended. The story and script gates auto-pass — the PRIVATE upload is the review. Before publishing, objective QA checks run and a gate passes only on a clean verdict, so an episode of placeholder images or a three-minute video in a nine-minute slot stops instead of shipping. That gate DOES park on failure, on purpose: a broken episode is the one case where producing nothing beats producing something. Nothing becomes public without a person.",
   "nodes": [
     {
       "id": "intent",
@@ -108,12 +108,36 @@
       ]
     },
     {
+      "id": "qa",
+      "transformation": "qa",
+      "in": [
+        "intent",
+        "approve_script",
+        "assets",
+        "voice",
+        "render",
+        "thumbnail",
+        "seo"
+      ]
+    },
+    {
+      "id": "approve_publish",
+      "type": "human_gate",
+      "in": [
+        "qa"
+      ],
+      "policy": {
+        "auto_pass_if": "payload.verdict == \"pass\""
+      }
+    },
+    {
       "id": "publish",
       "transformation": "publish",
       "in": [
         "render",
         "seo",
-        "thumbnail"
+        "thumbnail",
+        "approve_publish"
       ]
     }
   ]

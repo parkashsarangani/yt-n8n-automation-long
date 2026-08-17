@@ -214,8 +214,16 @@ public or throw it away and let the next run try again. Both gates auto-pass
 (`auto_pass_if: "always"`), because a gate that parks a run leaves nothing to
 review, which is worse than a weak draft you can watch and delete.
 
+Before publishing, **objective QA checks** run and a third gate passes only on a
+clean verdict. Placeholder images, missing narration, dropped scenes, a video
+far off its target length, or metadata YouTube would reject all stop the
+publish; a gradient thumbnail or a slightly short script are recorded as
+warnings and ship. That gate *does* park on failure, deliberately — a broken
+episode is the one case where producing nothing beats producing something.
+
 Nothing ever becomes public on its own. To put a human back before render, set
-either gate's policy to a threshold like `confidence.overall >= 0.9`.
+either of the first two gates' policy to a threshold like
+`confidence.overall >= 0.9`.
 
 Deliberately still out: Research, Fact Checking, and the knowledge graph.
 
