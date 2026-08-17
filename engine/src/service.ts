@@ -97,6 +97,10 @@ interface RunState {
   runId: string;
   brief: string;
   createdAt: string;
+  /** The graph this run actually executed, which may not be the current one. */
+  graph?: string;
+  /** Status as recorded when the run finished. Authoritative over any replay. */
+  storedStatus?: RunView["status"];
   /** Node ids currently executing — the "which step is running" signal. */
   active: Set<string>;
   /** Incrementally tracks node completions from executor events. */
@@ -277,20 +281,48 @@ export class VidGenService {
       byRun.set(r.run_id, list);
     }
 
+    // The brief is recorded on the run row at creation, so read it from there
+    // rather than reconstructing it. The reconstruction below looked for a
+    // record with transformation "human", but the executor writes "input" for
+    // input nodes — so it never matched, and every reloaded run showed its own
+    // id where the topic should be.
+    const storedByRun = new Map<string, { brief?: string; graph?: string; status?: string }>();
+    if (this.runLog instanceof PgRunLog) {
+      try {
+        for (const row of await this.runLog.listRuns(500)) {
+          storedByRun.set(row.run_id, {
+            ...(row.brief ? { brief: row.brief } : {}),
+            ...(row.graph_id ? { graph: row.graph_id } : {}),
+            ...(row.status ? { status: row.status } : {}),
+          });
+        }
+      } catch { /* fall through to reconstruction */ }
+    }
+
     for (const [runId, recs] of byRun) {
       if (this.runs.has(runId)) continue; // already in memory
-      // Find the intent (first record) to get the brief
-      const intentRec = recs.find(r => r.transformation === "human" && r.node_id === "intent");
-      // Derive brief from the intent artifact if possible
-      let brief = runId;
-      if (intentRec?.output) {
-        try {
-          const art = await this.store.get(intentRec.output);
-          if (art && typeof art === "object" && "payload" in (art as any)) {
-            brief = (art as any).payload?.brief ?? runId;
-          }
-        } catch { /* use runId as fallback */ }
+
+      const stored = storedByRun.get(runId);
+      let brief = stored?.brief ?? "";
+      if (!brief) {
+        // Filesystem run log, or a run older than the runs table: recover the
+        // brief from the seeded intent artifact. Accepts "input" as well as
+        // "human" so this path actually works.
+        const intentRec = recs.find(
+          (r) =>
+            r.node_id === "intent" &&
+            (r.transformation === "input" || r.transformation === "human"),
+        );
+        if (intentRec?.output) {
+          try {
+            const art = await this.store.get(intentRec.output);
+            const payload = (art as { payload?: { brief?: string } } | null)?.payload;
+            if (typeof payload?.brief === "string") brief = payload.brief;
+          } catch { /* fall through */ }
+        }
       }
+      // Last resort only: an id is a poor label, but better than blank.
+      if (!brief) brief = runId;
 
       // Check if the run completed or has failures
       const completedOutputs = new Map<string, string>();
@@ -304,7 +336,26 @@ export class VidGenService {
         }
       }
 
-      const allDone = completedOutputs.size === this.graph.nodes.length;
+      // Replaying against the CURRENT graph is wrong for any run that used a
+      // different one: measure@1 and older skeleton versions have different
+      // node sets, so every one of them looked permanently "waiting". The runs
+      // table already knows how each finished, so trust that and only fall back
+      // to counting nodes when there is no stored status.
+      const runGraph = stored?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
+      const onCurrentGraph = runGraph === `${this.graph.graph_id}@${this.graph.version}`;
+      const allDone = onCurrentGraph && completedOutputs.size === this.graph.nodes.length;
+      const derived = allDone ? "completed" : hasFailure ? "blocked" : "waiting";
+      // A row still marked "running" at reload time is stale by definition:
+      // this is a fresh process, so whatever owned that run is gone. Reporting
+      // it as running would show phantom work in flight forever — which is
+      // exactly how the two orphaned measure runs looked.
+      const raw = stored?.status;
+      const status: GraphRunResult["status"] =
+        raw === "completed" || raw === "blocked" || raw === "waiting"
+          ? raw
+          : raw === "running"
+            ? "blocked"
+            : derived;
 
       this.runs.set(runId, {
         runId,
@@ -312,10 +363,12 @@ export class VidGenService {
         createdAt: recs[0]?.started_at ?? new Date().toISOString(),
         active: new Set(),
         completedOutputs,
+        graph: runGraph,
+        storedStatus: status,
         last: {
           run_id: runId,
-          graph: `${this.graph.graph_id}@${this.graph.version}`,
-          status: allDone ? "completed" : hasFailure ? "blocked" : "waiting",
+          graph: runGraph,
+          status,
           outputs: Object.fromEntries(completedOutputs),
           waiting: [],
           failures: hasFailure
@@ -538,7 +591,13 @@ export class VidGenService {
     const failureBy = new Map((s.last?.failures ?? []).map((f) => [f.node_id, f]));
     const blocked = new Set(s.last?.blocked ?? []);
 
-    const nodes: NodeView[] = this.graph.nodes.map((n) => {
+    const currentGraph = `${this.graph.graph_id}@${this.graph.version}`;
+    const runGraph = s.graph ?? currentGraph;
+
+    // Node-level detail is only meaningful when the run used the graph we are
+    // holding. For anything else — a measure run, or a skeleton version since
+    // superseded — report the run without pretending to know its steps.
+    const nodes: NodeView[] = runGraph !== currentGraph ? [] : this.graph.nodes.map((n) => {
       const kind = nodeType(n);
       // Use both the last settled result AND the live event-driven completions.
       const artifact = outputs[n.id] ?? s.completedOutputs.get(n.id) ?? null;
