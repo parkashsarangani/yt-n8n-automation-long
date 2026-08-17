@@ -81,9 +81,20 @@ export interface NodeView {
   error?: string;
 }
 
+/**
+ * What kind of work a run was.
+ *
+ * Measurement runs outnumber production runs by an order of magnitude — one per
+ * public episode per day, forever — so a flat list buries the handful of runs
+ * that made a video. Classifying them lets the UI default to the ones an
+ * operator is actually looking for without discarding the rest.
+ */
+export type RunKind = "production" | "measure" | "discover" | "other";
+
 export interface RunView {
   run_id: string;
   graph: string;
+  kind: RunKind;
   brief: string;
   status: GraphRunResult["status"] | "running";
   created_at: string;
@@ -585,6 +596,13 @@ export class VidGenService {
     return rollup(await this.runRecords(runId)).cost_usd;
   }
 
+  private static kindOf(graph: string): RunKind {
+    if (graph.startsWith("skeleton")) return "production";
+    if (graph.startsWith("measure")) return "measure";
+    if (graph.startsWith("discover")) return "discover";
+    return "other";
+  }
+
   private view(s: RunState): RunView {
     const outputs = s.last?.outputs ?? {};
     const waitingBy = new Map((s.last?.waiting ?? []).map((w) => [w.node_id, w]));
@@ -630,9 +648,11 @@ export class VidGenService {
     const waiting = s.finished ? (s.last?.waiting ?? []) : [];
     const failures = s.finished ? (s.last?.failures ?? []).map((f) => ({ node_id: f.node_id, error: f.error })) : [];
 
+    const graph = s.last?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
     return {
       run_id: s.runId,
-      graph: s.last?.graph ?? `${this.graph.graph_id}@${this.graph.version}`,
+      graph,
+      kind: VidGenService.kindOf(graph),
       brief: s.brief,
       status,
       created_at: s.createdAt,
