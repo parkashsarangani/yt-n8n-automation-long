@@ -288,6 +288,12 @@ function textFfmpegPath() {
 let _lastThumbnailBackground = "gradient";
 function lastThumbnailBackground() { return _lastThumbnailBackground; }
 
+// What the layout actually chose. Reported so the guideline checks — headline
+// legible at small size, text inside its column, right region proportion — can
+// be asserted downstream instead of eyeballed.
+let _lastThumbnailLayout = null;
+function lastThumbnailLayout() { return _lastThumbnailLayout; }
+
 /**
  * Lay out thumbnail text as a left-hand column of stacked capitals.
  *
@@ -310,14 +316,17 @@ function layoutThumbnailText(raw, emphasis, colWidth) {
   if (!text) return { lines: [], colWidth: 0 };
 
   const emph = clean(emphasis).toUpperCase();
-  const COL_W = colWidth || 600;   // set from the photo, not fixed
+  const COL_W = colWidth || 500;   // set from the photo, not fixed
   // Uppercase Inter-Black, not mixed case: capitals carry noticeably more
   // advance, and the 0.62 tuned for sentence case let ANCIENT run past the
   // safe margin on its first real render.
   const CHAR_W = 0.70;
-  const MAX_SIZE = 132;
-  const MIN_SIZE = 46;
-  const MAX_LINES = 4;
+  // Guideline ranges: headline 90-160, secondary 45-80, at most three lines.
+  const MAX_SIZE = 160;
+  const MIN_HEADLINE = 90;
+  const MIN_SIZE = 45;
+  const MAX_SECONDARY = 80;
+  const MAX_LINES = 3;
 
   // Split into [before, emphasis, after] so an emphasised run stays whole.
   let segments;
@@ -342,7 +351,7 @@ function layoutThumbnailText(raw, emphasis, colWidth) {
     for (const word of seg.words) {
       const candidate = [...current, word].join(" ");
       // Keep the hook large: break early rather than shrink it to fit.
-      if (current.length > 0 && sizeFor(candidate.length) < (seg.hot ? 84 : 58)) {
+      if (current.length > 0 && sizeFor(candidate.length) < (seg.hot ? MIN_HEADLINE : 58)) {
         lines.push({ text: current.join(" "), hot: seg.hot });
         current = [word];
       } else {
@@ -370,8 +379,11 @@ function layoutThumbnailText(raw, emphasis, colWidth) {
   const longest = (hot) =>
     Math.max(0, ...lines.filter((l) => l.hot === hot).map((l) => l.text.length));
   const hotSize = Math.min(sizeFor(longest(true) || 1), MAX_SIZE);
-  const coolFit = longest(false) ? sizeFor(longest(false)) : MAX_SIZE;
-  const coolSize = Math.max(MIN_SIZE, Math.min(Math.round(hotSize * 0.62), coolFit));
+  const coolFit = longest(false) ? sizeFor(longest(false)) : MAX_SECONDARY;
+  const coolSize = Math.max(
+    MIN_SIZE,
+    Math.min(Math.round(hotSize * 0.58), coolFit, MAX_SECONDARY),
+  );
 
   for (const l of lines) l.size = Math.max(MIN_SIZE, l.hot ? hotSize : coolSize);
   return { lines, colWidth: COL_W };
@@ -420,6 +432,9 @@ async function analyseBackground(bin, bgPath) {
 
   return {
     side,
+    // Busyness of the side the type will sit on, which decides whether
+    // darkening is enough or the region needs blurring too.
+    sideDetail: side === "left" ? leftDetail : rightDetail,
     // How lopsided the picture is. A near-tie means neither side is really
     // clear, so the scrim has to work harder.
     contrastGap: Math.abs(leftDetail - rightDetail),
@@ -479,7 +494,7 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
   }
 
   // Decide the composition from the photograph rather than assuming one.
-  let look = { side: "left", contrastGap: 0, brightness: 0.5, sideBrightness: 0.5 };
+  let look = { side: "left", sideDetail: 0, contrastGap: 0, brightness: 0.5, sideBrightness: 0.5 };
   try {
     look = await analyseBackground(textBin, bgPath);
   } catch (e) {
@@ -488,16 +503,27 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
 
   // A busy or bright side needs a narrower column and a heavier scrim; an open
   // sky can carry wider type.
-  const colWidth = look.contrastGap > 12 ? 620 : 560;
+  // Text region 36-41% of the frame, inside the 30-45% guideline. The wider
+  // option is only taken when the picture is clearly lopsided and the quiet
+  // side can genuinely spare it.
+  const colWidth = look.contrastGap > 12 ? 520 : 460;
   const scrimAlpha = Math.min(0.84, 0.62 + look.sideBrightness * 0.22);
 
   const { lines } = layoutThumbnailText(text, emphasis, colWidth);
 
   const MARGIN = 56;
   const LEFT = look.side === "left" ? MARGIN : 1280 - MARGIN - colWidth;
+
+  // YouTube stamps the duration in the bottom-right of every thumbnail. On a
+  // right-hand column the last line can land under it, so the block is clamped
+  // above that zone rather than trusting vertical centring to stay clear.
+  const BADGE_TOP = 620;
   const lineGap = 0.06;
   const blockH = lines.reduce((h, l, i) => h + l.size + (i ? l.size * lineGap : 0), 0);
   let y = Math.max(28, Math.round((720 - blockH) / 2));
+  if (look.side === "right" && y + blockH > BADGE_TOP) {
+    y = Math.max(28, BADGE_TOP - blockH);
+  }
 
   const textFilters = lines.map((l) => {
     const thisY = Math.round(y);
@@ -513,15 +539,30 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
     );
   });
 
-  const vf = [
+  const base = [
     "scale=1280:720:force_original_aspect_ratio=increase",
     "crop=1280:720",
     "eq=contrast=1.22:saturation=1.45:brightness=0.02",
     "unsharp=5:5:0.8",
     "vignette=PI/5",
-    ...scrimFilters(look.side, colWidth + 220, scrimAlpha),
-    ...textFilters,
   ].join(",");
+
+  const overlays = [...scrimFilters(look.side, colWidth + 220, scrimAlpha), ...textFilters].join(",");
+
+  // Darkening alone stops working when the type sits over fine detail — a
+  // gravel field or foliage keeps punching through the scrim. Blur only that
+  // region, and only when the analysis says it is busy, so a clean sky is left
+  // sharp.
+  const blurW = colWidth + 120;
+  const blurX = look.side === "left" ? 0 : 1280 - blurW;
+  const needsBlur = look.sideDetail > 26;
+
+  const vf = needsBlur
+    ? `${base},split[bg][cut];[cut]crop=${blurW}:720:${blurX}:0,boxblur=12:1[blur];` +
+      `[bg][blur]overlay=${blurX}:0,${overlays}`
+    : `${base},${overlays}`;
+
+  const filterFlag = needsBlur ? "-filter_complex" : "-vf";
 
   // Spawned directly rather than through fluent-ffmpeg.
   //
@@ -533,14 +574,29 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
   await execFileAsync(textBin, [
     "-y",
     "-i", bgPath,
-    "-vf", vf,
+    filterFlag, vf,
     "-frames:v", "1",
     outPath,
   ], { timeout: 60000 });
   console.log(
     `[thumbnail] ${look.side} column, ${lines.length} line(s), ` +
-    `gap=${look.contrastGap.toFixed(1)} brightness=${look.sideBrightness.toFixed(2)}`,
+    `detail=${look.sideDetail.toFixed(1)}${needsBlur ? " (blurred)" : ""} ` +
+    `brightness=${look.sideBrightness.toFixed(2)}`,
   );
+  _lastThumbnailLayout = {
+    side: look.side,
+    lines: lines.length,
+    headline_px: Math.max(0, ...lines.filter((l) => l.hot).map((l) => l.size)),
+    secondary_px: Math.max(0, ...lines.filter((l) => !l.hot).map((l) => l.size)),
+    // Estimated, not measured — ffmpeg cannot report drawn extents. Enough to
+    // catch a line that has run past its column.
+    overflow_px: Math.max(
+      0,
+      ...lines.map((l) => Math.round(l.text.length * 0.70 * l.size) - colWidth),
+    ),
+    blurred: needsBlur,
+    text_region_pct: Math.round((colWidth / 1280) * 100),
+  };
   return outPath;
 }
 
@@ -1503,6 +1559,7 @@ app.post("/thumbnail", async (req, res) => {
       // fetched. Report what was actually used, not what was asked for, so the
       // engine never records a stock background it did not get.
       background: lastThumbnailBackground(),
+      layout: lastThumbnailLayout(),
     });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });

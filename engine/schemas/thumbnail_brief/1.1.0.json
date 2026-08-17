@@ -2,7 +2,7 @@
   "schema_id": "thumbnail_brief",
   "version": "1.1.0",
   "status": "active",
-  "description": "What the thumbnail should say and show, plus which words carry the hook. Additive optional fields only, so this is a MINOR bump per RFC 0007: existing 1.0.0 briefs stay valid, consumers on ^1 keep working, and no migrator is needed.",
+  "description": "What the thumbnail should say and show, plus which words carry the hook. Additive optional fields only, so this is a MINOR bump per RFC 0007: existing 1.0.0 briefs stay valid and no migrator is needed.",
   "produced_by": [
     "thumbnail_designer"
   ],
@@ -21,8 +21,8 @@
       "text": {
         "type": "string",
         "minLength": 2,
-        "maxLength": 48,
-        "description": "Overlay text, set in stacked capitals. Up to 48 characters now that it wraps across lines rather than shrinking to one — the renderer breaks and sizes it to fit the column it picks."
+        "maxLength": 30,
+        "description": "A visual HOOK, not the video title. Two to five words, ideally under 25 characters. The renderer sets it in stacked capitals over two or three lines. 30 is the hard cap rather than 25 so that briefs written under 1.0.0 stay valid — tightening below an existing bound would be a MAJOR bump per RFC 0007."
       },
       "background_query": {
         "type": "string",

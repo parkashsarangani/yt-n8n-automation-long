@@ -41,7 +41,7 @@
       },
       "text": {
         "type": "string",
-        "maxLength": 48,
+        "maxLength": 30,
         "description": "The text actually burned in, copied from the brief so the artifact is self-describing."
       },
       "background": {
