@@ -124,7 +124,12 @@ export class FakeSpeechProvider implements SpeechProvider {
 export class FakeImageProvider implements ImageProvider {
   readonly id = "fake/image";
   readonly prompts: string[] = [];
-  constructor(private readonly failOn: (prompt: string) => boolean = () => false) {}
+  readonly videoPrompts: string[] = [];
+  constructor(
+    private readonly failOn: (prompt: string) => boolean = () => false,
+    /** Which prompts this fake source "has" video for — mirrors a real stock source having no clip for some queries. */
+    private readonly hasVideoFor: (prompt: string) => boolean = () => false,
+  ) {}
 
   async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
     this.prompts.push(req.prompt);
@@ -139,6 +144,22 @@ export class FakeImageProvider implements ImageProvider {
         input_tokens: 0,
         output_tokens: 0,
         units: n,
+        cost_usd: 0,
+        provider: "fake",
+        model: this.id,
+      },
+    };
+  }
+
+  async generateVideo(req: { prompt: string; aspect: Aspect }) {
+    this.videoPrompts.push(req.prompt);
+    if (!this.hasVideoFor(req.prompt)) return null;
+    return {
+      video: { bytes: fakeBytes(`video:${req.aspect}:${req.prompt}`, 256), media_type: "video/mp4" },
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: 1,
         cost_usd: 0,
         provider: "fake",
         model: this.id,

@@ -1267,15 +1267,24 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       let degraded = false;
 
       const isTemplate = scene?.visual_source === "template";
-      const isStockVideo = !isTemplate && !!scene?.video_url;
+      const isStockVideoUrl = !isTemplate && !!scene?.video_url;
+      const isStockVideoInline = !isTemplate && !!scene?.video_base64;
 
       if (isTemplate) {
         if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
         // Templates render full-screen on their own dark background — no image composite.
         await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, null);
-      } else if (isStockVideo) {
+      } else if (isStockVideoUrl || isStockVideoInline) {
         const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
-        await downloadFile(scene.video_url, stockVideoPath);
+        if (isStockVideoInline) {
+          // VidGen engine: the asset collector already downloaded the clip
+          // (Pexels/Pixabay video search) and sends it inline, same as it
+          // does for images — the video is a stored artifact blob, not a
+          // URL this service could reach on its own.
+          await writeBase64(scene.video_base64, stockVideoPath);
+        } else {
+          await downloadFile(scene.video_url, stockVideoPath);
+        }
         await buildStockVideoScene(stockVideoPath, audioPath, duration, outPath, i, mood);
       } else {
         const imageUrls = scene?.images;

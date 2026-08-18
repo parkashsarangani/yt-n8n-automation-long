@@ -138,9 +138,11 @@ export class ComposeRenderer implements MediaRenderer {
           audio_base64: toBase64(s.audio),
           ...(s.alignment !== undefined ? { alignment: s.alignment } : {}),
         },
-        ...(s.image
-          ? { images_base64: [toBase64(s.image)] }
-          : { _degraded: true }), // no image: renderer substitutes a placeholder
+        ...(s.video
+          ? { video_base64: toBase64(s.video) }
+          : s.image
+            ? { images_base64: [toBase64(s.image)] }
+            : { _degraded: true }), // neither: renderer substitutes a placeholder
         ...(s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
         // Template scenes: tell long-compose to render via Remotion
         ...(s.template_category && !s.is_outro ? {

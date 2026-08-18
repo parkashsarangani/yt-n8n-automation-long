@@ -222,6 +222,46 @@ test("both rungs failing degrades the scene instead of failing the video", async
   assert.equal(h.images.prompts.length, 4); // 2 scenes x (primary + fallback)
 });
 
+test("asset worker prefers real stock video over a still when the source has footage", async () => {
+  const images = new FakeImageProvider(undefined, () => true); // video "available" for every query
+  const h = await harness({ images });
+  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
+
+  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
+  const payload = out.artifact.payload as {
+    scenes: Array<{ scene_index: number; source: string; video_uri?: string; image_uri?: string }>;
+    degraded_count: number;
+  };
+
+  for (const s of payload.scenes) {
+    assert.ok(s.video_uri, `scene ${s.scene_index} should have video_uri`);
+    assert.equal(s.image_uri, undefined);
+  }
+  assert.deepEqual(payload.scenes.map((s) => s.source), ["primary", "primary"]);
+  assert.equal(payload.degraded_count, 0);
+  // Video was tried before the image call for each scene.
+  assert.equal(h.images.prompts.length, 0);
+  assert.equal(h.images.videoPrompts.length, 2);
+});
+
+test("asset worker falls back to an image when the stock source has no video for these terms", async () => {
+  const h = await harness(); // default FakeImageProvider: no video for anything
+  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
+
+  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
+  const payload = out.artifact.payload as {
+    scenes: Array<{ video_uri?: string; image_uri?: string }>;
+  };
+
+  for (const s of payload.scenes) {
+    assert.equal(s.video_uri, undefined);
+    assert.ok(s.image_uri);
+  }
+  // Video is checked (and comes back empty) before falling through to the image call.
+  assert.equal(h.images.videoPrompts.length, 2);
+  assert.equal(h.images.prompts.length, 2);
+});
+
 test("identical prompts across scenes cost one blob, not two", async () => {
   const h = await harness();
   const duplicated = {

@@ -36,6 +36,7 @@ interface VoiceClip {
 interface AssetScene {
   scene_index: number;
   image_uri?: string;
+  video_uri?: string;
   source: string;
   template_category?: string;
   /** JSON-encoded string in the artifact, parsed at read time. */
@@ -89,13 +90,17 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
         }
 
         // A missing image is expected, not exceptional: the asset worker
-        // degrades to a placeholder rather than failing the video.
-        const image = asset?.image_uri ? await ctx.blobs.get(asset.image_uri) : undefined;
+        // degrades to a placeholder rather than failing the video. Video and
+        // image are mutually exclusive — the asset collector only ever sets
+        // one per scene, video first when the stock source had real footage.
+        const video = asset?.video_uri ? await ctx.blobs.get(asset.video_uri) : undefined;
+        const image = !video && asset?.image_uri ? await ctx.blobs.get(asset.image_uri) : undefined;
 
         scenes.push({
           scene_index: scene.scene_index,
           audio,
           audio_media_type: "audio/mpeg",
+          ...(video ? { video, video_media_type: "video/mp4" } : {}),
           ...(image ? { image, image_media_type: "image/png" } : {}),
           ...(alignment !== undefined ? { alignment } : {}),
           ...(scene.is_outro ? { is_outro: true } : {}),
@@ -136,7 +141,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       }
 
       const degraded =
-        result.degraded_scenes ?? scenes.filter((s) => s.image === undefined).length;
+        result.degraded_scenes ?? scenes.filter((s) => s.image === undefined && s.video === undefined).length;
 
       return {
         payload: {
