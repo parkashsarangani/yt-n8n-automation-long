@@ -58,8 +58,9 @@ async function harness(renderer = new FakeRenderer()) {
     role: "alignment",
   });
   const img0 = await blobs.put(new TextEncoder().encode("i0"), { role: "image" });
+  const vid0 = await blobs.put(new TextEncoder().encode("v0"), { role: "video" });
 
-  return { registry, store, blobs, runLog, runner, renderer, seed, audio0, audio1, align0, img0 };
+  return { registry, store, blobs, runLog, runner, renderer, seed, audio0, audio1, align0, img0, vid0 };
 }
 
 test("render joins three artifacts by scene_index and stores the video", async () => {
@@ -115,6 +116,41 @@ test("render joins three artifacts by scene_index and stores the video", async (
   assert.equal(req.scenes[1]!.image, undefined);
   // Alignment was fetched from its blob and decoded.
   assert.deepEqual(req.scenes[0]!.alignment, { characters: ["a"] });
+});
+
+test("a scene with real stock video gets video, not image, and the two never both appear", async () => {
+  const h = await harness();
+  const script = await h.seed("script", SCRIPT, "script_writer");
+  const voice = await h.seed(
+    "voice",
+    {
+      voice_id: "v1",
+      clips: [
+        { scene_index: 0, audio_uri: h.audio0.uri, duration_sec: 4 },
+        { scene_index: 1, audio_uri: h.audio1.uri, duration_sec: 5 },
+      ],
+    },
+    "voice",
+  );
+  const assets = await h.seed(
+    "asset_manifest",
+    {
+      scenes: [
+        { scene_index: 0, video_uri: h.vid0.uri, source: "primary", prompt: "p0" },
+        { scene_index: 1, image_uri: h.img0.uri, source: "primary", prompt: "p1" },
+      ],
+      degraded_count: 0,
+    },
+    "asset_collector",
+  );
+
+  await h.runner.run(makeRenderWorker(), [script.artifact_id, voice.artifact_id, assets.artifact_id]);
+
+  const req = h.renderer.requests[0]!;
+  assert.ok(req.scenes[0]!.video);
+  assert.equal(req.scenes[0]!.image, undefined);
+  assert.ok(req.scenes[1]!.image);
+  assert.equal(req.scenes[1]!.video, undefined);
 });
 
 test("the external job id is written to the run log while the job is in flight", async () => {
@@ -260,6 +296,39 @@ test("compose renderer polls until done and surfaces the job id immediately", as
   assert.deepEqual([...result.video], [1, 2, 3]);
   assert.equal(calls.filter((c) => c.includes("/compose-status/")).length, 3);
   assert.ok(calls.some((c) => c.includes("/outputs/long_x.mp4")));
+});
+
+test("compose renderer sends a scene's video as video_base64, never alongside images_base64", async () => {
+  const { fetchImpl } = composeStub([
+    { status: "done", success: true, output_path: "/app/outputs/x.mp4" },
+  ]);
+  let sentBody: Record<string, unknown> | undefined;
+  const capturingFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).endsWith("/compose")) sentBody = JSON.parse(String(init?.body));
+    return fetchImpl(input, init);
+  }) as unknown as typeof fetch;
+
+  const renderer = new ComposeRenderer({
+    baseUrl: "https://compose.example",
+    fetchImpl: capturingFetch,
+    sleepImpl: noSleep,
+  });
+
+  await renderer.render({
+    scenes: [
+      {
+        scene_index: 0,
+        audio: new Uint8Array([1]),
+        audio_media_type: "audio/mpeg",
+        video: new Uint8Array([9, 9]),
+        video_media_type: "video/mp4",
+      },
+    ],
+  });
+
+  const scene = (sentBody!["data"] as Array<Record<string, unknown>>)[0]!;
+  assert.ok(scene["video_base64"]);
+  assert.equal(scene["images_base64"], undefined);
 });
 
 test("compose renderer reports the service's own error on a failed job", async () => {

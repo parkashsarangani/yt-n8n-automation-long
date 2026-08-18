@@ -73,6 +73,19 @@ export interface ImageProvider {
     images: Array<{ bytes: Uint8Array; media_type: string }>;
     usage: Usage;
   }>;
+  /**
+   * Optional: a provider that can also supply real stock video b-roll for the
+   * same search terms. Returns null (not a rejected promise) when the source
+   * has no video for this query, so the asset collector can fall through to
+   * a still image the same way it already falls through primary -> fallback.
+   */
+  generateVideo?(req: {
+    prompt: string;
+    aspect: Aspect;
+  }): Promise<{
+    video: { bytes: Uint8Array; media_type: string };
+    usage: Usage;
+  } | null>;
 }
 
 /** One scene as the renderer needs it: audio, optional image, timing data. */
@@ -83,6 +96,9 @@ export interface RenderScene {
   /** Absent for a degraded scene; the renderer substitutes a house placeholder. */
   image?: Uint8Array;
   image_media_type?: string;
+  /** Real stock footage for this scene, mutually exclusive with `image`. */
+  video?: Uint8Array;
+  video_media_type?: string;
   /** Word/character timings, for burned-in captions. */
   alignment?: unknown;
   is_outro?: boolean;
