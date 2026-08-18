@@ -46,6 +46,7 @@ import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
+import { buildManualEpisode, type ManualScriptInput } from "./manual-script.ts";
 import { Scheduler, type Job, type JobStatus } from "./scheduler.ts";
 import {
   GraphExecutor,
@@ -136,6 +137,7 @@ export class VidGenService {
   private graph!: GraphDoc;
   private measureGraph!: GraphDoc;
   private discoverGraph!: GraphDoc;
+  private manualGraph!: GraphDoc;
   private scheduler: Scheduler | undefined;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
@@ -174,6 +176,7 @@ export class VidGenService {
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
     svc.measureGraph = await loadGraph(path.join(opts.root, "graphs", "measure.json"));
     svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
+    svc.manualGraph = await loadGraph(path.join(opts.root, "graphs", "manual.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -254,6 +257,7 @@ export class VidGenService {
       }),
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
+    validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
 
     const providers = new ProviderRouter({
       reasoning_high: new AnthropicProvider({ model: "claude-opus-5", effort: "high" }),
@@ -353,8 +357,10 @@ export class VidGenService {
       // table already knows how each finished, so trust that and only fall back
       // to counting nodes when there is no stored status.
       const runGraph = stored?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
-      const onCurrentGraph = runGraph === `${this.graph.graph_id}@${this.graph.version}`;
-      const allDone = onCurrentGraph && completedOutputs.size === this.graph.nodes.length;
+      const matchedGraph = [this.graph, this.manualGraph].find(
+        (g) => `${g.graph_id}@${g.version}` === runGraph,
+      );
+      const allDone = !!matchedGraph && completedOutputs.size === matchedGraph.nodes.length;
       const derived = allDone ? "completed" : hasFailure ? "blocked" : "waiting";
       // A row still marked "running" at reload time is stale by definition:
       // this is a fresh process, so whatever owned that run is gone. Reporting
@@ -424,7 +430,7 @@ export class VidGenService {
     if (e.type === "gate_settled" && e.approved) {
       // Gate approvals are identity pass-throughs — find the upstream artifact
       // from the last result's outputs (the gate's input node).
-      const gateNode = this.graph.nodes.find(n => n.id === e.node_id);
+      const gateNode = this.resolveRunGraph(state.graph).nodes.find(n => n.id === e.node_id);
       const upstreamId = gateNode ? (inputsOf(gateNode)[0] ?? null) : null;
       const upstreamArtifact = upstreamId
         ? (state.last?.outputs?.[upstreamId] ?? state.completedOutputs.get(upstreamId) ?? null)
@@ -509,6 +515,7 @@ export class VidGenService {
       runId,
       brief: trimmed,
       createdAt: new Date().toISOString(),
+      graph: `${this.graph.graph_id}@${this.graph.version}`,
       active: new Set(),
       completedOutputs: new Map(),
       last: null,
@@ -523,13 +530,78 @@ export class VidGenService {
     return runId;
   }
 
+  /**
+   * Start a run from an operator-written hook and narration. story_architect
+   * and script_writer never run — manual-script.ts builds their artifacts
+   * mechanically — but every stage after that (visuals, voice, SEO, thumbnail,
+   * render, QA, publish) runs exactly as it does for an AI-drafted episode.
+   */
+  async startManualRun(input: ManualScriptInput, durationSec = 540): Promise<string> {
+    const episode = buildManualEpisode(input); // throws with a clear message on bad input
+
+    const runId = `run_${randomUUID()}`;
+    const brief = episode.story.title;
+    console.log(`[run ${runId.slice(4, 12)}] starting (manual script): "${brief}" (${durationSec}s)`);
+
+    if (this.runLog instanceof PgRunLog) {
+      await this.runLog.createRun(runId, brief, `${this.manualGraph.graph_id}@${this.manualGraph.version}`);
+    }
+
+    const intent = await this.store.put({
+      schema_id: "intent",
+      payload: { brief, target_duration_sec: durationSec },
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+    const story = await this.store.put({
+      schema_id: "story",
+      payload: episode.story,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+    const script = await this.store.put({
+      schema_id: "script",
+      payload: episode.script,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+
+    this.runs.set(runId, {
+      runId,
+      brief,
+      createdAt: new Date().toISOString(),
+      graph: `${this.manualGraph.graph_id}@${this.manualGraph.version}`,
+      active: new Set(),
+      completedOutputs: new Map(),
+      last: null,
+      finished: false,
+      error: null,
+    });
+
+    void this.drive(runId, () =>
+      this.executor.start(
+        this.manualGraph,
+        {
+          intent: intent.artifact.artifact_id,
+          story: story.artifact.artifact_id,
+          script: script.artifact.artifact_id,
+        },
+        { runId },
+      ),
+    );
+    return runId;
+  }
+
+  /** Resolves which loaded graph a run used, falling back to the AI-driven one. */
+  private resolveRunGraph(ref: string | undefined): GraphDoc {
+    return [this.graph, this.manualGraph].find((g) => `${g.graph_id}@${g.version}` === ref) ?? this.graph;
+  }
+
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
     if (!state.finished) throw new Error(`run ${runId} is still executing`);
     state.finished = false;
     state.error = null;
-    void this.drive(runId, () => this.executor.resume(this.graph, runId, { [nodeId]: decision }));
+    const graph = this.resolveRunGraph(state.graph);
+    void this.drive(runId, () => this.executor.resume(graph, runId, { [nodeId]: decision }));
   }
 
   /** Retry a failed run from where it stopped — completed nodes are preserved. */
@@ -540,7 +612,8 @@ export class VidGenService {
     state.finished = false;
     state.error = null;
     console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
-    void this.drive(runId, () => this.executor.resume(this.graph, runId, {}));
+    const graph = this.resolveRunGraph(state.graph);
+    void this.drive(runId, () => this.executor.resume(graph, runId, {}));
   }
 
   private async drive(runId: string, fn: () => Promise<GraphRunResult>): Promise<void> {
@@ -598,6 +671,7 @@ export class VidGenService {
 
   private static kindOf(graph: string): RunKind {
     if (graph.startsWith("skeleton")) return "production";
+    if (graph.startsWith("manual")) return "production";
     if (graph.startsWith("measure")) return "measure";
     if (graph.startsWith("discover")) return "discover";
     return "other";
@@ -609,13 +683,16 @@ export class VidGenService {
     const failureBy = new Map((s.last?.failures ?? []).map((f) => [f.node_id, f]));
     const blocked = new Set(s.last?.blocked ?? []);
 
-    const currentGraph = `${this.graph.graph_id}@${this.graph.version}`;
-    const runGraph = s.graph ?? currentGraph;
+    const runGraph = s.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
+    // Node-level detail is only meaningful when the run used a graph we are
+    // currently holding, at the exact version we hold it. For anything else —
+    // a measure run, or a skeleton/manual version since superseded — report
+    // the run without pretending to know its steps.
+    const matchedGraph = [this.graph, this.manualGraph].find(
+      (g) => `${g.graph_id}@${g.version}` === runGraph,
+    );
 
-    // Node-level detail is only meaningful when the run used the graph we are
-    // holding. For anything else — a measure run, or a skeleton version since
-    // superseded — report the run without pretending to know its steps.
-    const nodes: NodeView[] = runGraph !== currentGraph ? [] : this.graph.nodes.map((n) => {
+    const nodes: NodeView[] = !matchedGraph ? [] : matchedGraph.nodes.map((n) => {
       const kind = nodeType(n);
       // Use both the last settled result AND the live event-driven completions.
       const artifact = outputs[n.id] ?? s.completedOutputs.get(n.id) ?? null;
@@ -648,7 +725,7 @@ export class VidGenService {
     const waiting = s.finished ? (s.last?.waiting ?? []) : [];
     const failures = s.finished ? (s.last?.failures ?? []).map((f) => ({ node_id: f.node_id, error: f.error })) : [];
 
-    const graph = s.last?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
+    const graph = s.last?.graph ?? runGraph;
     return {
       run_id: s.runId,
       graph,

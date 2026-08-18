@@ -1,0 +1,130 @@
+{
+  "schema_id": "story",
+  "version": "1.2.0",
+  "status": "active",
+  "description": "Adds \"human\" to the producer allowlist: the manual-script flow lets an operator write their own hook and acts instead of story_architect, so a story artifact can now legitimately come from either. No change to the payload shape — produced_by only gates writes, never reads — so this is a MINOR bump per RFC 0007: existing story@1.0.0/1.1.0 artifacts stay valid, consumers on ^1 keep working, and no migrator is needed.",
+  "produced_by": [
+    "story_architect",
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "StoryArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "topic",
+      "title",
+      "hook",
+      "acts",
+      "payoff",
+      "outro_line"
+    ],
+    "properties": {
+      "topic": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 300
+      },
+      "title": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 100
+      },
+      "hook": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600
+      },
+      "acts": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 6,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "act_index",
+            "act_title",
+            "premise",
+            "target_words"
+          ],
+          "properties": {
+            "act_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "act_title": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 120
+            },
+            "premise": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 1200
+            },
+            "target_words": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 1200
+            }
+          }
+        }
+      },
+      "payoff": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 800
+      },
+      "comment_hook": {
+        "type": "string",
+        "maxLength": 300
+      },
+      "outro_line": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 300
+      },
+      "seo_description": {
+        "type": "string",
+        "maxLength": 4500,
+        "description": "DEPRECATED. Superseded by the seo_metadata artifact, which is written from the finished script rather than the premise. Kept so story@1.1.0 artifacts written before the SEO agent existed stay valid; the story prompt no longer asks for it and publish no longer reads it."
+      },
+      "tags": {
+        "type": "array",
+        "minItems": 5,
+        "maxItems": 20,
+        "items": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "description": "DEPRECATED. Superseded by seo_metadata.tags. Retained for artifacts written before the SEO agent existed. Note these permitted 20 tags of 60 chars — up to 1200 characters — which exceeds YouTube's 500-character aggregate tag budget; seo_metadata is bounded to fit."
+      },
+      "retention_beats": {
+        "type": "array",
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at_fraction",
+            "device"
+          ],
+          "properties": {
+            "at_fraction": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "device": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -129,6 +129,30 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // The operator writes the hook and narration themselves — story_architect
+    // and script_writer never run for this run. Everything from visuals onward
+    // still runs exactly as it does for an AI-drafted episode.
+    if (route === "POST /api/runs/manual") {
+      const body = (await readJson(req)) as {
+        title?: string;
+        hook?: string;
+        narration?: string;
+        topic?: string;
+        duration_sec?: number;
+      };
+      const runId = await service.startManualRun(
+        {
+          title: String(body.title ?? ""),
+          hook: String(body.hook ?? ""),
+          narration: String(body.narration ?? ""),
+          topic: body.topic,
+        },
+        body.duration_sec ?? 540,
+      );
+      json(res, 201, { run_id: runId });
+      return;
+    }
+
     const runMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (req.method === "GET" && runMatch) {
       const run = service.getRun(runMatch[1]!);

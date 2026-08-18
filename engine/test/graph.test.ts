@@ -34,6 +34,12 @@ test("the shipped skeleton graph is statically valid", async () => {
   assert.doesNotThrow(() => validateGraph(g, d));
 });
 
+test("the shipped manual graph is statically valid", async () => {
+  const g = await loadGraph(path.join(ROOT, "graphs", "manual.json"));
+  const d = await deps();
+  assert.doesNotThrow(() => validateGraph(g, d));
+});
+
 test("catches a mis-wired edge before a token is spent", async () => {
   const d = await deps();
   // script_writer consumes a story; this hands it an intent.

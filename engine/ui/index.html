@@ -330,16 +330,43 @@
     <div>
       <section>
         <h2>New run</h2>
-        <label for="brief">What should the video be about?</label>
-        <textarea id="brief" placeholder="why Chile is so incredibly long"></textarea>
-        <label for="dur">Target length (seconds)</label>
-        <input id="dur" type="number" value="540" min="30" max="3600" />
-        <div class="row" style="margin-top:12px">
-          <button id="start">Start run</button>
-          <button id="suggest" style="background:#1f2937">Suggest topics</button>
-          <span class="muted" id="startMsg"></span>
+        <div class="row" style="margin-bottom:14px">
+          <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="runMode" id="modeAi" checked /> AI writes the script
+          </label>
+          <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="runMode" id="modeManual" /> I'll provide the script
+          </label>
         </div>
-        <div id="candidates" style="margin-top:14px"></div>
+
+        <div id="aiForm">
+          <label for="brief">What should the video be about?</label>
+          <textarea id="brief" placeholder="why Chile is so incredibly long"></textarea>
+          <label for="dur">Target length (seconds)</label>
+          <input id="dur" type="number" value="540" min="30" max="3600" />
+          <div class="row" style="margin-top:12px">
+            <button id="start">Start run</button>
+            <button id="suggest" style="background:#1f2937">Suggest topics</button>
+            <span class="muted" id="startMsg"></span>
+          </div>
+          <div id="candidates" style="margin-top:14px"></div>
+        </div>
+
+        <div id="manualForm" style="display:none">
+          <label for="manualTitle">Title</label>
+          <input id="manualTitle" type="text" placeholder="Why Chile Is So Incredibly Long" />
+          <label for="manualHook">Hook — the line the video speaks first</label>
+          <textarea id="manualHook" placeholder="the opening line(s) that earn the next ten seconds"></textarea>
+          <label for="manualNarration">Narration — everything after the hook</label>
+          <textarea id="manualNarration" style="min-height:220px"
+            placeholder="paste the rest of the script — a blank line between paragraphs marks a scene break"></textarea>
+          <label for="manualDur">Target length (seconds)</label>
+          <input id="manualDur" type="number" value="540" min="30" max="3600" />
+          <div class="row" style="margin-top:12px">
+            <button id="startManual">Start run</button>
+            <span class="muted" id="startManualMsg"></span>
+          </div>
+        </div>
       </section>
 
       <section>
@@ -533,6 +560,36 @@
     };
 
     // ---------- runs ----------
+    $("modeAi").onchange = $("modeManual").onchange = () => {
+      const manual = $("modeManual").checked;
+      $("aiForm").style.display = manual ? "none" : "";
+      $("manualForm").style.display = manual ? "" : "none";
+    };
+
+    $("startManual").onclick = async () => {
+      const title = $("manualTitle").value.trim();
+      const hook = $("manualHook").value.trim();
+      const narration = $("manualNarration").value.trim();
+      if (title.length < 5) { $("startManualMsg").textContent = "title needs at least 5 characters"; return; }
+      if (hook.length < 10) { $("startManualMsg").textContent = "hook needs at least 10 characters"; return; }
+      if (narration.length < 5) { $("startManualMsg").textContent = "paste the narration"; return; }
+      $("startManual").disabled = true;
+      $("startManualMsg").textContent = "starting…";
+      try {
+        const { run_id } = await api("/api/runs/manual", {
+          method: "POST",
+          body: JSON.stringify({ title, hook, narration, duration_sec: Number($("manualDur").value) || 540 }),
+        });
+        $("startManualMsg").textContent = "";
+        select(run_id);
+        await refresh();
+      } catch (e) {
+        $("startManualMsg").textContent = e.message;
+      } finally {
+        $("startManual").disabled = false;
+      }
+    };
+
     $("start").onclick = async () => {
       const brief = $("brief").value.trim();
       if (brief.length < 8) { $("startMsg").textContent = "say a bit more"; return; }
