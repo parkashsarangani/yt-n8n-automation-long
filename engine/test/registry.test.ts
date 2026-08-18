@@ -48,9 +48,10 @@ test("loads the real project schemas", async () => {
   for (const id of ["intent", "story", "script", "visual_plan", "voice", "asset_manifest", "rendered_video", "published_episode"]) {
     assert.ok(reg.has(id), `expected schema "${id}"`);
   }
-  // story carries an additive minor bump; everything else is still at 1.0.0.
-  assert.equal(reg.resolveVersion("story"), "1.1.0");
-  assert.equal(reg.resolveVersion("script"), "1.0.0");
+  // story and script each carry an additive minor bump (RFC 0007) that widens
+  // produced_by to allow "human", for the manual-script flow.
+  assert.equal(reg.resolveVersion("story"), "1.2.0");
+  assert.equal(reg.resolveVersion("script"), "1.1.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {
