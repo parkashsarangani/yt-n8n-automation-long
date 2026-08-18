@@ -1,0 +1,89 @@
+{
+  "schema_id": "visual_plan",
+  "version": "1.2.0",
+  "status": "active",
+  "description": "Narrows template_category to the seven motion graphics templates that actually exist and adds \"comparison\" (previously unreachable). The other four values (\"data\", \"roller\", \"cinematic\", \"reveal\") were never implemented with a matching template_data shape, so every scene that picked one rendered a placeholder. MINOR bump per RFC 0007: only widens what the field means going forward, on the same string type; a historical artifact using a removed value is a past render, never re-validated.",
+  "produced_by": [
+    "visual_planner",
+    "script_writer"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "VisualPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "scenes"
+    ],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "search_terms",
+            "visual_style",
+            "fallback_terms"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "search_terms": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 6,
+              "items": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 120
+              },
+              "description": "Concrete photographable subjects for AI image generation."
+            },
+            "visual_style": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 120
+            },
+            "fallback_terms": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 4,
+              "items": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 120
+              }
+            },
+            "template_category": {
+              "type": "string",
+              "enum": [
+                "timeline",
+                "ranking",
+                "chart",
+                "counter",
+                "comparison",
+                "list",
+                "text"
+              ],
+              "description": "If set, this scene uses a motion graphics template instead of (or overlaid on) the AI image. Each value maps to exactly one hand-built composition — see engine/prompts/visual_planner for the template_data shape each one expects."
+            },
+            "template_data": {
+              "type": "string",
+              "description": "JSON-encoded props for the template. Examples: {\"events\":[{\"year\":\"1947\",\"title\":\"Independence\"}],\"title\":\"Timeline\"} for timeline, {\"items\":[{\"name\":\"China\",\"value\":\"1.4B\"}],\"title\":\"Top\"} for ranking, {\"value\":\"4,300 km\",\"label\":\"LENGTH\"} for counter, {\"leftLabel\":\"BEFORE\",\"leftValue\":\"$100\",\"rightLabel\":\"AFTER\",\"rightValue\":\"$10,000\"} for comparison."
+            }
+          }
+        }
+      },
+      "house_style": {
+        "type": "string",
+        "maxLength": 300
+      }
+    }
+  }
+}

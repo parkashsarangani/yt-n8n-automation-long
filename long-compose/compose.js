@@ -866,76 +866,82 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
 // ---------------------------------------------------------------------------
 
 async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood, bgImagePath = null) {
-  // --- Direct name → composition ID map (existing templates) ---
+  // Seven categories, one battle-tested composition each — deliberately no
+  // random pool. A pool of look-alike components sharing one generic prop
+  // shape meant most renders silently fell back to a component's own
+  // hardcoded placeholder text, because the shared shape didn't actually
+  // match what that particular component reads. One fixed composition per
+  // category, with props mapped from its *exact* fields, means what the
+  // visual planner asks for is what actually renders — every time.
+  //
+  // Each buildProps mirrors the template_data shape documented in
+  // engine/prompts/visual_planner for that category.
+  const categoryMap = {
+    timeline: {
+      compositionId: "DataTimeline",
+      buildProps: (d) => ({ events: d.events, title: d.title }),
+    },
+    ranking: {
+      compositionId: "DataRanking",
+      // The component numbers each row itself; the AI only supplies name+value.
+      buildProps: (d) => ({
+        items: (d.items || []).map((it, i) => ({ rank: i + 1, name: it.name, value: it.value })),
+        title: d.title,
+      }),
+    },
+    chart: {
+      compositionId: "DataBarChart",
+      buildProps: (d) => ({ items: d.items, title: d.title }),
+    },
+    list: {
+      compositionId: "ListNumberedVertical",
+      buildProps: (d) => ({ items: (d.items || []).map((text) => ({ text })), title: d.title }),
+    },
+    counter: {
+      compositionId: "StatReveal",
+      // A pre-formatted display string ("4,300 km", "3.5x") beats a raw
+      // from/to/unit split — it lets the AI pick whatever format actually
+      // reads well, and StatReveal just displays it.
+      buildProps: (d) => ({ statValue: d.value, label: d.label }),
+    },
+    comparison: {
+      compositionId: "Comparison",
+      buildProps: (d) => ({
+        leftLabel: d.leftLabel, leftValue: d.leftValue,
+        rightLabel: d.rightLabel, rightValue: d.rightValue,
+      }),
+    },
+    text: {
+      compositionId: "KineticText",
+      buildProps: (d) => ({ line: d.text }),
+    },
+  };
+
+  // Direct composition names, from before categories existed. Kept as a
+  // literal escape hatch — each still needs its own field names read.
   const directMap = {
     stat_reveal: "StatReveal",
     comparison: "Comparison",
     kinetic_text: "KineticText",
   };
 
-  // --- Category pools: the AI specifies a category, we pick randomly ---
-  const categoryPools = {
-    list: [
-      "ListAsymmetric3", "ListNumberedVertical", "ListStaggered",
-      "ListFullscreenSequence", "ListMinimalLeft", "ListStatsFocused",
-      "ListTimeline", "ListUnevenGrid", "ListTwoColumnCompare",
-      "ListSimpleText", "ListHorizontalPeek", "ListHeroWithList",
-    ],
-    data: [
-      "DataBarChart", "DataLineChart", "DataPieChart", "DataStatsCards",
-      "DataProgressBars", "DataTimeline", "DataRanking", "DataGauge",
-    ],
-    text: [
-      "TextKinetic", "TextScramble", "TextWave", "TextSplit",
-      "TextMaskReveal", "TextGlitch", "TextNeon", "Text3DFlip",
-      "TextTypewriter", "TextCounter", "TextGradient", "TextExplode",
-    ],
-    roller: [
-      "RollerSlotMachine", "RollerFlip", "RollerFadeSlide", "RollerBlur",
-      "RollerScaleBounce", "RollerGlitch", "RollerWave", "RollerTypewriter",
-      "RollerLiquid", "RollerVerticalList", "RollerDrum", "RollerMaskSlide",
-      "RollerSlotReveal", "RollerDramaticStop", "RollerMultiSlot",
-      "RollerCountdown", "RollerOutlineHighlight", "RollerPerspectiveStripes",
-      "RollerShuffle", "Roller3DCarousel", "RollerSplitFlap", "RollerGradientWave",
-    ],
-    cinematic: [
-      "CinematicEpic", "CinematicHorror", "CinematicRomance", "CinematicAction",
-      "CinematicDocumentary", "CinematicSciFi", "CinematicNoir", "CinematicAnime",
-      "CinematicVintage", "CinematicMinimalEnd",
-    ],
-    // Sub-category shortcuts for AI convenience
-    timeline: ["ListTimeline", "DataTimeline"],
-    ranking: ["DataRanking", "ListStatsFocused"],
-    chart: ["DataBarChart", "DataLineChart", "DataPieChart", "DataGauge"],
-    counter: ["TextCounter", "RollerCountdown", "RollerSplitFlap", "RollerDramaticStop"],
-    reveal: ["TextMaskReveal", "TextKinetic", "TextGradient", "ListStaggered"],
-  };
-
-  // Resolve composition ID: direct map first, then category pool, then treat as literal ID
-  let compositionId;
-  if (directMap[templateName]) {
-    compositionId = directMap[templateName];
-  } else if (categoryPools[templateName]) {
-    const pool = categoryPools[templateName];
-    compositionId = pool[Math.floor(Math.random() * pool.length)];
-    console.log(`[template] category "${templateName}" → picked "${compositionId}"`);
-  } else {
-    // Assume it's a direct composition ID (e.g. "DataBarChart")
-    compositionId = templateName;
-  }
-
-  // Build props — pass all template_data through as props + mood + background
   // Parse template_data if it's still a string (shouldn't be, but defensive)
   const parsedData = typeof templateData === "string" ? JSON.parse(templateData) : (templateData || {});
-  let props = { mood: mood || "neutral", ...parsedData };
 
-  // Normalize props: the AI outputs generic structures (items, events, title)
-  // but each template expects specific prop names. Map common patterns.
-  if (parsedData.text && !props.line) props.line = parsedData.text;
-  if (parsedData.title && !props.heroLines) props.heroLines = [parsedData.title];
-  if (parsedData.from !== undefined && !props.words) {
-    // Counter templates: pass as words for roller, or text for TextCounter
-    props.text = props.text || `${parsedData.from} → ${parsedData.to}${parsedData.unit || ""}`;
+  let compositionId;
+  let props;
+  const category = categoryMap[templateName];
+  if (category) {
+    compositionId = category.compositionId;
+    props = { mood: mood || "neutral", ...category.buildProps(parsedData) };
+    console.log(`[template] category "${templateName}" → "${compositionId}"`);
+  } else if (directMap[templateName]) {
+    compositionId = directMap[templateName];
+    props = { mood: mood || "neutral", ...parsedData };
+  } else {
+    // Unknown name: assume it's a literal composition ID and pass data through.
+    compositionId = templateName;
+    props = { mood: mood || "neutral", ...parsedData };
   }
 
   console.log(`[template] ${compositionId} props keys: ${Object.keys(props).join(", ")}`);
@@ -949,17 +955,18 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     }
   }
 
-  // Legacy prop mapping for existing templates
-  if (compositionId === "StatReveal") {
+  // Legacy field names for the three direct-name templates, only when reached
+  // by their old literal name rather than through a category above.
+  if (!category && compositionId === "StatReveal") {
     props.statValue = templateData?.statValue || props.statValue || "";
     props.label = templateData?.label || props.label || "";
     props.icon = templateData?.icon || "activity";
-  } else if (compositionId === "Comparison") {
+  } else if (!category && compositionId === "Comparison") {
     props.leftLabel = templateData?.leftLabel || "";
     props.leftValue = templateData?.leftValue || "";
     props.rightLabel = templateData?.rightLabel || "";
     props.rightValue = templateData?.rightValue || "";
-  } else if (compositionId === "KineticText") {
+  } else if (!category && compositionId === "KineticText") {
     props.line = templateData?.line || props.line || "";
   }
 
