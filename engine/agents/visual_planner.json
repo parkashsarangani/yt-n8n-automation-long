@@ -1,10 +1,10 @@
 {
   "name": "visual_planner",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [{ "schema_id": "script", "range": "^1", "as": "script" }],
   "produces": "visual_plan",
-  "prompt": "visual_planner@1",
+  "prompt": "visual_planner@2",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 16000,
