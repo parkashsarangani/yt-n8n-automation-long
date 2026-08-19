@@ -1,7 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-
-      <path d="M330 370 Q375 410 374 500 Q370 535 345 548 Q324 542 322 515 Q340 445 295 395 Z"
-            fill="#F2C7A5" stroke="#111111" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="349" cy="535" r="24" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
-    
+  <path d="M330 370 Q375 410 374 500 Q370 535 345 548 Q324 542 322 515 Q340 445 295 395 Z" fill="#DFAE8C" stroke="#111111" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="349" cy="535" r="24" fill="#DFAE8C" stroke="#111111" stroke-width="8"/>
 </svg>

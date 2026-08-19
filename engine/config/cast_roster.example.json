@@ -5,22 +5,22 @@
       "name": "Host",
       "voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID",
       "rig": "pilot",
-      "personality": "skeptical, observant, dry humor; challenges weak explanations",
+      "personality": "skeptical, observant, dry humor; challenges weak explanations and delivers the grounded perspective",
       "default_expression": "normal",
-      "visual_description": "Young adult 2D cartoon host with a compact readable silhouette. Keep the exact hair shape, skin tone, face proportions and clothing from the pilot rig; clean thick dark outlines and simple flat shading.",
-      "thumbnail_traits": "Large readable eyes and brows, strong head silhouette, expressive skeptical/surprised reactions, clothing colours must separate clearly from the background.",
-      "color_palette": ["#4C89C6", "#F2C7A5", "#111111"]
+      "visual_description": "Recurring 2D cartoon host with a slim angular silhouette, swept charcoal hair with a small teal streak, warm tan skin, teal jacket over a cream shirt, charcoal trousers and light sneakers. Keep the narrow face, asymmetric jacket and teal accent identical across thumbnails.",
+      "thumbnail_traits": "Sharp swept-hair silhouette, teal jacket, skeptical eyebrow acting and big readable surprise reactions. Usually the grounded/reactive anchor of the composition.",
+      "color_palette": ["#147D84", "#49B4BA", "#F4E9D5", "#DFAE8C", "#20343D"]
     },
     {
       "character_id": "buddy",
       "name": "Buddy",
       "voice_id": "REPLACE_WITH_SECOND_ELEVENLABS_VOICE_ID",
       "rig": "pilot-2",
-      "personality": "curious, energetic, asks the obvious question the viewer is thinking",
+      "personality": "curious, energetic, emotionally transparent; asks the obvious question the viewer is thinking and creates reaction beats",
       "default_expression": "normal",
-      "visual_description": "Second recurring 2D cartoon character using the pilot-2 rig. Preserve its exact silhouette, hair, face proportions and clothing across thumbnail artwork; clean thick dark outlines and simple flat shading.",
-      "thumbnail_traits": "Energetic open expressions and clear surprise; must remain visibly distinct from the host at small thumbnail size.",
-      "color_palette": ["#6FB8B2", "#F2C7A5", "#111111"]
+      "visual_description": "Recurring 2D cartoon buddy with a broad round silhouette, oversized dark-brown curly hair, warm brown skin, mustard hoodie, blue-gray trousers and dark shoes. Keep the round face, large hair mass and mustard hoodie identical across thumbnails.",
+      "thumbnail_traits": "Large curly-hair silhouette, mustard hoodie and open energetic reactions. Should contrast immediately with the slim teal host even at tiny thumbnail size.",
+      "color_palette": ["#E3A62F", "#C9831F", "#C98968", "#4A2E24", "#385165"]
     }
   ],
   "default_voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID"
