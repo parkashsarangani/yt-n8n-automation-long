@@ -41,19 +41,71 @@ const STORY = {
   outro_line: "Send this to whoever thinks maps are boring.",
 };
 
+const CAST_ROSTER = {
+  characters: [
+    {
+      character_id: "host",
+      name: "Host",
+      voice_id: "test-host-voice",
+      rig: "pilot",
+      personality: "skeptical, observant, dry humor",
+      visual_description: "Young adult 2D cartoon host with short dark hair, warm medium skin, blue overshirt and a compact angular silhouette.",
+      thumbnail_traits: "Large readable eyes and brows with a strong head silhouette.",
+      color_palette: ["#4C89C6", "#F2C7A5", "#111111"],
+    },
+    {
+      character_id: "buddy",
+      name: "Buddy",
+      voice_id: "test-buddy-voice",
+      rig: "pilot-2",
+      personality: "curious, energetic, asks the obvious question",
+      visual_description: "Second recurring 2D cartoon character with a clearly different silhouette and teal clothing accents.",
+      thumbnail_traits: "Energetic open expressions and clear surprise at small size.",
+      color_palette: ["#6FB8B2", "#F2C7A5", "#111111"],
+    },
+  ],
+  default_voice_id: "test-host-voice",
+};
+
 const SCRIPT = {
   scenes: [
-    { scene_index: 0, act_index: 0, point: "open", narration: "Chile is longer than London to Baghdad." },
+    {
+      scene_index: 0,
+      act_index: 0,
+      point: "open",
+      narration: "Chile is longer than London to Baghdad.",
+      speaker: "host",
+      emotion: "surprised",
+    },
   ],
+  word_count: 7,
 };
 
 const VISUAL_PLAN = {
   scenes: [
     {
       scene_index: 0,
-      search_terms: ["aerial coastline at dawn", "andes ridge line", "empty desert highway"],
-      visual_style: "vivid explanatory documentary",
-      fallback_terms: ["mountain range", "coastal landscape"],
+      search_terms: ["classroom", "map", "cartoon interior"],
+      visual_style: "clean thick-outline 2D cartoon classroom",
+      fallback_terms: ["classroom", "interior"],
+      template_category: "cartoon",
+      template_data: JSON.stringify({
+        background: { location: "classroom", variant: "normal", tone: "dramatic" },
+        camera: { type: "static" },
+        characters: [
+          {
+            characterId: "pilot",
+            animationKey: "host",
+            x: 660,
+            y: 300,
+            scale: 1.2,
+            isSpeaking: true,
+            expression: "surprised",
+            gazeX: 0,
+            gazeY: 0,
+          },
+        ],
+      }),
     },
   ],
 };
@@ -61,7 +113,12 @@ const VISUAL_PLAN = {
 async function harness(handler: FakeHandler) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-exec-")), registry);
+  const dir = await mkdtemp(path.join(tmpdir(), "vidgen-exec-"));
+  const store = await FsArtifactStore.open(dir, registry);
+  const castPath = path.join(dir, "cast.json");
+  await writeFile(castPath, JSON.stringify(CAST_ROSTER), "utf8");
+  process.env["CARTOON_CAST_PATH"] = castPath;
+
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
   const speech = new FakeSpeechProvider();
@@ -82,6 +139,7 @@ async function harness(handler: FakeHandler) {
     agents,
     defaultWorkers({
       voice: { voiceId: "test-voice" },
+      dialogueVoice: { defaultVoiceId: "test-voice" },
       publish: { target: new FakePublishTarget() },
     }),
   );
@@ -146,13 +204,27 @@ const SEO = {
     "any treaty did. Here is how a mountain range decided a country's shape.",
   tags: ["why is chile so long", "chile geography", "andes", "borders", "maps"],
   primary_keyword: "why is chile so long",
-  rationale: "Targets the literal question; the narration answers it directly.",
+  rationale: "Targets the literal question; the dialogue answers it directly.",
 };
 
-/** Routes on each prompt's opening line, so every agent gets valid output. */
+const THUMBNAIL_BRIEF = {
+  mode: "cartoon",
+  text: "HOW IS THIS REAL?",
+  emphasis: "THIS REAL",
+  art_prompt:
+    "Create a 16:9 long-form YouTube thumbnail in the channel's clean recurring 2D cartoon style. Show the host on the right staring in disbelief at an absurdly long map of Chile as the single hero object. Reserve the left side as quiet negative space for typography. Use thick dark outlines, simple readable shapes, expressive eyes and brows, strong silhouette, flat controlled shading and disciplined saturated colours. Do not render words, letters, captions, signs, logos, arrows, circles, UI labels or watermarks.",
+  accent: "#FFD34D",
+  visual_hook: "The host stares in disbelief at a map whose extreme shape looks almost impossible.",
+  character_ids: ["host"],
+  preferred_text_side: "left",
+  rationale: "One large reaction plus one impossible-looking object communicates the curiosity gap immediately.",
+  alternatives: ["THAT'S ONE COUNTRY?", "WHY SO LONG?"],
+};
+
+/** Routes on each prompt's opening/content line, so every agent gets valid output. */
 const storyThen = (conf: number): FakeHandler => (req) => {
   if (req.prompt.includes("head writer")) return { payload: STORY, confidence: { overall: conf } };
-  if (req.prompt.includes("choose what the viewer sees")) {
+  if (req.prompt.includes("director for a cartoon-animation episode")) {
     return { payload: VISUAL_PLAN, confidence: { overall: 0.85 } };
   }
   if (req.prompt.includes("design the thumbnail")) {
@@ -165,14 +237,6 @@ const storyThen = (conf: number): FakeHandler => (req) => {
     return { payload: INSIGHTS, confidence: { overall: 0.5 } };
   }
   return { payload: SCRIPT, confidence: { overall: 0.8 } };
-};
-
-const THUMBNAIL_BRIEF = {
-  text: "It Never Existed",
-  background_query: "ancient stone map carved in rock",
-  accent: "#FFD34D",
-  rationale: "Contradiction: the video is about a place people believe in.",
-  alternatives: ["The 400-Year Mistake"],
 };
 
 /**
@@ -195,7 +259,7 @@ function supervised(graph: GraphDoc): GraphDoc {
 }
 
 const ALL_NODES = [
-  "approve_publish", "approve_script", "approve_story", "assets", "insights",
+  "approve_publish", "approve_script", "approve_story", "assets", "cast_roster", "insights",
   "intent", "performance", "publish", "qa", "render", "script", "seo", "story",
   "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
@@ -205,12 +269,11 @@ const AFTER_GATE = [
   "script", "seo", "thumbnail", "thumbnail_brief", "visual_plan", "voice",
 ];
 /** Everything downstream of the script gate. */
-// The thumbnail branch depends on approve_story, not approve_script, so it is
-// deliberately absent here — it runs while the script is still being reviewed.
 const AFTER_SCRIPT_GATE = [
-  "approve_publish", "assets", "publish", "qa", "render", "seo", "visual_plan", "voice",
+  "approve_publish", "assets", "publish", "qa", "render", "seo", "thumbnail",
+  "thumbnail_brief", "visual_plan", "voice",
 ];
-/** channel_strategist, story, script, visual_plan, thumbnail_designer, seo_optimizer. */
+/** channel_strategist, story, script, visual_plan, cartoon_thumbnail_designer, seo_optimizer. */
 const MODEL_CALLS_PER_RUN = 6;
 
 test("THE SHIPPED GRAPH RUNS UNATTENDED: no gate can park it", async () => {
@@ -265,7 +328,7 @@ test("a confident story auto-passes its gate, then the script gate always asks",
   const result = await h.executor.start(supervised(h.graph), h.inputs);
 
   // The story gate has an auto-pass policy; the script gate deliberately has
-  // none, so narration is always reviewed before any paid media work.
+  // none, so dialogue is reviewed before voice, art and rendering work.
   assert.equal(result.outputs["approve_story"], result.outputs["story"]);
   assert.equal(result.status, "waiting");
   assert.deepEqual(result.waiting.map((w) => w.node_id), ["approve_script"]);
@@ -315,21 +378,14 @@ test("resuming with approval continues without re-running completed nodes", asyn
     approve_story: { result: "approve" },
   });
 
-  // Parks again at the script gate — narration is always reviewed.
+  // Parks again at the script gate — dialogue is always reviewed in this
+  // supervised copy. The thumbnail intentionally waits for approved dialogue
+  // because its visual hook must reflect an event that actually occurs.
   assert.equal(resumed.status, "waiting");
   assert.deepEqual(resumed.waiting.map((w) => w.node_id), ["approve_script"]);
   assert.equal(resumed.outputs["story"], first.outputs["story"]); // derived, not recomputed
-
-  // The story was not re-run. Two new calls: the script, and the thumbnail
-  // designer — the thumbnail branch depends on approve_story, not
-  // approve_script, so it proceeds while the narration is still under review
-  // rather than waiting for it. That parallelism is the point of hanging it
-  // off the story gate, so assert it rather than just counting.
-  assert.equal(h.provider.calls.length, 4);
-  assert.ok(
-    resumed.outputs["thumbnail_brief"],
-    "the thumbnail brief should be ready before the script gate is approved",
-  );
+  assert.equal(h.provider.calls.length, 3); // strategist + story + dialogue script
+  assert.equal(resumed.outputs["thumbnail_brief"], undefined);
 
   const done = await h.executor.resume(g, first.run_id, {
     approve_script: { result: "approve" },
@@ -338,7 +394,9 @@ test("resuming with approval continues without re-running completed nodes", asyn
   assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN);
   // Workers ran too, producing real bytes.
   assert.ok(h.speech.calls.length > 0);
-  assert.ok(h.images.prompts.length > 0);
+  // Cartoon scene assets are templates, so the only generated image is the
+  // thumbnail artwork.
+  assert.equal(h.images.prompts.length, 1);
 });
 
 test("resuming with a rejection retries the upstream transformation", async () => {
@@ -403,9 +461,8 @@ test("reuse:true picks up a matching output from an earlier run", async () => {
 
   assert.equal(second.status, "completed");
   assert.equal(second.outputs["story"], first.outputs["story"]);
-  // Story was reused; the strategist, script, visual_plan, thumbnail_designer
-  // and seo_optimizer still cost calls. (Agents are not cached by default —
-  // re-running is how variants happen — so this is opt-in.)
+  // Story was reused; the strategist, dialogue script, visual plan, cartoon
+  // thumbnail designer and seo optimizer still cost calls.
   assert.equal(h.provider.calls.length, MODEL_CALLS_PER_RUN + 5);
 });
 
