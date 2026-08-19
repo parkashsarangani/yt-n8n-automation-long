@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     fontconfig \
     curl \
+    ca-certificates \
     unzip \
     chromium \
     libnss3 \
