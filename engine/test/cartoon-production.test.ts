@@ -71,6 +71,43 @@ test("cartoon thumbnail brief schema requires artwork separate from compositor t
   );
 });
 
+test("cartoon visual plans do not require legacy stock-search fields", async () => {
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  assert.equal(registry.resolveVersion("visual_plan"), "1.3.0");
+
+  const cartoonPlan = {
+    scenes: [
+      {
+        scene_index: 0,
+        visual_style: "cartoon dialogue",
+        template_category: "cartoon",
+        template_data: JSON.stringify({
+          background: { flat: "#24364B" },
+          camera: { type: "static" },
+          characters: [
+            {
+              characterId: "pilot",
+              x: 300,
+              y: 330,
+              scale: 1,
+              isSpeaking: true,
+            },
+          ],
+        }),
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => registry.validate("visual_plan", "1.3.0", cartoonPlan));
+
+  assert.throws(
+    () => registry.validate("visual_plan", "1.3.0", {
+      scenes: [{ scene_index: 0, visual_style: "documentary" }],
+    }),
+    /visual_plan@1.3.0/,
+  );
+});
+
 test("scheduled cast loader survives the real producer allowlist/store boundary", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "cartoon-cast-"));
   const file = path.join(dir, "cast.json");

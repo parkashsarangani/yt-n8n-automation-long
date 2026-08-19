@@ -2,7 +2,7 @@
   "schema_id": "visual_plan",
   "version": "1.3.0",
   "status": "active",
-  "description": "Adds \"cartoon\" to template_category: an 8th template, alongside the 7 motion-graphics ones, rendering a scene as two SVG puppet characters in a reusable background instead of a stock image. See engine/prompts/cartoon_visual_planner for the template_data shape it expects (background/camera/characters). MINOR bump per RFC 0007: widens the enum only, on the same string type; existing 1.0.0-1.2.0 artifacts stay valid.",
+  "description": "Adds \"cartoon\" to template_category: an 8th template, alongside the 7 motion-graphics ones, rendering a scene as SVG puppet characters in reusable backgrounds instead of stock imagery. Template scenes no longer require legacy stock-search fields; non-template scenes still do. MINOR bump per RFC 0007: existing 1.0.0-1.2.0 artifacts remain valid.",
   "produced_by": [
     "visual_planner",
     "cartoon_visual_planner",
@@ -26,9 +26,7 @@
           "additionalProperties": false,
           "required": [
             "scene_index",
-            "search_terms",
-            "visual_style",
-            "fallback_terms"
+            "visual_style"
           ],
           "properties": {
             "scene_index": {
@@ -44,7 +42,7 @@
                 "minLength": 2,
                 "maxLength": 120
               },
-              "description": "Concrete photographable subjects for AI image generation. Unused (but still required by this schema) on a \"cartoon\" scene - asset_collector skips the fetch for any scene with template_category set."
+              "description": "Concrete media-search subjects. Required only for non-template scenes; template scenes do not fetch stock media."
             },
             "visual_style": {
               "type": "string",
@@ -59,7 +57,8 @@
                 "type": "string",
                 "minLength": 2,
                 "maxLength": 120
-              }
+              },
+              "description": "Fallback media-search subjects. Required only for non-template scenes."
             },
             "template_category": {
               "type": "string",
@@ -73,13 +72,26 @@
                 "text",
                 "cartoon"
               ],
-              "description": "If set, this scene uses a motion graphics template instead of (or overlaid on) the AI image. Each value maps to exactly one hand-built composition. The first 7 are documented in engine/prompts/visual_planner; \"cartoon\" is documented in engine/prompts/cartoon_visual_planner."
+              "description": "If set, this scene uses a deterministic template instead of stock/AI scene media. The first 7 are documented in engine/prompts/visual_planner; \"cartoon\" is documented in engine/prompts/cartoon_visual_planner."
             },
             "template_data": {
               "type": "string",
-              "description": "JSON-encoded props for the template. Examples: {\"events\":[{\"year\":\"1947\",\"title\":\"Independence\"}],\"title\":\"Timeline\"} for timeline, {\"items\":[{\"name\":\"China\",\"value\":\"1.4B\"}],\"title\":\"Top\"} for ranking, {\"value\":\"4,300 km\",\"label\":\"LENGTH\"} for counter, {\"leftLabel\":\"BEFORE\",\"leftValue\":\"$100\",\"rightLabel\":\"AFTER\",\"rightValue\":\"$10,000\"} for comparison. For cartoon: {\"background\":{\"location\":\"bedroom\",\"variant\":\"night\",\"tone\":\"scary\"},\"camera\":{\"type\":\"pan\",\"panFrom\":0,\"panTo\":-80},\"characters\":[{\"characterId\":\"pilot\",\"x\":260,\"y\":380,\"isSpeaking\":true,\"expression\":\"surprised\"}]}."
+              "description": "JSON-encoded props for the selected template. For cartoon: {\"background\":{\"location\":\"bedroom\",\"variant\":\"night\",\"tone\":\"scary\"},\"camera\":{\"type\":\"pan\",\"panFrom\":0,\"panTo\":-80},\"characters\":[{\"characterId\":\"pilot\",\"x\":260,\"y\":380,\"isSpeaking\":true,\"expression\":\"surprised\"}]}."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": ["template_category"]
+              },
+              "then": {
+                "required": ["template_data"]
+              },
+              "else": {
+                "required": ["search_terms", "fallback_terms"]
+              }
+            }
+          ]
         }
       },
       "house_style": {
