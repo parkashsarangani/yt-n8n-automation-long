@@ -51,7 +51,11 @@ export const Character: React.FC<CharacterProps> = ({
     const breathe = Math.sin(frame / 14) * 2;
     const headBob = Math.sin(frame / 9) * 1.5;
     const lookX = Math.sin(frame / 40) * 3;
-    const talkBounce = isSpeaking ? Math.sin(frame * 1.8) * 3 : 0;
+    // Bug: this used to be Math.sin(frame * 1.8) - multiplying frame instead
+    // of dividing it like every other oscillation here, which is a ~8.6Hz
+    // shake, not a talk bounce. /3 gives a ~1.6Hz nod, in the same "slow,
+    // smooth" family as breathe/headBob/lookX above.
+    const talkBounce = isSpeaking ? Math.sin(frame / 3) * 2 : 0;
 
     // Blink: ~4 frames closed every 110 frames (roughly every 3.7s at 30fps).
     const blinkCycle = frame % 110;
