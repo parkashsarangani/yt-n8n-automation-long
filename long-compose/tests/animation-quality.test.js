@@ -47,7 +47,7 @@ test("conversation direction respects semantic gaze before auto eye contact", ()
   assert.match(sceneSource, /actorId: character\.actorId/);
 });
 
-test("production rigs have distinct silhouettes and palettes", () => {
+test("production rigs have distinct silhouettes and coherent palettes", () => {
   const hostBody = readRig("pilot", "body.svg");
   const hostHead = readRig("pilot", "head.svg");
   const buddyBody = readRig("pilot-2", "body.svg");
@@ -63,4 +63,13 @@ test("production rigs have distinct silhouettes and palettes", () => {
 
   assert.match(hostHead, /narrower angular host face/);
   assert.match(buddyHead, /rounder buddy face/);
+
+  for (const file of ["left-down.svg", "left-up.svg", "right-down.svg", "right-up.svg"]) {
+    assert.match(readRig("pilot", `arms/${file}`), /#DFAE8C/);
+    assert.match(readRig("pilot-2", `arms/${file}`), /#C98968/);
+  }
+  for (const file of ["eyebrow-normal.svg", "eyebrow-angry.svg", "eyebrow-surprised.svg"]) {
+    assert.match(readRig("pilot", `expressions/${file}`), /#20343D/);
+    assert.match(readRig("pilot-2", `expressions/${file}`), /#4A2E24/);
+  }
 });
