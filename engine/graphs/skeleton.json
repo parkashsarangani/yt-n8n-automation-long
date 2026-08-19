@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "10",
-  "description": "Walking skeleton, end to end, running unattended. The story and script gates auto-pass — the PRIVATE upload is the review. Before publishing, objective QA checks run and a gate passes only on a clean verdict, so an episode of placeholder images or a three-minute video in a nine-minute slot stops instead of shipping. That gate DOES park on failure, on purpose: a broken episode is the one case where producing nothing beats producing something. Nothing becomes public without a person.",
+  "version": "11",
+  "description": "Default unattended production graph for the cartoon-only channel. Loads the stable recurring cast from CARTOON_CAST_PATH, writes dialogue for that cast, stages every line as SVG-puppet cartoon animation, generates matching cartoon thumbnail artwork, runs deterministic QA, and uploads privately for operator review.",
   "nodes": [
     {
       "id": "intent",
@@ -14,131 +14,87 @@
       "schema_id": "performance_window"
     },
     {
+      "id": "cast_roster",
+      "transformation": "cast_loader",
+      "in": []
+    },
+    {
       "id": "insights",
       "transformation": "channel_strategist",
-      "in": [
-        "performance"
-      ]
+      "in": ["performance"]
     },
     {
       "id": "story",
       "transformation": "story_architect",
-      "in": [
-        "intent",
-        "insights"
-      ]
+      "in": ["intent", "insights"]
     },
     {
       "id": "approve_story",
       "type": "human_gate",
-      "in": [
-        "story"
-      ],
-      "policy": {
-        "auto_pass_if": "always"
-      }
+      "in": ["story"],
+      "policy": { "auto_pass_if": "always" }
     },
     {
       "id": "script",
-      "transformation": "script_writer",
-      "in": [
-        "approve_story"
-      ]
+      "transformation": "dialogue_script_writer",
+      "in": ["approve_story", "cast_roster"]
     },
     {
       "id": "approve_script",
       "type": "human_gate",
-      "in": [
-        "script"
-      ],
-      "policy": {
-        "auto_pass_if": "always"
-      }
+      "in": ["script"],
+      "policy": { "auto_pass_if": "always" }
     },
     {
       "id": "visual_plan",
-      "transformation": "visual_planner",
-      "in": [
-        "approve_script"
-      ]
+      "transformation": "cartoon_visual_planner",
+      "in": ["approve_script", "cast_roster"]
     },
     {
       "id": "assets",
       "transformation": "asset_collector",
-      "in": [
-        "visual_plan"
-      ]
+      "in": ["visual_plan"]
     },
     {
       "id": "voice",
-      "transformation": "voice",
-      "in": [
-        "approve_script"
-      ]
+      "transformation": "dialogue_voice",
+      "in": ["approve_script", "cast_roster"]
     },
     {
       "id": "seo",
       "transformation": "seo_optimizer",
-      "in": [
-        "approve_story",
-        "approve_script"
-      ]
+      "in": ["approve_story", "approve_script"]
     },
     {
       "id": "thumbnail_brief",
-      "transformation": "thumbnail_designer",
-      "in": [
-        "approve_story"
-      ]
+      "transformation": "cartoon_thumbnail_designer",
+      "in": ["approve_story", "approve_script", "cast_roster"]
     },
     {
       "id": "thumbnail",
       "transformation": "thumbnail",
-      "in": [
-        "thumbnail_brief"
-      ]
+      "in": ["thumbnail_brief"]
     },
     {
       "id": "render",
       "transformation": "render",
-      "in": [
-        "script",
-        "voice",
-        "assets"
-      ]
+      "in": ["script", "voice", "assets"]
     },
     {
       "id": "qa",
       "transformation": "qa",
-      "in": [
-        "intent",
-        "approve_script",
-        "assets",
-        "voice",
-        "render",
-        "thumbnail",
-        "seo"
-      ]
+      "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"]
     },
     {
       "id": "approve_publish",
       "type": "human_gate",
-      "in": [
-        "qa"
-      ],
-      "policy": {
-        "auto_pass_if": "payload.verdict == \"pass\""
-      }
+      "in": ["qa"],
+      "policy": { "auto_pass_if": "payload.verdict == \"pass\"" }
     },
     {
       "id": "publish",
       "transformation": "publish",
-      "in": [
-        "render",
-        "seo",
-        "thumbnail",
-        "approve_publish"
-      ]
+      "in": ["render", "seo", "thumbnail", "approve_publish"]
     }
   ]
 }
