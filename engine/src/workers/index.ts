@@ -14,6 +14,7 @@ import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
 import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
+import { makeCastLoaderWorker } from "./cast.ts";
 
 export {
   makeVoiceWorker,
@@ -24,24 +25,24 @@ export {
   makePublishWorker,
   makeMeasureWorker,
   makeQaWorker,
+  makeCastLoaderWorker,
 };
 export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
-  /** Omit unless the cartoon graph is in use - it is the only graph with a "dialogue_voice" node. */
   dialogueVoice?: DialogueVoiceWorkerOptions;
   assets?: AssetWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
   measure?: MeasureWorkerOptions;
   qa?: QaWorkerOptions;
-  /** Omit to build a graph that stops at render (no destination configured). */
   publish?: PublishWorkerOptions;
 }
 
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
   const workers: TransformationDef[] = [
+    makeCastLoaderWorker(),
     makeVoiceWorker(opts.voice),
     ...(opts.dialogueVoice ? [makeDialogueVoiceWorker(opts.dialogueVoice)] : []),
     makeAssetWorker(opts.assets ?? {}),
@@ -54,7 +55,6 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   return new Map(workers.map((w) => [w.name, w]));
 }
 
-/** Agents (from disk) plus workers (from code), as one lookup for the executor. */
 export function allTransformations(
   agents: Map<string, TransformationDef>,
   workers: Map<string, TransformationDef>,
