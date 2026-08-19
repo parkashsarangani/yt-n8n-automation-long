@@ -7,7 +7,7 @@
  */
 
 import type { TransformationDef } from "../runner.ts";
-import { makeVoiceWorker, type VoiceWorkerOptions } from "./voice.ts";
+import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
@@ -17,6 +17,7 @@ import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 
 export {
   makeVoiceWorker,
+  makeDialogueVoiceWorker,
   makeAssetWorker,
   makeRenderWorker,
   makeThumbnailWorker,
@@ -28,6 +29,8 @@ export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
+  /** Omit unless the cartoon graph is in use - it is the only graph with a "dialogue_voice" node. */
+  dialogueVoice?: DialogueVoiceWorkerOptions;
   assets?: AssetWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
@@ -40,6 +43,7 @@ export interface WorkerSetOptions {
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
   const workers: TransformationDef[] = [
     makeVoiceWorker(opts.voice),
+    ...(opts.dialogueVoice ? [makeDialogueVoiceWorker(opts.dialogueVoice)] : []),
     makeAssetWorker(opts.assets ?? {}),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),

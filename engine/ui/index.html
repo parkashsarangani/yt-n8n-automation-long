@@ -337,6 +337,9 @@
           <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
             <input type="radio" name="runMode" id="modeManual" /> I'll provide the script
           </label>
+          <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="radio" name="runMode" id="modeCartoon" /> Animated cartoon (dialogue)
+          </label>
         </div>
 
         <div id="aiForm">
@@ -365,6 +368,32 @@
           <div class="row" style="margin-top:12px">
             <button id="startManual">Start run</button>
             <span class="muted" id="startManualMsg"></span>
+          </div>
+        </div>
+
+        <div id="cartoonForm" style="display:none">
+          <div class="muted" style="margin-bottom:8px">
+            Every scene renders as SVG puppets in a reusable background instead of
+            stock imagery — still AI-written, but as dialogue between the cast
+            below rather than single-narrator prose.
+          </div>
+          <label for="cartoonBrief">What should the video be about?</label>
+          <textarea id="cartoonBrief" placeholder="a kid discovers his dog can talk"></textarea>
+          <label for="cartoonDur">Target length (seconds)</label>
+          <input id="cartoonDur" type="number" value="180" min="30" max="3600" />
+          <label for="cartoonCast">
+            Cast — who's in it, their voice, and which rig renders them
+          </label>
+          <textarea id="cartoonCast" style="min-height:220px;font-family:ui-monospace,monospace;font-size:12.5px"></textarea>
+          <div class="muted">
+            <code>voice_id</code> is an ElevenLabs voice id (not a name) — replace the
+            placeholders. <code>rig</code> must be a folder under
+            <code>long-compose/remotion/public/characters/</code> — <code>pilot</code>
+            and <code>pilot-2</code> ship by default.
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button id="startCartoon">Start run</button>
+            <span class="muted" id="startCartoonMsg"></span>
           </div>
         </div>
       </section>
@@ -560,10 +589,64 @@
     };
 
     // ---------- runs ----------
-    $("modeAi").onchange = $("modeManual").onchange = () => {
+    const DEFAULT_CAST_ROSTER = {
+      characters: [
+        {
+          character_id: "nova",
+          name: "Nova",
+          voice_id: "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+          rig: "pilot",
+          personality: "skeptical, dry humor, asks the sharp follow-up question",
+        },
+        {
+          character_id: "buddy",
+          name: "Buddy",
+          voice_id: "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+          rig: "pilot-2",
+          personality: "enthusiastic, curious, asks the obvious question the viewer is thinking",
+        },
+      ],
+      default_voice_id: "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+    };
+    $("cartoonCast").value = JSON.stringify(DEFAULT_CAST_ROSTER, null, 2);
+
+    $("modeAi").onchange = $("modeManual").onchange = $("modeCartoon").onchange = () => {
       const manual = $("modeManual").checked;
-      $("aiForm").style.display = manual ? "none" : "";
+      const cartoon = $("modeCartoon").checked;
+      $("aiForm").style.display = manual || cartoon ? "none" : "";
       $("manualForm").style.display = manual ? "" : "none";
+      $("cartoonForm").style.display = cartoon ? "" : "none";
+    };
+
+    $("startCartoon").onclick = async () => {
+      const brief = $("cartoonBrief").value.trim();
+      if (brief.length < 8) { $("startCartoonMsg").textContent = "say a bit more"; return; }
+      let cast_roster;
+      try {
+        cast_roster = JSON.parse($("cartoonCast").value);
+      } catch (e) {
+        $("startCartoonMsg").textContent = `cast JSON is invalid: ${e.message}`;
+        return;
+      }
+      if (JSON.stringify(cast_roster).includes("REPLACE_WITH_ELEVENLABS_VOICE_ID")) {
+        $("startCartoonMsg").textContent = "replace the placeholder voice_id(s) with real ElevenLabs voice ids first";
+        return;
+      }
+      $("startCartoon").disabled = true;
+      $("startCartoonMsg").textContent = "starting…";
+      try {
+        const { run_id } = await api("/api/runs/cartoon", {
+          method: "POST",
+          body: JSON.stringify({ brief, cast_roster, duration_sec: Number($("cartoonDur").value) || 180 }),
+        });
+        $("startCartoonMsg").textContent = "";
+        select(run_id);
+        await refresh();
+      } catch (e) {
+        $("startCartoonMsg").textContent = e.message;
+      } finally {
+        $("startCartoon").disabled = false;
+      }
     };
 
     $("startManual").onclick = async () => {
@@ -730,8 +813,8 @@
         body = `<div class="muted">${p.scenes.length} scenes · ~${words} words · ~${Math.round(words / 150)} min</div>`
           + p.scenes.map((s) => `
         <div class="scene">
-          <div class="pt">${s.scene_index}. ${esc(s.point)}</div>
-          <div>${esc(s.narration)}</div>
+          <div class="pt">${s.scene_index}. ${esc(s.point)}${s.speaker ? ` · ${esc(s.speaker)}${s.emotion ? ` (${esc(s.emotion)})` : ""}` : ""}</div>
+          <div>${s.speaker ? `<b>${esc(s.speaker)}:</b> ` : ""}${esc(s.narration)}</div>
         </div>`).join("");
       } else if (artifact.schema_id === "story") {
         body = `<div style="font-size:15px;font-weight:600">${esc(p.title)}</div>

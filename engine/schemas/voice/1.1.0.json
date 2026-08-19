@@ -1,0 +1,38 @@
+{
+  "schema_id": "voice",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "Adds \"dialogue_voice\" to the producer allowlist: cartoon-mode's per-scene multi-voice worker produces this same voice schema (payload shape unchanged - one clip per scene either way), just routing each scene's synthesis call to a different speaker's voice. MINOR bump per RFC 0007: produced_by only gates writes, never reads, so existing 1.0.0 artifacts stay valid.",
+  "produced_by": ["voice", "dialogue_voice"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "VoiceArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["voice_id", "clips"],
+    "properties": {
+      "voice_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+      "clips": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scene_index", "audio_uri", "duration_sec"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "audio_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
+            "alignment_uri": {
+              "type": "string",
+              "pattern": "^blob://sha256:[0-9a-f]{64}$",
+              "description": "Word/character timings, needed downstream for captions."
+            },
+            "duration_sec": { "type": "number", "minimum": 0 }
+          }
+        }
+      },
+      "total_duration_sec": { "type": "number", "minimum": 0 }
+    }
+  }
+}

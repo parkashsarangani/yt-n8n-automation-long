@@ -68,6 +68,22 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
       const blobs: BlobRef[] = [];
 
       const results = await mapWithConcurrency(ordered, opts.concurrency ?? 4, async (scene) => {
+        // A template-category scene (motion graphics or cartoon) renders
+        // full-screen from its own template_data — the renderer never looks
+        // at image_uri/video_uri for these, so fetching one would just be
+        // wasted API spend. Skip straight to the render instruction.
+        if (scene.template_category) {
+          return {
+            entry: {
+              scene_index: scene.scene_index,
+              source: "template" as const,
+              template_category: scene.template_category,
+              ...(scene.template_data ? { template_data: JSON.stringify(safeParseJson(scene.template_data)) } : {}),
+            },
+            blob: null,
+          };
+        }
+
         const attempts: Array<{ source: "primary" | "fallback"; terms: string[] }> = [
           { source: "primary", terms: scene.search_terms },
           { source: "fallback", terms: scene.fallback_terms },
@@ -95,8 +111,6 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
                     video_uri: ref.uri,
                     source: attempt.source,
                     prompt,
-                    ...(scene.template_category ? { template_category: scene.template_category } : {}),
-                    ...(scene.template_data ? { template_data: JSON.stringify(safeParseJson(scene.template_data)) } : {}),
                   },
                   blob: ref,
                 };
@@ -123,8 +137,6 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
                 image_uri: ref.uri,
                 source: attempt.source,
                 prompt,
-                ...(scene.template_category ? { template_category: scene.template_category } : {}),
-                ...(scene.template_data ? { template_data: JSON.stringify(safeParseJson(scene.template_data)) } : {}),
               },
               blob: ref,
             };
@@ -144,8 +156,6 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
             scene_index: scene.scene_index,
             source: "placeholder" as const,
             prompt: buildPrompt(scene.search_terms, scene.visual_style, prefix),
-            ...(scene.template_category ? { template_category: scene.template_category } : {}),
-            ...(scene.template_data ? { template_data: JSON.stringify(safeParseJson(scene.template_data)) } : {}),
           },
           blob: null,
         };

@@ -395,6 +395,67 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
         assert.strictEqual(video.width, 1080);
         assert.strictEqual(video.height, 1920);
     });
+
+    it("cartoon template renders two lip-synced puppets in a parallax bedroom", async () => {
+        // No RHUBARB_PATH is set for this test run, so lip-sync degrades to a
+        // neutral mouth (see generateMouthCues) — this exercises the render
+        // path end to end, not phoneme accuracy, which is covered manually.
+        const payload = buildTestPayload({
+            templateName: "cartoon",
+            templateData: {
+                background: { location: "bedroom", variant: "night", tone: "scary" },
+                camera: { type: "pan", panFrom: 0, panTo: -80 },
+                characters: [
+                    { characterId: "pilot", x: 260, y: 380, scale: 1, isSpeaking: true },
+                    { characterId: "pilot-2", x: 1100, y: 380, scale: 1, expression: "surprised", leftArm: "up" },
+                ],
+            },
+            mood: "upbeat",
+        });
+        const { body } = await postJSON("/compose", payload);
+        const result = await pollJobUntilDone(body.job_id);
+        assert.ok(fs.existsSync(result.output_path));
+
+        const probe = ffprobeJSON(result.output_path);
+        const video = probe.streams.find((s) => s.codec_type === "video");
+        assert.strictEqual(video.width, 1080);
+        assert.strictEqual(video.height, 1920);
+    });
+
+    it("cartoon template renders a flat-color punchline card", async () => {
+        const payload = buildTestPayload({
+            templateName: "cartoon",
+            templateData: {
+                background: { flat: "#C0392B" },
+                characters: [
+                    { characterId: "pilot", x: 660, y: 300, scale: 1.6, isSpeaking: true },
+                ],
+            },
+            mood: "funny",
+        });
+        const { body } = await postJSON("/compose", payload);
+        const result = await pollJobUntilDone(body.job_id);
+        assert.ok(fs.existsSync(result.output_path));
+
+        const probe = ffprobeJSON(result.output_path);
+        const video = probe.streams.find((s) => s.codec_type === "video");
+        assert.strictEqual(video.width, 1080);
+        assert.strictEqual(video.height, 1920);
+    });
+
+    it("cartoon template falls back to a plain gradient for an unbuilt location", async () => {
+        const payload = buildTestPayload({
+            templateName: "cartoon",
+            templateData: {
+                background: { location: "spaceship", variant: "candy" },
+                characters: [{ characterId: "pilot", x: 660, y: 380, scale: 1 }],
+            },
+            mood: "serious",
+        });
+        const { body } = await postJSON("/compose", payload);
+        const result = await pollJobUntilDone(body.job_id);
+        assert.ok(fs.existsSync(result.output_path));
+    });
 });
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ async function deps() {
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
   const workers = defaultWorkers({
     voice: { voiceId: "test-voice" },
+    dialogueVoice: { defaultVoiceId: "test-voice" },
     publish: { target: new FakePublishTarget() },
   });
   return { registry, transformations: allTransformations(agents, workers) };
@@ -36,6 +37,12 @@ test("the shipped skeleton graph is statically valid", async () => {
 
 test("the shipped manual graph is statically valid", async () => {
   const g = await loadGraph(path.join(ROOT, "graphs", "manual.json"));
+  const d = await deps();
+  assert.doesNotThrow(() => validateGraph(g, d));
+});
+
+test("the shipped cartoon graph is statically valid", async () => {
+  const g = await loadGraph(path.join(ROOT, "graphs", "cartoon.json"));
   const d = await deps();
   assert.doesNotThrow(() => validateGraph(g, d));
 });

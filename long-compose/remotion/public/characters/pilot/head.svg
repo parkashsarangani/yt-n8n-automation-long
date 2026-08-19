@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
+
+  <!-- ears -->
+  <ellipse cx="138" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
+  <ellipse cx="362" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
+  <!-- face -->
+  <path d="M150 120
+           Q250 50 350 120
+           Q380 180 360 265
+           Q340 335 250 345
+           Q160 335 140 265
+           Q120 180 150 120 Z"
+        fill="#F2C7A5" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <!-- nose -->
+  <path d="M252 202 Q270 228 246 244"
+        fill="none" stroke="#D9A47C" stroke-width="8" stroke-linecap="round"/>
+  <!-- hair -->
+  <path d="M145 145
+           Q150 65 230 70
+           Q280 30 350 88
+           Q392 120 355 170
+           Q335 130 310 118
+           Q285 148 252 114
+           Q210 145 172 116
+           Q160 130 145 145 Z"
+        fill="#3B2C2A" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+
+</svg>

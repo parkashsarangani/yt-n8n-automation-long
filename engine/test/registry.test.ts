@@ -49,9 +49,10 @@ test("loads the real project schemas", async () => {
     assert.ok(reg.has(id), `expected schema "${id}"`);
   }
   // story and script each carry an additive minor bump (RFC 0007) that widens
-  // produced_by to allow "human", for the manual-script flow.
+  // produced_by to allow "human", for the manual-script flow. script's later
+  // 1.2.0 adds optional speaker/emotion for cartoon-mode dialogue.
   assert.equal(reg.resolveVersion("story"), "1.2.0");
-  assert.equal(reg.resolveVersion("script"), "1.1.0");
+  assert.equal(reg.resolveVersion("script"), "1.2.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {

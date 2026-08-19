@@ -1,0 +1,152 @@
+{
+  "graph_id": "cartoon",
+  "version": "1",
+  "description": "Cartoon-animation mode. story_architect still designs style-agnostic beats (acts/premise/retention_beats), same as skeleton - but dialogue_script_writer (not script_writer) turns them into per-line multi-character dialogue using the channel's cast_roster, and cartoon_visual_planner (not visual_planner) stages every line as a template_category=\"cartoon\" scene (background/camera/character position) instead of picking stock imagery. voice runs as dialogue_voice, routing each line to its speaker's voice via the cast roster. Everything else - asset_collector, render, qa, seo, thumbnail, publish - is unchanged from skeleton; a cartoon scene is just an 8th template category to them. Selected explicitly (VidGenService.startCartoonRun), the same way manual.json is selected - this repo's graph engine has no conditional/branching nodes, so a runtime toggle inside skeleton was never an option.",
+  "nodes": [
+    {
+      "id": "intent",
+      "type": "input",
+      "schema_id": "intent"
+    },
+    {
+      "id": "performance",
+      "type": "input",
+      "schema_id": "performance_window"
+    },
+    {
+      "id": "cast_roster",
+      "type": "input",
+      "schema_id": "cast_roster"
+    },
+    {
+      "id": "insights",
+      "transformation": "channel_strategist",
+      "in": [
+        "performance"
+      ]
+    },
+    {
+      "id": "story",
+      "transformation": "story_architect",
+      "in": [
+        "intent",
+        "insights"
+      ]
+    },
+    {
+      "id": "approve_story",
+      "type": "human_gate",
+      "in": [
+        "story"
+      ],
+      "policy": {
+        "auto_pass_if": "always"
+      }
+    },
+    {
+      "id": "script",
+      "transformation": "dialogue_script_writer",
+      "in": [
+        "approve_story",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "approve_script",
+      "type": "human_gate",
+      "in": [
+        "script"
+      ],
+      "policy": {
+        "auto_pass_if": "always"
+      }
+    },
+    {
+      "id": "visual_plan",
+      "transformation": "cartoon_visual_planner",
+      "in": [
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "assets",
+      "transformation": "asset_collector",
+      "in": [
+        "visual_plan"
+      ]
+    },
+    {
+      "id": "voice",
+      "transformation": "dialogue_voice",
+      "in": [
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "seo",
+      "transformation": "seo_optimizer",
+      "in": [
+        "approve_story",
+        "approve_script"
+      ]
+    },
+    {
+      "id": "thumbnail_brief",
+      "transformation": "thumbnail_designer",
+      "in": [
+        "approve_story"
+      ]
+    },
+    {
+      "id": "thumbnail",
+      "transformation": "thumbnail",
+      "in": [
+        "thumbnail_brief"
+      ]
+    },
+    {
+      "id": "render",
+      "transformation": "render",
+      "in": [
+        "script",
+        "voice",
+        "assets"
+      ]
+    },
+    {
+      "id": "qa",
+      "transformation": "qa",
+      "in": [
+        "intent",
+        "approve_script",
+        "assets",
+        "voice",
+        "render",
+        "thumbnail",
+        "seo"
+      ]
+    },
+    {
+      "id": "approve_publish",
+      "type": "human_gate",
+      "in": [
+        "qa"
+      ],
+      "policy": {
+        "auto_pass_if": "payload.verdict == \"pass\""
+      }
+    },
+    {
+      "id": "publish",
+      "transformation": "publish",
+      "in": [
+        "render",
+        "seo",
+        "thumbnail",
+        "approve_publish"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+
+
+    <rect width="1920" height="1080" fill="#FFD7B8"/>
+    
+    <g transform="translate(210,120) scale(1.0)">
+      <circle cx="0" cy="30" r="38" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <circle cx="45" cy="0" r="50" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <circle cx="95" cy="32" r="40" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <rect x="-5" y="28" width="105" height="42" rx="20" fill="#FFFFFF"/>
+    </g>
+    
+    
+    <g transform="translate(1380,150) scale(0.8)">
+      <circle cx="0" cy="30" r="38" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <circle cx="45" cy="0" r="50" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <circle cx="95" cy="32" r="40" fill="#FFFFFF" stroke="#111111" stroke-width="7"/>
+      <rect x="-5" y="28" width="105" height="42" rx="20" fill="#FFFFFF"/>
+    </g>
+    
+    <circle cx="1610" cy="180" r="70" fill="#F2C65D" stroke="#111111" stroke-width="9"/>
+    <path d="M0 610 Q360 430 760 610 Q1180 410 1920 600 L1920 800 L0 800 Z"
+          fill="#A7D891" stroke="#111111" stroke-width="10"/>
+    
+</svg>
