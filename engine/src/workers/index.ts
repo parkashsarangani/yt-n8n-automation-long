@@ -44,7 +44,11 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   const workers: TransformationDef[] = [
     makeCastLoaderWorker(),
     makeVoiceWorker(opts.voice),
-    ...(opts.dialogueVoice ? [makeDialogueVoiceWorker(opts.dialogueVoice)] : []),
+    // The default production graph is cartoon-first and always references
+    // dialogue_voice. Register it even in lightweight test/smoke harnesses that
+    // only supplied the historical single-voice option; the single-voice id is
+    // a deterministic last-resort fallback when the cast has no matching voice.
+    makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
