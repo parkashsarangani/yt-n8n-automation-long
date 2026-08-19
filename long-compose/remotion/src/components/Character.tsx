@@ -23,6 +23,8 @@ export interface CharacterProps {
     /** Optional deliberate pupil offset in rig-space pixels. Lets the director make characters look at each other/props. */
     gazeX?: number;
     gazeY?: number;
+    /** Optional stable acting identity when multiple cast members share one visual rig. */
+    animationKey?: string;
 }
 
 const layerStyle: React.CSSProperties = {
@@ -57,6 +59,7 @@ export const Character: React.FC<CharacterProps> = ({
     mouthCues,
     gazeX,
     gazeY,
+    animationKey,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -67,7 +70,14 @@ export const Character: React.FC<CharacterProps> = ({
     // puppets share the same frame; they still blink, breathe and look around
     // together. Derive stable per-character offsets instead. This stays fully
     // deterministic, which is important for reproducible renders/tests.
-    const seed = stablePhase(characterId);
+    //
+    // `characterId` is the RIG id, not necessarily the cast-member identity.
+    // Two cast members are allowed to share a rig, so fall back to their stable
+    // staging coordinates when no explicit animationKey is supplied. That is
+    // enough to prevent cloned motion in the current planner contract while an
+    // upgraded cast schema can pass a semantic character id later.
+    const phaseIdentity = animationKey ?? `${characterId}@${Math.round(x)},${Math.round(y)}`;
+    const seed = stablePhase(phaseIdentity);
     const idlePhase = seed % 257;
     const headPhase = (seed >>> 5) % 193;
     const eyePhase = (seed >>> 11) % 311;
