@@ -39,8 +39,8 @@ export const STAGES: StageSpec[] = [
     id: "reasoning",
     label: "Story, script and visual plan",
     requires: [["ANTHROPIC_API_KEY"]],
-    // claude-sonnet-5, not opus - reasoning_high is temporarily downgraded to
-    // cut spend (see service.ts's ProviderRouter). Keep this in sync with it.
+    // claude-sonnet-5, not opus (see service.ts's ProviderRouter). Keep this
+    // in sync with it.
     real: "anthropic/claude-sonnet-5",
     fallback: "unavailable",
     consequence: "runs fail at the first node — there is no offline fallback for reasoning",
