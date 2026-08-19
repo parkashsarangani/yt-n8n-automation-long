@@ -241,11 +241,11 @@ describe("Video output quality", { timeout: TEST_TIMEOUT }, () => {
         assert.strictEqual(probeData.format.format_name, "mov,mp4,m4a,3gp,3g2,mj2");
     });
 
-    it("video resolution is 1080x1920 (9:16 vertical)", () => {
+    it("video resolution is 1920x1080 (16:9 landscape)", () => {
         const videoStream = probeData.streams.find((s) => s.codec_type === "video");
         assert.ok(videoStream, "Should have a video stream");
-        assert.strictEqual(videoStream.width, 1080);
-        assert.strictEqual(videoStream.height, 1920);
+        assert.strictEqual(videoStream.width, 1920);
+        assert.strictEqual(videoStream.height, 1080);
     });
 
     it("video codec is H.264", () => {
@@ -314,7 +314,7 @@ describe("Video output quality", { timeout: TEST_TIMEOUT }, () => {
         const sizeMB = stats.size / (1024 * 1024);
         const duration = parseFloat(probeData.format.duration);
         const mbPerSecond = sizeMB / duration;
-        // Studio quality at CRF 16 should be 0.5-4 MB/s for 1080x1920@30fps
+        // Studio quality at CRF 16 should be 0.5-4 MB/s for 1920x1080@30fps
         assert.ok(
             mbPerSecond < 5,
             `File too large: ${mbPerSecond.toFixed(2)} MB/s (possible encoding issue)`
@@ -329,7 +329,7 @@ describe("Video output quality", { timeout: TEST_TIMEOUT }, () => {
         const videoStream = probeData.streams.find((s) => s.codec_type === "video");
         if (videoStream.bit_rate) {
             const bitrateMbps = parseInt(videoStream.bit_rate) / 1_000_000;
-            // CRF 16 at 1080x1920@30fps typically produces 3-12 Mbps
+            // CRF 16 at 1920x1080@30fps typically produces 3-12 Mbps
             assert.ok(
                 bitrateMbps > 1,
                 `Video bitrate too low: ${bitrateMbps.toFixed(2)} Mbps`
@@ -355,8 +355,8 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
 
         const probe = ffprobeJSON(result.output_path);
         const video = probe.streams.find((s) => s.codec_type === "video");
-        assert.strictEqual(video.width, 1080);
-        assert.strictEqual(video.height, 1920);
+        assert.strictEqual(video.width, 1920);
+        assert.strictEqual(video.height, 1080);
     });
 
     it("comparison template produces valid output", async () => {
@@ -376,8 +376,8 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
 
         const probe = ffprobeJSON(result.output_path);
         const video = probe.streams.find((s) => s.codec_type === "video");
-        assert.strictEqual(video.width, 1080);
-        assert.strictEqual(video.height, 1920);
+        assert.strictEqual(video.width, 1920);
+        assert.strictEqual(video.height, 1080);
     });
 
     it("kinetic_text template produces valid output", async () => {
@@ -392,8 +392,8 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
 
         const probe = ffprobeJSON(result.output_path);
         const video = probe.streams.find((s) => s.codec_type === "video");
-        assert.strictEqual(video.width, 1080);
-        assert.strictEqual(video.height, 1920);
+        assert.strictEqual(video.width, 1920);
+        assert.strictEqual(video.height, 1080);
     });
 
     it("cartoon template renders two lip-synced puppets in a parallax bedroom", async () => {
@@ -418,8 +418,8 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
 
         const probe = ffprobeJSON(result.output_path);
         const video = probe.streams.find((s) => s.codec_type === "video");
-        assert.strictEqual(video.width, 1080);
-        assert.strictEqual(video.height, 1920);
+        assert.strictEqual(video.width, 1920);
+        assert.strictEqual(video.height, 1080);
     });
 
     it("many concurrent cartoon scenes don't collide on the shared render-bridge props file", { timeout: TEST_TIMEOUT * 2 }, async () => {
@@ -475,8 +475,8 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
 
         const probe = ffprobeJSON(result.output_path);
         const video = probe.streams.find((s) => s.codec_type === "video");
-        assert.strictEqual(video.width, 1080);
-        assert.strictEqual(video.height, 1920);
+        assert.strictEqual(video.width, 1920);
+        assert.strictEqual(video.height, 1080);
     });
 
     it("cartoon template falls back to a plain gradient for an unbuilt location", async () => {

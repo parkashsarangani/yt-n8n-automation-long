@@ -46,6 +46,21 @@ const FPS = 30;
 //   down from 6000) to cut per-process RAM while keeping sub-pixel headroom.
 const COMPOSE_CONCURRENCY = Math.max(1, parseInt(process.env.COMPOSE_CONCURRENCY || "3", 10));
 const KENBURNS_UPSCALE = Math.max(2200, parseInt(process.env.KENBURNS_UPSCALE || "3500", 10));
+const DEBUG_KEEP_TMP = /^(1|true|yes)$/i.test(process.env.DEBUG_KEEP_TMP || "");
+const JOB_TTL_MS = Math.max(1000, Number(process.env.JOB_TTL_MS) || 2 * 60 * 60 * 1000);
+const JOB_SWEEP_INTERVAL_MS = Math.max(1000, Math.min(JOB_TTL_MS, Number(process.env.JOB_SWEEP_INTERVAL_MS) || 5 * 60 * 1000));
+
+// Completed/failed jobs used to live forever when a caller disappeared before polling.
+// Active renders are never expired; only terminal jobs older than JOB_TTL_MS are swept.
+const jobSweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of jobStore) {
+    if ((job.status === "done" || job.status === "failed") && job.finishedAt && now - job.finishedAt > JOB_TTL_MS) {
+      jobStore.delete(id);
+    }
+  }
+}, JOB_SWEEP_INTERVAL_MS);
+jobSweepTimer.unref?.();
 
 // Detect video encoder hardware support (libx264 fallback)
 const V_ENCODER = process.env.USE_NVENC ? "h264_nvenc" : "libx264";
@@ -282,17 +297,8 @@ function textFfmpegPath() {
   return _textFfmpeg;
 }
 
-// Records which background was actually used, so callers can report a gradient
-// fallback rather than claiming the supplied image was applied. Read via
-// lastThumbnailBackground() immediately after the call.
-let _lastThumbnailBackground = "gradient";
-function lastThumbnailBackground() { return _lastThumbnailBackground; }
-
-// What the layout actually chose. Reported so the guideline checks — headline
-// legible at small size, text inside its column, right region proportion — can
-// be asserted downstream instead of eyeballed.
-let _lastThumbnailLayout = null;
-function lastThumbnailLayout() { return _lastThumbnailLayout; }
+// Thumbnail result metadata is returned from buildThumbnail() per request.
+// Do not store it in process globals: concurrent /thumbnail calls otherwise race.
 
 /**
  * Lay out thumbnail text as a left-hand column of stacked capitals.
@@ -467,16 +473,16 @@ function scrimFilters(side, width, maxAlpha, steps = 64) {
 
 async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase64, emphasis) {
   let bgPath;
-  _lastThumbnailBackground = "gradient";
+  let thumbnailBackground = "gradient";
   if (imageBase64) {
     bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
     await writeBase64(imageBase64, bgPath);
-    _lastThumbnailBackground = "supplied";
+    thumbnailBackground = "supplied";
   } else if (imageUrl) {
     bgPath = path.join(tmpDir, `thumb_bg_${crypto.randomUUID()}.png`);
     try {
       await downloadFile(imageUrl, bgPath);
-      _lastThumbnailBackground = "supplied";
+      thumbnailBackground = "supplied";
     } catch (e) { bgPath = pickGradientBackground(); }
   } else {
     bgPath = pickGradientBackground();
@@ -583,7 +589,7 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
     `detail=${look.sideDetail.toFixed(1)}${needsBlur ? " (blurred)" : ""} ` +
     `brightness=${look.sideBrightness.toFixed(2)}`,
   );
-  _lastThumbnailLayout = {
+  const layout = {
     side: look.side,
     lines: lines.length,
     headline_px: Math.max(0, ...lines.filter((l) => l.hot).map((l) => l.size)),
@@ -597,7 +603,7 @@ async function buildThumbnail(imageUrl, text, accent, tmpDir, outPath, imageBase
     blurred: needsBlur,
     text_region_pct: Math.round((colWidth / 1280) * 100),
   };
-  return outPath;
+  return { path: outPath, background: thumbnailBackground, layout };
 }
 
 // ---------------------------------------------------------------------------
@@ -646,49 +652,38 @@ function pickMusicTrack(mood) {
 // Remotion Render Bridge
 // ---------------------------------------------------------------------------
 
-function renderRemotion(compositionId, outputPath, durationSec, props) {
-  return new Promise(async (resolve, reject) => {
-    const bridgePath = path.join(REMOTION_DIR, "render-bridge.mjs");
+async function renderRemotion(compositionId, outputPath, durationSec, props) {
+  const bridgePath = path.join(REMOTION_DIR, "render-bridge.mjs");
 
-    // Write props to a temp file to avoid E2BIG when props contain large
-    // base64 images. The render-bridge reads from file when a path is passed.
-    //
-    // Filename must be unique per call, not just per millisecond: every scene
-    // in a job shares this same tmpDir, and COMPOSE_CONCURRENCY renders
-    // several scenes' templates in parallel. Date.now() alone collides
-    // whenever two scenes reach this line in the same millisecond - one
-    // scene's write then tears another's read (JSON parse corruption), and
-    // whichever finishes first unlinks the file out from under the other
-    // (ENOENT). Rare with the old 15-25% template-scene minority; routine
-    // once most/all scenes are cartoon (template_category) scenes.
-    const propsFile = path.join(path.dirname(outputPath), `props_${crypto.randomUUID()}.json`);
-    await fsp.writeFile(propsFile, JSON.stringify(props));
+  // Write props to a temp file to avoid E2BIG when props contain large
+  // base64 images. UUID keeps concurrent scene renders collision-free.
+  const propsFile = path.join(path.dirname(outputPath), `props_${crypto.randomUUID()}.json`);
+  await fsp.writeFile(propsFile, JSON.stringify(props));
 
-    const args = [
-      bridgePath,
-      compositionId,
-      outputPath,
-      String(durationSec),
-      `@${propsFile}`, // "@" prefix tells render-bridge to read from file
-    ];
+  const args = [
+    bridgePath,
+    compositionId,
+    outputPath,
+    String(durationSec),
+    `@${propsFile}`,
+  ];
 
-    console.log(`[remotion] Rendering ${compositionId} (${durationSec}s)...`);
-    execFile("node", args, {
+  console.log(`[remotion] Rendering ${compositionId} (${durationSec}s)...`);
+  try {
+    const { stdout, stderr } = await execFileAsync("node", args, {
       cwd: REMOTION_DIR,
-      timeout: 300000, // 5 min max
+      timeout: 300000,
       maxBuffer: 10 * 1024 * 1024,
-    }, async (err, stdout, stderr) => {
-      if (stdout) console.log("[remotion stdout]", stdout);
-      if (stderr) console.log("[remotion stderr]", stderr);
-      // Clean up props file
-      fsp.unlink(propsFile).catch(() => { });
-      if (err) {
-        console.error("[remotion] Render failed:", err.message);
-        return reject(err);
-      }
-      resolve(outputPath);
     });
-  });
+    if (stdout) console.log("[remotion stdout]", stdout);
+    if (stderr) console.log("[remotion stderr]", stderr);
+    return outputPath;
+  } catch (err) {
+    console.error("[remotion] Render failed:", err.message);
+    throw err;
+  } finally {
+    await fsp.unlink(propsFile).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,16 +1085,29 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   // makes text harder to read and panels invisible. The visual planner should
   // use templates for data-heavy scenes and images for atmospheric scenes —
   // mixing them in a single frame adds complexity without visual benefit.
-  const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${Date.now()}.mp4`);
+  const templateVideoPath = path.join(tmpDir, `remotion_${compositionId}_${crypto.randomUUID()}.mp4`);
   await renderRemotion(compositionId, templateVideoPath, duration, props);
 
-  // Mux template video (or composite) with audio
+  // Mux template video with narration. Remotion already renders H.264 at the
+  // target geometry/fps, so copy video directly whenever it is long enough.
+  // Re-encode only when a short render actually needs tpad.
   const templateDuration = await ffprobeDuration(templateVideoPath);
-  const videoFilter = templateDuration < duration
-    ? `[0:v]tpad=stop_mode=clone:stop_duration=${(duration - templateDuration + 0.1).toFixed(3)}[padded]`
-    : `[0:v]null[padded]`;
+  const needsPadding = templateDuration + 0.05 < duration;
 
   await runAudioMux((normalize) => {
+    if (!needsPadding) {
+      const opts = ["-map", "0:v", "-map", "1:a", "-t", String(duration)];
+      if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+      opts.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k");
+      return ffmpeg()
+        .input(templateVideoPath)
+        .input(audioPath)
+        .outputOptions(opts)
+        .output(outPath);
+    }
+
+    const padDuration = Math.max(0, duration - templateDuration + 0.1).toFixed(3);
+    const videoFilter = `[0:v]tpad=stop_mode=clone:stop_duration=${padDuration}[padded]`;
     const opts = ["-map", "[padded]", "-map", "1:a", "-t", String(duration)];
     if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
     opts.push(
@@ -1133,6 +1141,59 @@ function toAssTime(sec) {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(5, "0")}`;
 }
 
+
+// User text must never be allowed to inject ASS override blocks. Replace the
+// characters that carry ASS control syntax while preserving readable content.
+function escapeAssText(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "＼")
+    .replace(/\{/g, "(")
+    .replace(/\}/g, ")")
+    .replace(/\r?\n/g, "\\N");
+}
+
+function validatedAlignment(alignment, sceneIdx) {
+  if (!alignment) return null;
+  const rawChars = alignment.characters;
+  const chars = Array.isArray(rawChars)
+    ? rawChars
+    : (typeof rawChars === "string" ? [...rawChars] : []);
+  const starts = Array.isArray(alignment.character_start_times_seconds)
+    ? alignment.character_start_times_seconds
+    : [];
+  const ends = Array.isArray(alignment.character_end_times_seconds)
+    ? alignment.character_end_times_seconds
+    : [];
+
+  const length = Math.min(chars.length, starts.length, ends.length);
+  if (!length) return null;
+  if (chars.length !== starts.length || chars.length !== ends.length) {
+    console.warn(
+      `[captions] scene ${sceneIdx}: alignment length mismatch ` +
+      `(chars=${chars.length}, starts=${starts.length}, ends=${ends.length}); truncating to ${length}`,
+    );
+  }
+
+  const cleanChars = [];
+  const cleanStarts = [];
+  const cleanEnds = [];
+  for (let i = 0; i < length; i++) {
+    const start = Number(starts[i]);
+    const end = Number(ends[i]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+      console.warn(`[captions] scene ${sceneIdx}: dropping invalid alignment entry ${i}`);
+      continue;
+    }
+    cleanChars.push(String(chars[i] ?? ""));
+    cleanStarts.push(start);
+    cleanEnds.push(end);
+  }
+
+  return cleanChars.length
+    ? { characters: cleanChars, character_start_times_seconds: cleanStarts, character_end_times_seconds: cleanEnds }
+    : null;
+}
+
 function buildAssFromAlignment(scenes, offsets, commentHook, totalDuration) {
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -1154,8 +1215,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const WORDS_PER_PHRASE = 8;
 
   scenes.forEach((scene, sceneIdx) => {
-    if (scene?.template_data?.is_outro) return;
-    const alignment = scene?.audio?.alignment;
+    if (isOutroScene(scene)) return;
+    const alignment = validatedAlignment(scene?.audio?.alignment, sceneIdx);
     if (!alignment) return;
 
     const chars = alignment.characters;
@@ -1196,7 +1257,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         const word = phrase[w];
         // \kf duration is in centiseconds (100ths of a second)
         const wordDurationCs = Math.round((word.end - word.start) * 100);
-        line += `{\\kf${wordDurationCs}}${word.text} `;
+        line += `{\\kf${wordDurationCs}}${escapeAssText(word.text)} `;
       }
 
       events += `Dialogue: 0,${toAssTime(phraseBegin)},${toAssTime(phraseEnd)},Caption,,0,0,0,,${line.trim()}\n`;
@@ -1210,7 +1271,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // kicker so it doesn't collide with the payoff.
     const hookStart = totalDuration * 0.62;
     const hookEnd = Math.min(totalDuration, hookStart + 5);
-    const escaped = commentHook.replace(/\\/g, "").replace(/\{/g, "").replace(/\}/g, "");
+    const escaped = escapeAssText(commentHook);
     events += `Dialogue: 1,${toAssTime(hookStart)},${toAssTime(hookEnd)},CommentHook,,0,0,0,,{\\fscx0\\fscy0\\t(0,200,\\fscx120\\fscy120)\\t(200,300,\\fscx100\\fscy100)}${escaped}\n`;
   }
 
@@ -1225,7 +1286,7 @@ function extractWordsFromAlignment(scenes, offsets) {
   const allWords = [];
 
   scenes.forEach((scene, sceneIdx) => {
-    const alignment = scene?.audio?.alignment;
+    const alignment = validatedAlignment(scene?.audio?.alignment, sceneIdx);
     if (!alignment) return;
 
     const chars = alignment.characters;
@@ -1332,6 +1393,15 @@ async function buildGaplessVoice(audioPaths, outPath) {
   return outPath;
 }
 
+function isOutroScene(scene) {
+  const data = scene?.template_data;
+  if (data && typeof data === "object") return data.is_outro === true;
+  if (typeof data === "string") {
+    try { return JSON.parse(data)?.is_outro === true; } catch { return false; }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Main Compose Pipeline
 // ---------------------------------------------------------------------------
@@ -1351,8 +1421,20 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // (voice + branded KineticText card). Only when it is absent (legacy payload
     // or fallback) do we append the old SILENT branded card, so a render never
     // ends without an outro.
-    const hasScriptOutro = scenes.some((s) => s?.template_data?.is_outro);
-    if (!hasScriptOutro) {
+    const outroIndexes = scenes
+      .map((scene, index) => (isOutroScene(scene) ? index : -1))
+      .filter((index) => index >= 0);
+    if (outroIndexes.length > 1) {
+      throw new Error(`Expected at most one outro scene, found ${outroIndexes.length}`);
+    }
+    if (outroIndexes.length === 1) {
+      const outroIndex = outroIndexes[0];
+      if (outroIndex !== scenes.length - 1) {
+        const [outro] = scenes.splice(outroIndex, 1);
+        scenes.push(outro);
+        console.warn(`[job ${jobId}] moved script outro from index ${outroIndex} to final position`);
+      }
+    } else {
       const outroAudioBase64 = await generateSilentAudioBase64(OUTRO_DURATION_SEC);
       scenes.push({
         scene_index: scenes.length,
@@ -1447,12 +1529,16 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         // motion clips; keep the middle as Ken-Burns stills. Any failure
         // (no key, model error, timeout) falls back to the still so a bad
         // clip never breaks the video. Never animate a gradient placeholder.
-        const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && (i === 0 || i === emphasisIdx);
+        const animationSourceUrl = Array.isArray(imageUrls) && imageUrls.length ? imageUrls[0] : null;
+        const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && Boolean(animationSourceUrl) && (i === 0 || i === emphasisIdx);
+        if (!degraded && FAL_VIDEO_ENABLED && FAL_KEY && !animationSourceUrl && Array.isArray(imageBase64s) && imageBase64s.length && (i === 0 || i === emphasisIdx)) {
+          console.log(`[ltx] scene ${i} uses inline image bytes; skipping URL-only image-to-video and keeping deterministic Ken Burns motion`);
+        }
         let animated = false;
         if (animate) {
           try {
             const clipPath = path.join(tmpDir, `clip_${i}.mp4`);
-            await generateVideoFromImage(imageUrls[0], clipPath);
+            await generateVideoFromImage(animationSourceUrl, clipPath);
             await buildStockVideoScene(clipPath, audioPath, duration, outPath, i, mood);
             animated = true;
             console.log(`[ltx] animated scene ${i} (${i === 0 ? "hook" : "payoff"})`);
@@ -1624,8 +1710,8 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     if (reqBody.thumbnail) {
       try {
         const thumbFull = path.join(OUTPUT_DIR, `thumb_${jobId}.png`);
-        await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64, reqBody.thumbnail.emphasis);
-        thumbnailPath = thumbFull;
+        const thumbnailResult = await buildThumbnail(reqBody.thumbnail.image_url, reqBody.thumbnail.text, reqBody.thumbnail.accent, tmpDir, thumbFull, reqBody.thumbnail.image_base64, reqBody.thumbnail.emphasis);
+        thumbnailPath = thumbnailResult.path;
       } catch (e) {
         console.warn(`[job ${jobId}] thumbnail render failed (${e.message}) - continuing without a custom thumbnail`);
       }
@@ -1639,7 +1725,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     console.error(`[job ${jobId}] FAILED:`, err);
     throw err;
   } finally {
-    if (!process.env.DEBUG_KEEP_TMP) {
+    if (!DEBUG_KEEP_TMP) {
       await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => { });
     }
   }
@@ -1681,7 +1767,7 @@ app.post("/thumbnail", async (req, res) => {
     const { image_url = null, image_base64 = null, text = null, accent = null, emphasis = null } =
       req.body || {};
 
-    await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64, emphasis);
+    const thumbnailResult = await buildThumbnail(image_url, text, accent, tmpDir, outPath, image_base64, emphasis);
 
     const bytes = await fsp.readFile(outPath);
     return res.json({
@@ -1695,8 +1781,8 @@ app.post("/thumbnail", async (req, res) => {
       // buildThumbnail falls back to a gradient when the background cannot be
       // fetched. Report what was actually used, not what was asked for, so the
       // engine never records a stock background it did not get.
-      background: lastThumbnailBackground(),
-      layout: lastThumbnailLayout(),
+      background: thumbnailResult.background,
+      layout: thumbnailResult.layout,
     });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });
