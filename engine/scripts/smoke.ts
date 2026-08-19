@@ -85,7 +85,7 @@ async function main() {
     : new FakePublishTarget({ id: "dry-run" });
 
   console.log("providers:");
-  console.log(`  reasoning  anthropic (claude-opus-5 / claude-sonnet-5)`);
+  console.log(`  reasoning  anthropic (claude-sonnet-5 / claude-sonnet-5 - reasoning_high temporarily downgraded from opus, see service.ts)`);
   console.log(`  speech     ${speech.id}`);
   console.log(`  images     ${images.id}`);
   console.log(`  renderer   ${renderer.id}`);
@@ -121,9 +121,10 @@ async function main() {
   const blobs = await FsBlobStore.open(DATA);
   const runLog = new JsonlRunLog(path.join(DATA, "runs.jsonl"));
 
-  // The only place a concrete model id appears (RFC 0004).
+  // The only place a concrete model id appears (RFC 0004). Mirrors
+  // service.ts's temporary reasoning_high downgrade - keep both in sync.
   const providers = new ProviderRouter({
-    reasoning_high: new AnthropicProvider({ model: "claude-opus-5", effort: "high" }),
+    reasoning_high: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
     reasoning_fast: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
   });
 

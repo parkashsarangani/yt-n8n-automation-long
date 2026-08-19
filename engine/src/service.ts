@@ -263,8 +263,12 @@ export class VidGenService {
     validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
     validateGraph(this.cartoonGraph, { registry: this.registry, transformations: this.transformations });
 
+    // reasoning_high was claude-opus-5/high; temporarily downgraded to cut
+    // token spend while budget is tight. It's a capability, not a vendor/model
+    // (RFC 0004), so nothing in an agent config changes - restore the two
+    // values below when budget allows.
     const providers = new ProviderRouter({
-      reasoning_high: new AnthropicProvider({ model: "claude-opus-5", effort: "high" }),
+      reasoning_high: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
       reasoning_fast: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
     });
 
