@@ -10,10 +10,14 @@ import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
 import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
-import { ProviderRouter } from "../src/provider.ts";
-import { Runner } from "../src/runner.ts";
-import { loadGraph } from "../src/graph.ts";
+import { ProviderRouter, type CompletionRequest } from "../src/provider.ts";
+import { Runner, type TransformationDef } from "../src/runner.ts";
+import { loadGraph, validateGraph } from "../src/graph.ts";
+import { GraphExecutor } from "../src/executor.ts";
 import { makeCastLoaderWorker } from "../src/workers/cast.ts";
+import { loadAgentDefs } from "../src/catalog.ts";
+import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
+import { FakeProvider, FakeSpeechProvider, FakeImageProvider, FakeRenderer, FakePublishTarget } from "../src/providers/fake.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log() {}, warn() {}, error() {} });
@@ -155,6 +159,155 @@ test("scheduled cast loader survives the real producer allowlist/store boundary"
     assert.equal(out.artifact.schema_version, "1.1.0");
     assert.deepEqual(out.artifact.payload, CAST);
     assert.equal(out.artifact.produced_by.transformation, "cast_loader");
+  } finally {
+    if (old === undefined) delete process.env["CARTOON_CAST_PATH"];
+    else process.env["CARTOON_CAST_PATH"] = old;
+  }
+});
+
+// The rest of this file checks the shipped graph's shape and individual
+// transformations in isolation. Neither catches a wiring regression that
+// still passes static validation - a QA-gate predicate typo, a broken node
+// input mapping, a schema drift between one agent's producer and the next
+// one's consumer. This runs the actual shipped skeleton.json end to end
+// through the real Runner/GraphExecutor with fake providers (zero cost, zero
+// network) - the same guarantee a deleted executor.test.ts case used to give
+// before the production graph moved to cartoon-only and that test's synthetic
+// replacement stopped exercising it.
+test("the shipped production graph runs unattended end to end with fake providers", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "cartoon-e2e-cast-"));
+  const castFile = path.join(dir, "cast.json");
+  await writeFile(castFile, JSON.stringify(CAST), "utf8");
+
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "cartoon-e2e-store-")), registry);
+  const runLog = new MemoryRunLog();
+  const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
+
+  const STORY = {
+    topic: "Why the school locker room hums at night",
+    title: "The Locker That Hums",
+    hook: "Every school has one locker nobody opens twice.",
+    acts: [
+      { act_index: 0, act_title: "The rumor", premise: "Host hears about the humming locker.", target_words: 60 },
+      { act_index: 1, act_title: "The dare", premise: "Buddy dares Host to open it.", target_words: 60 },
+      { act_index: 2, act_title: "The hum", premise: "They open it together.", target_words: 60 },
+    ],
+    payoff: "Some things hum because they are waiting.",
+    comment_hook: "Would you have opened it?",
+    outro_line: "Tell us what's humming in your school.",
+  };
+  const SCRIPT = {
+    scenes: [
+      { scene_index: 0, act_index: 0, point: "the rumor", narration: "There's a locker that hums.", speaker: "host", emotion: "neutral" },
+      { scene_index: 1, act_index: 1, point: "the dare", narration: "So open it. I dare you.", speaker: "host", emotion: "surprised" },
+    ],
+    word_count: 14,
+  };
+  const VISUAL_PLAN = {
+    scenes: [0, 1].map((i) => ({
+      scene_index: i,
+      search_terms: ["school hallway", "lockers", "cartoon interior"],
+      visual_style: "cartoon, school hallway",
+      fallback_terms: ["hallway", "lockers"],
+      template_category: "cartoon",
+      template_data: JSON.stringify({
+        background: { location: "school-hallway", variant: "normal", tone: "neutral" },
+        camera: { type: "static" },
+        characters: [{ characterId: "pilot", x: 660, y: 380, isSpeaking: true }],
+      }),
+    })),
+  };
+  const SEO = {
+    title: "The Locker That Hums Every Night",
+    description: "A".repeat(60),
+    tags: ["school", "mystery", "locker", "cartoon", "short story"],
+    primary_keyword: "humming locker",
+    rationale: "The unresolved sound is the hook; the title promises the same mystery the video opens with.",
+  };
+  const THUMBNAIL_BRIEF = {
+    mode: "cartoon",
+    text: "IT HUMS",
+    emphasis: "HUMS",
+    art_prompt:
+      "Create a 16:9 long-form YouTube thumbnail in a clean thick-outline 2D cartoon style. Show the recurring " +
+      "host staring at a glowing locker in a school hallway, wide-eyed. Reserve the left side as quiet negative " +
+      "space. No words, letters, signs, logos, arrows, circles, captions or watermarks. No photorealism or 3D rendering.",
+    accent: "#FFC712",
+    visual_hook: "The host stares at a locker humming with light.",
+    character_ids: ["host"],
+    preferred_text_side: "left",
+    rationale: "The face carries the reaction; the glow supplies the unanswered question.",
+  };
+  const INSIGHTS = { sample_size: 0, confidence_note: "Nothing measured yet; no guidance can be supported.", guidance: [] };
+
+  const provider = new FakeProvider((req: CompletionRequest) => {
+    // outputSchema is wrapWithConfidence's wrapper - the original artifact
+    // schema (and its title) is nested at properties.payload, not the top level.
+    const schema = req.outputSchema as { properties?: { payload?: { title?: string } } };
+    const title = schema.properties?.payload?.title ?? "";
+    if (title.includes("ChannelInsights")) return { payload: INSIGHTS, confidence: { overall: 0.9 } };
+    if (title.includes("Story")) return { payload: STORY, confidence: { overall: 0.9 } };
+    if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
+    if (title.includes("VisualPlan")) return { payload: VISUAL_PLAN, confidence: { overall: 0.9 } };
+    if (title.includes("Seo")) return { payload: SEO, confidence: { overall: 0.9 } };
+    if (title.includes("ThumbnailBrief")) return { payload: THUMBNAIL_BRIEF, confidence: { overall: 0.9 } };
+    throw new Error(`no fake response configured for output schema "${title}"`);
+  });
+  const providers = new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider });
+
+  const media = {
+    speech: new FakeSpeechProvider(),
+    images: new FakeImageProvider(),
+    renderer: new FakeRenderer(),
+  };
+
+  const workers = defaultWorkers({
+    voice: { voiceId: "fallback-voice" },
+    publish: { target: new FakePublishTarget(), privacy: "private" },
+  });
+  const transformations = allTransformations(agents, workers);
+
+  const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
+  validateGraph(graph, { registry, transformations });
+
+  const runner = new Runner({ store, registry, prompts, providers, runLog, logger: silent(), blobs: new MemoryBlobStore(), media });
+  const executor = new GraphExecutor({ runner, runLog, store, registry, transformations, logger: silent() });
+
+  const old = process.env["CARTOON_CAST_PATH"];
+  process.env["CARTOON_CAST_PATH"] = castFile;
+  try {
+    const intent = await store.put({
+      schema_id: "intent",
+      payload: { brief: "why the school locker room hums at night", target_duration_sec: 60 },
+      produced_by: { transformation: "human", version: "1", run_id: "e2e", provider: null },
+    });
+    const performance = await store.put({
+      schema_id: "performance_window",
+      payload: { generated_at: new Date().toISOString(), episode_count: 0, episodes: [] },
+      produced_by: { transformation: "human", version: "1", run_id: "e2e", provider: null },
+    });
+
+    const result = await executor.start(graph, {
+      intent: intent.artifact.artifact_id,
+      performance: performance.artifact.artifact_id,
+    });
+
+    assert.deepEqual(result.failures, [], `unexpected node failures: ${JSON.stringify(result.failures)}`);
+    // Both gates in skeleton.json use auto_pass_if: "always" - neither should
+    // still be parked waiting for a human once the run settles.
+    assert.deepEqual(
+      result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
+      [],
+    );
+    for (const nodeId of ["story", "script", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
+      assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
+    }
+    // approve_publish gates on the real QA verdict, so the run may legitimately
+    // park there rather than publish - "blocked" (an actual node failure) is
+    // the only outcome this test treats as wrong.
+    assert.notEqual(result.status, "blocked");
   } finally {
     if (old === undefined) delete process.env["CARTOON_CAST_PATH"];
     else process.env["CARTOON_CAST_PATH"] = old;

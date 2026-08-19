@@ -30,13 +30,14 @@ test("the UI does not offer unexplained credentials", () => {
   // Scheduling/configuration keys and legacy stock keys are intentionally not
   // stage gates. The production cartoon graph uses FAL_KEY for thumbnail art,
   // while the old keys remain saveable only so historical/manual deployments
-  // are not broken during migration.
+  // are not broken during migration. CARTOON_CAST_PATH is not listed here: it
+  // gates the "cast" stage (see capabilities.ts), so credentialKeysUsed()
+  // already accounts for it.
   const TUNING_NOT_GATING = [
     "ELEVENLABS_VOICE_ID",
     "MEASURE_EXCLUDE_IDS",
     "SCHEDULE_MEASURE_HOURS",
     "SCHEDULE_PRODUCE_HOURS",
-    "CARTOON_CAST_PATH",
     "PEXELS_API_KEY",
     "UNSPLASH_ACCESS_KEY",
     "PIXABAY_API_KEY",
@@ -105,6 +106,7 @@ test("a fully configured cartoon deployment reports every stage live", () => {
       ELEVENLABS_API_KEY: "el",
       FAL_KEY: "fal",
       COMPOSE_URL: "http://long-compose:4000",
+      CARTOON_CAST_PATH: "/app/config/cast_roster.default.json",
       YOUTUBE_CLIENT_ID: "id",
       YOUTUBE_CLIENT_SECRET: "secret",
       YOUTUBE_REFRESH_TOKEN: "refresh",
