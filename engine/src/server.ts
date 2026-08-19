@@ -153,6 +153,25 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // Cartoon-animation mode: story_architect and dialogue_script_writer
+    // still write the episode - only how it's *shot* differs (SVG puppets in
+    // reusable backgrounds instead of stock imagery). Needs the channel's
+    // cast (who speaks, their voice, their rig) supplied per run.
+    if (route === "POST /api/runs/cartoon") {
+      const body = (await readJson(req)) as {
+        brief?: string;
+        cast_roster?: unknown;
+        duration_sec?: number;
+      };
+      const runId = await service.startCartoonRun(
+        String(body.brief ?? ""),
+        body.cast_roster,
+        body.duration_sec ?? 540,
+      );
+      json(res, 201, { run_id: runId });
+      return;
+    }
+
     const runMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (req.method === "GET" && runMatch) {
       const run = service.getRun(runMatch[1]!);

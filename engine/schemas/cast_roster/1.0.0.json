@@ -1,0 +1,67 @@
+{
+  "schema_id": "cast_roster",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "The channel's recurring cartoon cast: which characters exist, their voice, and which rig folder under long-compose/remotion/public/characters/ renders them. Supplied as a graph input for a cartoon-mode run, like intent - a channel's cast changes rarely and deliberately, so it is not AI-generated per episode.",
+  "produced_by": ["human"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CastRosterArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["characters"],
+    "properties": {
+      "characters": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 20,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["character_id", "name", "voice_id", "rig"],
+          "properties": {
+            "character_id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "maxLength": 40,
+              "description": "Stable id the dialogue writer uses as script.scenes[].speaker."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "description": "Display name, e.g. for the dialogue writer's prompt."
+            },
+            "voice_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "TTS voice id for this character's lines."
+            },
+            "rig": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "description": "Folder name under long-compose/remotion/public/characters/ - may differ from character_id (multiple characters can share a rig)."
+            },
+            "personality": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "Short blurb for the dialogue writer, e.g. \"skeptical, dry humor, asks the obvious question\"."
+            },
+            "default_expression": {
+              "type": "string",
+              "enum": ["normal", "angry", "surprised"]
+            }
+          }
+        }
+      },
+      "default_voice_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120,
+        "description": "Fallback voice when a scene's speaker isn't found in characters[] (should not normally happen)."
+      }
+    }
+  }
+}
