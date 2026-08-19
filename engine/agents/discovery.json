@@ -10,8 +10,7 @@
   "prompt": "discovery@1",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 6000,
-    "effort": "high"
+    "max_output_tokens": 6000
   },
   "confidence_dimensions": ["novelty", "evidence_strength"],
   "retry": { "max_attempts": 3 }
