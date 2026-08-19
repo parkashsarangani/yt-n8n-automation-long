@@ -24,6 +24,10 @@ jobs:
         run: |
           set -e
           if [ -f .github/scripts/apply_cartoon_hardening.py ]; then
+            # Current compose.js has one direct scene?.template_data?.is_outro
+            # occurrence; the main pipeline's s?.template_data?.is_outro is
+            # replaced by the dedicated normalization block later in the script.
+            sed -i 's/, 2, "outro checks")/, 1, "outro checks")/' .github/scripts/apply_cartoon_hardening.py
             python3 .github/scripts/apply_cartoon_hardening.py
             node --check long-compose/compose.js
             git diff --check
