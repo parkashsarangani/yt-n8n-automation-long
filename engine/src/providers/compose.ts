@@ -44,6 +44,16 @@ interface ComposeStatus {
   error?: string;
 }
 
+interface ThumbnailResponse {
+  success?: boolean;
+  image_base64?: string;
+  media_type?: string;
+  width?: number;
+  height?: number;
+  background?: "supplied" | "gradient";
+  error?: string;
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export class ComposeRenderer implements MediaRenderer {
@@ -65,34 +75,67 @@ export class ComposeRenderer implements MediaRenderer {
   /**
    * Synchronous, unlike render(): compositing a still is fast enough that a job
    * store and polling would be pure overhead.
+   *
+   * Generated artwork is valuable, but it is not allowed to make the packaging
+   * node unavailable. Some image encodings/pixel formats can exercise ffmpeg
+   * filter paths differently from the deterministic house background. If the
+   * supplied artwork render fails, retry once without the image so the renderer
+   * can still return a text-bearing gradient thumbnail. The worker records the
+   * resulting `background` value, so this degradation remains visible to QA and
+   * later CTR analysis instead of being silently hidden.
    */
   async renderThumbnail(req: ThumbnailRequest): Promise<ThumbnailResult> {
+    try {
+      return await this.renderThumbnailOnce(req, req.image);
+    } catch (first) {
+      if (!req.image) throw first;
+
+      try {
+        return await this.renderThumbnailOnce(req, undefined);
+      } catch (second) {
+        const firstMessage = first instanceof Error ? first.message : String(first);
+        const secondMessage = second instanceof Error ? second.message : String(second);
+        throw new ProviderError(
+          `thumbnail render failed with supplied artwork and gradient fallback; ` +
+            `artwork: ${firstMessage}; gradient: ${secondMessage}`,
+        );
+      }
+    }
+  }
+
+  private async renderThumbnailOnce(
+    req: ThumbnailRequest,
+    image: Uint8Array | undefined,
+  ): Promise<ThumbnailResult> {
     const res = await this.fetchImpl(`${this.baseUrl}/thumbnail`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        image_base64: req.image ? toBase64(req.image) : null,
+        image_base64: image ? toBase64(image) : null,
         text: req.text,
         emphasis: req.emphasis ?? null,
         accent: req.accent ?? null,
       }),
     });
 
+    const text = await res.text();
     if (!res.ok) {
+      // Preserve enough stderr to diagnose ffmpeg failures from the engine UI.
+      // The old 300-character slice often stopped before the actual filter error.
       throw new ProviderError(
-        `thumbnail render failed (${res.status}): ${(await res.text()).slice(0, 300)}`,
+        `thumbnail render failed (${res.status}): ${text.slice(0, 1200)}`,
       );
     }
 
-    const body = (await res.json()) as {
-      success?: boolean;
-      image_base64?: string;
-      media_type?: string;
-      width?: number;
-      height?: number;
-      background?: "supplied" | "gradient";
-      error?: string;
-    };
+    let body: ThumbnailResponse;
+    try {
+      body = JSON.parse(text) as ThumbnailResponse;
+    } catch {
+      throw new ProviderError(
+        `thumbnail render returned non-JSON (${res.status}): ${text.slice(0, 1200)}`,
+      );
+    }
+
     if (!body.success || !body.image_base64) {
       throw new ProviderError(`thumbnail render failed: ${body.error ?? "no image returned"}`);
     }

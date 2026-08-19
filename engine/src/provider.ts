@@ -314,13 +314,12 @@ export class ProviderRouter {
 /**
  * Project a registry schema onto the subset structured outputs can enforce.
  *
- * Structured outputs reject numeric, string-length, and array-length
- * constraints. Our registry schemas use all three, so the schema sent to the
+ * Structured outputs reject numeric, string-length, array-length and conditional
+ * constraints. Our registry schemas use all of them, so the schema sent to the
  * provider is a relaxed projection while the registry schema remains the strict
- * validator on write (RFC 0007). Stripped constraints are appended to the
- * field's `description`, so the model still receives them as instruction — the
- * difference is that they become guidance rather than a hard grammar
- * constraint, enforced by validate-and-retry instead.
+ * validator on write (RFC 0007). Stripped scalar constraints are appended to the
+ * field's `description`; conditional branches are omitted entirely because the
+ * provider grammar cannot compile `if`/`then`/`else`.
  */
 const STRIPPED: Record<string, (v: unknown) => string> = {
   minimum: (v) => `minimum ${String(v)}`,
@@ -336,6 +335,16 @@ const STRIPPED: Record<string, (v: unknown) => string> = {
   uniqueItems: () => `all items distinct`,
 };
 
+const CONDITIONAL_KEYS = new Set(["if", "then", "else"]);
+
+function containsConditional(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsConditional);
+  if (value === null || typeof value !== "object") return false;
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nested]) => CONDITIONAL_KEYS.has(key) || containsConditional(nested),
+  );
+}
+
 export function relaxForStructuredOutput(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(relaxForStructuredOutput);
   if (schema === null || typeof schema !== "object") return schema;
@@ -350,6 +359,20 @@ export function relaxForStructuredOutput(schema: unknown): unknown {
       notes.push(describe(value));
       continue;
     }
+
+    // Anthropic structured outputs reject conditional JSON Schema keywords.
+    // Drop a whole allOf branch when it carries an if/then/else condition; doing
+    // so avoids leaving a meaningless `{}` branch behind. The original registry
+    // schema is untouched and remains authoritative after model generation.
+    if (CONDITIONAL_KEYS.has(key)) continue;
+    if (key === "allOf" && Array.isArray(value)) {
+      const branches = value
+        .filter((branch) => !containsConditional(branch))
+        .map(relaxForStructuredOutput);
+      if (branches.length > 0) out[key] = branches;
+      continue;
+    }
+
     out[key] = relaxForStructuredOutput(value);
   }
 
