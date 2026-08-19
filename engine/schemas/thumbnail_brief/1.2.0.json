@@ -1,0 +1,79 @@
+{
+  "schema_id": "thumbnail_brief",
+  "version": "1.2.0",
+  "status": "active",
+  "description": "Cartoon-first thumbnail brief. Separates artwork generation from typography so the image model never renders text, and records the visual hook/cast used for later CTR and watch-time analysis.",
+  "produced_by": ["cartoon_thumbnail_designer"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CartoonThumbnailBriefArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["mode", "text", "art_prompt", "accent", "rationale", "visual_hook"],
+    "properties": {
+      "mode": {
+        "type": "string",
+        "const": "cartoon"
+      },
+      "text": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 30,
+        "description": "Two to five words that complement rather than repeat the title. Typography is added after image generation."
+      },
+      "emphasis": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30,
+        "description": "Contiguous phrase copied exactly from text and rendered as the visual text focal point."
+      },
+      "art_prompt": {
+        "type": "string",
+        "minLength": 80,
+        "maxLength": 2400,
+        "description": "Complete 16:9 cartoon artwork prompt. Must explicitly prohibit text/logos and reserve a quiet text-safe region while keeping the emotional subject and hero object large."
+      },
+      "accent": {
+        "type": "string",
+        "pattern": "^#[0-9A-Fa-f]{6}$"
+      },
+      "visual_hook": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 280,
+        "description": "One visual sentence describing the conflict/question a viewer should understand in under a second."
+      },
+      "character_ids": {
+        "type": "array",
+        "maxItems": 2,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "maxLength": 40
+        },
+        "description": "At most two recurring cast members visible in the thumbnail."
+      },
+      "preferred_text_side": {
+        "type": "string",
+        "enum": ["left", "right"],
+        "description": "Side deliberately kept visually quiet in the generated artwork. Renderer analysis remains authoritative."
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 20,
+        "maxLength": 700
+      },
+      "alternatives": {
+        "type": "array",
+        "maxItems": 2,
+        "description": "Two genuinely different hook-text angles retained for later YouTube title/thumbnail experiments.",
+        "items": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 30
+        }
+      }
+    }
+  }
+}
