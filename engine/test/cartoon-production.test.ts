@@ -71,7 +71,7 @@ test("cartoon thumbnail brief schema requires artwork separate from compositor t
   );
 });
 
-test("cartoon visual plans do not require legacy stock-search fields", async () => {
+test("visual_plan separates deterministic cartoon templates from legacy media-search scenes", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   assert.equal(registry.resolveVersion("visual_plan"), "1.3.0");
 
@@ -79,7 +79,6 @@ test("cartoon visual plans do not require legacy stock-search fields", async () 
     scenes: [
       {
         scene_index: 0,
-        visual_style: "cartoon dialogue",
         template_category: "cartoon",
         template_data: JSON.stringify({
           background: { flat: "#24364B" },
@@ -98,11 +97,31 @@ test("cartoon visual plans do not require legacy stock-search fields", async () 
     ],
   };
 
+  // Cartoon/template scenes must not fabricate stock-search metadata.
   assert.doesNotThrow(() => registry.validate("visual_plan", "1.3.0", cartoonPlan));
 
+  // A declared template still needs its render props.
   assert.throws(
     () => registry.validate("visual_plan", "1.3.0", {
-      scenes: [{ scene_index: 0, visual_style: "documentary" }],
+      scenes: [{ scene_index: 0, template_category: "cartoon" }],
+    }),
+    /visual_plan@1.3.0/,
+  );
+
+  // Historical non-template artifacts keep their full media-search contract.
+  assert.doesNotThrow(
+    () => registry.validate("visual_plan", "1.3.0", {
+      scenes: [{
+        scene_index: 0,
+        search_terms: ["old library", "dusty shelves", "reading room"],
+        fallback_terms: ["library", "books"],
+        visual_style: "documentary interior",
+      }],
+    }),
+  );
+  assert.throws(
+    () => registry.validate("visual_plan", "1.3.0", {
+      scenes: [{ scene_index: 0 }],
     }),
     /visual_plan@1.3.0/,
   );
