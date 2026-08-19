@@ -1,0 +1,42 @@
+name: Apply cartoon pipeline hardening
+
+on:
+  push:
+    branches:
+      - agent/cartoon-pipeline-hardening-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/cartoon-pipeline-hardening-v2
+          fetch-depth: 0
+
+      - name: Apply guarded source transforms
+        run: python .github/scripts/apply_cartoon_hardening.py
+
+      - name: Validate JavaScript syntax and patch hygiene
+        run: |
+          node --check long-compose/compose.js
+          git diff --check
+          ! grep -q '_lastThumbnailBackground\|_lastThumbnailLayout\|new Promise(async' long-compose/compose.js
+          grep -q 'video resolution is 1920x1080 (16:9 landscape)' long-compose/tests/output-quality.test.js
+
+      - name: Remove one-shot patch machinery
+        run: |
+          rm -f .github/scripts/apply_cartoon_hardening.py
+          rm -f .github/workflows/apply-cartoon-hardening.yml
+
+      - name: Commit hardened pipeline
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'harden compose pipeline correctness and concurrency'
+          git push origin HEAD:agent/cartoon-pipeline-hardening-v2
