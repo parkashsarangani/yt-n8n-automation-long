@@ -8,6 +8,7 @@ const RIG_HEIGHT = 700;
 
 export type ArmPose = "up" | "down";
 export type Expression = "normal" | "angry" | "surprised";
+const VALID_EXPRESSIONS = new Set<Expression>(["normal", "angry", "surprised"]);
 export type SemanticEmotion =
     | "neutral"
     | "happy"
@@ -202,8 +203,13 @@ export const Character: React.FC<CharacterProps> = ({
     const idleLookX = Math.sin((frame + eyePhase) / 43) * 1.8;
     const idleLookY = Math.sin((frame + eyePhase * 0.7) / 57) * 0.9;
     const semanticGaze = gazeFor(gazeTarget, x);
-    const lookX = clamp(gazeX ?? semanticGaze?.x ?? idleLookX, -8, 8);
-    const lookY = clamp(gazeY ?? semanticGaze?.y ?? (idleLookY + emotionProfile.gazeY), -5, 5);
+    // gazeX/gazeY are external input; clamp() propagates rather than rejects
+    // NaN, so a non-numeric value would otherwise reach translate(NaNpx, ...)
+    // and silently no-op in Chromium instead of falling back to idle gaze.
+    const safeGazeX = Number.isFinite(gazeX) ? gazeX : undefined;
+    const safeGazeY = Number.isFinite(gazeY) ? gazeY : undefined;
+    const lookX = clamp(safeGazeX ?? semanticGaze?.x ?? idleLookX, -8, 8);
+    const lookY = clamp(safeGazeY ?? semanticGaze?.y ?? (idleLookY + emotionProfile.gazeY), -5, 5);
 
     const blinkPeriod = 94 + (seed % 53);
     const blinkOffset = (seed >>> 7) % blinkPeriod;
@@ -216,7 +222,11 @@ export const Character: React.FC<CharacterProps> = ({
     const bodyRotate = emotionProfile.bodyLean + (semanticGesture?.bodyRotate ?? 0) * gestureProgress;
     const bodyY = (semanticGesture?.bodyY ?? 0) * gestureProgress;
     const gestureScale = 1 + ((semanticGesture?.scale ?? 1) - 1) * gestureProgress;
-    const brow = expression ?? emotionProfile.brow;
+    // expression is external input (planner/manual-script supplied) interpolated
+    // straight into an asset filename below - an invalid value must degrade to a
+    // known-good one rather than reach <Img>, the same guarantee mouthAtTime
+    // already gives mouthCues.
+    const brow = expression && VALID_EXPRESSIONS.has(expression) ? expression : emotionProfile.brow;
 
     return (
         <div

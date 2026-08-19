@@ -24,25 +24,34 @@ const cameraEasing = Easing.inOut(Easing.cubic);
 function withConversationDirection(characters: CharacterProps[]): CharacterProps[] {
     if (characters.length < 2) return characters;
 
-    return characters.map((character, index) => {
-        const base = {
-            ...character,
-            actorId: character.actorId ?? character.animationKey ?? `${character.characterId}-${index}`,
-        };
+    const seenActorIds = new Set<string>();
+    const resolved = characters.map((character, index) => {
+        let actorId = character.actorId ?? character.animationKey ?? `${character.characterId}-${index}`;
+        // Two characters given the same explicit actorId/animationKey would
+        // otherwise get the identical deterministic animation phase seed in
+        // Character.tsx and move in visible lockstep - the previous fallback
+        // only filled in a default when both fields were absent, so an
+        // explicit collision passed through untouched. Disambiguate any
+        // collision here, not just the missing-identity case.
+        if (seenActorIds.has(actorId)) actorId = `${actorId}-dup${index}`;
+        seenActorIds.add(actorId);
+        return { ...character, actorId };
+    });
 
+    return resolved.map((character, index) => {
         if (
             character.gazeX !== undefined ||
             character.gazeY !== undefined ||
             (character.gazeTarget !== undefined && character.gazeTarget !== "auto")
         ) {
-            return base;
+            return character;
         }
 
         let closest: CharacterProps | undefined;
         let closestDistance = Number.POSITIVE_INFINITY;
-        for (let i = 0; i < characters.length; i++) {
+        for (let i = 0; i < resolved.length; i++) {
             if (i === index) continue;
-            const other = characters[i]!;
+            const other = resolved[i]!;
             const distance = Math.abs(other.x - character.x);
             if (distance < closestDistance) {
                 closest = other;
@@ -50,9 +59,9 @@ function withConversationDirection(characters: CharacterProps[]): CharacterProps
             }
         }
 
-        if (!closest) return base;
+        if (!closest) return character;
         return {
-            ...base,
+            ...character,
             gazeX: closest.x >= character.x ? 6 : -6,
             gazeY: -0.5,
         };

@@ -44,7 +44,11 @@ test("cartoon runtime exposes semantic acting controls", () => {
 test("conversation direction respects semantic gaze before auto eye contact", () => {
   assert.match(sceneSource, /character\.gazeTarget !== undefined/);
   assert.match(sceneSource, /character\.gazeTarget !== "auto"/);
-  assert.match(sceneSource, /actorId: character\.actorId/);
+  assert.match(sceneSource, /actorId = character\.actorId \?\? character\.animationKey/);
+  // Two characters given the same explicit actorId/animationKey must not
+  // silently collide into the same animation phase seed (regression test for
+  // the fixed "duplicate actorId reintroduces lockstep" bug).
+  assert.match(sceneSource, /seenActorIds\.has\(actorId\)/);
 });
 
 test("production rigs have distinct silhouettes and coherent palettes", () => {
