@@ -1,13 +1,10 @@
 /**
  * Asset collector worker: visual_plan -> asset_manifest.
  *
- * A worker, not an agent: the visual *decisions* were already made by the
- * visual_planner. This just turns terms into a prompt and fetches images.
- *
- * Implements the three-rung failure ladder proven in the long-form pipeline —
- * primary terms, then fallback terms, then a placeholder. A single scene
- * failing must never fail the whole video; instead it is recorded as degraded
- * so the quality gauge is measurable rather than invisible.
+ * Cartoon/template scenes are render instructions, not media-search requests.
+ * Their template_data is validated at this boundary and passed through without
+ * spending on an image provider. Legacy non-template scenes retain the old
+ * media fallback ladder for historical/manual artifacts.
  */
 
 import type { BlobRef } from "../artifact.ts";
@@ -17,7 +14,6 @@ import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface AssetWorkerOptions {
   aspect?: Aspect;
-  /** Long-form fans out to 40-80 images; never unbounded. */
   concurrency?: number;
   housePrefix?: string;
   version?: string;
@@ -29,21 +25,70 @@ interface PlanScene {
   visual_style: string;
   fallback_terms: string[];
   template_category?: string;
-  /** JSON-encoded string from the model, parsed into an object at read time. */
   template_data?: string;
 }
 
 const DEFAULT_PREFIX = "";
-const NEGATIVE = "";
 
-/** Safely parse a JSON string into an object; returns {} on failure. */
-function safeParseJson(str: string): Record<string, unknown> {
-  try { return JSON.parse(str); } catch { return {}; }
+export function buildPrompt(terms: string[], _style: string, _prefix = DEFAULT_PREFIX): string {
+  return terms.join(", ");
 }
 
-export function buildPrompt(terms: string[], style: string, prefix = DEFAULT_PREFIX): string {
-  // For stock search, just join the terms — no cinematic wrappers needed
-  return terms.join(", ");
+function parseTemplateData(scene: PlanScene): Record<string, unknown> {
+  if (!scene.template_data?.trim()) {
+    throw new Error(
+      `scene ${scene.scene_index}: template_category="${scene.template_category}" requires template_data`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(scene.template_data);
+  } catch (err) {
+    throw new Error(
+      `scene ${scene.scene_index}: template_data is invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`scene ${scene.scene_index}: template_data must decode to a JSON object`);
+  }
+
+  if (scene.template_category === "cartoon") {
+    const data = parsed as {
+      background?: unknown;
+      characters?: Array<{ characterId?: unknown; x?: unknown; y?: unknown; scale?: unknown; isSpeaking?: unknown }>;
+    };
+    if (!data.background || typeof data.background !== "object") {
+      throw new Error(`scene ${scene.scene_index}: cartoon template_data requires background`);
+    }
+    if (!Array.isArray(data.characters) || data.characters.length === 0) {
+      throw new Error(`scene ${scene.scene_index}: cartoon template_data requires at least one character`);
+    }
+    if (data.characters.length > 4) {
+      throw new Error(`scene ${scene.scene_index}: cartoon scene has ${data.characters.length} characters; maximum is 4`);
+    }
+    for (const [i, c] of data.characters.entries()) {
+      if (!c || typeof c.characterId !== "string" || !c.characterId.trim()) {
+        throw new Error(`scene ${scene.scene_index}: character ${i} has no characterId/rig`);
+      }
+      if (!Number.isFinite(Number(c.x)) || !Number.isFinite(Number(c.y))) {
+        throw new Error(`scene ${scene.scene_index}: character ${i} needs numeric x/y staging coordinates`);
+      }
+      if (c.scale !== undefined) {
+        const scale = Number(c.scale);
+        if (!Number.isFinite(scale) || scale < 0.35 || scale > 2.5) {
+          throw new Error(`scene ${scene.scene_index}: character ${i} scale ${String(c.scale)} is outside 0.35..2.5`);
+        }
+      }
+    }
+    const speakers = data.characters.filter((c) => c.isSpeaking === true).length;
+    if (speakers > 1) {
+      throw new Error(`scene ${scene.scene_index}: ${speakers} characters are marked isSpeaking; one dialogue line may have at most one active speaker`);
+    }
+  }
+
+  return parsed as Record<string, unknown>;
 }
 
 export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
@@ -53,35 +98,37 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
   return {
     name: "asset_collector",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [{ schema_id: "visual_plan", range: "^1", as: "plan" }],
     produces: "asset_manifest",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
-      const images = ctx.media.images;
-      if (!images) {
-        throw new Error("asset_collector requires an image provider (media.images)");
-      }
-
       const scenes = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;
       const ordered = [...scenes].sort((a, b) => a.scene_index - b.scene_index);
       const blobs: BlobRef[] = [];
 
       const results = await mapWithConcurrency(ordered, opts.concurrency ?? 4, async (scene) => {
-        // A template-category scene (motion graphics or cartoon) renders
-        // full-screen from its own template_data — the renderer never looks
-        // at image_uri/video_uri for these, so fetching one would just be
-        // wasted API spend. Skip straight to the render instruction.
         if (scene.template_category) {
+          const templateData = parseTemplateData(scene);
           return {
             entry: {
               scene_index: scene.scene_index,
               source: "template" as const,
               template_category: scene.template_category,
-              ...(scene.template_data ? { template_data: JSON.stringify(safeParseJson(scene.template_data)) } : {}),
+              template_data: JSON.stringify(templateData),
             },
             blob: null,
           };
+        }
+
+        // Historical/manual non-template scene. The cartoon-first production
+        // graph never reaches this branch, so an image provider is only needed
+        // if such a legacy scene is actually present.
+        const images = ctx.media.images;
+        if (!images) {
+          throw new Error(
+            `scene ${scene.scene_index}: non-template visual needs an image provider; cartoon scenes should use template_category="cartoon"`,
+          );
         }
 
         const attempts: Array<{ source: "primary" | "fallback"; terms: string[] }> = [
@@ -93,10 +140,6 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
           if (attempt.terms.length === 0) continue;
           const prompt = buildPrompt(attempt.terms, scene.visual_style, prefix);
 
-          // Real footage beats a still whenever the source has it. Tried first
-          // within this rung, not as a separate rung, so a scene that has video
-          // for its primary terms still prefers that over an image from the
-          // fallback terms.
           if (images.generateVideo) {
             try {
               const out = await images.generateVideo({ prompt, aspect });
@@ -148,8 +191,6 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
           }
         }
 
-        // Both rungs failed. Degrade, do not fail the run: downstream renders a
-        // house-style placeholder for scenes with no image_uri.
         ctx.logger.warn(`[asset_collector] scene ${scene.scene_index} degraded to placeholder`);
         return {
           entry: {

@@ -11,9 +11,10 @@ topic_history.json
 # engine local artifact store (smoke runs)
 engine/.vidgen-data/
 
-# local credentials
+# local credentials / channel-specific cast
 engine/.env
 .env
+engine/config/cast_roster.json
 
 # IDE / reference repos
 .vscode/

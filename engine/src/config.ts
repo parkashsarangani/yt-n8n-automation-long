@@ -46,25 +46,41 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "a placeholder voice id is used",
   },
   {
-    key: "PEXELS_API_KEY",
-    label: "Pexels API key",
+    key: "FAL_KEY",
+    label: "Fal image API key",
     secret: true,
-    help: "pexels.com/api → your key. Free, no card. First choice for scene images",
-    fallback: "Unsplash is tried instead; without either, placeholder images",
+    placeholder: "fal key",
+    help: "Used for generated cartoon thumbnail artwork. Cartoon scene backgrounds and puppets remain deterministic SVG assets.",
+    fallback: "thumbnail art falls back to the renderer background",
+  },
+  {
+    key: "CARTOON_CAST_PATH",
+    label: "Recurring cartoon cast file",
+    secret: false,
+    placeholder: "/app/config/cast_roster.json",
+    help: "JSON file containing the recurring cast roster used by scheduled cartoon production.",
+    fallback: "manual cartoon runs can still supply cast_roster explicitly; scheduled production stays disabled until a cast file is configured",
+  },
+  {
+    key: "PEXELS_API_KEY",
+    label: "Pexels API key (legacy)",
+    secret: true,
+    help: "Legacy stock-video pipeline only; not used by the cartoon-first scheduled pipeline",
+    fallback: "not required for cartoon production",
   },
   {
     key: "UNSPLASH_ACCESS_KEY",
-    label: "Unsplash access key",
+    label: "Unsplash access key (legacy)",
     secret: true,
-    help: "unsplash.com/oauth/applications → Access Key (not the Secret Key)",
-    fallback: "used only when Pexels has no match, or as the sole source",
+    help: "Legacy stock-video pipeline only; not used by the cartoon-first scheduled pipeline",
+    fallback: "not required for cartoon production",
   },
   {
     key: "PIXABAY_API_KEY",
-    label: "Pixabay API key",
+    label: "Pixabay API key (legacy)",
     secret: true,
-    help: "pixabay.com/api/docs — optional third fallback",
-    fallback: "the image search stops after Pexels and Unsplash",
+    help: "Legacy stock-video pipeline only; not used by the cartoon-first scheduled pipeline",
+    fallback: "not required for cartoon production",
   },
   {
     key: "MEASURE_EXCLUDE_IDS",
@@ -84,10 +100,10 @@ export const CREDENTIALS: CredentialSpec[] = [
   },
   {
     key: "SCHEDULE_PRODUCE_HOURS",
-    label: "Auto-start a run every N hours",
+    label: "Auto-start a cartoon run every N hours",
     secret: false,
-    placeholder: "leave empty to keep manual",
-    help: "OFF unless set. Picks the top discovery candidate and starts a run — which still stops at the story and script gates for your approval",
+    placeholder: "24",
+    help: "OFF unless set. Discovers a topic and starts the cartoon production graph using CARTOON_CAST_PATH.",
     fallback: "runs are started by hand only",
   },
   {
@@ -201,27 +217,18 @@ function stripQuotes(v: string): string {
   return v;
 }
 
-/** Values needing quoting are rare here, but a stray space would corrupt the file. */
 function formatValue(v: string): string {
   return /[\s#"']/.test(v) ? JSON.stringify(v) : v;
 }
 
 export interface EnvWriteResult {
   applied: string[];
-  /**
-   * Keys refused because they are not in CREDENTIALS. Reported rather than
-   * dropped in silence: a caller that submits a key the engine has never heard
-   * of has made a mistake, and swallowing it turns a typo — or a credential
-   * list that has fallen behind the code — into a config that looks saved and
-   * is not.
-   */
   rejected: string[];
 }
 
 /**
  * Update `.env` in place, preserving comments, ordering, and unrelated keys.
- * An empty string clears a key. Only keys in CREDENTIALS may be written, so a
- * malicious or mistyped field cannot inject arbitrary environment variables.
+ * An empty string clears a key. Only keys in CREDENTIALS may be written.
  */
 export async function writeEnvFile(
   file: string,
@@ -263,10 +270,8 @@ export async function writeEnvFile(
 
   const text = rewritten.join("\n").replace(/\n*$/, "\n");
   await writeFile(file, text, "utf8");
-  // Best effort on POSIX; a no-op on Windows.
   await chmod(file, 0o600).catch(() => {});
 
-  // Reflect into the live process so providers rebuilt after this see the change.
   for (const [k, v] of Object.entries(updates)) {
     if (!allowed.has(k)) continue;
     if (v === "") delete process.env[k];

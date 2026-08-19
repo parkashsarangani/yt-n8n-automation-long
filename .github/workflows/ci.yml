@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: Build and test
@@ -14,8 +18,6 @@ jobs:
       - name: Compose file is valid and starts the right services
         run: |
           set -e
-          # Catches a bad edit before it reaches the deploy, and pins the
-          # invariant that legacy n8n stays behind its profile.
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "default services: $services"
           [ "$services" = "engine long-compose postgres " ] || {
@@ -26,16 +28,20 @@ jobs:
       - name: Build engine image
         run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
 
-      # Run against the image rather than the runner's Node, so the tests
-      # execute on exactly the runtime production uses.
       - name: Typecheck
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
 
-      - name: Test
+      - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+
+      - name: Test long-compose
+        run: |
+          docker run --rm \
+            --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} test
 
       - name: Cleanup
         if: always()

@@ -1,0 +1,27 @@
+{
+  "characters": [
+    {
+      "character_id": "host",
+      "name": "Host",
+      "voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID",
+      "rig": "pilot",
+      "personality": "skeptical, observant, dry humor; challenges weak explanations",
+      "default_expression": "normal",
+      "visual_description": "Young adult 2D cartoon host with a compact readable silhouette. Keep the exact hair shape, skin tone, face proportions and clothing from the pilot rig; clean thick dark outlines and simple flat shading.",
+      "thumbnail_traits": "Large readable eyes and brows, strong head silhouette, expressive skeptical/surprised reactions, clothing colours must separate clearly from the background.",
+      "color_palette": ["#4C89C6", "#F2C7A5", "#111111"]
+    },
+    {
+      "character_id": "buddy",
+      "name": "Buddy",
+      "voice_id": "REPLACE_WITH_SECOND_ELEVENLABS_VOICE_ID",
+      "rig": "pilot-2",
+      "personality": "curious, energetic, asks the obvious question the viewer is thinking",
+      "default_expression": "normal",
+      "visual_description": "Second recurring 2D cartoon character using the pilot-2 rig. Preserve its exact silhouette, hair, face proportions and clothing across thumbnail artwork; clean thick dark outlines and simple flat shading.",
+      "thumbnail_traits": "Energetic open expressions and clear surprise; must remain visibly distinct from the host at small thumbnail size.",
+      "color_palette": ["#6FB8B2", "#F2C7A5", "#111111"]
+    }
+  ],
+  "default_voice_id": "REPLACE_WITH_ELEVENLABS_VOICE_ID"
+}

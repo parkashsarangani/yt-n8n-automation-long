@@ -1,11 +1,9 @@
 /**
- * Thumbnail worker, and the degradation it is allowed to do.
+ * Cartoon thumbnail worker, and the degradation it is allowed to do.
  *
- * The rule under test: a thumbnail must never fail a run, but a degraded
- * thumbnail must never look like a good one. Every fallback has to end up in
- * the artifact, because "the stock lookup quietly failed and we shipped a
- * gradient" is exactly the kind of invisible quality loss that makes
- * click-through impossible to reason about later.
+ * The rule under test: creative artwork comes from the image model, actual
+ * typography comes from long-compose, and image-generation failure degrades
+ * visibly instead of silently masquerading as a successful custom thumbnail.
  */
 
 import test from "node:test";
@@ -29,13 +27,20 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const BRIEF = {
-  // A hook, not a title — two words, well inside the 30-char cap.
-  text: "Ancient Life",
-  emphasis: "Ancient",
-  background_query: "ancient stone map carved in rock",
+  mode: "cartoon" as const,
+  text: "DON'T OPEN IT",
+  emphasis: "OPEN IT",
+  art_prompt:
+    "Create a 16:9 long-form YouTube thumbnail in the channel's clean recurring 2D cartoon style. " +
+    "Show one large frightened recurring character on the right recoiling from an open school locker emitting a strong warm glow. " +
+    "Keep the left side deliberately quiet for typography. Thick dark outlines, simple readable shapes, expressive face, strong silhouette, controlled saturated colours. " +
+    "Do not render words, letters, captions, signs, logos, arrows, circles, UI labels, or watermarks.",
   accent: "#FFD34D",
-  rationale: "The subject is what people stop for; the rest is context.",
-  alternatives: ["The 400-Year Mistake"],
+  visual_hook: "A frightened student discovers something impossible glowing inside an open locker.",
+  character_ids: ["pilot"],
+  preferred_text_side: "left" as const,
+  rationale: "The reaction plus unexplained glowing locker forms one readable visual question at small size.",
+  alternatives: ["WHAT'S INSIDE?", "IT WAS LOCKED"],
 };
 
 interface ThumbPayload {
@@ -44,6 +49,7 @@ interface ThumbPayload {
   width: number;
   height: number;
   text: string;
+  emphasis?: string;
   background: "supplied" | "gradient";
   background_query?: string;
   bytes?: number;
@@ -78,7 +84,7 @@ async function harness(opts: {
       schema_id: "thumbnail_brief",
       payload: BRIEF,
       produced_by: {
-        transformation: "thumbnail_designer",
+        transformation: "cartoon_thumbnail_designer",
         version: "1",
         run_id: "t",
         provider: null,
@@ -93,17 +99,17 @@ const run = async (h: Awaited<ReturnType<typeof harness>>) =>
   (await h.runner.run(makeThumbnailWorker(), [h.brief.artifact_id])).artifact
     .payload as ThumbPayload;
 
-test("composites the brief's text over a fetched stock background", async () => {
+test("composites deterministic text over generated cartoon artwork", async () => {
   const h = await harness();
   const out = await run(h);
 
-  // The background was searched for using the brief's query, not the text.
-  assert.deepEqual(h.images!.prompts, [BRIEF.background_query]);
+  assert.deepEqual(h.images!.prompts, [BRIEF.art_prompt]);
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);
   assert.equal(sent.accent, BRIEF.accent);
-  assert.ok(sent.image, "the fetched photo should reach the renderer");
+  assert.equal(sent.emphasis, BRIEF.emphasis);
+  assert.ok(sent.image, "the generated cartoon artwork should reach the renderer");
 
   assert.equal(out.background, "supplied");
   assert.equal(out.text, BRIEF.text);
@@ -121,31 +127,28 @@ test("the rendered bytes are actually stored and retrievable", async () => {
   assert.equal(bytes.byteLength, out.bytes);
 });
 
-test("a stock lookup failure degrades to a gradient instead of failing the run", async () => {
-  // Publishing without the designed thumbnail is bad; not publishing is worse.
+test("artwork generation failure degrades to a renderer background instead of failing the run", async () => {
   const h = await harness({ images: new FakeImageProvider(() => true) });
   const out = await run(h);
 
   assert.equal(out.background, "gradient");
-  assert.equal(out.text, BRIEF.text, "the text still gets burned in");
+  assert.equal(out.text, BRIEF.text, "the deterministic text still gets burned in");
   assert.equal(
     h.renderer.thumbnailRequests[0]!.image,
     undefined,
-    "no image should be sent when the lookup failed",
+    "no image should be sent when artwork generation failed",
   );
 });
 
-test("a degraded thumbnail says so in the artifact, not just in the log", async () => {
+test("a degraded thumbnail records the attempted art prompt", async () => {
   const h = await harness({ images: new FakeImageProvider(() => true) });
   const out = await run(h);
 
-  // The whole point: downstream can tell a gradient from a photo without
-  // reading logs that have long since rotated away.
   assert.equal(out.background, "gradient");
-  assert.equal(out.background_query, BRIEF.background_query);
+  assert.equal(out.background_query, BRIEF.art_prompt.slice(0, 120));
 });
 
-test("with no image provider configured at all, it still produces a thumbnail", async () => {
+test("with no image provider configured at all, it still produces a measurable degraded thumbnail", async () => {
   const h = await harness({ images: null });
   const out = await run(h);
 
@@ -154,9 +157,6 @@ test("with no image provider configured at all, it still produces a thumbnail", 
 });
 
 test("a renderer outage does fail the node — there is nothing to degrade to", async () => {
-  // The distinction that matters: a missing *background* is recoverable, a
-  // missing *renderer* is not. Inventing an image here would mean publishing
-  // something nobody designed.
   const h = await harness({ renderer: new FakeRenderer("compose is down") });
   await assert.rejects(() => run(h), /compose is down/);
 
@@ -170,15 +170,12 @@ test("a renderer outage does fail the node — there is nothing to degrade to", 
 test("the artifact validates against the registry schema", async () => {
   const h = await harness();
   const out = await run(h);
-  // Resolved, not hardcoded: a MINOR schema bump must not break this test —
-  // that trap has already been hit once in this repo.
   assert.doesNotThrow(() =>
     h.registry.validate("thumbnail", h.registry.resolveVersion("thumbnail"), out),
   );
 });
 
 test("an identical brief produces an identical artifact id", async () => {
-  // Content addressing: same reasoning in, same artifact out.
   const a = await harness();
   const b = await harness();
   const first = await a.runner.run(makeThumbnailWorker(), [a.brief.artifact_id]);
@@ -188,19 +185,15 @@ test("an identical brief produces an identical artifact id", async () => {
 });
 
 test("the emphasised phrase reaches the renderer, not just the text", async () => {
-  // Without this the renderer has no focal point and sets everything in one
-  // colour — which is the flat look the redesign existed to remove.
   const h = await harness();
   await run(h);
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);
-  assert.equal(sent.emphasis, "Ancient");
+  assert.equal(sent.emphasis, BRIEF.emphasis);
 });
 
-test("a brief without emphasis still renders", async () => {
-  // thumbnail_brief@1.0.0 artifacts predate the field, and emphasis is optional
-  // in 1.1.0 — neither may break the worker.
+test("a cartoon brief without emphasis still renders", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const store = await FsArtifactStore.open(
     await mkdtemp(path.join(tmpdir(), "vidgen-thumb-noemph-")),
@@ -219,12 +212,13 @@ test("a brief without emphasis still renders", async () => {
   });
 
   const { emphasis: _dropped, ...withoutEmphasis } = BRIEF;
+  void _dropped;
   const brief = (
     await store.put({
       schema_id: "thumbnail_brief",
       payload: withoutEmphasis,
       produced_by: {
-        transformation: "thumbnail_designer", version: "1", run_id: "t", provider: null,
+        transformation: "cartoon_thumbnail_designer", version: "1", run_id: "t", provider: null,
       },
     })
   ).artifact;

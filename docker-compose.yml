@@ -1,18 +1,14 @@
 # VidGen — one command to run everything:
 #
+#   cp engine/config/cast_roster.example.json engine/config/cast_roster.json
+#   # edit voice ids / recurring character descriptors
 #   docker compose up --build
 #   → http://localhost:4321
 #
-# Credentials can be set in the UI (they persist in the vidgen_data volume) or
-# seeded from a .env file next to this one. See .env.example.
-#
-# SECURITY: both published ports are bound to 127.0.0.1 on purpose. The UI holds
-# API keys and is unauthenticated by design; publishing it as "4321:4321" would
-# expose it to your whole network. Do not change that unless you add auth.
+# SECURITY: published ports remain loopback-only. The local UI holds API keys.
 name: vidgen
 
 services:
-  # Postgres: persistent state for runs, artifacts, blob registry.
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -28,54 +24,57 @@ services:
       timeout: 3s
       retries: 5
 
-  # The engine: reasoning agents, execution graph, artifact store, control UI.
   engine:
     build: ./engine
     restart: unless-stopped
     ports:
       - "127.0.0.1:4321:4321"
     environment:
-      # Postgres connection
       DATABASE_URL: postgres://vidgen:${POSTGRES_PASSWORD:-vidgen_dev}@postgres:5432/vidgen
-      # Inside the compose network the renderer is reachable by service name.
       COMPOSE_URL: http://long-compose:4000
-      # Seeded from your shell or the .env beside this file. Empty is treated as
-      # unset by the service, so a blank here never clobbers a key you saved in
-      # the UI (which lives in the volume).
+
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+
+      # Cartoon thumbnail artwork. Video scenes themselves are local SVG rigs.
+      FAL_KEY: ${FAL_KEY:-}
+
+      # Default/daily production uses this stable recurring cast.
+      CARTOON_CAST_PATH: ${CARTOON_CAST_PATH:-/app/config/cast_roster.json}
+      SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
+      SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
+
+      # Legacy stock credentials retained for old/manual artifacts only.
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+
       YOUTUBE_ACCESS_TOKEN: ${YOUTUBE_ACCESS_TOKEN:-}
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
       YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
-      # Set to 1 to allow real YouTube uploads. Off by default: a token alone
-      # must never cause a publish. Uploads are private either way.
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
     volumes:
-      # Blobs stay on filesystem (large binary files).
       - vidgen_data:/data
+      - ./engine/config:/app/config:ro
     depends_on:
       postgres:
         condition: service_healthy
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. Called by the engine's render worker.
+  # Video assembly: FFmpeg + Remotion. Cartoon scenes dominate this service;
+  # stock/AI-video variables remain only as compatibility escape hatches.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
     ports:
-      # Exposed only for debugging; the engine reaches it over the internal network.
       - "127.0.0.1:4001:4000"
     environment:
       OUTPUT_DIR: /app/outputs
       TOPIC_HISTORY_PATH: /app/data/topic_history.json
       NODE_OPTIONS: --max-old-space-size=4096
-      # Bound scene concurrency: 40-50 scenes built at once OOMs the container.
       COMPOSE_CONCURRENCY: ${COMPOSE_CONCURRENCY:-3}
       KENBURNS_UPSCALE: ${KENBURNS_UPSCALE:-3500}
       FAL_KEY: ${FAL_KEY:-}
@@ -90,7 +89,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    # Remotion renders in headless Chromium and is memory-hungry.
     deploy:
       resources:
         limits:
@@ -98,12 +96,7 @@ services:
         reservations:
           memory: 2G
 
-  # The pre-VidGen n8n pipeline. It no longer has a role: the engine owns the
-  # execution graph and the UI owns human approval. Kept behind a profile so the
-  # old A/B pipeline stays runnable while VidGen is unproven, but it does NOT
-  # start with a plain `docker compose up`.
-  #
-  #   docker compose --profile legacy up
+  # Legacy n8n flow: retained only behind an explicit profile.
   n8n:
     profiles: ["legacy"]
     image: docker.n8n.io/n8nio/n8n
