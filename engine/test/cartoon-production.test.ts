@@ -6,10 +6,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SchemaRegistry } from "../src/registry.ts";
+import { PromptStore } from "../src/prompts.ts";
+import { FsArtifactStore } from "../src/store.ts";
+import { MemoryBlobStore } from "../src/blobs.ts";
+import { MemoryRunLog } from "../src/runlog.ts";
+import { ProviderRouter } from "../src/provider.ts";
+import { Runner } from "../src/runner.ts";
 import { loadGraph } from "../src/graph.ts";
 import { makeCastLoaderWorker } from "../src/workers/cast.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const silent = () => ({ log() {}, warn() {}, error() {} });
 
 const CAST = {
   characters: [
@@ -64,22 +71,34 @@ test("cartoon thumbnail brief schema requires artwork separate from compositor t
   );
 });
 
-test("scheduled cast loader reads stable operator-owned cast configuration", async () => {
+test("scheduled cast loader survives the real producer allowlist/store boundary", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "cartoon-cast-"));
   const file = path.join(dir, "cast.json");
   await writeFile(file, JSON.stringify(CAST), "utf8");
 
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const store = await FsArtifactStore.open(
+    await mkdtemp(path.join(tmpdir(), "cartoon-cast-store-")),
+    registry,
+  );
+  const runner = new Runner({
+    store,
+    registry,
+    prompts: await PromptStore.load(path.join(ROOT, "prompts")),
+    providers: new ProviderRouter({}),
+    runLog: new MemoryRunLog(),
+    logger: silent(),
+    blobs: new MemoryBlobStore(),
+  });
+
   const old = process.env["CARTOON_CAST_PATH"];
   process.env["CARTOON_CAST_PATH"] = file;
   try {
-    const worker = makeCastLoaderWorker();
-    const out = await worker.execute({}, {
-      logger: { log() {}, warn() {}, error() {} },
-      blobs: {} as never,
-      media: {},
-      async progress() {},
-    });
-    assert.deepEqual(out.payload, CAST);
+    const out = await runner.run(makeCastLoaderWorker(), []);
+    assert.equal(out.artifact.schema_id, "cast_roster");
+    assert.equal(out.artifact.schema_version, "1.1.0");
+    assert.deepEqual(out.artifact.payload, CAST);
+    assert.equal(out.artifact.produced_by.transformation, "cast_loader");
   } finally {
     if (old === undefined) delete process.env["CARTOON_CAST_PATH"];
     else process.env["CARTOON_CAST_PATH"] = old;
