@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "status": "active",
   "description": "Recurring cartoon cast with voice/rig identity plus optional visual descriptors used to keep generated thumbnail artwork consistent across episodes. All 1.0.0 fields remain valid; new fields are additive.",
-  "produced_by": ["human"],
+  "produced_by": ["human", "cast_loader"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "CastRosterArtifact",
