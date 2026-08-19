@@ -1,18 +1,14 @@
 /**
  * Thumbnail worker: thumbnail_brief -> thumbnail.
  *
- * A worker, not an agent: every creative decision was already made by the
- * thumbnail_designer. This fetches a background and composites — it does not
- * decide what the thumbnail says.
+ * Creative decisions stay in the thumbnail designer agent. This worker turns
+ * its art prompt into pixels, then asks long-compose to add deterministic,
+ * readable typography. AI image generation must never be responsible for the
+ * actual words shown on the thumbnail.
  *
- * Never fails the run. A thumbnail is worth having and not worth blocking a
- * publish over, so the failure ladder degrades instead of throwing:
- *
- *   stock background + text  ->  gradient background + text
- *
- * Which rung was reached is written into the artifact rather than logged and
- * forgotten, because a gradient thumbnail is a materially worse thumbnail and
- * the difference has to be measurable after the fact.
+ * Failure degrades to the renderer's house background rather than blocking a
+ * publish. The artifact records which rung actually shipped so weak packaging
+ * can be measured instead of hidden.
  */
 
 import type { BlobRef } from "../artifact.ts";
@@ -23,11 +19,18 @@ export interface ThumbnailWorkerOptions {
 }
 
 interface ThumbnailBrief {
+  mode?: "cartoon";
   text: string;
   emphasis?: string;
-  background_query: string;
+  /** Cartoon-first complete artwork prompt. */
+  art_prompt?: string;
+  /** Legacy v1.0/v1.1 stock-search field. */
+  background_query?: string;
   accent: string;
   rationale: string;
+  visual_hook?: string;
+  character_ids?: string[];
+  preferred_text_side?: "left" | "right";
   alternatives?: string[];
 }
 
@@ -35,7 +38,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }],
     produces: "thumbnail",
 
@@ -47,26 +50,38 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
         throw new Error("thumbnail worker needs a renderer; none was configured");
       }
 
-      // Rung 1: a real photograph behind the text.
+      // v1.2 cartoon briefs provide a complete art prompt. Older artifacts can
+      // still flow through their background_query so historical runs remain
+      // reproducible/readable during the migration.
+      const imagePrompt = brief.art_prompt?.trim() || brief.background_query?.trim();
+
       let background: Uint8Array | undefined;
-      if (ctx.media.images) {
+      if (ctx.media.images && imagePrompt) {
         try {
-          await ctx.progress({ detail: `thumbnail background: ${brief.background_query}` });
+          await ctx.progress({
+            detail: brief.mode === "cartoon"
+              ? `generating cartoon thumbnail artwork`
+              : `thumbnail artwork: ${imagePrompt.slice(0, 120)}`,
+          });
           const found = await ctx.media.images.generate({
-            prompt: brief.background_query,
+            prompt: imagePrompt,
             aspect: "16:9",
             count: 1,
           });
           background = found.images[0]?.bytes;
+          if (!background) throw new Error("image provider returned no thumbnail image");
         } catch (err) {
-          // Rung 2. Deliberately swallowed: the renderer draws a gradient, and
-          // shipping a gradient thumbnail beats blocking the publish.
+          // A missing custom image is measurable degradation, but should not
+          // discard an otherwise publishable episode. long-compose will use
+          // its deterministic house background and still render the real text.
           ctx.logger.warn(
-            `thumbnail background lookup failed (${
+            `thumbnail artwork generation failed (${
               err instanceof Error ? err.message : String(err)
-            }) — falling back to a gradient`,
+            }) — falling back to renderer background`,
           );
         }
+      } else if (!imagePrompt) {
+        ctx.logger.warn("thumbnail brief contained no usable artwork prompt — using renderer background");
       }
 
       await ctx.progress({ detail: `compositing thumbnail: "${brief.text}"` });
@@ -84,10 +99,8 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       });
 
       if (result.background === "gradient" && background) {
-        // The bytes were fetched but the renderer could not use them. Worth a
-        // line: it points at the renderer, not at the stock provider.
         ctx.logger.warn(
-          "a background image was supplied but the renderer fell back to a gradient",
+          "thumbnail artwork was generated but the renderer could not use it and fell back to a gradient",
         );
       }
 
@@ -100,7 +113,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
           text: brief.text,
           ...(brief.emphasis ? { emphasis: brief.emphasis } : {}),
           background: result.background,
-          background_query: brief.background_query,
+          ...(imagePrompt ? { background_query: imagePrompt.slice(0, 120) } : {}),
           bytes: result.bytes.byteLength,
         },
         blobs: [ref],
