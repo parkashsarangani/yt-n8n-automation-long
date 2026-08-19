@@ -24,7 +24,7 @@ jobs:
         run: |
           set -e
           if [ -f .github/scripts/apply_cartoon_hardening.py ]; then
-            python .github/scripts/apply_cartoon_hardening.py
+            python3 .github/scripts/apply_cartoon_hardening.py
             node --check long-compose/compose.js
             git diff --check
             ! grep -q '_lastThumbnailBackground\|_lastThumbnailLayout\|new Promise(async' long-compose/compose.js
