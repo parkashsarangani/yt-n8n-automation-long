@@ -1,21 +1,21 @@
 name: Apply cartoon pipeline hardening
 
 on:
-  push:
-    branches:
-      - agent/cartoon-pipeline-hardening-v2
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: ${{ github.head_ref == 'agent/cartoon-pipeline-hardening-v2' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/cartoon-pipeline-hardening-v2
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - name: Apply guarded source transforms
@@ -31,6 +31,7 @@ jobs:
       - name: Remove one-shot patch machinery
         run: |
           rm -f .github/scripts/apply_cartoon_hardening.py
+          rm -f .github/scripts/trigger-hardening.txt
           rm -f .github/workflows/apply-cartoon-hardening.yml
 
       - name: Commit hardened pipeline
@@ -39,4 +40,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'harden compose pipeline correctness and concurrency'
-          git push origin HEAD:agent/cartoon-pipeline-hardening-v2
+          git push origin HEAD:${{ github.head_ref }}
