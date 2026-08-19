@@ -23,7 +23,6 @@ import {
     rmSync,
     statSync,
     unlinkSync,
-    writeFileSync,
 } from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,11 +51,32 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // can render dozens of Remotion scenes per episode, so doing a full Webpack
 // bundle in every child process wastes substantial CPU/RAM and makes concurrent
 // scenes fight for memory. Use a shared on-disk bundle guarded by a tiny lock.
-const bundleDir = process.env.REMOTION_BUNDLE_DIR || path.join(os.tmpdir(), "vidgen-remotion-bundle");
-const bundleMarker = path.join(bundleDir, ".vidgen-bundle-stamp");
-const bundleLock = `${bundleDir}.lock`;
+//
+// Each distinct source stamp gets its own versioned directory rather than one
+// shared path that gets rm'd and rebuilt in place. compose.js renders several
+// scenes concurrently, each in its own render-bridge process reading from
+// whatever bundle directory it resolved - an in-place rm+rebuild could delete
+// files out from under a sibling process that is still mid-renderMedia() on
+// the old bundle. Old versioned directories are pruned, but only once they
+// are old enough that nothing could still be reading from them.
+const bundleBaseDir = process.env.REMOTION_BUNDLE_DIR || path.join(os.tmpdir(), "vidgen-remotion-bundle");
+const bundleLock = `${bundleBaseDir}.lock`;
 const LOCK_STALE_MS = 5 * 60 * 1000;
-const LOCK_WAIT_MS = 3 * 60 * 1000;
+// Must exceed LOCK_STALE_MS: a waiter should only give up once the lock it is
+// waiting on would itself be reclaimed as stale, never before - otherwise a
+// legitimately slow (but alive) cold bundle fails every sibling scene queued
+// behind it, which is exactly what a 3-minute wait against a 5-minute stale
+// threshold used to do.
+const LOCK_WAIT_MS = LOCK_STALE_MS + 60 * 1000;
+// compose.js kills any single scene's render-bridge child after 5 minutes
+// (execFileAsync's `timeout`), so no renderMedia() call can still be reading
+// a bundle directory more than ~2x that after the directory was built. Prune
+// only once safely past that window.
+const BUNDLE_RETENTION_MS = 15 * 60 * 1000;
+
+function bundleDirFor(stamp) {
+    return path.join(bundleBaseDir, `v-${stamp}`);
+}
 
 function latestMtime(target) {
     if (!existsSync(target)) return 0;
@@ -83,13 +103,7 @@ function sourceStamp() {
 }
 
 function cachedBundleIsFresh(stamp) {
-    if (!existsSync(path.join(bundleDir, "index.html")) || !existsSync(bundleMarker)) return false;
-    try {
-        const builtFor = Number(readFileSync(bundleMarker, "utf8"));
-        return Number.isFinite(builtFor) && builtFor >= stamp;
-    } catch {
-        return false;
-    }
+    return existsSync(path.join(bundleDirFor(stamp), "index.html"));
 }
 
 function removeStaleLock() {
@@ -104,11 +118,30 @@ function removeStaleLock() {
     }
 }
 
+// Deletes old versioned bundle directories, skipping the one just built and
+// anything not yet old enough for BUNDLE_RETENTION_MS to guarantee no
+// concurrent renderer could still be reading it.
+function pruneOldBundles(currentStamp) {
+    if (!existsSync(bundleBaseDir)) return;
+    for (const entry of readdirSync(bundleBaseDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith("v-") || entry.name === `v-${currentStamp}`) continue;
+        const full = path.join(bundleBaseDir, entry.name);
+        try {
+            if (Date.now() - statSync(full).mtimeMs > BUNDLE_RETENTION_MS) {
+                rmSync(full, { recursive: true, force: true });
+            }
+        } catch {
+            // Another process may already be pruning/using it; skip.
+        }
+    }
+}
+
 async function getBundleLocation() {
     const stamp = sourceStamp();
     if (cachedBundleIsFresh(stamp)) {
-        console.log(`[remotion] Reusing bundle: ${bundleDir}`);
-        return bundleDir;
+        const dir = bundleDirFor(stamp);
+        console.log(`[remotion] Reusing bundle: ${dir}`);
+        return dir;
     }
 
     const deadline = Date.now() + LOCK_WAIT_MS;
@@ -121,7 +154,7 @@ async function getBundleLocation() {
         } catch (err) {
             if (err?.code !== "EEXIST") throw err;
 
-            if (cachedBundleIsFresh(stamp)) return bundleDir;
+            if (cachedBundleIsFresh(stamp)) return bundleDirFor(stamp);
             if (Date.now() >= deadline) {
                 throw new Error(`timed out waiting for Remotion bundle lock: ${bundleLock}`);
             }
@@ -132,18 +165,18 @@ async function getBundleLocation() {
         try {
             // Recheck after acquiring the lock: a preceding process may have
             // completed the bundle between our earlier check and lock attempt.
-            if (cachedBundleIsFresh(stamp)) return bundleDir;
+            if (cachedBundleIsFresh(stamp)) return bundleDirFor(stamp);
 
+            const dir = bundleDirFor(stamp);
             console.log(`[remotion] Bundling once for shared scene renders...`);
-            rmSync(bundleDir, { recursive: true, force: true });
             const location = await bundle({
                 entryPoint: path.resolve(__dirname, "./src/index.ts"),
-                outDir: bundleDir,
+                outDir: dir,
                 rootDir: __dirname,
                 publicDir: path.join(__dirname, "public"),
                 webpackOverride: (config) => config,
             });
-            writeFileSync(bundleMarker, String(stamp));
+            pruneOldBundles(stamp);
             console.log(`[remotion] Bundle ready: ${location}`);
             return location;
         } finally {

@@ -108,6 +108,19 @@ function cartoonScene(index, audioBase64, opts = {}) {
   };
 }
 
+// Non-cartoon motion-graphics scene, still fully supported by compose.js's
+// categoryMap (buildTemplateScene) - the manual-script/legacy graph still
+// reaches these.
+function legacyTemplateScene(index, audioBase64, templateName, templateData) {
+  return {
+    scene_index: index,
+    visual_source: "template",
+    template_name: templateName,
+    template_data: templateData,
+    audio: { audio_base64: audioBase64 },
+  };
+}
+
 function payloadWithScenes(scenes) {
   return {
     hook: "Cartoon integration test",
@@ -250,6 +263,59 @@ describe("cartoon render contract", { timeout: TEST_TIMEOUT }, () => {
     const result = await pollJob(start.body.job_id);
     assert.ok(fs.existsSync(result.output_path));
     assert.equal(result.degraded_scenes, 0);
+  });
+});
+
+describe("legacy motion-graphics templates still render", { timeout: TEST_TIMEOUT }, () => {
+  // The cartoon-first production graph never emits these, but graphs/manual.json
+  // (still live) and any historical artifact can, and buildTemplateScene's
+  // categoryMap still supports all seven - this is the coverage that was lost
+  // when the suite was rewritten cartoon-only.
+  const CATEGORIES = {
+    timeline: { events: [{ year: "1947", title: "Independence" }], title: "Timeline" },
+    ranking: { items: [{ name: "China", value: "1.4B" }], title: "Largest" },
+    chart: { items: [{ label: "A", value: 80 }], title: "Chart" },
+    list: { items: ["Key fact"], title: "Key Facts" },
+    counter: { value: "3.5x", label: "MORE VIEWS" },
+    comparison: { leftLabel: "BEFORE", leftValue: "$100", rightLabel: "AFTER", rightValue: "$10,000" },
+    text: { text: "This changes everything" },
+  };
+
+  for (const [templateName, templateData] of Object.entries(CATEGORIES)) {
+    it(`renders the "${templateName}" template`, async () => {
+      const audio = generateSilentAudioBase64(0.6);
+      const start = await postJSON("/compose", payloadWithScenes([
+        legacyTemplateScene(0, audio, templateName, templateData),
+      ]));
+      assert.equal(start.status, 202);
+      const result = await pollJob(start.body.job_id);
+      assert.ok(fs.existsSync(result.output_path));
+    });
+  }
+});
+
+describe("compose rejects malformed jobs before rendering", { timeout: 20_000 }, () => {
+  it("rejects an empty scenes array", async () => {
+    const start = await postJSON("/compose", payloadWithScenes([]));
+    assert.equal(start.status, 202);
+    await assert.rejects(pollJob(start.body.job_id, 10_000), /No scenes provided/);
+  });
+
+  it("rejects a scene with no audio", async () => {
+    const start = await postJSON("/compose", payloadWithScenes([
+      { scene_index: 0, visual_source: "template", template_name: "text", template_data: { text: "no audio" }, audio: {} },
+    ]));
+    assert.equal(start.status, 202);
+    await assert.rejects(pollJob(start.body.job_id, 10_000), /missing audio/);
+  });
+
+  it("fails a job rather than silently rendering an unknown template name", async () => {
+    const audio = generateSilentAudioBase64(0.4);
+    const start = await postJSON("/compose", payloadWithScenes([
+      legacyTemplateScene(0, audio, "definitely_not_a_real_template", {}),
+    ]));
+    assert.equal(start.status, 202);
+    await assert.rejects(pollJob(start.body.job_id, TEST_TIMEOUT));
   });
 });
 

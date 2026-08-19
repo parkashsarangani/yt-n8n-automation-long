@@ -927,7 +927,14 @@ async function generateMouthCues(audioPath, dialogText, tmpDir) {
 
     await execFileAsync(bin, args, { timeout: 60000 });
     const raw = JSON.parse(await fsp.readFile(cuesPath, "utf8"));
-    return Array.isArray(raw.mouthCues) ? raw.mouthCues : [];
+    const cues = Array.isArray(raw.mouthCues) ? raw.mouthCues : [];
+    // Sort once here rather than per-frame in mouthAtTime (called every
+    // rendered frame): mouthAtTime's lookup picks the first array-order
+    // match, not the temporally-earliest one, so out-of-order cues (a
+    // malformed Rhubarb run, or a hand-edited cue file) would otherwise
+    // silently select the wrong mouth shape at a given timestamp.
+    cues.sort((a, b) => a.start - b.start);
+    return cues;
   } catch (err) {
     console.warn(`[lipsync] rhubarb failed (${err.message}) — falling back to neutral mouth`);
     return [];

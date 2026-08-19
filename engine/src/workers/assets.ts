@@ -72,7 +72,10 @@ function parseTemplateData(scene: PlanScene): Record<string, unknown> {
       if (!c || typeof c.characterId !== "string" || !c.characterId.trim()) {
         throw new Error(`scene ${scene.scene_index}: character ${i} has no characterId/rig`);
       }
-      if (!Number.isFinite(Number(c.x)) || !Number.isFinite(Number(c.y))) {
+      // typeof must be checked before Number(...): Number(null) and Number("")
+      // both coerce to 0 (finite), which would silently accept a missing/blank
+      // coordinate as "0" instead of rejecting it as the validation intends.
+      if (typeof c.x !== "number" || !Number.isFinite(c.x) || typeof c.y !== "number" || !Number.isFinite(c.y)) {
         throw new Error(`scene ${scene.scene_index}: character ${i} needs numeric x/y staging coordinates`);
       }
       if (c.scale !== undefined) {

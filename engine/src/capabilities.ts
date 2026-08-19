@@ -41,7 +41,21 @@ export const STAGES: StageSpec[] = [
     requires: [["FAL_KEY"]],
     real: "fal/flux-2-pro",
     fallback: "fake",
-    consequence: "cartoon scenes still render from SVG assets, but the custom thumbnail falls back to a simple renderer background",
+    consequence:
+      "cartoon scene rendering itself doesn't need this (SVG rigs/backgrounds only spend here for thumbnail " +
+      "artwork), but the legacy manual-script path (graphs/manual.json) still calls this provider for scene " +
+      "images and silently renders flat placeholder stills without it. Legacy PEXELS_API_KEY/UNSPLASH_ACCESS_KEY " +
+      "do not satisfy this stage - only FAL_KEY does.",
+  },
+  {
+    id: "cast",
+    label: "Recurring cast configuration",
+    requires: [["CARTOON_CAST_PATH"]],
+    real: "cast_roster file",
+    fallback: "unavailable",
+    consequence:
+      "the production graph's cast_roster node (cast_loader) throws immediately and the run fails before any " +
+      "content is produced - there is no fallback cast",
   },
   {
     id: "renderer",
