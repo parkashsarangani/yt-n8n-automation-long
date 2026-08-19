@@ -652,7 +652,16 @@ function renderRemotion(compositionId, outputPath, durationSec, props) {
 
     // Write props to a temp file to avoid E2BIG when props contain large
     // base64 images. The render-bridge reads from file when a path is passed.
-    const propsFile = path.join(path.dirname(outputPath), `props_${Date.now()}.json`);
+    //
+    // Filename must be unique per call, not just per millisecond: every scene
+    // in a job shares this same tmpDir, and COMPOSE_CONCURRENCY renders
+    // several scenes' templates in parallel. Date.now() alone collides
+    // whenever two scenes reach this line in the same millisecond - one
+    // scene's write then tears another's read (JSON parse corruption), and
+    // whichever finishes first unlinks the file out from under the other
+    // (ENOENT). Rare with the old 15-25% template-scene minority; routine
+    // once most/all scenes are cartoon (template_category) scenes.
+    const propsFile = path.join(path.dirname(outputPath), `props_${crypto.randomUUID()}.json`);
     await fsp.writeFile(propsFile, JSON.stringify(props));
 
     const args = [

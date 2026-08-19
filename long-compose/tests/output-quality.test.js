@@ -422,6 +422,42 @@ describe("Template scenes render correctly", { timeout: TEST_TIMEOUT }, () => {
         assert.strictEqual(video.height, 1920);
     });
 
+    it("many concurrent cartoon scenes don't collide on the shared render-bridge props file", { timeout: TEST_TIMEOUT * 2 }, async () => {
+        // Regression test: renderRemotion() used to name its temp props file
+        // `props_${Date.now()}.json` inside the job's single shared tmpDir.
+        // With COMPOSE_CONCURRENCY (default 3) rendering several scenes'
+        // templates in parallel, two scenes reaching that line in the same
+        // millisecond collided on the exact same filename - one scene's
+        // write tore another's read (a JSON parse error), and whichever
+        // finished first unlinked the file out from under the other (ENOENT).
+        // Six scenes forces at least two rounds of 3-way concurrency.
+        const cartoonScene = (i) => ({
+            scene_index: i,
+            visual_source: "template",
+            template_name: "cartoon",
+            template_data: {
+                background: { location: "classroom", variant: "normal", tone: "neutral" },
+                camera: { type: "pan", panFrom: -80, panTo: 0 },
+                characters: [
+                    { characterId: "pilot", x: 260, y: 380, scale: 1, isSpeaking: true, leftArm: "down", rightArm: "up" },
+                    { characterId: "pilot-2", x: 1100, y: 380, scale: 1, isSpeaking: false },
+                ],
+            },
+            audio: { audio_base64: generateSilentAudioBase64(2) },
+        });
+
+        const payload = {
+            hook: "concurrency regression test",
+            caption_style: "neutral",
+            comment_hook: "thoughts?",
+            data: Array.from({ length: 6 }, (_, i) => cartoonScene(i)),
+        };
+
+        const { body } = await postJSON("/compose", payload);
+        const result = await pollJobUntilDone(body.job_id, TEST_TIMEOUT * 2);
+        assert.ok(fs.existsSync(result.output_path));
+    });
+
     it("cartoon template renders a flat-color punchline card", async () => {
         const payload = buildTestPayload({
             templateName: "cartoon",
