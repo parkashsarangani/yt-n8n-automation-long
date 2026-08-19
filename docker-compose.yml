@@ -1,9 +1,10 @@
 # VidGen — one command to run everything:
 #
-#   cp engine/config/cast_roster.example.json engine/config/cast_roster.json
-#   # edit voice ids / recurring character descriptors
 #   docker compose up --build
 #   → http://localhost:4321
+#
+# The tracked engine/config/cast_roster.default.json is the canonical recurring
+# cast. Set CARTOON_CAST_PATH only when intentionally overriding the channel cast.
 #
 # SECURITY: published ports remain loopback-only. The local UI holds API keys.
 name: vidgen
@@ -40,8 +41,8 @@ services:
       # Cartoon thumbnail artwork. Video scenes themselves are local SVG rigs.
       FAL_KEY: ${FAL_KEY:-}
 
-      # Default/daily production uses this stable recurring cast.
-      CARTOON_CAST_PATH: ${CARTOON_CAST_PATH:-/app/config/cast_roster.json}
+      # Default/daily production uses the tracked recurring cast unless overridden.
+      CARTOON_CAST_PATH: ${CARTOON_CAST_PATH:-/app/config/cast_roster.default.json}
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
 
