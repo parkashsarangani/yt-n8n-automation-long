@@ -161,6 +161,7 @@ describe("Remotion project structure", () => {
             "KineticText.tsx",
             "CaptionOverlay.tsx",
             "SceneTransition.tsx",
+            "CartoonScene.tsx",
         ];
         for (const comp of compositions) {
             assert.ok(
@@ -169,4 +170,113 @@ describe("Remotion project structure", () => {
             );
         }
     });
+
+    it("cartoon puppet component and lip-sync helper exist", () => {
+        assert.ok(
+            fs.existsSync(path.join(remotionDir, "src", "components", "Character.tsx")),
+            "components/Character.tsx missing"
+        );
+        assert.ok(
+            fs.existsSync(path.join(remotionDir, "src", "animation", "lipsync.ts")),
+            "animation/lipsync.ts missing"
+        );
+    });
+
+    it("background component and environment presets exist", () => {
+        assert.ok(
+            fs.existsSync(path.join(remotionDir, "src", "components", "Background.tsx")),
+            "components/Background.tsx missing"
+        );
+        assert.ok(
+            fs.existsSync(path.join(remotionDir, "src", "lib", "environment.ts")),
+            "lib/environment.ts missing"
+        );
+    });
+});
+
+describe("Cartoon background library", () => {
+    const backgroundsDir = path.join(__dirname, "..", "remotion", "public", "backgrounds");
+
+    it("has a documented asset contract", () => {
+        assert.ok(fs.existsSync(path.join(backgroundsDir, "README.md")), "backgrounds/README.md missing");
+    });
+
+    // (location, variants) pairs for the full ChatGPT-generated landscape pack.
+    const library = {
+        bedroom: ["day", "night", "messy-day", "messy-night"],
+        cafe: ["day"],
+        classroom: ["empty", "normal", "exam"],
+        "generic-room": ["cool-day", "warm-day", "night"],
+        "hospital-room": ["day"],
+        kitchen: ["day", "night"],
+        "living-room": ["day", "night"],
+        office: ["day"],
+        park: ["day", "evening"],
+        "school-hallway": ["normal"],
+        street: ["day", "night", "rain-night"],
+    };
+
+    it("every location/variant has all three layers at the exact output canvas", () => {
+        for (const [location, variants] of Object.entries(library)) {
+            for (const variant of variants) {
+                const dir = path.join(backgroundsDir, location, variant);
+                for (const layer of ["back", "middle", "front"]) {
+                    const file = path.join(dir, `${layer}.svg`);
+                    assert.ok(fs.existsSync(file), `${location}/${variant}/${layer}.svg missing`);
+                    const svg = fs.readFileSync(file, "utf8");
+                    assert.ok(
+                        svg.includes('viewBox="0 0 1920 1080"'),
+                        `${location}/${variant}/${layer}.svg has an unexpected viewBox`
+                    );
+                }
+            }
+        }
+    });
+});
+
+describe("Cartoon character rig assets", () => {
+    const charactersDir = path.join(__dirname, "..", "remotion", "public", "characters");
+    const mouthShapes = ["A", "B", "C", "D", "E", "F", "G", "H", "X"];
+    const armPoses = ["left-up", "left-down", "right-up", "right-down"];
+    const expressions = ["normal", "angry", "surprised"];
+
+    for (const characterId of ["pilot", "pilot-2"]) {
+        describe(characterId, () => {
+            const dir = path.join(charactersDir, characterId);
+
+            it("has a manifest and the base layers", () => {
+                assert.ok(fs.existsSync(path.join(dir, "manifest.json")), `${characterId}/manifest.json missing`);
+                for (const file of ["body.svg", "head.svg", "eye-left.svg", "eye-right.svg", "pupil-left.svg", "pupil-right.svg"]) {
+                    assert.ok(fs.existsSync(path.join(dir, file)), `${characterId}/${file} missing`);
+                }
+            });
+
+            it("has all nine Rhubarb mouth shapes", () => {
+                for (const shape of mouthShapes) {
+                    assert.ok(
+                        fs.existsSync(path.join(dir, "mouth", `${shape}.svg`)),
+                        `${characterId}/mouth/${shape}.svg missing`
+                    );
+                }
+            });
+
+            it("has both arm poses for each side", () => {
+                for (const pose of armPoses) {
+                    assert.ok(
+                        fs.existsSync(path.join(dir, "arms", `${pose}.svg`)),
+                        `${characterId}/arms/${pose}.svg missing`
+                    );
+                }
+            });
+
+            it("has all eyebrow expressions", () => {
+                for (const expr of expressions) {
+                    assert.ok(
+                        fs.existsSync(path.join(dir, "expressions", `eyebrow-${expr}.svg`)),
+                        `${characterId}/expressions/eyebrow-${expr}.svg missing`
+                    );
+                }
+            });
+        });
+    }
 });

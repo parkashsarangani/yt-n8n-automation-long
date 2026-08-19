@@ -14,6 +14,9 @@ import { DataRanking } from "./scenes/DataAnimations/DataRanking";
 import { DataBarChart } from "./scenes/DataAnimations/DataBarChart";
 import { ListNumberedVertical } from "./scenes/ListAnimations/ListNumberedVertical";
 
+// Cartoon puppet scene - layered SVG characters, lip-synced via Rhubarb.
+import { CartoonScene } from "./compositions/CartoonScene";
+
 const FPS = 30;
 const W = 1920;
 const H = 1080;
@@ -40,5 +43,21 @@ export const RemotionRoot: React.FC = () => (
             defaultProps={{ items: [{ label: "A", value: 80 }], title: "Chart" }} />
         <Composition id="ListNumberedVertical" component={ListNumberedVertical} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ items: [{ text: "Key fact" }], title: "Key Facts" }} />
+
+        <Composition id="CartoonScene" component={CartoonScene} durationInFrames={D} fps={FPS} width={W} height={H}
+            defaultProps={{
+                mood: "neutral" as const,
+                background: {
+                    location: "bedroom",
+                    variant: "night",
+                    tone: "scary" as const,
+                    layers: { back: true, middle: true, front: true },
+                },
+                characters: [
+                    { characterId: "pilot", x: 260, y: 380, scale: 1, isSpeaking: true },
+                    { characterId: "pilot-2", x: 1100, y: 380, scale: 1, expression: "surprised" as const },
+                ],
+                camera: { type: "pan" as const, panFrom: 0, panTo: -80 },
+            }} />
     </>
 );

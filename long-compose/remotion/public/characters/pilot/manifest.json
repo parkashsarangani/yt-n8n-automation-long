@@ -1,0 +1,35 @@
+{
+  "viewBox": "0 0 500 700",
+  "body": "character/body.svg",
+  "head": "character/head.svg",
+  "eyes": [
+    "character/eye-left.svg",
+    "character/eye-right.svg"
+  ],
+  "pupils": [
+    "character/pupil-left.svg",
+    "character/pupil-right.svg"
+  ],
+  "mouths": {
+    "A": "character/mouth/A.svg",
+    "B": "character/mouth/B.svg",
+    "C": "character/mouth/C.svg",
+    "D": "character/mouth/D.svg",
+    "E": "character/mouth/E.svg",
+    "F": "character/mouth/F.svg",
+    "G": "character/mouth/G.svg",
+    "H": "character/mouth/H.svg",
+    "X": "character/mouth/X.svg"
+  },
+  "arms": {
+    "left-down": "character/arms/left-down.svg",
+    "right-down": "character/arms/right-down.svg",
+    "left-up": "character/arms/left-up.svg",
+    "right-up": "character/arms/right-up.svg"
+  },
+  "expressions": {
+    "normal": "character/expressions/eyebrow-normal.svg",
+    "angry": "character/expressions/eyebrow-angry.svg",
+    "surprised": "character/expressions/eyebrow-surprised.svg"
+  }
+}

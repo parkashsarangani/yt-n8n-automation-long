@@ -862,10 +862,99 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
 }
 
 // ---------------------------------------------------------------------------
+// Lip-sync (Rhubarb Lip Sync CLI) — cartoon scenes only
+// ---------------------------------------------------------------------------
+
+// Probed once, like textFfmpegPath() above: try the configured/installed
+// location, cache the result. Missing binary is not fatal — a cartoon scene
+// without cues just renders with a closed/neutral mouth the whole time.
+let _rhubarbPath;
+function rhubarbPath() {
+  if (_rhubarbPath !== undefined) return _rhubarbPath;
+  const candidates = [process.env.RHUBARB_PATH, "/usr/local/bin/rhubarb", "rhubarb"].filter(Boolean);
+  _rhubarbPath = candidates.find((bin) => {
+    try {
+      require("child_process").execFileSync(bin, ["--version"], {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 10000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }) || null;
+  if (!_rhubarbPath) {
+    console.warn(
+      "[lipsync] rhubarb binary not found — cartoon scenes will render with a closed/neutral " +
+      "mouth. Set RHUBARB_PATH or install rhubarb-lip-sync.",
+    );
+  }
+  return _rhubarbPath;
+}
+
+// Runs Rhubarb against a scene's narration audio and returns its mouthCues
+// ([{start,end,value}], seconds). `dialogText` (the narration transcript, if
+// known) is optional but improves phoneme accuracy — passed via Rhubarb's
+// --dialogFile flag. Any failure (missing binary, bad audio, non-zero exit,
+// unparseable output) degrades to an empty cue list rather than failing the
+// scene — the puppet just doesn't animate its mouth, same as any other
+// degraded-asset case in this pipeline.
+async function generateMouthCues(audioPath, dialogText, tmpDir) {
+  const bin = rhubarbPath();
+  if (!bin) return [];
+
+  const wavPath = path.join(tmpDir, `lipsync_${crypto.randomUUID()}.wav`);
+  const cuesPath = path.join(tmpDir, `lipsync_${crypto.randomUUID()}.json`);
+  let dialogFilePath = null;
+
+  try {
+    // Rhubarb reads WAV/Ogg, not the MP3 the voice provider returns.
+    await run(
+      ffmpeg().input(audioPath).outputOptions(["-ar", "22050", "-ac", "1"]).output(wavPath),
+    );
+
+    const args = ["-f", "json", "-o", cuesPath];
+    if (dialogText && dialogText.trim()) {
+      dialogFilePath = path.join(tmpDir, `lipsync_${crypto.randomUUID()}.txt`);
+      await fsp.writeFile(dialogFilePath, dialogText);
+      args.push("--dialogFile", dialogFilePath);
+    }
+    args.push(wavPath);
+
+    await execFileAsync(bin, args, { timeout: 60000 });
+    const raw = JSON.parse(await fsp.readFile(cuesPath, "utf8"));
+    return Array.isArray(raw.mouthCues) ? raw.mouthCues : [];
+  } catch (err) {
+    console.warn(`[lipsync] rhubarb failed (${err.message}) — falling back to neutral mouth`);
+    return [];
+  } finally {
+    fsp.unlink(wavPath).catch(() => {});
+    fsp.unlink(cuesPath).catch(() => {});
+    if (dialogFilePath) fsp.unlink(dialogFilePath).catch(() => {});
+  }
+}
+
+// Which of a cartoon background's back/middle/front layers actually exist on
+// disk, checked here (not in the browser) so a variant that only ships e.g.
+// back.svg never 404s inside the headless Chrome render. A location/variant
+// with no files at all resolves to all-false, and CartoonScene falls back to
+// its plain mood gradient — the same behaviour as before backgrounds existed.
+function resolveBackgroundLayers(background) {
+  if (!background || background.flat || !background.location || !background.variant) return background;
+  const dir = path.join(REMOTION_DIR, "public", "backgrounds", background.location, background.variant);
+  const layers = {
+    back: fs.existsSync(path.join(dir, "back.svg")),
+    middle: fs.existsSync(path.join(dir, "middle.svg")),
+    front: fs.existsSync(path.join(dir, "front.svg")),
+  };
+  return { ...background, layers };
+}
+
+// ---------------------------------------------------------------------------
 // Template Scene Processing (Remotion — studio motion graphics)
 // ---------------------------------------------------------------------------
 
-async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood, bgImagePath = null) {
+async function buildTemplateScene(templateName, templateData, duration, audioPath, outPath, tmpDir, mood, bgImagePath = null, dialogText = null) {
   // Seven categories, one battle-tested composition each — deliberately no
   // random pool. A pool of look-alike components sharing one generic prop
   // shape meant most renders silently fell back to a component's own
@@ -915,6 +1004,14 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
       compositionId: "KineticText",
       buildProps: (d) => ({ line: d.text }),
     },
+    cartoon: {
+      compositionId: "CartoonScene",
+      buildProps: (d) => ({
+        background: resolveBackgroundLayers(d.background),
+        camera: d.camera,
+        characters: d.characters || [],
+      }),
+    },
   };
 
   // Direct composition names, from before categories existed. Kept as a
@@ -942,6 +1039,15 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     // Unknown name: assume it's a literal composition ID and pass data through.
     compositionId = templateName;
     props = { mood: mood || "neutral", ...parsedData };
+  }
+
+  // Cartoon scenes lip-sync whichever character(s) are marked isSpeaking —
+  // Rhubarb runs against this scene's own narration audio, computed here
+  // (not by the caller) since mouth cues are a render-time detail, not
+  // something the story/planning pipeline needs to know about.
+  if (templateName === "cartoon" && Array.isArray(props.characters)) {
+    const cues = await generateMouthCues(audioPath, dialogText, tmpDir);
+    props.characters = props.characters.map((c) => (c.isSpeaking ? { ...c, mouthCues: cues } : c));
   }
 
   console.log(`[template] ${compositionId} props keys: ${Object.keys(props).join(", ")}`);
@@ -1279,8 +1385,14 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
 
       if (isTemplate) {
         if (!scene.template_name) throw new Error(`Scene ${i}: visual_source=template but no template_name`);
+        // The alignment's per-character array IS the narration transcript —
+        // reused here (not a new field) to give Rhubarb a --dialogFile for
+        // better phoneme accuracy on cartoon scenes.
+        const dialogText = Array.isArray(scene?.audio?.alignment?.characters)
+          ? scene.audio.alignment.characters.join("")
+          : null;
         // Templates render full-screen on their own dark background — no image composite.
-        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, null);
+        await buildTemplateScene(scene.template_name, scene.template_data, duration, audioPath, outPath, tmpDir, mood, null, dialogText);
       } else if (isStockVideoUrl || isStockVideoInline) {
         const stockVideoPath = path.join(tmpDir, `stock_${i}.mp4`);
         if (isStockVideoInline) {

@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     fontconfig \
     curl \
+    unzip \
     chromium \
     libnss3 \
     libatk1.0-0 \
@@ -25,6 +26,18 @@ RUN apt-get update && apt-get install -y \
 # Tell Remotion/Puppeteer to use system Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV CHROMIUM_PATH=/usr/bin/chromium
+
+# Rhubarb Lip Sync CLI, for cartoon-scene mouth-cue generation. Installed as
+# a directory rather than a bare binary: the pocketSphinx recognizer it uses
+# by default needs its acoustic-model files (res/) alongside the executable
+# at runtime, not just the executable itself.
+ARG RHUBARB_VERSION=1.14.0
+RUN curl -sL "https://github.com/DanielSWolf/rhubarb-lip-sync/releases/download/v${RHUBARB_VERSION}/Rhubarb-Lip-Sync-${RHUBARB_VERSION}-Linux.zip" -o /tmp/rhubarb.zip \
+    && unzip -q /tmp/rhubarb.zip -d /opt \
+    && mv "/opt/Rhubarb-Lip-Sync-${RHUBARB_VERSION}-Linux" /opt/rhubarb \
+    && chmod +x /opt/rhubarb/rhubarb \
+    && rm /tmp/rhubarb.zip
+ENV PATH="/opt/rhubarb:${PATH}"
 
 WORKDIR /app
 

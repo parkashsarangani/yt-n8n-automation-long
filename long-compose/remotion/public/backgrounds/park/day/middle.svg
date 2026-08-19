@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+
+
+    
+    <g transform="translate(240,480) scale(1.05)">
+      <rect x="-20" y="90" width="40" height="145" rx="12" fill="#8A5B3D" stroke="#111111" stroke-width="8"/>
+      <circle cx="-50" cy="65" r="65" fill="#78B86E" stroke="#111111" stroke-width="9"/>
+      <circle cx="28" cy="30" r="78" fill="#78B86E" stroke="#111111" stroke-width="9"/>
+      <circle cx="72" cy="78" r="58" fill="#4D8A49" stroke="#111111" stroke-width="9"/>
+    </g>
+    
+    
+    <g transform="translate(1630,500) scale(1.0)">
+      <rect x="-20" y="90" width="40" height="145" rx="12" fill="#8A5B3D" stroke="#111111" stroke-width="8"/>
+      <circle cx="-50" cy="65" r="65" fill="#78B86E" stroke="#111111" stroke-width="9"/>
+      <circle cx="28" cy="30" r="78" fill="#78B86E" stroke="#111111" stroke-width="9"/>
+      <circle cx="72" cy="78" r="58" fill="#4D8A49" stroke="#111111" stroke-width="9"/>
+    </g>
+    
+    <rect x="760" y="710" width="400" height="80" rx="18" fill="#8A5B3D" stroke="#111111" stroke-width="9"/>
+    <rect x="805" y="785" width="20" height="90" fill="#111111"/>
+    <rect x="1095" y="785" width="20" height="90" fill="#111111"/>
+    
+</svg>

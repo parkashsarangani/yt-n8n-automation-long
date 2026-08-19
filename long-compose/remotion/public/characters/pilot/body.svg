@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
+
+  <!-- torso -->
+  <path d="M170 345 Q250 315 330 345 L350 530 Q250 575 150 530 Z"
+        fill="#4C89C6" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M205 520 L295 520 L315 660 L260 660 L250 560 L240 660 L185 660 Z"
+        fill="#3E4B5B" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <!-- collar -->
+  <path d="M220 335 Q250 365 280 335 L292 365 Q250 392 208 365 Z"
+        fill="#35679A" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
+  <!-- neck -->
+  <rect x="220" y="290" width="60" height="70" rx="18"
+        fill="#F2C7A5" stroke="#111111" stroke-width="7"/>
+  <!-- shoes -->
+  <path d="M180 650 Q150 650 145 676 L235 676 L235 650 Z"
+        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
+  <path d="M265 650 L265 676 L355 676 Q350 650 320 650 Z"
+        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
+
+</svg>
