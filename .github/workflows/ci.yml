@@ -4,50 +4,12 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: write
-
 jobs:
   validate:
     name: Build and test
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Work on the PR branch so the guarded one-shot migration can commit
-          # its validated source result. This is removed once the migration lands.
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-
-      - name: Apply guarded compose hardening migration
-        if: github.head_ref == 'agent/cartoon-pipeline-hardening-v2'
-        run: |
-          set -e
-          if [ -f .github/scripts/apply_cartoon_hardening.py ]; then
-            # Align the draft migration with the current source: one caption
-            # check uses `scene`, while the main pipeline uses `s`.
-            sed -i 's/, 2, "outro checks")/, 1, "outro checks")/' .github/scripts/apply_cartoon_hardening.py
-            sed -i 's/s?\.template_data?\.is_outro/isOutroScene(s)/g' long-compose/compose.js
-
-            python3 .github/scripts/apply_cartoon_hardening.py
-            node --check long-compose/compose.js
-            git diff --check
-            ! grep -q '_lastThumbnailBackground\|_lastThumbnailLayout\|new Promise(async' long-compose/compose.js
-            grep -q 'video resolution is 1920x1080 (16:9 landscape)' long-compose/tests/output-quality.test.js
-
-            rm -f .github/scripts/apply_cartoon_hardening.py
-            rm -f .github/scripts/trigger-hardening.txt
-            rm -f .github/workflows/apply-cartoon-hardening.yml
-            rm -f .github/hardening.log
-
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add -A
-            if ! git diff --cached --quiet; then
-              git commit -m 'harden compose pipeline correctness and concurrency'
-              git push origin HEAD:${{ github.head_ref }}
-            fi
-          fi
 
       - name: Compose file is valid and starts the right services
         run: |
