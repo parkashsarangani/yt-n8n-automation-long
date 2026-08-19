@@ -1,20 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-
-  <!-- torso -->
-  <path d="M170 345 Q250 315 330 345 L350 530 Q250 575 150 530 Z"
-        fill="#4C89C6" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
-  <path d="M205 520 L295 520 L315 660 L260 660 L250 560 L240 660 L185 660 Z"
-        fill="#3E4B5B" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
-  <!-- collar -->
-  <path d="M220 335 Q250 365 280 335 L292 365 Q250 392 208 365 Z"
-        fill="#35679A" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
-  <!-- neck -->
-  <rect x="220" y="290" width="60" height="70" rx="18"
-        fill="#F2C7A5" stroke="#111111" stroke-width="7"/>
-  <!-- shoes -->
-  <path d="M180 650 Q150 650 145 676 L235 676 L235 650 Z"
-        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
-  <path d="M265 650 L265 676 L355 676 Q350 650 320 650 Z"
-        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
-
+  <!-- slim teal-jacket host: asymmetric jacket and lighter shoes create a memorable silhouette -->
+  <path d="M178 346 Q250 316 322 346 L341 522 Q302 552 250 554 Q198 552 159 522 Z"
+        fill="#147D84" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M220 340 L250 382 L280 340 L297 522 L250 548 L203 522 Z"
+        fill="#F4E9D5" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M178 346 L220 340 L250 382 L208 401 Z"
+        fill="#0F6268" stroke="#111111" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M322 346 L280 340 L250 382 L293 401 Z"
+        fill="#0F6268" stroke="#111111" stroke-width="5" stroke-linejoin="round"/>
+  <rect x="221" y="294" width="58" height="68" rx="18"
+        fill="#DFAE8C" stroke="#111111" stroke-width="7"/>
+  <path d="M190 516 Q218 505 244 520 L238 660 L181 660 Z"
+        fill="#263746" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M256 520 Q282 505 310 516 L319 660 L262 660 Z"
+        fill="#263746" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M175 651 Q146 654 142 679 L238 679 L238 652 Z"
+        fill="#F4F7F9" stroke="#111111" stroke-width="7"/>
+  <path d="M262 652 L262 679 L358 679 Q354 654 325 651 Z"
+        fill="#F4F7F9" stroke="#111111" stroke-width="7"/>
+  <path d="M151 673 H237 M263 673 H349" stroke="#49B4BA" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="313" cy="431" r="7" fill="#F4E9D5"/>
 </svg>

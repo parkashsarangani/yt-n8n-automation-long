@@ -1,28 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-
-  <!-- ears -->
-  <ellipse cx="138" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
-  <ellipse cx="362" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
-  <!-- face -->
-  <path d="M150 120
-           Q250 50 350 120
-           Q380 180 360 265
-           Q340 335 250 345
-           Q160 335 140 265
-           Q120 180 150 120 Z"
-        fill="#F2C7A5" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
-  <!-- nose -->
-  <path d="M252 202 Q270 228 246 244"
-        fill="none" stroke="#D9A47C" stroke-width="8" stroke-linecap="round"/>
-  <!-- hair -->
-  <path d="M145 145
-           Q150 65 230 70
-           Q280 30 350 88
-           Q392 120 355 170
-           Q335 130 310 118
-           Q285 148 252 114
-           Q210 145 172 116
-           Q160 130 145 145 Z"
-        fill="#3B2C2A" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
-
+  <!-- narrower angular host face -->
+  <ellipse cx="143" cy="218" rx="26" ry="38" fill="#DFAE8C" stroke="#111111" stroke-width="8"/>
+  <ellipse cx="357" cy="218" rx="26" ry="38" fill="#DFAE8C" stroke="#111111" stroke-width="8"/>
+  <path d="M158 120 Q205 70 250 72 Q312 66 344 122 Q367 173 351 258 Q335 326 250 342 Q165 326 149 258 Q133 173 158 120 Z"
+        fill="#DFAE8C" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M252 205 Q265 225 248 242" fill="none" stroke="#C98968" stroke-width="7" stroke-linecap="round"/>
+  <path d="M154 151 Q150 86 205 73 Q250 34 319 72 Q356 82 372 119 Q342 108 323 105 Q306 129 274 111 Q236 139 196 113 Q176 136 154 151 Z"
+        fill="#20343D" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M275 72 Q307 67 337 82" fill="none" stroke="#49B4BA" stroke-width="10" stroke-linecap="round"/>
+  <path d="M175 286 Q193 308 216 312" fill="none" stroke="#CB8B70" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <path d="M325 286 Q307 308 284 312" fill="none" stroke="#CB8B70" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
 </svg>

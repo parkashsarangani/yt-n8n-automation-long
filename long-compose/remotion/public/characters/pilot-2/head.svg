@@ -1,28 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-
-  <!-- ears -->
-  <ellipse cx="138" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
-  <ellipse cx="362" cy="220" rx="30" ry="42" fill="#F2C7A5" stroke="#111111" stroke-width="8"/>
-  <!-- face -->
-  <path d="M150 120
-           Q250 50 350 120
-           Q380 180 360 265
-           Q340 335 250 345
-           Q160 335 140 265
-           Q120 180 150 120 Z"
-        fill="#F2C7A5" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
-  <!-- nose -->
-  <path d="M252 202 Q270 228 246 244"
-        fill="none" stroke="#D9A47C" stroke-width="8" stroke-linecap="round"/>
-  <!-- hair -->
-  <path d="M145 145
-           Q150 65 230 70
-           Q280 30 350 88
-           Q392 120 355 170
-           Q335 130 310 118
-           Q285 148 252 114
-           Q210 145 172 116
-           Q160 130 145 145 Z"
-        fill="#242424" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
-
+  <!-- rounder buddy face with large curly silhouette -->
+  <ellipse cx="128" cy="224" rx="32" ry="44" fill="#C98968" stroke="#111111" stroke-width="8"/>
+  <ellipse cx="372" cy="224" rx="32" ry="44" fill="#C98968" stroke="#111111" stroke-width="8"/>
+  <path d="M142 120 Q250 54 358 120 Q390 178 370 270 Q347 344 250 352 Q153 344 130 270 Q110 178 142 120 Z"
+        fill="#C98968" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M248 208 Q266 230 245 247" fill="none" stroke="#AD6F51" stroke-width="7" stroke-linecap="round"/>
+  <path d="M126 157 Q105 120 135 95 Q144 55 187 62 Q217 31 250 53 Q286 24 314 58 Q357 48 369 88 Q405 105 384 151 Q350 127 321 119 Q295 137 270 112 Q241 137 216 112 Q186 137 157 116 Q143 137 126 157 Z"
+        fill="#4A2E24" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <circle cx="158" cy="91" r="25" fill="#4A2E24" stroke="#111111" stroke-width="7"/>
+  <circle cx="207" cy="68" r="30" fill="#4A2E24" stroke="#111111" stroke-width="7"/>
+  <circle cx="261" cy="64" r="31" fill="#4A2E24" stroke="#111111" stroke-width="7"/>
+  <circle cx="316" cy="73" r="29" fill="#4A2E24" stroke="#111111" stroke-width="7"/>
+  <circle cx="354" cy="104" r="25" fill="#4A2E24" stroke="#111111" stroke-width="7"/>
+  <path d="M163 293 Q187 318 216 321" fill="none" stroke="#B97859" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <path d="M337 293 Q313 318 284 321" fill="none" stroke="#B97859" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
 </svg>

@@ -1,20 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-
-  <!-- torso -->
-  <path d="M170 345 Q250 315 330 345 L350 530 Q250 575 150 530 Z"
-        fill="#C65A3A" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
-  <path d="M205 520 L295 520 L315 660 L260 660 L250 560 L240 660 L185 660 Z"
-        fill="#4B3E2E" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
-  <!-- collar -->
-  <path d="M220 335 Q250 365 280 335 L292 365 Q250 392 208 365 Z"
-        fill="#9E4429" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
-  <!-- neck -->
-  <rect x="220" y="290" width="60" height="70" rx="18"
-        fill="#F2C7A5" stroke="#111111" stroke-width="7"/>
-  <!-- shoes -->
-  <path d="M180 650 Q150 650 145 676 L235 676 L235 650 Z"
-        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
-  <path d="M265 650 L265 676 L355 676 Q350 650 320 650 Z"
-        fill="#2B2B2B" stroke="#111111" stroke-width="7"/>
-
+  <!-- broad mustard-hoodie buddy: intentionally rounder and wider than the host -->
+  <path d="M154 350 Q250 306 346 350 L370 530 Q335 570 250 574 Q165 570 130 530 Z"
+        fill="#E3A62F" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M196 346 Q250 392 304 346 Q294 414 250 425 Q206 414 196 346 Z"
+        fill="#C9831F" stroke="#111111" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M227 392 V462 M273 392 V462" fill="none" stroke="#5B4020" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="226" cy="468" r="8" fill="#5B4020"/>
+  <circle cx="274" cy="468" r="8" fill="#5B4020"/>
+  <rect x="217" y="294" width="66" height="72" rx="22" fill="#C98968" stroke="#111111" stroke-width="7"/>
+  <path d="M166 522 Q211 509 244 530 L239 658 L173 658 Z"
+        fill="#385165" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M256 530 Q289 509 334 522 L327 658 L261 658 Z"
+        fill="#385165" stroke="#111111" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M164 650 Q128 655 126 681 H242 L240 650 Z" fill="#2B3037" stroke="#111111" stroke-width="7"/>
+  <path d="M260 650 L258 681 H374 Q372 655 336 650 Z" fill="#2B3037" stroke="#111111" stroke-width="7"/>
+  <path d="M145 509 Q184 528 208 515" fill="none" stroke="#C9831F" stroke-width="6" stroke-linecap="round"/>
+  <path d="M355 509 Q316 528 292 515" fill="none" stroke="#C9831F" stroke-width="6" stroke-linecap="round"/>
 </svg>
