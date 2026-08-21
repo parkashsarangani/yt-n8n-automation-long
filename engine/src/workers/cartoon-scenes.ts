@@ -123,7 +123,7 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
       warnings,
     };
   }
-  if (actorKey(script.speaker) !== actorKey(speaker.character_id)) {
+  if (script.speaker.trim() !== speaker.character_id) {
     warnings.push(`resolved legacy speaker label "${script.speaker}" to cast id "${speaker.character_id}"`);
   }
 
