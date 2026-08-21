@@ -10,7 +10,7 @@
   "prompt": "dialogue_script_writer@4",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 16000
+    "max_output_tokens": 32000
   },
   "confidence_dimensions": ["narrative_coherence", "pacing", "hook_strength", "retention_fidelity", "cast_fidelity", "story_frame_strength", "engagement", "payoff_resolution"],
   "retry": { "max_attempts": 3 }

@@ -11,7 +11,7 @@
   "prompt": "cartoon_visual_planner@8",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 16000,
+    "max_output_tokens": 32000,
     "effort": "medium"
   },
   "confidence_dimensions": ["concreteness", "variety", "visual_momentum", "speaker_readability"],
