@@ -137,20 +137,29 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
 
       const entries = scriptScenes.slice().sort((a, b) => a.scene_index - b.scene_index).map((scriptScene) => {
         const plan = planByIndex.get(scriptScene.scene_index);
-        if (!plan) throw new Error(`scene ${scriptScene.scene_index}: cartoon visual plan is missing this script scene`);
-        if (plan.template_category !== "cartoon") throw new Error(`scene ${scriptScene.scene_index}: expected template_category=\"cartoon\"`);
+        let compiled: Record<string, unknown>;
 
-        let compiled = compileFromShallow(plan, scriptScene, roster);
-        if (!compiled) {
-          const legacy = legacyObject(plan);
-          if (legacy) {
-            compiled = legacy;
-            ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
+        if (!plan) {
+          compiled = deterministicFallback(scriptScene, roster);
+          ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: legacy visual plan is missing this script scene; synthesizing deterministic safe staging instead of blocking the episode`);
+        } else {
+          if (plan.template_category !== "cartoon") throw new Error(`scene ${scriptScene.scene_index}: expected template_category=\"cartoon\"`);
+
+          const shallow = compileFromShallow(plan, scriptScene, roster);
+          if (shallow) {
+            compiled = shallow;
           } else {
-            compiled = deterministicFallback(scriptScene, roster);
-            ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: unusable/missing planner staging; using deterministic safe staging instead of failing the episode`);
+            const legacy = legacyObject(plan);
+            if (legacy) {
+              compiled = legacy;
+              ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
+            } else {
+              compiled = deterministicFallback(scriptScene, roster);
+              ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: unusable/missing planner staging; using deterministic safe staging instead of failing the episode`);
+            }
           }
         }
+
         return { scene_index: scriptScene.scene_index, source: "template" as const, template_category: "cartoon", template_data: JSON.stringify(compiled) };
       });
 
