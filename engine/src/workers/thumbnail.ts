@@ -63,7 +63,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
           }
           ctx.logger.warn(`thumbnail artwork generation failed (${message}) — falling back to renderer background`);
         }
-      } else if (!imagePrompt) {
+      } else if (!cartoon && !imagePrompt) {
         ctx.logger.warn("thumbnail brief contained no usable artwork prompt — using renderer background");
       }
 
@@ -86,7 +86,8 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
         media_type: result.media_type,
       });
 
-      if (result.background === "gradient" && background) {
+      // Legacy/non-cartoon flows intentionally keep their degradation path.
+      if (!cartoon && result.background === "gradient" && background) {
         ctx.logger.warn("thumbnail artwork was generated but the renderer could not use it and fell back to a gradient");
       }
 

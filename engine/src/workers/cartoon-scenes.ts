@@ -64,6 +64,12 @@ function legacyObject(scene: PlanScene): Record<string, unknown> | null {
 function validBackground(location: string, variant: string): boolean {
   return Boolean(BACKGROUNDS[location]?.includes(variant));
 }
+function catalogBackground(location: string, variant: string): { location: string; variant: string } {
+  if (!validBackground(location, variant)) {
+    throw new Error(`cartoon fallback requested unknown background ${location}/${variant}`);
+  }
+  return { location, variant };
+}
 function sideFor(cast: CastCharacter[], actorId: string): "left" | "right" {
   const index = Math.max(0, cast.findIndex((c) => c.character_id === actorId));
   return index % 2 === 0 ? "left" : "right";
@@ -107,14 +113,14 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
 
 function fallbackEnvironment(script: ScriptScene): { location: string; variant: string } {
   const text = script.narration.toLowerCase();
-  if (/sleep|bed|night|alarm|2 ?a\.?m|3 ?a\.?m|wake/.test(text)) return { location: "bedroom", variant: "night" };
-  if (/boss|meeting|email|work|office|presentation|deadline/.test(text)) return { location: "office", variant: "day" };
-  if (/exam|class|school|teacher|student|test/.test(text)) return { location: "classroom", variant: "exam" };
-  if (/coffee|cafe|date|table/.test(text)) return { location: "cafe", variant: "day" };
-  if (/walk|outside|park|bench/.test(text)) return { location: "park", variant: "day" };
-  if (/street|traffic|car|bus|train/.test(text)) return { location: "street", variant: "day" };
-  if (/cook|kitchen|fridge|food|dinner/.test(text)) return { location: "kitchen", variant: "day" };
-  return { location: "living-room", variant: script.scene_index % 8 >= 6 ? "night" : "day" };
+  if (/\b(?:sleep|bed|night|alarm|wake|woke|awake)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
+  if (/\b(?:boss|meeting|email|work|office|presentation|deadline)\b/.test(text)) return catalogBackground("office", "day");
+  if (/\b(?:exam|class|school|teacher|student|test)\b/.test(text)) return catalogBackground("classroom", "exam");
+  if (/\b(?:coffee|cafe|date|table)\b/.test(text)) return catalogBackground("cafe", "day");
+  if (/\b(?:walk|outside|park|bench)\b/.test(text)) return catalogBackground("park", "day");
+  if (/\b(?:street|traffic|car|bus|train)\b/.test(text)) return catalogBackground("street", "day");
+  if (/\b(?:cook|kitchen|fridge|food|dinner)\b/.test(text)) return catalogBackground("kitchen", "day");
+  return catalogBackground("living-room", script.scene_index % 8 >= 6 ? "night" : "day");
 }
 
 function deterministicFallback(script: ScriptScene, roster: CastRoster): Record<string, unknown> {
@@ -138,8 +144,11 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster): Record<
   if (beat === 5 && listenerChar) {
     return {
       background: { ...environment, tone: defaultTone(script.emotion) },
-      camera: { type: "static" },
-      characters: [{ ...listenerChar, x: 710, y: 350, scale: 1.55 }],
+      camera: { type: "zoom", from: 1, to: 1.04 },
+      characters: [
+        { ...speakerChar, x: 210, y: 390, scale: 0.84 },
+        { ...listenerChar, x: 820, y: 330, scale: 1.38 },
+      ],
     };
   }
   return {
