@@ -16,7 +16,7 @@ export type Gesture =
     | "surprised" | "thinking" | "facepalm" | "celebrate";
 
 export type GazeTarget = "auto" | "camera" | "left" | "right" | "up" | "down" | "away";
-export type CharacterEmphasis = "none" | "scale-pop" | "rim-glow";
+export type CharacterEmphasis = "none" | "scale-pop" | "rim-glow" | "caption-anchor";
 
 export interface CharacterProps {
     characterId: string;
@@ -185,6 +185,14 @@ export const Character: React.FC<CharacterProps> = ({
             opacity: dimmed ? 0.82 : 1,
             filter,
         }}>
+            {isSpeaking && emphasis === "caption-anchor" && (
+                <div style={{
+                    position: "absolute", left: 118, top: 658, width: 264, height: 18,
+                    borderRadius: 18,
+                    background: "rgba(255,221,76,0.96)",
+                    boxShadow: "0 0 24px rgba(255,221,76,0.44)",
+                }} />
+            )}
             <Img src={rig("body.svg")} style={layerStyle} />
             <ArmLayer rig={rig} side="left" target={targetLeft} />
             <ArmLayer rig={rig} side="right" target={targetRight} />
