@@ -90,10 +90,17 @@ export class ComposeRenderer implements MediaRenderer {
     } catch (first) {
       if (!req.image) throw first;
 
+      const firstMessage = first instanceof Error ? first.message : String(first);
       try {
-        return await this.renderThumbnailOnce(req, undefined);
+        const result = await this.renderThumbnailOnce(req, undefined);
+        // The gradient fallback succeeded, so nothing above this point ever
+        // sees `first` — without logging it here, a scene that degrades to a
+        // gradient background is otherwise silent about *why* the supplied
+        // artwork failed to composite, which is exactly what a caller (e.g.
+        // the thumbnail worker's strict cartoon policy) needs to diagnose.
+        console.warn(`[long-compose] thumbnail artwork compositing failed, degraded to gradient: ${firstMessage}`);
+        return result;
       } catch (second) {
-        const firstMessage = first instanceof Error ? first.message : String(first);
         const secondMessage = second instanceof Error ? second.message : String(second);
         throw new ProviderError(
           `thumbnail render failed with supplied artwork and gradient fallback; ` +
