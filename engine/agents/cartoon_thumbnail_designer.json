@@ -12,7 +12,7 @@
   "prompt": "cartoon_thumbnail_designer@1",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 3500,
+    "max_output_tokens": 8192,
     "effort": "high"
   },
   "confidence_dimensions": ["clarity", "curiosity", "representativeness"],
