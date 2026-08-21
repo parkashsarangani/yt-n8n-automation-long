@@ -220,7 +220,7 @@ test("the shipped production graph runs unattended end to end with fake provider
   const SCRIPT = {
     scenes: [
       { scene_index: 0, act_index: 0, point: "the rumor", narration: "There's a locker that hums.", speaker: "host", emotion: "neutral" },
-      { scene_index: 1, act_index: 1, point: "the dare", narration: "So open it. I dare you.", speaker: "host", emotion: "surprised" },
+      { scene_index: 1, act_index: 1, point: "payoff_scene: the dare", narration: "So open it. I dare you.", speaker: "host", emotion: "surprised" },
     ],
     word_count: 14,
   };
@@ -240,6 +240,10 @@ test("the shipped production graph runs unattended end to end with fake provider
       listener_emotion: "neutral",
       listener_gesture: "idle",
       listener_gaze_target: "auto",
+      visual_event: i === 0 ? "none" : "reaction-pop",
+      ambient_motion: "subtle-parallax",
+      speaker_emphasis: "scale-pop",
+      cutaway_label: "",
     })),
   };
   const SEO = {

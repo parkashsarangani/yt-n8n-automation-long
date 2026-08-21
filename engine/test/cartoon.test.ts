@@ -76,6 +76,10 @@ const CARTOON_PLAN_PAYLOAD = {
       listener_emotion: "skeptical",
       listener_gesture: "idle",
       listener_gaze_target: "auto",
+      visual_event: "none",
+      ambient_motion: "subtle-parallax",
+      speaker_emphasis: "scale-pop",
+      cutaway_label: "",
     },
     {
       scene_index: 1,
@@ -92,6 +96,10 @@ const CARTOON_PLAN_PAYLOAD = {
       listener_emotion: "thinking",
       listener_gesture: "idle",
       listener_gaze_target: "auto",
+      visual_event: "screen-change",
+      ambient_motion: "monitor-glow",
+      speaker_emphasis: "rim-glow",
+      cutaway_label: "",
     },
     {
       scene_index: 2,
@@ -108,6 +116,10 @@ const CARTOON_PLAN_PAYLOAD = {
       listener_emotion: "amused",
       listener_gesture: "idle",
       listener_gaze_target: "auto",
+      visual_event: "reaction-pop",
+      ambient_motion: "subtle-parallax",
+      speaker_emphasis: "scale-pop",
+      cutaway_label: "",
     },
   ],
 };
@@ -158,7 +170,7 @@ test("cartoon_visual_planner produces a schema-valid template_category=cartoon p
   const payload = out.artifact.payload as typeof CARTOON_PLAN_PAYLOAD;
 
   assert.equal(out.artifact.schema_id, "visual_plan");
-  assert.equal(out.artifact.schema_version, "1.6.0");
+  assert.equal(out.artifact.schema_version, "1.7.0");
   const knownIds = new Set(CAST_ROSTER.characters.map((c) => c.character_id));
   for (const scene of payload.scenes) {
     assert.equal(scene.template_category, "cartoon");
