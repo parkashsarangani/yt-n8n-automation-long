@@ -1021,6 +1021,8 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         background: resolveBackgroundLayers(d.background),
         camera: d.camera,
         characters: d.characters || [],
+        visualEvent: d.visualEvent,
+        speakerEmphasis: d.speakerEmphasis,
       }),
     },
   };
@@ -1643,14 +1645,28 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       if (sfxAvailable.impact) sfxEvents.push({ type: "impact", time: emphasisOffset, volume: 0.22 });
     }
 
-    // Gapless voiceover: rejoin the per-scene voice cleanly (no boundary
-    // clicks) with a single loudnorm (consistent levels), used as the voice
-    // track below instead of the concatenated video's gappy audio.
-    const voicePath = path.join(tmpDir, "voice_full.m4a");
-    await buildGaplessVoice(
-      scenes.map((_, i) => path.join(tmpDir, `voice_${i}.mp3`)),
-      voicePath
+    // Cartoon mouth cues are rendered into each per-scene Remotion clip from
+    // that scene's own narration audio. Rebuilding a separate gapless voice
+    // track for the final mux changes scene-boundary timing and creates
+    // cumulative lip-sync drift in the back half. For cartoon template
+    // renders, preserve the concatenated scene audio ([0:a]) as the final
+    // voice source instead, so mouth cues and audible speech share the same
+    // boundaries throughout.
+    const preserveSceneAudioForLipSync = scenes.some(
+      (scene) => scene?.visual_source === "template" && scene?.template_name === "cartoon"
     );
+    let voicePath = null;
+    if (!preserveSceneAudioForLipSync) {
+      // Gapless voiceover: rejoin the per-scene voice cleanly (no boundary
+      // clicks) with a single loudnorm (consistent levels), used as the voice
+      // track below instead of the concatenated video's gappy audio. Only
+      // safe for renders with no lip-sync dependency on scene-audio timing.
+      voicePath = path.join(tmpDir, "voice_full.m4a");
+      await buildGaplessVoice(
+        scenes.map((_, i) => path.join(tmpDir, `voice_${i}.mp3`)),
+        voicePath
+      );
+    }
 
     // ===== PHASE 5: Final composite — video + captions + music + SFX =====
     const finalPath = path.join(tmpDir, "final.mp4");
@@ -1662,13 +1678,19 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     const hasAss = fs.existsSync(assPath);
     const safeAssPath = assPath.replace(/\\/g, "/").replace(/:/g, "\\:");
 
-    const finalCmd = ffmpeg().input(concatPath);   // [0] = video (+ ignored audio)
-    finalCmd.input(voicePath);                     // [1] = gapless voiceover
+    const finalCmd = ffmpeg().input(concatPath);   // [0] = concatenated video with scene-timed audio
+    if (!preserveSceneAudioForLipSync) {
+      finalCmd.input(voicePath);                   // [1] = rebuilt gapless voiceover (non-cartoon paths only)
+    }
     if (hasMusic) finalCmd.input(musicPath);
     sfxEvents.forEach((ev) => finalCmd.input(sfxFiles[ev.type]));
 
-    // Track input indices ([0]=video, [1]=voice already taken)
-    let nextIdx = 2;
+    // For cartoon lip sync, keep [0:a] (the concatenated scene audio) as the
+    // voice source so mouth cues and audible speech share boundaries. Every
+    // other render rebuilds a gapless [1:a] track as before.
+    const voiceLabel = preserveSceneAudioForLipSync ? "0:a" : "1:a";
+    // Track input indices ([0]=video always taken; [1]=voice only when rebuilt)
+    let nextIdx = preserveSceneAudioForLipSync ? 1 : 2;
     const musicIdx = hasMusic ? nextIdx++ : null;
     const sfxIndices = sfxEvents.map(() => nextIdx++);
 
@@ -1678,14 +1700,15 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       ? `[0:v]ass=${safeAssPath},fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOutStart.toFixed(2)}:d=0.5[final_v]`
       : `[0:v]fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOutStart.toFixed(2)}:d=0.5[final_v]`;
 
-    // Build audio filter: gapless voice ([1:a]) + ducked music
+    // Build audio filter: voice (gapless [1:a], or scene-timed [0:a] for
+    // cartoon lip sync) + ducked music
     const audioFilters = [];
-    const mixLabels = ["1:a"];
+    const mixLabels = [voiceLabel];
 
     if (hasMusic) {
       // Gentler ducking: ratio 4 instead of 10, shaped attack/release
       audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,volume=0.15[music]`);
-      audioFilters.push(`[music][1:a]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);
+      audioFilters.push(`[music][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);
       mixLabels.push("duckedmusic");
     }
 
@@ -1710,7 +1733,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // - High profile for maximum quality at 1080p30
     finalCmd.outputOptions([
       "-map", "[final_v]",
-      "-map", mixLabels.length > 1 ? "[final_a]" : "1:a",
+      "-map", mixLabels.length > 1 ? "[final_a]" : voiceLabel,
       "-c:v", V_ENCODER,
       "-preset", "medium",
       "-crf", "16",

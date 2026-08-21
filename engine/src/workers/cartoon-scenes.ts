@@ -35,8 +35,10 @@ interface ShallowCompileResult {
 interface CompiledEntry { scene_index: number; source: "template"; template_category: "cartoon"; template_data: string; }
 
 const BACKGROUNDS: Record<string, readonly string[]> = {
+  "airplane-cabin": ["day"],
+  "airport-gate": ["day"],
   bedroom: ["day", "night", "messy-day", "messy-night"], cafe: ["day"],
-  classroom: ["empty", "normal", "exam"], "generic-room": ["cool-day", "warm-day", "night"],
+  classroom: ["empty", "normal", "exam"], "engineering-lab": ["day"], "generic-room": ["cool-day", "warm-day", "night"],
   "hospital-room": ["day"], kitchen: ["day", "night"], "living-room": ["day", "night"],
   office: ["day"], park: ["day", "evening"], "school-hallway": ["normal"],
   street: ["day", "night", "rain-night"],
@@ -54,6 +56,7 @@ const PUSH_IN_SCALE = 1.025;
 const MAX_STATIC_REPEAT = 4;
 const LONG_SCRIPT_SECONDS = 75;
 const WORDS_PER_SECOND = 2.6;
+const MIN_DYNAMIC_BACKGROUND_SCENES = 13;
 
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
@@ -130,6 +133,26 @@ function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: 
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
 }
 
+function hasAirportGateContext(text: string): boolean {
+  return /\b(?:airport gate|gate agent|boarding pass|boarding group|boarding zone)\b/.test(text);
+}
+
+function hasAirplaneContext(text: string): boolean {
+  return /\b(?:airplane|aircraft|flight|cabin|passenger|fuselage|pressuri[sz]ed cabin|window seat|seatback)\b/.test(text)
+    || /\bplane\s+(?:window|seat|cabin|ticket|boarding|passenger)\b/.test(text)
+    || /\b(?:airplane|aircraft|cabin)\s+window\b/.test(text);
+}
+
+function hasAirplaneMechanismContext(text: string): boolean {
+  return hasAirplaneContext(text)
+    && /\b(?:pressure|pressuri[sz](?:e|ed|ation)|stress|crack|corner|rounded?|square|engineering|engineer|force|fuselage|fail|failure)\b/.test(text);
+}
+
+function hasAirplaneCabinContext(text: string): boolean {
+  return hasAirplaneContext(text)
+    && /\b(?:seat|window|cabin|boarding|passenger|sky|lean|overhead|aisle)\b/.test(text);
+}
+
 function directionFromPlan(plan: PlanScene): DirectionPrimitives {
   const visualEvent = pick(plan.visual_event, VISUAL_EVENTS, "none");
   return {
@@ -143,7 +166,13 @@ function directionFromPlan(plan: PlanScene): DirectionPrimitives {
 }
 
 function directionFromText(script: ScriptScene): DirectionPrimitives {
-  const text = script.narration.toLowerCase();
+  const text = `${script.point ?? ""} ${script.narration}`.toLowerCase();
+  if (hasAirplaneMechanismContext(text)) {
+    return { visualEvent: "metaphor-cutaway", ambientMotion: "chart-wiggle", speakerEmphasis: "scale-pop", cutawayLabel: "STRESS FINDS CORNERS" };
+  }
+  if (hasAirplaneCabinContext(text)) {
+    return { visualEvent: "screen-change", ambientMotion: "window-light", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+  }
   if (/\b(?:present|presentation|audience|stage|speech|speaking|meeting|watched|room)\b/.test(text)) {
     return { visualEvent: "audience-silhouette", ambientMotion: "monitor-glow", speakerEmphasis: "listener-dim", cutawayLabel: "" };
   }
@@ -159,6 +188,14 @@ function directionFromText(script: ScriptScene): DirectionPrimitives {
   return { visualEvent: "none", ambientMotion: "subtle-parallax", speakerEmphasis: "scale-pop", cutawayLabel: "" };
 }
 
+function preferredAmbientForEnvironment(environment: Environment, current: string): string {
+  if (current !== "none") return current;
+  if (environment.location === "airplane-cabin") return "window-light";
+  if (environment.location === "engineering-lab") return "chart-wiggle";
+  if (environment.location === "airport-gate") return "monitor-glow";
+  return "subtle-parallax";
+}
+
 function applyDirection(compiled: Record<string, unknown>, direction: DirectionPrimitives): Record<string, unknown> {
   const rawBackground = compiled.background;
   const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
@@ -169,6 +206,49 @@ function applyDirection(compiled: Record<string, unknown>, direction: DirectionP
     background,
     visualEvent: { type: direction.visualEvent, label: direction.cutawayLabel },
     speakerEmphasis: direction.speakerEmphasis,
+  };
+}
+
+function topicEnvironment(script: ScriptScene): Environment | null {
+  const text = `${script.point ?? ""} ${script.narration}`.toLowerCase();
+  if (hasAirportGateContext(text)) {
+    return catalogBackground("airport-gate", "day");
+  }
+  if (hasAirplaneMechanismContext(text)) {
+    return catalogBackground("engineering-lab", "day");
+  }
+  if (hasAirplaneCabinContext(text)) {
+    return catalogBackground("airplane-cabin", "day");
+  }
+  return null;
+}
+
+function isPlannerBackgroundOverridable(background: Record<string, unknown>): boolean {
+  const location = typeof background.location === "string" ? background.location : "";
+  // Do not silently relocate deliberate, valid planner staging. This override
+  // exists as a defensive correction for generic/classroom-style stale plans,
+  // not as a global keyword router for every idiom that mentions a window,
+  // corner, round, square, force, seat, sky, or lean.
+  return location === "" || location === "generic-room" || location === "classroom" || location === "living-room";
+}
+
+function applyStoryAwareEnvironment(compiled: Record<string, unknown>, script: ScriptScene, allowOverride = false): Record<string, unknown> {
+  const environment = topicEnvironment(script);
+  if (!environment) return compiled;
+  const rawBackground = compiled.background;
+  const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
+    ? rawBackground as Record<string, unknown>
+    : {};
+  if (!allowOverride && !isPlannerBackgroundOverridable(background)) return compiled;
+  const currentAmbient = pick(background.ambientMotion, AMBIENT_MOTIONS, "none");
+  return {
+    ...compiled,
+    background: {
+      ...background,
+      ...environment,
+      tone: pick(background.tone, TONES, defaultTone()),
+      ambientMotion: preferredAmbientForEnvironment(environment, currentAmbient),
+    },
   };
 }
 
@@ -244,13 +324,16 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
     shot: { framing },
   };
 
+  const directionApplied = applyDirection(compiled, directionFromPlan(plan));
   return {
-    compiled: applyDirection(compiled, directionFromPlan(plan)),
+    compiled: applyStoryAwareEnvironment(directionApplied, script, isPlannerBackgroundOverridable(directionApplied.background as Record<string, unknown>)),
     warnings,
   };
 }
 
 function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
+  const explicitTopic = topicEnvironment(script);
+  if (explicitTopic) return explicitTopic;
   const text = script.narration.toLowerCase();
   if (/\b(?:sleep|bed|bedroom|wake|woke|awake|alarm clock)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
   if (/\b(?:boss|meeting|email|work|office|presentation|deadline)\b/.test(text)) return catalogBackground("office", "day");
@@ -281,15 +364,15 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
   const beat = script.scene_index % 7;
 
   if (beat === 2) {
-    return applyDirection({
+    return applyStoryAwareEnvironment(applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "zoom", from: 1, to: 1.018 },
       characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
       shot: { framing: "speaker-closeup" },
-    }, direction);
+    }, direction), script, true);
   }
   if (beat === 5 && listenerChar) {
-    return applyDirection({
+    return applyStoryAwareEnvironment(applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "static" },
       characters: [
@@ -297,14 +380,14 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
         { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
       shot: { framing: "two-shot" },
-    }, direction);
+    }, direction), script, true);
   }
-  return applyDirection({
+  return applyStoryAwareEnvironment(applyDirection({
     background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
     shot: { framing: "two-shot" },
-  }, direction);
+  }, direction), script, true);
 }
 
 function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: number): Record<string, unknown> {
@@ -327,6 +410,15 @@ function environmentFromCompiled(compiled: Record<string, unknown>): Environment
   const location = typeof background.location === "string" ? background.location : "";
   const variant = typeof background.variant === "string" ? background.variant : "";
   return validBackground(location, variant) ? { location, variant } : undefined;
+}
+
+function backgroundKey(compiled: Record<string, unknown>): string | null {
+  const raw = compiled.background;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const background = raw as Record<string, unknown>;
+  const location = typeof background.location === "string" ? background.location : "";
+  const variant = typeof background.variant === "string" ? background.variant : "";
+  return location && variant ? `${location}/${variant}` : null;
 }
 
 function compiledSceneKey(compiled: Record<string, unknown>): string | null {
@@ -380,6 +472,22 @@ function assertNoTemplateBoredom(entries: CompiledEntry[]): void {
   }
 }
 
+function assertBackgroundVariety(entries: CompiledEntry[]): void {
+  if (entries.length < MIN_DYNAMIC_BACKGROUND_SCENES) return;
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
+    const key = backgroundKey(compiled);
+    if (key) keys.add(key);
+  }
+  if (keys.size < 2) {
+    const only = [...keys][0] ?? "unknown/unknown";
+    throw new Error(
+      `cartoon visual plan is too static: all content scenes use ${only}. Long cartoon episodes require at least two distinct visible environments; dynamic overlays alone do not satisfy this gate.`,
+    );
+  }
+}
+
 function requiresV3ScriptContract(scriptArtifact: unknown): boolean {
   const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
   return producedBy?.transformation === "dialogue_script_writer"
@@ -417,7 +525,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "5",
+    version: "6",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -452,7 +560,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
           else {
             const legacy = legacyObject(plan);
             if (legacy) {
-              compiled = applyDirection(legacy, directionFromText(scriptScene));
+              compiled = applyStoryAwareEnvironment(applyDirection(legacy, directionFromText(scriptScene)), scriptScene);
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
               compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
@@ -469,6 +577,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       });
 
       assertNoTemplateBoredom(entries);
+      assertBackgroundVariety(entries);
       return { payload: { scenes: entries, degraded_count: 0 }, blobs: [] };
     },
   };

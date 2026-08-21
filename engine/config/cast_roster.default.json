@@ -3,7 +3,7 @@
     {
       "character_id": "host",
       "name": "Host",
-      "voice_id": "x8xv0H8Ako6Iw3cKXLoC",
+      "voice_id": "MYiFAKeVwcvm4z9VsFAR",
       "rig": "pilot",
       "personality": "skeptical, observant, dry humor; challenges weak explanations and delivers the grounded perspective",
       "default_expression": "normal",
@@ -14,7 +14,7 @@
     {
       "character_id": "buddy",
       "name": "Buddy",
-      "voice_id": "yl2ZDV1MzN4HbQJbMihG",
+      "voice_id": "EOVAuWqgSZN2Oel78Psj",
       "rig": "pilot-2",
       "personality": "curious, energetic, emotionally transparent; asks the obvious question the viewer is thinking and creates reaction beats",
       "default_expression": "normal",
@@ -23,5 +23,5 @@
       "color_palette": ["#E3A62F", "#C9831F", "#C98968", "#4A2E24", "#385165"]
     }
   ],
-  "default_voice_id": "x8xv0H8Ako6Iw3cKXLoC"
+  "default_voice_id": "MYiFAKeVwcvm4z9VsFAR"
 }

@@ -13,9 +13,9 @@ test("cartoon studio UI is cartoon-first and exposes the recurring cast", async 
   assert.match(html, /Create cartoon episode/);
   assert.match(html, /Recurring cast/);
   assert.match(html, /Haven Sands/);
-  assert.match(html, /x8xv0H8Ako6Iw3cKXLoC/);
+  assert.match(html, /MYiFAKeVwcvm4z9VsFAR/);
   assert.match(html, /Alex/);
-  assert.match(html, /yl2ZDV1MzN4HbQJbMihG/);
+  assert.match(html, /EOVAuWqgSZN2Oel78Psj/);
   assert.doesNotMatch(html, /Animated cartoon \(dialogue\)/);
   assert.doesNotMatch(html, /stock imagery/);
   assert.match(html, /\/api\/runs/);
@@ -56,7 +56,7 @@ test("canonical default cast carries production ElevenLabs voice ids", async () 
   const host = cast.characters.find((c) => c.character_id === "host");
   const buddy = cast.characters.find((c) => c.character_id === "buddy");
 
-  assert.equal(host?.voice_id, "x8xv0H8Ako6Iw3cKXLoC");
-  assert.equal(buddy?.voice_id, "yl2ZDV1MzN4HbQJbMihG");
+  assert.equal(host?.voice_id, "MYiFAKeVwcvm4z9VsFAR");
+  assert.equal(buddy?.voice_id, "EOVAuWqgSZN2Oel78Psj");
   assert.equal(cast.default_voice_id, host?.voice_id);
 });
