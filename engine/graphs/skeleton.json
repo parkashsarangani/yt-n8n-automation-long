@@ -1,6 +1,6 @@
 {
   "graph_id": "skeleton",
-  "version": "11",
+  "version": "12",
   "description": "Default unattended production graph for the cartoon-only channel. Loads the stable recurring cast from CARTOON_CAST_PATH, writes dialogue for that cast, stages every line as SVG-puppet cartoon animation, generates matching cartoon thumbnail artwork, runs deterministic QA, and uploads privately for operator review.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
@@ -17,7 +17,7 @@
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "render", "in": ["script", "voice", "assets"] },
+    { "id": "render", "transformation": "cartoon_render", "in": ["script", "voice", "assets", "cast_roster"] },
     { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }

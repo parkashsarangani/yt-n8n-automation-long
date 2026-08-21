@@ -105,6 +105,9 @@ export interface RenderScene {
   /** If set, the renderer uses a motion graphics template for this scene. */
   template_category?: string;
   template_data?: Record<string, unknown>;
+  /** Active speaker's cast name/color, for caption speaker attribution. Cartoon runs only. */
+  speaker_name?: string;
+  speaker_color?: string;
 }
 
 export interface RenderRequest {

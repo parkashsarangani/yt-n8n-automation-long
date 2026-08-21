@@ -14,7 +14,7 @@ import { ProviderRouter, ProviderError } from "../src/provider.ts";
 import { FakeRenderer } from "../src/providers/fake.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { Runner } from "../src/runner.ts";
-import { makeRenderWorker } from "../src/workers/index.ts";
+import { makeRenderWorker, makeCartoonRenderWorker } from "../src/workers/index.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
@@ -116,6 +116,135 @@ test("render joins three artifacts by scene_index and stores the video", async (
   assert.equal(req.scenes[1]!.image, undefined);
   // Alignment was fetched from its blob and decoded.
   assert.deepEqual(req.scenes[0]!.alignment, { characters: ["a"] });
+});
+
+test("cartoon_render resolves the active speaker's cast name/color from isSpeaking, matching the rig", async () => {
+  const h = await harness();
+  const script = await h.seed(
+    "script",
+    { scenes: [{ scene_index: 0, point: "open", narration: "Wait, seriously?", speaker: "host" }] },
+    "dialogue_script_writer",
+  );
+  const voice = await h.seed(
+    "voice",
+    { voice_id: "v1", clips: [{ scene_index: 0, audio_uri: h.audio0.uri, duration_sec: 3 }] },
+    "dialogue_voice",
+  );
+  const assets = await h.seed(
+    "asset_manifest",
+    {
+      scenes: [{
+        scene_index: 0,
+        source: "template",
+        template_category: "cartoon",
+        template_data: JSON.stringify({
+          background: { location: "bedroom", variant: "night", tone: "neutral" },
+          camera: { type: "static" },
+          characters: [
+            { actorId: "host", characterId: "pilot", x: 280, y: 380, isSpeaking: true },
+            { actorId: "buddy", characterId: "pilot-2", x: 1100, y: 380, isSpeaking: false },
+          ],
+        }),
+      }],
+      degraded_count: 0,
+    },
+    "asset_collector",
+  );
+  const cast = await h.seed(
+    "cast_roster",
+    {
+      characters: [
+        { character_id: "host", name: "Host", voice_id: "v-host", rig: "pilot", color_palette: ["#4C89C6"] },
+        { character_id: "buddy", name: "Buddy", voice_id: "v-buddy", rig: "pilot-2" },
+      ],
+    },
+    "human",
+  );
+
+  const out = await h.runner.run(makeCartoonRenderWorker(), [
+    script.artifact_id,
+    voice.artifact_id,
+    assets.artifact_id,
+    cast.artifact_id,
+  ]);
+  assert.equal(out.artifact.schema_id, "rendered_video");
+
+  const req = h.renderer.requests[0]!;
+  assert.equal(req.scenes[0]!.speaker_name, "Host");
+  assert.equal(req.scenes[0]!.speaker_color, "#4C89C6");
+});
+
+test("cartoon_render falls back to a stable color when the cast entry has no color_palette", async () => {
+  const h = await harness();
+  const script = await h.seed(
+    "script",
+    { scenes: [{ scene_index: 0, point: "open", narration: "No palette here.", speaker: "buddy" }] },
+    "dialogue_script_writer",
+  );
+  const voice = await h.seed(
+    "voice",
+    { voice_id: "v1", clips: [{ scene_index: 0, audio_uri: h.audio0.uri, duration_sec: 3 }] },
+    "dialogue_voice",
+  );
+  const assets = await h.seed(
+    "asset_manifest",
+    {
+      scenes: [{
+        scene_index: 0,
+        source: "template",
+        template_category: "cartoon",
+        template_data: JSON.stringify({
+          background: { location: "bedroom", variant: "night", tone: "neutral" },
+          camera: { type: "static" },
+          characters: [{ actorId: "buddy", characterId: "pilot-2", x: 280, y: 380, isSpeaking: true }],
+        }),
+      }],
+      degraded_count: 0,
+    },
+    "asset_collector",
+  );
+  const cast = await h.seed(
+    "cast_roster",
+    { characters: [{ character_id: "buddy", name: "Buddy", voice_id: "v-buddy", rig: "pilot-2" }] },
+    "human",
+  );
+
+  await h.runner.run(makeCartoonRenderWorker(), [
+    script.artifact_id,
+    voice.artifact_id,
+    assets.artifact_id,
+    cast.artifact_id,
+  ]);
+
+  const req = h.renderer.requests[0]!;
+  assert.equal(req.scenes[0]!.speaker_name, "Buddy");
+  assert.match(req.scenes[0]!.speaker_color!, /^#[0-9A-Fa-f]{6}$/);
+});
+
+test("plain render (manual.json's path) never sets speaker_name - no cast_roster available", async () => {
+  const h = await harness();
+  const script = await h.seed("script", SCRIPT, "script_writer");
+  const voice = await h.seed(
+    "voice",
+    {
+      voice_id: "v1",
+      clips: [
+        { scene_index: 0, audio_uri: h.audio0.uri, duration_sec: 4 },
+        { scene_index: 1, audio_uri: h.audio1.uri, duration_sec: 5 },
+      ],
+    },
+    "voice",
+  );
+  const assets = await h.seed(
+    "asset_manifest",
+    { scenes: [{ scene_index: 0, source: "placeholder", prompt: "p0" }, { scene_index: 1, source: "placeholder", prompt: "p1" }], degraded_count: 2 },
+    "asset_collector",
+  );
+
+  await h.runner.run(makeRenderWorker(), [script.artifact_id, voice.artifact_id, assets.artifact_id]);
+
+  const req = h.renderer.requests[0]!;
+  assert.equal(req.scenes[0]!.speaker_name, undefined);
 });
 
 test("a scene with real stock video gets video, not image, and the two never both appear", async () => {

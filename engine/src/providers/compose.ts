@@ -221,6 +221,9 @@ export class ComposeRenderer implements MediaRenderer {
           template_name: s.template_category,
           template_data: s.template_data ?? {},
         } : {}),
+        // Caption speaker attribution: who's talking in this scene, resolved
+        // engine-side from the same isSpeaking character the rig emphasis uses.
+        ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
       })),
     };
 
