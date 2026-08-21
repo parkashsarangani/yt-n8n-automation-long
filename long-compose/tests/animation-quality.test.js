@@ -37,7 +37,10 @@ test("cartoon runtime exposes semantic acting controls", () => {
 
   assert.match(characterSource, /actorId\?: string/);
   assert.match(characterSource, /gazeTarget\?: GazeTarget/);
-  assert.match(characterSource, /Easing\.out\(Easing\.cubic\)/);
+  assert.match(characterSource, /motionOffsetFrames\?: number/);
+  assert.match(characterSource, /const motionFrame = frame \+/);
+  assert.match(characterSource, /arms\/\$\{side\}-\$\{target\}\.svg/);
+  assert.doesNotMatch(characterSource, /gestureProgress|upOpacity|downOpacity/);
   assert.match(characterSource, /ArmLayer/);
 });
 

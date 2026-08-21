@@ -1,30 +1,22 @@
 /**
  * Thumbnail worker: thumbnail_brief -> thumbnail.
  *
- * Creative decisions stay in the thumbnail designer agent. This worker turns
- * its art prompt into pixels, then asks long-compose to add deterministic,
- * readable typography. AI image generation must never be responsible for the
- * actual words shown on the thumbnail.
- *
- * Failure degrades to the renderer's house background rather than blocking a
- * publish. The artifact records which rung actually shipped so weak packaging
- * can be measured instead of hidden.
+ * Cartoon production is not allowed to silently ship a text-only gradient.
+ * If custom artwork cannot be generated or composited, fail the node so the
+ * normal runner retry/recovery path can try again instead of publishing weak
+ * packaging that looks disconnected from the recurring cast.
  */
 
 import type { BlobRef } from "../artifact.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
-export interface ThumbnailWorkerOptions {
-  version?: string;
-}
+export interface ThumbnailWorkerOptions { version?: string; }
 
 interface ThumbnailBrief {
   mode?: "cartoon";
   text: string;
   emphasis?: string;
-  /** Cartoon-first complete artwork prompt. */
   art_prompt?: string;
-  /** Legacy v1.0/v1.1 stock-search field. */
   background_query?: string;
   accent: string;
   rationale: string;
@@ -38,54 +30,44 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }],
     produces: "thumbnail",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const brief = inputs["brief"]!.payload as ThumbnailBrief;
-
       const renderer = ctx.media.renderer;
-      if (!renderer) {
-        throw new Error("thumbnail worker needs a renderer; none was configured");
-      }
+      if (!renderer) throw new Error("thumbnail worker needs a renderer; none was configured");
 
-      // v1.2 cartoon briefs provide a complete art prompt. Older artifacts can
-      // still flow through their background_query so historical runs remain
-      // reproducible/readable during the migration.
+      const cartoon = brief.mode === "cartoon";
       const imagePrompt = brief.art_prompt?.trim() || brief.background_query?.trim();
+
+      if (cartoon && !imagePrompt) {
+        throw new Error("cartoon thumbnail brief has no art_prompt; refusing to publish a text-only thumbnail");
+      }
+      if (cartoon && !ctx.media.images) {
+        throw new Error("cartoon thumbnail needs an image provider; refusing to publish a text-only thumbnail");
+      }
 
       let background: Uint8Array | undefined;
       if (ctx.media.images && imagePrompt) {
         try {
-          await ctx.progress({
-            detail: brief.mode === "cartoon"
-              ? `generating cartoon thumbnail artwork`
-              : `thumbnail artwork: ${imagePrompt.slice(0, 120)}`,
-          });
-          const found = await ctx.media.images.generate({
-            prompt: imagePrompt,
-            aspect: "16:9",
-            count: 1,
-          });
+          await ctx.progress({ detail: cartoon ? "generating recurring-cast thumbnail artwork" : `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
+          const found = await ctx.media.images.generate({ prompt: imagePrompt, aspect: "16:9", count: 1 });
           background = found.images[0]?.bytes;
           if (!background) throw new Error("image provider returned no thumbnail image");
         } catch (err) {
-          // A missing custom image is measurable degradation, but should not
-          // discard an otherwise publishable episode. long-compose will use
-          // its deterministic house background and still render the real text.
-          ctx.logger.warn(
-            `thumbnail artwork generation failed (${
-              err instanceof Error ? err.message : String(err)
-            }) — falling back to renderer background`,
-          );
+          const message = err instanceof Error ? err.message : String(err);
+          if (cartoon) {
+            throw new Error(`cartoon thumbnail artwork generation failed: ${message}`);
+          }
+          ctx.logger.warn(`thumbnail artwork generation failed (${message}) — falling back to renderer background`);
         }
-      } else if (!imagePrompt) {
+      } else if (!cartoon && !imagePrompt) {
         ctx.logger.warn("thumbnail brief contained no usable artwork prompt — using renderer background");
       }
 
       await ctx.progress({ detail: `compositing thumbnail: "${brief.text}"` });
-
       const result = await renderer.renderThumbnail({
         ...(background ? { image: background } : {}),
         text: brief.text,
@@ -93,15 +75,20 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
         accent: brief.accent,
       });
 
+      if (cartoon && result.background !== "supplied") {
+        throw new Error(
+          "cartoon thumbnail compositor degraded to a gradient; refusing to publish without recurring-character artwork",
+        );
+      }
+
       const ref: BlobRef = await ctx.blobs.put(result.bytes, {
         role: "thumbnail",
         media_type: result.media_type,
       });
 
-      if (result.background === "gradient" && background) {
-        ctx.logger.warn(
-          "thumbnail artwork was generated but the renderer could not use it and fell back to a gradient",
-        );
+      // Legacy/non-cartoon flows intentionally keep their degradation path.
+      if (!cartoon && result.background === "gradient" && background) {
+        ctx.logger.warn("thumbnail artwork was generated but the renderer could not use it and fell back to a gradient");
       }
 
       return {

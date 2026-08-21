@@ -1,8 +1,6 @@
-import { Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { mouthAtTime, MouthCue } from "../animation/lipsync";
 
-// Current production rigs share this canvas. The next rig-contract revision can
-// read dimensions from manifest.json without changing the acting API introduced here.
 const RIG_WIDTH = 500;
 const RIG_HEIGHT = 700;
 
@@ -10,30 +8,12 @@ export type ArmPose = "up" | "down";
 export type Expression = "normal" | "angry" | "surprised";
 const VALID_EXPRESSIONS = new Set<Expression>(["normal", "angry", "surprised"]);
 export type SemanticEmotion =
-    | "neutral"
-    | "happy"
-    | "amused"
-    | "skeptical"
-    | "confused"
-    | "concerned"
-    | "sad"
-    | "angry"
-    | "surprised"
-    | "scared"
-    | "thinking"
-    | "annoyed";
+    | "neutral" | "happy" | "amused" | "skeptical" | "confused" | "concerned"
+    | "sad" | "angry" | "surprised" | "scared" | "thinking" | "annoyed";
 
 export type Gesture =
-    | "idle"
-    | "explain"
-    | "point-left"
-    | "point-right"
-    | "shrug"
-    | "hands-open"
-    | "surprised"
-    | "thinking"
-    | "facepalm"
-    | "celebrate";
+    | "idle" | "explain" | "point-left" | "point-right" | "shrug" | "hands-open"
+    | "surprised" | "thinking" | "facepalm" | "celebrate";
 
 export type GazeTarget = "auto" | "camera" | "left" | "right" | "up" | "down" | "away";
 
@@ -53,16 +33,14 @@ export interface CharacterProps {
     mouthCues?: MouthCue[];
     gazeX?: number;
     gazeY?: number;
+    /** Keeps idle/speech motion from restarting at the same phase on every dialogue-line render. */
+    motionOffsetFrames?: number;
     /** @deprecated Prefer actorId. */
     animationKey?: string;
 }
 
 const layerStyle: React.CSSProperties = {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: RIG_WIDTH,
-    height: RIG_HEIGHT,
+    position: "absolute", top: 0, left: 0, width: RIG_WIDTH, height: RIG_HEIGHT,
 };
 
 function stablePhase(id: string): number {
@@ -77,12 +55,7 @@ function stablePhase(id: string): number {
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
 const EMOTION: Record<SemanticEmotion, {
-    brow: Expression;
-    eye: number;
-    headTilt: number;
-    bodyLean: number;
-    gazeY: number;
-    listenerMotion: number;
+    brow: Expression; eye: number; headTilt: number; bodyLean: number; gazeY: number; listenerMotion: number;
 }> = {
     neutral:    { brow: "normal",    eye: 1.00, headTilt: 0.0,  bodyLean: 0.0,  gazeY: 0,  listenerMotion: 0.45 },
     happy:      { brow: "normal",    eye: 0.90, headTilt: -1.0, bodyLean: -0.4, gazeY: -1, listenerMotion: 0.75 },
@@ -99,12 +72,7 @@ const EMOTION: Record<SemanticEmotion, {
 };
 
 const GESTURE: Record<Gesture, {
-    left: ArmPose;
-    right: ArmPose;
-    bodyRotate: number;
-    bodyY: number;
-    scale: number;
-    headExtra: number;
+    left: ArmPose; right: ArmPose; bodyRotate: number; bodyY: number; scale: number; headExtra: number;
 }> = {
     idle:          { left: "down", right: "down", bodyRotate: 0.0,  bodyY: 0,   scale: 1.000, headExtra: 0 },
     explain:       { left: "down", right: "up",   bodyRotate: -0.8, bodyY: -2,  scale: 1.003, headExtra: -0.6 },
@@ -130,43 +98,14 @@ function gazeFor(target: GazeTarget | undefined, x: number): { x: number; y: num
     }
 }
 
-const ArmLayer: React.FC<{
-    rig: (name: string) => string;
-    side: "left" | "right";
-    target: ArmPose;
-    progress: number;
-}> = ({ rig, side, target, progress }) => {
-    const upOpacity = target === "up" ? progress : 0;
-    const downOpacity = target === "up" ? 1 - progress : 1;
-    const lift = target === "up" ? (1 - progress) * 10 : 0;
-    return (
-        <>
-            <Img src={rig(`arms/${side}-down.svg`)} style={{ ...layerStyle, opacity: downOpacity }} />
-            <Img
-                src={rig(`arms/${side}-up.svg`)}
-                style={{ ...layerStyle, opacity: upOpacity, transform: `translateY(${lift}px)`, transformOrigin: "50% 50%" }}
-            />
-        </>
-    );
-};
+const ArmLayer: React.FC<{ rig: (name: string) => string; side: "left" | "right"; target: ArmPose }> = ({ rig, side, target }) => (
+    <Img src={rig(`arms/${side}-${target}.svg`)} style={layerStyle} />
+);
 
 export const Character: React.FC<CharacterProps> = ({
-    characterId,
-    actorId,
-    x,
-    y,
-    scale = 1,
-    emotion = "neutral",
-    gesture,
-    gazeTarget,
-    leftArm = "down",
-    rightArm = "down",
-    expression,
-    isSpeaking = false,
-    mouthCues,
-    gazeX,
-    gazeY,
-    animationKey,
+    characterId, actorId, x, y, scale = 1, emotion = "neutral", gesture, gazeTarget,
+    leftArm = "down", rightArm = "down", expression, isSpeaking = false, mouthCues,
+    gazeX, gazeY, motionOffsetFrames = 0, animationKey,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -178,34 +117,28 @@ export const Character: React.FC<CharacterProps> = ({
     const headPhase = (seed >>> 5) % 193;
     const eyePhase = (seed >>> 11) % 311;
     const speechPhase = (seed >>> 17) % 149;
+    const motionFrame = frame + (Number.isFinite(motionOffsetFrames) ? motionOffsetFrames : 0);
 
     const emotionProfile = EMOTION[emotion] ?? EMOTION.neutral;
     const semanticGesture = gesture ? (GESTURE[gesture] ?? GESTURE.idle) : null;
     const targetLeft = semanticGesture?.left ?? leftArm;
     const targetRight = semanticGesture?.right ?? rightArm;
 
-    const gestureProgress = interpolate(frame, [0, 12], [0, 1], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: Easing.out(Easing.cubic),
-    });
-
-    const breathWave = Math.sin((frame + idlePhase) / 14);
-    const bodyScaleY = 1 + breathWave * 0.0035;
-    const idleHead = Math.sin((frame + headPhase) / 10.5) * 0.65;
+    // A dialogue line is currently rendered as its own Remotion composition. Animating every
+    // gesture from the down pose on frame 0 made arms ghost/cross-fade and visibly "re-enter"
+    // on every spoken line. Hold the directed pose for the shot; micro-motion supplies life.
+    const breathWave = Math.sin((motionFrame + idlePhase) / 16);
+    const bodyScaleY = 1 + breathWave * 0.0025;
+    const idleHead = Math.sin((motionFrame + headPhase) / 13) * 0.45;
     const listeningWave = !isSpeaking
-        ? Math.sin((frame + headPhase) / 25) * emotionProfile.listenerMotion
+        ? Math.sin((motionFrame + headPhase) / 28) * emotionProfile.listenerMotion
         : 0;
-    const speechNod = isSpeaking ? Math.sin((frame + speechPhase) / 3.8) * 0.55 : 0;
-    const headAngle = idleHead + listeningWave + speechNod + emotionProfile.headTilt +
-        (semanticGesture?.headExtra ?? 0) * gestureProgress;
+    const speechNod = isSpeaking ? Math.sin((motionFrame + speechPhase) / 5.4) * 0.22 : 0;
+    const headAngle = idleHead + listeningWave + speechNod + emotionProfile.headTilt + (semanticGesture?.headExtra ?? 0);
 
-    const idleLookX = Math.sin((frame + eyePhase) / 43) * 1.8;
-    const idleLookY = Math.sin((frame + eyePhase * 0.7) / 57) * 0.9;
+    const idleLookX = Math.sin((motionFrame + eyePhase) / 43) * 1.8;
+    const idleLookY = Math.sin((motionFrame + eyePhase * 0.7) / 57) * 0.9;
     const semanticGaze = gazeFor(gazeTarget, x);
-    // gazeX/gazeY are external input; clamp() propagates rather than rejects
-    // NaN, so a non-numeric value would otherwise reach translate(NaNpx, ...)
-    // and silently no-op in Chromium instead of falling back to idle gaze.
     const safeGazeX = Number.isFinite(gazeX) ? gazeX : undefined;
     const safeGazeY = Number.isFinite(gazeY) ? gazeY : undefined;
     const lookX = clamp(safeGazeX ?? semanticGaze?.x ?? idleLookX, -8, 8);
@@ -213,37 +146,26 @@ export const Character: React.FC<CharacterProps> = ({
 
     const blinkPeriod = 94 + (seed % 53);
     const blinkOffset = (seed >>> 7) % blinkPeriod;
-    const blinkCycle = (frame + blinkOffset) % blinkPeriod;
+    const blinkCycle = (motionFrame + blinkOffset) % blinkPeriod;
     const blinkFrames = 3 + (seed % 2);
     const blinkScale = blinkCycle < blinkFrames ? 0.06 : 1;
     const eyeScaleY = blinkScale * emotionProfile.eye;
 
     const mouthShape = mouthAtTime(mouthCues, frame / fps);
-    const bodyRotate = emotionProfile.bodyLean + (semanticGesture?.bodyRotate ?? 0) * gestureProgress;
-    const bodyY = (semanticGesture?.bodyY ?? 0) * gestureProgress;
-    const gestureScale = 1 + ((semanticGesture?.scale ?? 1) - 1) * gestureProgress;
-    // expression is external input (planner/manual-script supplied) interpolated
-    // straight into an asset filename below - an invalid value must degrade to a
-    // known-good one rather than reach <Img>, the same guarantee mouthAtTime
-    // already gives mouthCues.
+    const bodyRotate = emotionProfile.bodyLean + (semanticGesture?.bodyRotate ?? 0);
+    const bodyY = semanticGesture?.bodyY ?? 0;
+    const gestureScale = semanticGesture?.scale ?? 1;
     const brow = expression && VALID_EXPRESSIONS.has(expression) ? expression : emotionProfile.brow;
 
     return (
-        <div
-            style={{
-                position: "absolute",
-                left: x,
-                top: y,
-                width: RIG_WIDTH,
-                height: RIG_HEIGHT,
-                transform: `translateY(${bodyY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale}) scaleY(${bodyScaleY})`,
-                transformOrigin: "bottom center",
-            }}
-        >
+        <div style={{
+            position: "absolute", left: x, top: y, width: RIG_WIDTH, height: RIG_HEIGHT,
+            transform: `translateY(${bodyY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale}) scaleY(${bodyScaleY})`,
+            transformOrigin: "bottom center",
+        }}>
             <Img src={rig("body.svg")} style={layerStyle} />
-            <ArmLayer rig={rig} side="left" target={targetLeft} progress={gestureProgress} />
-            <ArmLayer rig={rig} side="right" target={targetRight} progress={gestureProgress} />
-
+            <ArmLayer rig={rig} side="left" target={targetLeft} />
+            <ArmLayer rig={rig} side="right" target={targetRight} />
             <div style={{ ...layerStyle, transform: `rotate(${headAngle}deg)`, transformOrigin: "50% 40%" }}>
                 <Img src={rig("head.svg")} style={layerStyle} />
                 <div style={{ ...layerStyle, transform: `scaleY(${eyeScaleY})`, transformOrigin: "50% 30%" }}>

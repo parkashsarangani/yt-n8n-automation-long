@@ -1,9 +1,9 @@
 /**
- * Cartoon thumbnail worker, and the degradation it is allowed to do.
+ * Cartoon thumbnail worker strictness.
  *
- * The rule under test: creative artwork comes from the image model, actual
- * typography comes from long-compose, and image-generation failure degrades
- * visibly instead of silently masquerading as a successful custom thumbnail.
+ * Creative artwork comes from the image model and typography comes from
+ * long-compose. Cartoon production must not silently replace recurring-cast
+ * artwork with a text-only gradient; failures stay retryable and visible.
  */
 
 import test from "node:test";
@@ -127,33 +127,25 @@ test("the rendered bytes are actually stored and retrievable", async () => {
   assert.equal(bytes.byteLength, out.bytes);
 });
 
-test("artwork generation failure degrades to a renderer background instead of failing the run", async () => {
+test("cartoon artwork generation failure blocks instead of shipping a gradient", async () => {
   const h = await harness({ images: new FakeImageProvider(() => true) });
-  const out = await run(h);
-
-  assert.equal(out.background, "gradient");
-  assert.equal(out.text, BRIEF.text, "the deterministic text still gets burned in");
+  await assert.rejects(() => run(h), /cartoon thumbnail artwork generation failed/);
+  assert.equal(h.renderer.thumbnailRequests.length, 0, "the compositor should not run without cartoon artwork");
   assert.equal(
-    h.renderer.thumbnailRequests[0]!.image,
-    undefined,
-    "no image should be sent when artwork generation failed",
+    (await h.store.index()).filter((r) => r.schema_id === "thumbnail").length,
+    0,
+    "a failed cartoon artwork attempt must not leave a degraded thumbnail artifact",
   );
 });
 
-test("a degraded thumbnail records the attempted art prompt", async () => {
-  const h = await harness({ images: new FakeImageProvider(() => true) });
-  const out = await run(h);
-
-  assert.equal(out.background, "gradient");
-  assert.equal(out.background_query, BRIEF.art_prompt.slice(0, 120));
-});
-
-test("with no image provider configured at all, it still produces a measurable degraded thumbnail", async () => {
+test("cartoon production without an image provider blocks before compositing", async () => {
   const h = await harness({ images: null });
-  const out = await run(h);
-
-  assert.equal(out.background, "gradient");
-  assert.match(out.thumbnail_uri, /^blob:\/\/sha256:/);
+  await assert.rejects(() => run(h), /cartoon thumbnail needs an image provider/);
+  assert.equal(h.renderer.thumbnailRequests.length, 0);
+  assert.equal(
+    (await h.store.index()).filter((r) => r.schema_id === "thumbnail").length,
+    0,
+  );
 });
 
 test("a renderer outage does fail the node — there is nothing to degrade to", async () => {
