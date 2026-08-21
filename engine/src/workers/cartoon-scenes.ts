@@ -19,8 +19,13 @@ interface PlanScene {
 }
 
 interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; }
-interface CastCharacter { character_id: string; rig: string; }
+interface CastCharacter { character_id: string; name?: string; rig: string; }
 interface CastRoster { characters: CastCharacter[]; }
+interface ShallowCompileResult {
+  compiled: Record<string, unknown> | null;
+  reason?: string;
+  warnings: string[];
+}
 
 const BACKGROUNDS: Record<string, readonly string[]> = {
   bedroom: ["day", "night", "messy-day", "messy-night"], cafe: ["day"],
@@ -70,6 +75,18 @@ function catalogBackground(location: string, variant: string): { location: strin
   }
   return { location, variant };
 }
+function actorKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+function resolveCastCharacter(roster: CastRoster, value: string | undefined): CastCharacter | undefined {
+  if (!value?.trim()) return undefined;
+  const key = actorKey(value);
+  return roster.characters.find((character) =>
+    [character.character_id, character.name, character.rig]
+      .filter((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0)
+      .some((candidate) => actorKey(candidate) === key),
+  );
+}
 function sideFor(cast: CastCharacter[], actorId: string): "left" | "right" {
   const index = Math.max(0, cast.findIndex((c) => c.character_id === actorId));
   return index % 2 === 0 ? "left" : "right";
@@ -79,13 +96,48 @@ function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: 
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
 }
 
-function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRoster): Record<string, unknown> | null {
-  if (!plan.background_location || !plan.background_variant || !validBackground(plan.background_location, plan.background_variant) || !script.speaker) return null;
-  const speaker = roster.characters.find((c) => c.character_id === script.speaker);
-  if (!speaker) return null;
-  const listener = plan.listener_actor_id
-    ? roster.characters.find((c) => c.character_id === plan.listener_actor_id)
-    : roster.characters.find((c) => c.character_id !== speaker.character_id);
+function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRoster): ShallowCompileResult {
+  const warnings: string[] = [];
+  const location = plan.background_location?.trim().toLowerCase();
+  const requestedVariant = plan.background_variant?.trim().toLowerCase();
+  if (!location || !requestedVariant) {
+    return { compiled: null, reason: "planner omitted background_location/background_variant", warnings };
+  }
+  const variants = BACKGROUNDS[location];
+  if (!variants) {
+    return { compiled: null, reason: `planner requested unknown background location "${plan.background_location}"`, warnings };
+  }
+  const variant = variants.includes(requestedVariant) ? requestedVariant : variants[0]!;
+  if (variant !== requestedVariant) {
+    warnings.push(`background ${location}/${requestedVariant} is not in the catalog; using ${location}/${variant}`);
+  }
+
+  if (!script.speaker?.trim()) {
+    return { compiled: null, reason: "script scene has no speaker", warnings };
+  }
+  const speaker = resolveCastCharacter(roster, script.speaker);
+  if (!speaker) {
+    return {
+      compiled: null,
+      reason: `script speaker "${script.speaker}" does not match cast ids/names/rigs (${roster.characters.map((c) => c.character_id).join(", ")})`,
+      warnings,
+    };
+  }
+  if (actorKey(script.speaker) !== actorKey(speaker.character_id)) {
+    warnings.push(`resolved legacy speaker label "${script.speaker}" to cast id "${speaker.character_id}"`);
+  }
+
+  let listener = resolveCastCharacter(roster, plan.listener_actor_id);
+  if (plan.listener_actor_id && !listener) {
+    listener = roster.characters.find((c) => c.character_id !== speaker.character_id);
+    warnings.push(
+      listener
+        ? `listener_actor_id "${plan.listener_actor_id}" is unknown; using "${listener.character_id}"`
+        : `listener_actor_id "${plan.listener_actor_id}" is unknown; rendering speaker only`,
+    );
+  } else if (!listener) {
+    listener = roster.characters.find((c) => c.character_id !== speaker.character_id);
+  }
   const baseOffset = script.scene_index * 41;
 
   const speakerChar = baseCharacter(
@@ -105,9 +157,12 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
 
   return {
-    background: { location: plan.background_location, variant: plan.background_variant, tone: pick(plan.background_tone, TONES, defaultTone(script.emotion)) },
-    camera: cameraFor(plan.camera_motion ?? "static"),
-    characters,
+    compiled: {
+      background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone(script.emotion)) },
+      camera: cameraFor(plan.camera_motion ?? "static"),
+      characters,
+    },
+    warnings,
   };
 }
 
@@ -124,7 +179,7 @@ function fallbackEnvironment(script: ScriptScene): { location: string; variant: 
 }
 
 function deterministicFallback(script: ScriptScene, roster: CastRoster): Record<string, unknown> {
-  const speaker = script.speaker ? roster.characters.find((c) => c.character_id === script.speaker) : roster.characters[0];
+  const speaker = script.speaker ? resolveCastCharacter(roster, script.speaker) ?? roster.characters[0] : roster.characters[0];
   if (!speaker) throw new Error(`scene ${script.scene_index}: cartoon compiler has no cast member to stage`);
   const listener = roster.characters.find((c) => c.character_id !== speaker.character_id);
   const baseOffset = script.scene_index * 41;
@@ -175,7 +230,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "2",
+    version: "3",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -201,7 +256,10 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
         } else {
           if (plan.template_category !== "cartoon") throw new Error(`scene ${scriptScene.scene_index}: expected template_category=\"cartoon\"`);
           const shallow = compileFromShallow(plan, scriptScene, roster);
-          if (shallow) compiled = shallow;
+          for (const warning of shallow.warnings) {
+            ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: ${warning}`);
+          }
+          if (shallow.compiled) compiled = shallow.compiled;
           else {
             const legacy = legacyObject(plan);
             if (legacy) {
@@ -209,7 +267,9 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
               compiled = deterministicFallback(scriptScene, roster);
-              ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: unusable planner staging; synthesizing deterministic staging`);
+              ctx.logger.warn(
+                `[cartoon_scene_compiler] scene ${scriptScene.scene_index}: planner staging unusable (${shallow.reason ?? "unknown reason"}); synthesizing deterministic staging`,
+              );
             }
           }
         }

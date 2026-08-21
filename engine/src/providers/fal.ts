@@ -20,6 +20,12 @@ export interface FalOptions {
   model?: string;
   baseUrl?: string;
   steps?: number;
+  /**
+   * Output encoding requested from Fal. long-compose's inline-image path uses
+   * PNG temp files, so PNG is the safe production default. FLUX 2 Pro otherwise
+   * defaults to JPEG, which makes ffmpeg select the PNG decoder for JPEG bytes.
+   */
+  outputFormat?: "png" | "jpeg";
   /** USD per generated image, for cost accounting. */
   pricePerImage?: number;
   fetchImpl?: typeof fetch;
@@ -35,6 +41,7 @@ export class FalImageProvider implements ImageProvider {
   private readonly model: string;
   private readonly baseUrl: string;
   private readonly steps: number;
+  private readonly outputFormat: "png" | "jpeg";
   private readonly pricePerImage: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -45,6 +52,7 @@ export class FalImageProvider implements ImageProvider {
     this.model = opts.model ?? "fal-ai/flux-2-pro";
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.steps = opts.steps ?? 28;
+    this.outputFormat = opts.outputFormat ?? "png";
     this.pricePerImage = opts.pricePerImage ?? 0.05;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `fal/${this.model}`;
@@ -68,6 +76,7 @@ export class FalImageProvider implements ImageProvider {
           num_images: count,
           num_inference_steps: this.steps,
           enable_safety_checker: true,
+          output_format: this.outputFormat,
         }),
       });
     } catch (err) {
@@ -94,7 +103,7 @@ export class FalImageProvider implements ImageProvider {
         if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
         return {
           bytes: new Uint8Array(await dl.arrayBuffer()),
-          media_type: img.content_type ?? "image/png",
+          media_type: img.content_type ?? (this.outputFormat === "png" ? "image/png" : "image/jpeg"),
         };
       }),
     );
