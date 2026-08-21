@@ -34,7 +34,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "3",
+    version: opts.version ?? "4",
     consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }],
     produces: "thumbnail",
 
@@ -51,6 +51,21 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       }
       if (cartoon && !ctx.media.images) {
         throw new Error("cartoon thumbnail needs an image provider; refusing to publish a text-only thumbnail");
+      }
+      // FakeImageProvider intentionally emits deterministic random bytes for
+      // tests. Those bytes are not a real PNG even though the fake provider
+      // labels them image/png. That is safe only when the renderer is fake too.
+      // A production stack with a real long-compose renderer must never let the
+      // fake image fallback reach FFmpeg — fail immediately and name the missing
+      // credential instead of surfacing a misleading decoder error downstream.
+      if (
+        cartoon &&
+        ctx.media.images?.id.startsWith("fake/") &&
+        !renderer.id.startsWith("fake/")
+      ) {
+        throw new Error(
+          `cartoon thumbnail needs a real image provider; current image provider is ${ctx.media.images.id}. Set FAL_KEY before retrying`,
+        );
       }
 
       let background: Uint8Array | undefined;
