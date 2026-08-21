@@ -10,7 +10,7 @@ import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeCartoonSceneCompilerWorker } from "./cartoon-scenes.ts";
-import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
+import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
 import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
@@ -23,6 +23,7 @@ export {
   makeAssetWorker,
   makeCartoonSceneCompilerWorker,
   makeRenderWorker,
+  makeCartoonRenderWorker,
   makeThumbnailWorker,
   makePublishWorker,
   makeMeasureWorker,
@@ -50,6 +51,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeAssetWorker(opts.assets ?? {}),
     makeCartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
+    makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
     makeQaWorker(opts.qa ?? {}),

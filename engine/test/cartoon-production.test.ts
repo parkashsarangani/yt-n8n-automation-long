@@ -55,12 +55,13 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "11");
+  assert.equal(graph.version, "12");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
   assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "cartoon_visual_planner");
   assert.equal((byId.get("voice") as { transformation?: string })?.transformation, "dialogue_voice");
   assert.equal((byId.get("thumbnail_brief") as { transformation?: string })?.transformation, "cartoon_thumbnail_designer");
+  assert.equal((byId.get("render") as { transformation?: string })?.transformation, "cartoon_render");
 });
 
 test("cartoon thumbnail brief schema requires artwork separate from compositor text", async () => {

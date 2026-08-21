@@ -1,6 +1,6 @@
 {
   "graph_id": "cartoon",
-  "version": "2",
+  "version": "3",
   "description": "Primary cartoon-animation production graph. Story and dialogue are planned for the recurring cast, every scene renders through SVG-puppet cartoon templates, per-character voices are routed from the cast roster, and thumbnail artwork is designed specifically for the same cartoon universe before deterministic typography is composited by long-compose.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
@@ -17,7 +17,7 @@
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "render", "in": ["script", "voice", "assets"] },
+    { "id": "render", "transformation": "cartoon_render", "in": ["script", "voice", "assets", "cast_roster"] },
     { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }

@@ -1159,6 +1159,16 @@ function escapeAssText(value) {
     .replace(/\r?\n/g, "\\N");
 }
 
+// ASS colours are &H00BBGGRR (BGR, byte-reversed from the #RRGGBB the engine
+// sends). Falls back to plain white - same as the Caption style's own
+// PrimaryColour - if the value isn't a real hex color.
+function hexToAssColor(hex) {
+  const m = /^#([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})$/.exec(String(hex ?? ""));
+  if (!m) return "&H00FFFFFF";
+  const [, r, g, b] = m;
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
 function validatedAlignment(alignment, sceneIdx) {
   if (!alignment) return null;
   const rawChars = alignment.characters;
@@ -1248,6 +1258,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     if (current) words.push({ text: current, start: wordStart, end: ends[ends.length - 1] });
 
+    // A scene is one character's spoken turn (script.scenes[].speaker), so
+    // the speaker is constant across every phrase this scene produces. Tint
+    // the "already spoken" karaoke color to the active speaker's color, and
+    // name them once at the start of the turn rather than on every phrase.
+    const speakerName = typeof scene?.speaker_name === "string" ? scene.speaker_name.trim() : "";
+    const speakerColorTag = speakerName ? `{\\1c${hexToAssColor(scene.speaker_color)}}` : "";
+
     // Group words into phrases
     for (let phraseStart = 0; phraseStart < words.length; phraseStart += WORDS_PER_PHRASE) {
       const phrase = words.slice(phraseStart, phraseStart + WORDS_PER_PHRASE);
@@ -1259,7 +1276,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       // One dialogue line per phrase. All words visible for the entire duration.
       // Use ASS \kf (smooth karaoke fill) to progressively highlight each word
       // in the CaptionHL color as it's spoken.
-      let line = "";
+      let line = speakerColorTag;
+      if (speakerName && phraseStart === 0) {
+        line += `${escapeAssText(speakerName.toUpperCase())}: `;
+      }
       for (let w = 0; w < phrase.length; w++) {
         const word = phrase[w];
         // \kf duration is in centiseconds (100ths of a second)
