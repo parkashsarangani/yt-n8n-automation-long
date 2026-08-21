@@ -16,6 +16,7 @@ export type Gesture =
     | "surprised" | "thinking" | "facepalm" | "celebrate";
 
 export type GazeTarget = "auto" | "camera" | "left" | "right" | "up" | "down" | "away";
+export type CharacterEmphasis = "none" | "scale-pop" | "rim-glow";
 
 export interface CharacterProps {
     characterId: string;
@@ -33,6 +34,10 @@ export interface CharacterProps {
     mouthCues?: MouthCue[];
     gazeX?: number;
     gazeY?: number;
+    /** Makes the active speaker readable even in a two-shot on mobile. */
+    emphasis?: CharacterEmphasis;
+    /** Slightly suppresses listeners so the speaking actor is immediately identifiable. */
+    dimmed?: boolean;
     /** Keeps idle/speech motion from restarting at the same phase on every dialogue-line render. */
     motionOffsetFrames?: number;
     /** @deprecated Prefer actorId. */
@@ -105,7 +110,7 @@ const ArmLayer: React.FC<{ rig: (name: string) => string; side: "left" | "right"
 export const Character: React.FC<CharacterProps> = ({
     characterId, actorId, x, y, scale = 1, emotion = "neutral", gesture, gazeTarget,
     leftArm = "down", rightArm = "down", expression, isSpeaking = false, mouthCues,
-    gazeX, gazeY, motionOffsetFrames = 0, animationKey,
+    gazeX, gazeY, emphasis = "none", dimmed = false, motionOffsetFrames = 0, animationKey,
 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -163,11 +168,22 @@ export const Character: React.FC<CharacterProps> = ({
     const fearTremorX = emotion === "scared" ? Math.sin((motionFrame + fearPhase) / 4.8) * 0.55 : 0;
     const fearTremorY = emotion === "scared" ? Math.cos((motionFrame + fearPhase) / 6.1) * 0.30 : 0;
 
+    const activePulseScale = isSpeaking && emphasis === "scale-pop"
+        ? 1.012 + Math.sin((motionFrame + speechPhase) / 8) * 0.004
+        : 1;
+    const filter = dimmed
+        ? "brightness(0.84) saturate(0.82)"
+        : isSpeaking && emphasis === "rim-glow"
+            ? "drop-shadow(0 0 18px rgba(255,255,255,0.55)) drop-shadow(0 0 10px rgba(32,180,220,0.35))"
+            : undefined;
+
     return (
         <div style={{
             position: "absolute", left: x, top: y, width: RIG_WIDTH, height: RIG_HEIGHT,
-            transform: `translate(${fearTremorX}px, ${bodyY + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale}) scaleY(${bodyScaleY})`,
+            transform: `translate(${fearTremorX}px, ${bodyY + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale * activePulseScale}) scaleY(${bodyScaleY})`,
             transformOrigin: "bottom center",
+            opacity: dimmed ? 0.82 : 1,
+            filter,
         }}>
             <Img src={rig("body.svg")} style={layerStyle} />
             <ArmLayer rig={rig} side="left" target={targetLeft} />
