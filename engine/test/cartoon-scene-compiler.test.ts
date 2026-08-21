@@ -44,7 +44,7 @@ async function putScript(h: Awaited<ReturnType<typeof harness>>, scenes: unknown
   return (await h.store.put({
     schema_id: "script",
     payload: { scenes },
-    produced_by: { transformation: "dialogue_script_writer", version: "3", run_id: "t", provider: null },
+    produced_by: { transformation: "dialogue_script_writer", version: "2", run_id: "t", provider: null },
   })).artifact;
 }
 
