@@ -22,6 +22,29 @@ test("cartoon studio UI is cartoon-first and exposes the recurring cast", async 
   assert.match(html, /\/api\/discover/);
 });
 
+test("episode idea suggestions unwrap the topic_candidates artifact shape", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+
+  // /api/discover returns the topic_candidates artifact payload under
+  // r.candidates. That payload is { basis, candidates: [...] }, not an array.
+  assert.match(html, /Array\.isArray\(set\?\.candidates\)\?set\.candidates/);
+  assert.match(html, /why_it_earns_attention/);
+  assert.match(html, /obj\.novelty/);
+  assert.match(html, /r\.history_count/);
+  assert.match(html, /r\.measured_episodes/);
+
+  // Selecting a suggestion must seed production with the candidate's brief,
+  // while the UI may display its shorter angle/rationale.
+  assert.match(html, /brief=obj\.brief\|\|obj\.topic\|\|obj\.title/);
+  assert.match(html, /data-idea="\$\{esc\(brief\)\}"/);
+  assert.match(html, /\$\("brief"\)\.value=b\.dataset\.idea/);
+
+  // Discovery can take a while; prevent duplicate requests and restore the
+  // button even when the provider fails.
+  assert.match(html, /btn\.disabled=true/);
+  assert.match(html, /finally\{btn\.disabled=false;btn\.textContent=label\}/);
+});
+
 test("canonical default cast carries production ElevenLabs voice ids", async () => {
   const cast = JSON.parse(
     await readFile(path.join(ROOT, "config", "cast_roster.default.json"), "utf8"),
