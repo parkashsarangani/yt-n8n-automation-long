@@ -35,8 +35,10 @@ interface ShallowCompileResult {
 interface CompiledEntry { scene_index: number; source: "template"; template_category: "cartoon"; template_data: string; }
 
 const BACKGROUNDS: Record<string, readonly string[]> = {
+  "airplane-cabin": ["day"],
+  "airport-gate": ["day"],
   bedroom: ["day", "night", "messy-day", "messy-night"], cafe: ["day"],
-  classroom: ["empty", "normal", "exam"], "generic-room": ["cool-day", "warm-day", "night"],
+  classroom: ["empty", "normal", "exam"], "engineering-lab": ["day"], "generic-room": ["cool-day", "warm-day", "night"],
   "hospital-room": ["day"], kitchen: ["day", "night"], "living-room": ["day", "night"],
   office: ["day"], park: ["day", "evening"], "school-hallway": ["normal"],
   street: ["day", "night", "rain-night"],
@@ -54,6 +56,7 @@ const PUSH_IN_SCALE = 1.025;
 const MAX_STATIC_REPEAT = 4;
 const LONG_SCRIPT_SECONDS = 75;
 const WORDS_PER_SECOND = 2.6;
+const MIN_DYNAMIC_BACKGROUND_SCENES = 13;
 
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
@@ -69,9 +72,6 @@ function canonicalFraming(value: PlanScene["framing"]): "two-shot" | "speaker-cl
   return value === "speaker-closeup" || value === "listener-closeup" ? value : "two-shot";
 }
 
-// Character emotion and environment lighting are separate directions. A person
-// can panic in an ordinary bright room; only an explicit planner background_tone
-// should turn the environment scary/dramatic/cold.
 function defaultTone(): string {
   return "neutral";
 }
@@ -144,6 +144,12 @@ function directionFromPlan(plan: PlanScene): DirectionPrimitives {
 
 function directionFromText(script: ScriptScene): DirectionPrimitives {
   const text = script.narration.toLowerCase();
+  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger)\b/.test(text)) {
+    return { visualEvent: "screen-change", ambientMotion: "window-light", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+  }
+  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage)\b/.test(text)) {
+    return { visualEvent: "metaphor-cutaway", ambientMotion: "chart-wiggle", speakerEmphasis: "scale-pop", cutawayLabel: "STRESS FINDS CORNERS" };
+  }
   if (/\b(?:present|presentation|audience|stage|speech|speaking|meeting|watched|room)\b/.test(text)) {
     return { visualEvent: "audience-silhouette", ambientMotion: "monitor-glow", speakerEmphasis: "listener-dim", cutawayLabel: "" };
   }
@@ -159,6 +165,14 @@ function directionFromText(script: ScriptScene): DirectionPrimitives {
   return { visualEvent: "none", ambientMotion: "subtle-parallax", speakerEmphasis: "scale-pop", cutawayLabel: "" };
 }
 
+function preferredAmbientForEnvironment(environment: Environment, current: string): string {
+  if (current !== "none") return current;
+  if (environment.location === "airplane-cabin") return "window-light";
+  if (environment.location === "engineering-lab") return "chart-wiggle";
+  if (environment.location === "airport-gate") return "monitor-glow";
+  return "subtle-parallax";
+}
+
 function applyDirection(compiled: Record<string, unknown>, direction: DirectionPrimitives): Record<string, unknown> {
   const rawBackground = compiled.background;
   const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
@@ -169,6 +183,39 @@ function applyDirection(compiled: Record<string, unknown>, direction: DirectionP
     background,
     visualEvent: { type: direction.visualEvent, label: direction.cutawayLabel },
     speakerEmphasis: direction.speakerEmphasis,
+  };
+}
+
+function topicEnvironment(script: ScriptScene): Environment | null {
+  const text = `${script.point ?? ""} ${script.narration}`.toLowerCase();
+  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage|fail|failure)\b/.test(text)) {
+    return catalogBackground("engineering-lab", "day");
+  }
+  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger|sky|lean)\b/.test(text)) {
+    return catalogBackground("airplane-cabin", "day");
+  }
+  if (/\b(?:airport|gate|boarding pass)\b/.test(text)) {
+    return catalogBackground("airport-gate", "day");
+  }
+  return null;
+}
+
+function applyStoryAwareEnvironment(compiled: Record<string, unknown>, script: ScriptScene): Record<string, unknown> {
+  const environment = topicEnvironment(script);
+  if (!environment) return compiled;
+  const rawBackground = compiled.background;
+  const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
+    ? rawBackground as Record<string, unknown>
+    : {};
+  const currentAmbient = pick(background.ambientMotion, AMBIENT_MOTIONS, "none");
+  return {
+    ...compiled,
+    background: {
+      ...background,
+      ...environment,
+      tone: pick(background.tone, TONES, defaultTone()),
+      ambientMotion: preferredAmbientForEnvironment(environment, currentAmbient),
+    },
   };
 }
 
@@ -233,8 +280,6 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   else if (framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
 
-  // Avoid stacking an already-large closeup with a second large zoom. A small
-  // 2.5% push is enough to create emphasis without making the actor jump size.
   const camera = cameraFor(plan.camera_motion ?? "static");
 
   const compiled = {
@@ -245,13 +290,16 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   };
 
   return {
-    compiled: applyDirection(compiled, directionFromPlan(plan)),
+    compiled: applyStoryAwareEnvironment(applyDirection(compiled, directionFromPlan(plan)), script),
     warnings,
   };
 }
 
 function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
   const text = script.narration.toLowerCase();
+  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger|sky|lean)\b/.test(text)) return catalogBackground("airplane-cabin", "day");
+  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage)\b/.test(text)) return catalogBackground("engineering-lab", "day");
+  if (/\b(?:airport|gate|boarding pass)\b/.test(text)) return catalogBackground("airport-gate", "day");
   if (/\b(?:sleep|bed|bedroom|wake|woke|awake|alarm clock)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
   if (/\b(?:boss|meeting|email|work|office|presentation|deadline)\b/.test(text)) return catalogBackground("office", "day");
   if (/\b(?:exam|class|school|teacher|student|test)\b/.test(text)) return catalogBackground("classroom", "exam");
@@ -263,8 +311,6 @@ function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
 }
 
 function fallbackEnvironment(script: ScriptScene, previous?: Environment): Environment {
-  // Preserve the current room/time-of-day through ordinary back-and-forth.
-  // Only an explicit contextual cue moves the scene elsewhere.
   return explicitFallbackEnvironment(script) ?? previous ?? catalogBackground("living-room", "day");
 }
 
@@ -281,15 +327,15 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
   const beat = script.scene_index % 7;
 
   if (beat === 2) {
-    return applyDirection({
+    return applyStoryAwareEnvironment(applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "zoom", from: 1, to: 1.018 },
       characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
       shot: { framing: "speaker-closeup" },
-    }, direction);
+    }, direction), script);
   }
   if (beat === 5 && listenerChar) {
-    return applyDirection({
+    return applyStoryAwareEnvironment(applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "static" },
       characters: [
@@ -297,14 +343,14 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
         { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
       shot: { framing: "two-shot" },
-    }, direction);
+    }, direction), script);
   }
-  return applyDirection({
+  return applyStoryAwareEnvironment(applyDirection({
     background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
     shot: { framing: "two-shot" },
-  }, direction);
+  }, direction), script);
 }
 
 function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: number): Record<string, unknown> {
@@ -327,6 +373,15 @@ function environmentFromCompiled(compiled: Record<string, unknown>): Environment
   const location = typeof background.location === "string" ? background.location : "";
   const variant = typeof background.variant === "string" ? background.variant : "";
   return validBackground(location, variant) ? { location, variant } : undefined;
+}
+
+function backgroundKey(compiled: Record<string, unknown>): string | null {
+  const raw = compiled.background;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const background = raw as Record<string, unknown>;
+  const location = typeof background.location === "string" ? background.location : "";
+  const variant = typeof background.variant === "string" ? background.variant : "";
+  return location && variant ? `${location}/${variant}` : null;
 }
 
 function compiledSceneKey(compiled: Record<string, unknown>): string | null {
@@ -380,6 +435,22 @@ function assertNoTemplateBoredom(entries: CompiledEntry[]): void {
   }
 }
 
+function assertBackgroundVariety(entries: CompiledEntry[]): void {
+  if (entries.length < MIN_DYNAMIC_BACKGROUND_SCENES) return;
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
+    const key = backgroundKey(compiled);
+    if (key) keys.add(key);
+  }
+  if (keys.size < 2) {
+    const only = [...keys][0] ?? "unknown/unknown";
+    throw new Error(
+      `cartoon visual plan is too static: all content scenes use ${only}. Long cartoon episodes require at least two distinct visible environments; dynamic overlays alone do not satisfy this gate.`,
+    );
+  }
+}
+
 function requiresV3ScriptContract(scriptArtifact: unknown): boolean {
   const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
   return producedBy?.transformation === "dialogue_script_writer"
@@ -417,7 +488,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "5",
+    version: "6",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -452,7 +523,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
           else {
             const legacy = legacyObject(plan);
             if (legacy) {
-              compiled = applyDirection(legacy, directionFromText(scriptScene));
+              compiled = applyStoryAwareEnvironment(applyDirection(legacy, directionFromText(scriptScene)), scriptScene);
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
               compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
@@ -469,6 +540,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       });
 
       assertNoTemplateBoredom(entries);
+      assertBackgroundVariety(entries);
       return { payload: { scenes: entries, degraded_count: 0 }, blobs: [] };
     },
   };
