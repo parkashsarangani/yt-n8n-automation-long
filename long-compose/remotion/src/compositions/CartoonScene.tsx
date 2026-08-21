@@ -2,7 +2,6 @@ import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } fr
 import { Character, CharacterProps } from "../components/Character";
 import { Background, BackgroundSpec } from "../components/Background";
 import { getScheme, Mood } from "../lib/colors";
-import { getEnvironmentEffect } from "../lib/environment";
 
 export interface CartoonCameraProps {
     type?: "static" | "zoom" | "pan";
@@ -72,7 +71,6 @@ export const CartoonScene: React.FC<CartoonSceneProps> = ({ background, mood = "
     const frame = useCurrentFrame();
     const { durationInFrames } = useVideoConfig();
     const scheme = getScheme(mood);
-    const effect = getEnvironmentEffect(background?.tone);
     const endFrame = Math.max(1, durationInFrames - 1);
 
     const zoomFrom = camera?.from ?? 1;
@@ -93,15 +91,13 @@ export const CartoonScene: React.FC<CartoonSceneProps> = ({ background, mood = "
         })
         : 0;
 
-    const shakeX = effect.shake > 0 ? Math.sin(frame * 2.3) * effect.shake : 0;
-    const shakeY = effect.shake > 0 ? Math.cos(frame * 2.0) * effect.shake : 0;
     const directedCharacters = withConversationDirection(characters);
 
     return (
         <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }}>
             <AbsoluteFill
                 style={{
-                    transform: `scale(${zoom}) translate(${shakeX}px, ${shakeY}px)`,
+                    transform: `scale(${zoom})`,
                     transformOrigin: "50% 50%",
                 }}
             >

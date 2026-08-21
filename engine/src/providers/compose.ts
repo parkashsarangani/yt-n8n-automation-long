@@ -30,6 +30,8 @@ export interface ComposeRendererOptions {
   pollIntervalSec?: number;
   /** Give up after this long. A 10-minute video renders in well under 30 min. */
   timeoutSec?: number;
+  /** Deterministic house CTA for the appended silent end card. */
+  outroLine?: string;
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
 }
@@ -77,6 +79,7 @@ export class ComposeRenderer implements MediaRenderer {
   private readonly baseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
+  private readonly outroLine: string;
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -84,6 +87,7 @@ export class ComposeRenderer implements MediaRenderer {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.pollIntervalMs = (opts.pollIntervalSec ?? 15) * 1000;
     this.timeoutMs = (opts.timeoutSec ?? 3600) * 1000;
+    this.outroLine = opts.outroLine ?? "What should we explain next? Subscribe.";
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleepImpl = opts.sleepImpl ?? sleep;
   }
@@ -184,6 +188,10 @@ export class ComposeRenderer implements MediaRenderer {
     const body = {
       caption_style: req.caption_style ?? "neutral",
       comment_hook: req.comment_hook ?? null,
+      // Override long-compose's legacy "follow" CTA with YouTube-native copy.
+      // The service already owns appending the silent end card; keeping the
+      // wording here avoids teaching the dialogue model to write an outro scene.
+      outro_line: this.outroLine,
       ...(req.thumbnail
         ? {
           thumbnail: {
