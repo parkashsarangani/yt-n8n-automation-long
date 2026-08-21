@@ -72,6 +72,9 @@ function canonicalFraming(value: PlanScene["framing"]): "two-shot" | "speaker-cl
   return value === "speaker-closeup" || value === "listener-closeup" ? value : "two-shot";
 }
 
+// Character emotion and environment lighting are separate directions. A person
+// can panic in an ordinary bright room; only an explicit planner background_tone
+// should turn the environment scary/dramatic/cold.
 function defaultTone(): string {
   return "neutral";
 }
@@ -130,6 +133,26 @@ function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: 
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
 }
 
+function hasAirportGateContext(text: string): boolean {
+  return /\b(?:airport gate|gate agent|boarding pass|boarding group|boarding zone)\b/.test(text);
+}
+
+function hasAirplaneContext(text: string): boolean {
+  return /\b(?:airplane|aircraft|flight|cabin|passenger|fuselage|pressuri[sz]ed cabin|window seat|seatback)\b/.test(text)
+    || /\bplane\s+(?:window|seat|cabin|ticket|boarding|passenger)\b/.test(text)
+    || /\b(?:airplane|aircraft|cabin)\s+window\b/.test(text);
+}
+
+function hasAirplaneMechanismContext(text: string): boolean {
+  return hasAirplaneContext(text)
+    && /\b(?:pressure|pressuri[sz](?:e|ed|ation)|stress|crack|corner|rounded?|square|engineering|engineer|force|fuselage|fail|failure)\b/.test(text);
+}
+
+function hasAirplaneCabinContext(text: string): boolean {
+  return hasAirplaneContext(text)
+    && /\b(?:seat|window|cabin|boarding|passenger|sky|lean|overhead|aisle)\b/.test(text);
+}
+
 function directionFromPlan(plan: PlanScene): DirectionPrimitives {
   const visualEvent = pick(plan.visual_event, VISUAL_EVENTS, "none");
   return {
@@ -143,12 +166,12 @@ function directionFromPlan(plan: PlanScene): DirectionPrimitives {
 }
 
 function directionFromText(script: ScriptScene): DirectionPrimitives {
-  const text = script.narration.toLowerCase();
-  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger)\b/.test(text)) {
-    return { visualEvent: "screen-change", ambientMotion: "window-light", speakerEmphasis: "scale-pop", cutawayLabel: "" };
-  }
-  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage)\b/.test(text)) {
+  const text = `${script.point ?? ""} ${script.narration}`.toLowerCase();
+  if (hasAirplaneMechanismContext(text)) {
     return { visualEvent: "metaphor-cutaway", ambientMotion: "chart-wiggle", speakerEmphasis: "scale-pop", cutawayLabel: "STRESS FINDS CORNERS" };
+  }
+  if (hasAirplaneCabinContext(text)) {
+    return { visualEvent: "screen-change", ambientMotion: "window-light", speakerEmphasis: "scale-pop", cutawayLabel: "" };
   }
   if (/\b(?:present|presentation|audience|stage|speech|speaking|meeting|watched|room)\b/.test(text)) {
     return { visualEvent: "audience-silhouette", ambientMotion: "monitor-glow", speakerEmphasis: "listener-dim", cutawayLabel: "" };
@@ -188,25 +211,35 @@ function applyDirection(compiled: Record<string, unknown>, direction: DirectionP
 
 function topicEnvironment(script: ScriptScene): Environment | null {
   const text = `${script.point ?? ""} ${script.narration}`.toLowerCase();
-  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage|fail|failure)\b/.test(text)) {
+  if (hasAirportGateContext(text)) {
+    return catalogBackground("airport-gate", "day");
+  }
+  if (hasAirplaneMechanismContext(text)) {
     return catalogBackground("engineering-lab", "day");
   }
-  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger|sky|lean)\b/.test(text)) {
+  if (hasAirplaneCabinContext(text)) {
     return catalogBackground("airplane-cabin", "day");
-  }
-  if (/\b(?:airport|gate|boarding pass)\b/.test(text)) {
-    return catalogBackground("airport-gate", "day");
   }
   return null;
 }
 
-function applyStoryAwareEnvironment(compiled: Record<string, unknown>, script: ScriptScene): Record<string, unknown> {
+function isPlannerBackgroundOverridable(background: Record<string, unknown>): boolean {
+  const location = typeof background.location === "string" ? background.location : "";
+  // Do not silently relocate deliberate, valid planner staging. This override
+  // exists as a defensive correction for generic/classroom-style stale plans,
+  // not as a global keyword router for every idiom that mentions a window,
+  // corner, round, square, force, seat, sky, or lean.
+  return location === "" || location === "generic-room" || location === "classroom" || location === "living-room";
+}
+
+function applyStoryAwareEnvironment(compiled: Record<string, unknown>, script: ScriptScene, allowOverride = false): Record<string, unknown> {
   const environment = topicEnvironment(script);
   if (!environment) return compiled;
   const rawBackground = compiled.background;
   const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
     ? rawBackground as Record<string, unknown>
     : {};
+  if (!allowOverride && !isPlannerBackgroundOverridable(background)) return compiled;
   const currentAmbient = pick(background.ambientMotion, AMBIENT_MOTIONS, "none");
   return {
     ...compiled,
@@ -280,6 +313,8 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   else if (framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
 
+  // Avoid stacking an already-large closeup with a second large zoom. A small
+  // 2.5% push is enough to create emphasis without making the actor jump size.
   const camera = cameraFor(plan.camera_motion ?? "static");
 
   const compiled = {
@@ -289,17 +324,17 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
     shot: { framing },
   };
 
+  const directionApplied = applyDirection(compiled, directionFromPlan(plan));
   return {
-    compiled: applyStoryAwareEnvironment(applyDirection(compiled, directionFromPlan(plan)), script),
+    compiled: applyStoryAwareEnvironment(directionApplied, script, isPlannerBackgroundOverridable(directionApplied.background as Record<string, unknown>)),
     warnings,
   };
 }
 
 function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
+  const explicitTopic = topicEnvironment(script);
+  if (explicitTopic) return explicitTopic;
   const text = script.narration.toLowerCase();
-  if (/\b(?:airplane|plane|flight|seat|window|cabin|boarding|passenger|sky|lean)\b/.test(text)) return catalogBackground("airplane-cabin", "day");
-  if (/\b(?:pressure|stress|crack|corner|round|square|engineering|engineer|force|fuselage)\b/.test(text)) return catalogBackground("engineering-lab", "day");
-  if (/\b(?:airport|gate|boarding pass)\b/.test(text)) return catalogBackground("airport-gate", "day");
   if (/\b(?:sleep|bed|bedroom|wake|woke|awake|alarm clock)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
   if (/\b(?:boss|meeting|email|work|office|presentation|deadline)\b/.test(text)) return catalogBackground("office", "day");
   if (/\b(?:exam|class|school|teacher|student|test)\b/.test(text)) return catalogBackground("classroom", "exam");
@@ -311,6 +346,8 @@ function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
 }
 
 function fallbackEnvironment(script: ScriptScene, previous?: Environment): Environment {
+  // Preserve the current room/time-of-day through ordinary back-and-forth.
+  // Only an explicit contextual cue moves the scene elsewhere.
   return explicitFallbackEnvironment(script) ?? previous ?? catalogBackground("living-room", "day");
 }
 
@@ -332,7 +369,7 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
       camera: { type: "zoom", from: 1, to: 1.018 },
       characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
       shot: { framing: "speaker-closeup" },
-    }, direction), script);
+    }, direction), script, true);
   }
   if (beat === 5 && listenerChar) {
     return applyStoryAwareEnvironment(applyDirection({
@@ -343,14 +380,14 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
         { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
       shot: { framing: "two-shot" },
-    }, direction), script);
+    }, direction), script, true);
   }
   return applyStoryAwareEnvironment(applyDirection({
     background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
     shot: { framing: "two-shot" },
-  }, direction), script);
+  }, direction), script, true);
 }
 
 function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: number): Record<string, unknown> {
