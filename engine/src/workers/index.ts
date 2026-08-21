@@ -9,6 +9,7 @@
 import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
+import { makeCartoonSceneCompilerWorker } from "./cartoon-scenes.ts";
 import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -20,6 +21,7 @@ export {
   makeVoiceWorker,
   makeDialogueVoiceWorker,
   makeAssetWorker,
+  makeCartoonSceneCompilerWorker,
   makeRenderWorker,
   makeThumbnailWorker,
   makePublishWorker,
@@ -44,12 +46,9 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   const workers: TransformationDef[] = [
     makeCastLoaderWorker(),
     makeVoiceWorker(opts.voice),
-    // The default production graph is cartoon-first and always references
-    // dialogue_voice. Register it even in lightweight test/smoke harnesses that
-    // only supplied the historical single-voice option; the single-voice id is
-    // a deterministic last-resort fallback when the cast has no matching voice.
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
+    makeCartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
