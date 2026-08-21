@@ -21,6 +21,7 @@ interface PlanScene {
 interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; }
 interface CastCharacter { character_id: string; name?: string; rig: string; }
 interface CastRoster { characters: CastCharacter[]; }
+interface Environment { location: string; variant: string; }
 interface ShallowCompileResult {
   compiled: Record<string, unknown> | null;
   reason?: string;
@@ -39,25 +40,30 @@ const GESTURES = new Set(["idle", "explain", "point-left", "point-right", "shrug
 const GAZES = new Set(["auto", "camera", "left", "right", "up", "down", "away"]);
 const TONES = new Set(["neutral", "scary", "happy", "dramatic", "cold", "warm"]);
 
+const CLOSEUP_SCALE = 1.28;
+const PUSH_IN_SCALE = 1.025;
+
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
 }
-function defaultTone(emotion?: string): string {
-  if (emotion === "scared") return "scary";
-  if (emotion === "happy") return "happy";
-  if (emotion === "angry") return "dramatic";
-  if (emotion === "sad") return "cold";
+
+// Character emotion and environment lighting are separate directions. A person
+// can panic in an ordinary bright room; only an explicit planner background_tone
+// should turn the environment scary/dramatic/cold.
+function defaultTone(): string {
   return "neutral";
 }
+
 function cameraFor(motion: PlanScene["camera_motion"]): Record<string, unknown> {
   switch (motion) {
-    case "push-in": return { type: "zoom", from: 1, to: 1.1 };
-    case "pull-out": return { type: "zoom", from: 1.1, to: 1 };
-    case "pan-left": return { type: "pan", panFrom: 70, panTo: -70 };
-    case "pan-right": return { type: "pan", panFrom: -70, panTo: 70 };
+    case "push-in": return { type: "zoom", from: 1, to: PUSH_IN_SCALE };
+    case "pull-out": return { type: "zoom", from: PUSH_IN_SCALE, to: 1 };
+    case "pan-left": return { type: "pan", panFrom: 55, panTo: -55 };
+    case "pan-right": return { type: "pan", panFrom: -55, panTo: 55 };
     default: return { type: "static" };
   }
 }
+
 function legacyObject(scene: PlanScene): Record<string, unknown> | null {
   const raw = scene.template_data?.trim();
   if (!raw) return null;
@@ -66,18 +72,22 @@ function legacyObject(scene: PlanScene): Record<string, unknown> | null {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
   } catch { return null; }
 }
+
 function validBackground(location: string, variant: string): boolean {
   return Boolean(BACKGROUNDS[location]?.includes(variant));
 }
-function catalogBackground(location: string, variant: string): { location: string; variant: string } {
+
+function catalogBackground(location: string, variant: string): Environment {
   if (!validBackground(location, variant)) {
     throw new Error(`cartoon fallback requested unknown background ${location}/${variant}`);
   }
   return { location, variant };
 }
+
 function actorKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
+
 function resolveCastCharacter(roster: CastRoster, value: string | undefined): CastCharacter | undefined {
   if (!value?.trim()) return undefined;
   const key = actorKey(value);
@@ -87,10 +97,12 @@ function resolveCastCharacter(roster: CastRoster, value: string | undefined): Ca
       .some((candidate) => actorKey(candidate) === key),
   );
 }
+
 function sideFor(cast: CastCharacter[], actorId: string): "left" | "right" {
   const index = Math.max(0, cast.findIndex((c) => c.character_id === actorId));
   return index % 2 === 0 ? "left" : "right";
 }
+
 function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: boolean, emotion: string, gesture: string, gazeTarget: string, motionOffsetFrames: number) {
   const side = sideFor(cast, actor.character_id);
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
@@ -152,33 +164,43 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
     : null;
 
   let characters: Array<Record<string, unknown>>;
-  if (plan.framing === "speaker-closeup") characters = [{ ...speakerChar, x: 710, y: 350, scale: 1.55 }];
-  else if (plan.framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 350, scale: 1.55 }];
+  if (plan.framing === "speaker-closeup") characters = [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
+  else if (plan.framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
+
+  // Avoid stacking an already-large closeup with a second large zoom. A small
+  // 2.5% push is enough to create emphasis without making the actor jump size.
+  const camera = cameraFor(plan.camera_motion ?? "static");
 
   return {
     compiled: {
-      background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone(script.emotion)) },
-      camera: cameraFor(plan.camera_motion ?? "static"),
+      background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
+      camera,
       characters,
     },
     warnings,
   };
 }
 
-function fallbackEnvironment(script: ScriptScene): { location: string; variant: string } {
+function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
   const text = script.narration.toLowerCase();
-  if (/\b(?:sleep|bed|night|alarm|wake|woke|awake)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
+  if (/\b(?:sleep|bed|bedroom|wake|woke|awake|alarm clock)\b|\b[23]\s*a\.?m\.?/.test(text)) return catalogBackground("bedroom", "night");
   if (/\b(?:boss|meeting|email|work|office|presentation|deadline)\b/.test(text)) return catalogBackground("office", "day");
   if (/\b(?:exam|class|school|teacher|student|test)\b/.test(text)) return catalogBackground("classroom", "exam");
   if (/\b(?:coffee|cafe|date|table)\b/.test(text)) return catalogBackground("cafe", "day");
   if (/\b(?:walk|outside|park|bench)\b/.test(text)) return catalogBackground("park", "day");
   if (/\b(?:street|traffic|car|bus|train)\b/.test(text)) return catalogBackground("street", "day");
   if (/\b(?:cook|kitchen|fridge|food|dinner)\b/.test(text)) return catalogBackground("kitchen", "day");
-  return catalogBackground("living-room", script.scene_index % 8 >= 6 ? "night" : "day");
+  return null;
 }
 
-function deterministicFallback(script: ScriptScene, roster: CastRoster): Record<string, unknown> {
+function fallbackEnvironment(script: ScriptScene, previous?: Environment): Environment {
+  // Preserve the current room/time-of-day through ordinary back-and-forth.
+  // Only an explicit contextual cue moves the scene elsewhere.
+  return explicitFallbackEnvironment(script) ?? previous ?? catalogBackground("living-room", "day");
+}
+
+function deterministicFallback(script: ScriptScene, roster: CastRoster, previousEnvironment?: Environment): Record<string, unknown> {
   const speaker = script.speaker ? resolveCastCharacter(roster, script.speaker) ?? roster.characters[0] : roster.characters[0];
   if (!speaker) throw new Error(`scene ${script.scene_index}: cartoon compiler has no cast member to stage`);
   const listener = roster.characters.find((c) => c.character_id !== speaker.character_id);
@@ -186,28 +208,28 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster): Record<
   const gesture = script.scene_index % 4 === 1 ? "explain" : script.scene_index % 7 === 3 ? "thinking" : "idle";
   const speakerChar = baseCharacter(roster.characters, speaker, true, pick(script.emotion, EMOTIONS, "neutral"), gesture, "auto", baseOffset);
   const listenerChar = listener ? baseCharacter(roster.characters, listener, false, "neutral", "idle", "auto", baseOffset + 17) : null;
-  const environment = fallbackEnvironment(script);
+  const environment = fallbackEnvironment(script, previousEnvironment);
   const beat = script.scene_index % 7;
 
   if (beat === 2) {
     return {
-      background: { ...environment, tone: defaultTone(script.emotion) },
-      camera: { type: "zoom", from: 1, to: 1.08 },
-      characters: [{ ...speakerChar, x: 710, y: 350, scale: 1.55 }],
+      background: { ...environment, tone: defaultTone() },
+      camera: { type: "zoom", from: 1, to: 1.018 },
+      characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
     };
   }
   if (beat === 5 && listenerChar) {
     return {
-      background: { ...environment, tone: defaultTone(script.emotion) },
-      camera: { type: "zoom", from: 1, to: 1.04 },
+      background: { ...environment, tone: defaultTone() },
+      camera: { type: "static" },
       characters: [
-        { ...speakerChar, x: 210, y: 390, scale: 0.84 },
-        { ...listenerChar, x: 820, y: 330, scale: 1.38 },
+        { ...speakerChar, x: 230, y: 385, scale: 0.96 },
+        { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
     };
   }
   return {
-    background: { ...environment, tone: defaultTone(script.emotion) },
+    background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
   };
@@ -226,11 +248,20 @@ function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: numb
   return { ...compiled, characters };
 }
 
+function environmentFromCompiled(compiled: Record<string, unknown>): Environment | undefined {
+  const raw = compiled.background;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const background = raw as Record<string, unknown>;
+  const location = typeof background.location === "string" ? background.location : "";
+  const variant = typeof background.variant === "string" ? background.variant : "";
+  return validBackground(location, variant) ? { location, variant } : undefined;
+}
+
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "3",
+    version: "4",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -246,13 +277,14 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       const planByIndex = new Map(planScenes.map((scene) => [scene.scene_index, scene]));
       if (planByIndex.size !== planScenes.length) throw new Error("cartoon visual plan contains duplicate scene_index values");
 
+      let previousEnvironment: Environment | undefined;
       const entries = scriptScenes.slice().sort((a, b) => a.scene_index - b.scene_index).map((scriptScene) => {
         const plan = planByIndex.get(scriptScene.scene_index);
         let compiled: Record<string, unknown>;
 
         if (!plan) {
-          compiled = deterministicFallback(scriptScene, roster);
-          ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: legacy visual plan is missing this script scene; synthesizing deterministic staging`);
+          compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
+          ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: legacy visual plan is missing this script scene; synthesizing continuity-preserving staging`);
         } else {
           if (plan.template_category !== "cartoon") throw new Error(`scene ${scriptScene.scene_index}: expected template_category=\"cartoon\"`);
           const shallow = compileFromShallow(plan, scriptScene, roster);
@@ -266,15 +298,16 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
               compiled = legacy;
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
-              compiled = deterministicFallback(scriptScene, roster);
+              compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
               ctx.logger.warn(
-                `[cartoon_scene_compiler] scene ${scriptScene.scene_index}: planner staging unusable (${shallow.reason ?? "unknown reason"}); synthesizing deterministic staging`,
+                `[cartoon_scene_compiler] scene ${scriptScene.scene_index}: planner staging unusable (${shallow.reason ?? "unknown reason"}); synthesizing continuity-preserving staging`,
               );
             }
           }
         }
 
         compiled = ensureMotionOffsets(compiled, scriptScene.scene_index);
+        previousEnvironment = environmentFromCompiled(compiled) ?? previousEnvironment;
         return { scene_index: scriptScene.scene_index, source: "template" as const, template_category: "cartoon", template_data: JSON.stringify(compiled) };
       });
 

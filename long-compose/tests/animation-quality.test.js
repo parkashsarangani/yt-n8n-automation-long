@@ -12,6 +12,10 @@ const sceneSource = fs.readFileSync(
   path.join(root, "remotion", "src", "compositions", "CartoonScene.tsx"),
   "utf8",
 );
+const environmentSource = fs.readFileSync(
+  path.join(root, "remotion", "src", "lib", "environment.ts"),
+  "utf8",
+);
 
 function readRig(rig, file) {
   return fs.readFileSync(
@@ -42,6 +46,15 @@ test("cartoon runtime exposes semantic acting controls", () => {
   assert.match(characterSource, /arms\/\$\{side\}-\$\{target\}\.svg/);
   assert.doesNotMatch(characterSource, /gestureProgress|upOpacity|downOpacity/);
   assert.match(characterSource, /ArmLayer/);
+});
+
+test("panic performance is character-local and never continuous whole-frame shake", () => {
+  assert.match(characterSource, /fearTremorX/);
+  assert.match(characterSource, /fearTremorY/);
+  assert.match(characterSource, /emotion === "scared"/);
+  assert.doesNotMatch(sceneSource, /shakeX|shakeY|effect\.shake/);
+  assert.doesNotMatch(environmentSource, /\bshake\s*:/);
+  assert.doesNotMatch(environmentSource, /shake:\s*number/);
 });
 
 test("conversation direction respects semantic gaze before auto eye contact", () => {

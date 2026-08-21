@@ -157,10 +157,16 @@ export const Character: React.FC<CharacterProps> = ({
     const gestureScale = semanticGesture?.scale ?? 1;
     const brow = expression && VALID_EXPRESSIONS.has(expression) ? expression : emotionProfile.brow;
 
+    // Fear is actor-local performance, not camera motion. Keep it below a pixel
+    // and around 1 Hz so it reads as nervous energy rather than screen buzz.
+    const fearPhase = (seed >>> 3) % 37;
+    const fearTremorX = emotion === "scared" ? Math.sin((motionFrame + fearPhase) / 4.8) * 0.55 : 0;
+    const fearTremorY = emotion === "scared" ? Math.cos((motionFrame + fearPhase) / 6.1) * 0.30 : 0;
+
     return (
         <div style={{
             position: "absolute", left: x, top: y, width: RIG_WIDTH, height: RIG_HEIGHT,
-            transform: `translateY(${bodyY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale}) scaleY(${bodyScaleY})`,
+            transform: `translate(${fearTremorX}px, ${bodyY + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale}) scaleY(${bodyScaleY})`,
             transformOrigin: "bottom center",
         }}>
             <Img src={rig("body.svg")} style={layerStyle} />
