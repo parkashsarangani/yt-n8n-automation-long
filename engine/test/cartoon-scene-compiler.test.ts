@@ -31,18 +31,24 @@ async function harness() {
   });
   const cast = (await store.put({
     schema_id: "cast_roster",
-    payload: {
-      characters: [
-        { character_id: "host", name: "Host", voice_id: "v1", rig: "pilot" },
-        { character_id: "buddy", name: "Buddy", voice_id: "v2", rig: "pilot-2" },
-      ],
-    },
+    payload: { characters: [
+      { character_id: "host", name: "Host", voice_id: "v1", rig: "pilot" },
+      { character_id: "buddy", name: "Buddy", voice_id: "v2", rig: "pilot-2" },
+    ] },
     produced_by: { transformation: "human", version: "1", run_id: "t", provider: null },
   })).artifact;
-  return { registry, store, runner, cast };
+  return { store, runner, cast };
 }
 
-test("cartoon compiler recovers from legacy template_data=placeholder", async () => {
+async function putScript(h: Awaited<ReturnType<typeof harness>>, scenes: unknown[]) {
+  return (await h.store.put({
+    schema_id: "script",
+    payload: { scenes },
+    produced_by: { transformation: "dialogue_script_writer", version: "2", run_id: "t", provider: null },
+  })).artifact;
+}
+
+test("cartoon compiler recovers from legacy template_data=placeholder with contextual staging", async () => {
   const h = await harness();
   const plan = (await h.store.put({
     schema_id: "visual_plan",
@@ -50,59 +56,50 @@ test("cartoon compiler recovers from legacy template_data=placeholder", async ()
     payload: { scenes: [{ scene_index: 0, template_category: "cartoon", template_data: "placeholder" }] },
     produced_by: { transformation: "cartoon_visual_planner", version: "2", run_id: "t", provider: null },
   })).artifact;
-  const script = (await h.store.put({
-    schema_id: "script",
-    payload: { scenes: [{ scene_index: 0, point: "open", narration: "What is that?", speaker: "host", emotion: "surprised" }] },
-    produced_by: { transformation: "dialogue_script_writer", version: "1", run_id: "t", provider: null },
-  })).artifact;
+  const script = await putScript(h, [{ scene_index: 0, point: "open", narration: "That alarm woke me up again.", speaker: "host", emotion: "surprised" }]);
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
   const payload = out.artifact.payload as { scenes: Array<{ template_data: string; source: string }> };
+  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string }; characters: Array<{ actorId: string; characterId: string; isSpeaking: boolean; motionOffsetFrames: number }> };
   assert.equal(payload.scenes[0]!.source, "template");
-  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string }; characters: Array<{ actorId: string; characterId: string; isSpeaking: boolean }> };
-  assert.equal(data.background.location, "generic-room");
+  assert.equal(data.background.location, "bedroom");
   assert.equal(data.characters[0]!.actorId, "host");
   assert.equal(data.characters[0]!.characterId, "pilot");
   assert.equal(data.characters[0]!.isSpeaking, true);
+  assert.equal(data.characters[0]!.motionOffsetFrames, 0);
 });
 
-test("cartoon compiler synthesizes staging when a legacy visual plan omits a script scene", async () => {
+test("missing legacy plan scenes synthesize varied staging and non-repeating motion phase", async () => {
   const h = await harness();
   const plan = (await h.store.put({
     schema_id: "visual_plan",
     schema_version: "1.3.0",
-    payload: {
-      scenes: [{
-        scene_index: 0,
-        template_category: "cartoon",
-        template_data: JSON.stringify({
-          background: { location: "generic-room", variant: "warm-day", tone: "neutral" },
-          camera: { type: "static" },
-          characters: [{ actorId: "host", characterId: "pilot", x: 280, y: 380, scale: 1, isSpeaking: true }],
-        }),
-      }],
-    },
+    payload: { scenes: [{
+      scene_index: 0,
+      template_category: "cartoon",
+      template_data: JSON.stringify({
+        background: { location: "living-room", variant: "day", tone: "neutral" },
+        camera: { type: "static" },
+        characters: [{ actorId: "host", characterId: "pilot", x: 280, y: 380, scale: 1, isSpeaking: true }],
+      }),
+    }] },
     produced_by: { transformation: "cartoon_visual_planner", version: "2", run_id: "t", provider: null },
   })).artifact;
-  const script = (await h.store.put({
-    schema_id: "script",
-    payload: {
-      scenes: [
-        { scene_index: 0, point: "setup", narration: "Why does this happen?", speaker: "host", emotion: "neutral" },
-        { scene_index: 1, point: "reaction", narration: "Wait, seriously?", speaker: "buddy", emotion: "surprised" },
-      ],
-    },
-    produced_by: { transformation: "dialogue_script_writer", version: "1", run_id: "t", provider: null },
-  })).artifact;
+  const script = await putScript(h, [
+    { scene_index: 0, point: "setup", narration: "Why does this happen?", speaker: "host", emotion: "neutral" },
+    { scene_index: 1, point: "reaction", narration: "That meeting invite ruined my morning.", speaker: "buddy", emotion: "surprised" },
+    { scene_index: 2, point: "reveal", narration: "And I had not even opened it.", speaker: "host", emotion: "concerned" },
+  ]);
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
-  const payload = out.artifact.payload as { scenes: Array<{ scene_index: number; template_data: string; source: string }> };
-  assert.equal(payload.scenes.length, 2);
-  assert.equal(payload.scenes[1]!.scene_index, 1);
-  assert.equal(payload.scenes[1]!.source, "template");
-  const missingSceneData = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string }; characters: Array<{ actorId: string; characterId: string; isSpeaking: boolean }> };
-  assert.equal(missingSceneData.background.location, "generic-room");
-  assert.equal(missingSceneData.characters[0]!.actorId, "buddy");
-  assert.equal(missingSceneData.characters[0]!.characterId, "pilot-2");
-  assert.equal(missingSceneData.characters[0]!.isSpeaking, true);
+  const payload = out.artifact.payload as { scenes: Array<{ scene_index: number; template_data: string }> };
+  assert.equal(payload.scenes.length, 3);
+
+  const scene1 = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string }; characters: Array<{ actorId: string; motionOffsetFrames: number }> };
+  const scene2 = JSON.parse(payload.scenes[2]!.template_data) as { camera: { type: string }; characters: Array<{ actorId: string; motionOffsetFrames: number }> };
+  assert.equal(scene1.background.location, "office");
+  assert.equal(scene1.characters[0]!.actorId, "buddy");
+  assert.equal(scene1.characters[0]!.motionOffsetFrames, 41);
+  assert.equal(scene2.camera.type, "zoom");
+  assert.equal(scene2.characters[0]!.motionOffsetFrames, 82);
 });
