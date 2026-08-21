@@ -1,0 +1,65 @@
+{
+  "schema_id": "visual_plan",
+  "version": "1.7.0",
+  "status": "draft",
+  "description": "Cartoon shot-direction contract with deterministic direction primitives for visual events, ambient background motion, and active-speaker readability. The deterministic cartoon scene compiler owns Remotion props and older visual_plan versions remain readable for resume compatibility.",
+  "produced_by": ["cartoon_visual_planner"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CartoonVisualPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["scenes"],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "template_category",
+            "background_location",
+            "background_variant",
+            "background_tone",
+            "framing",
+            "camera_motion",
+            "listener_actor_id",
+            "speaker_emotion",
+            "speaker_gesture",
+            "speaker_gaze_target",
+            "listener_emotion",
+            "listener_gesture",
+            "listener_gaze_target",
+            "visual_event",
+            "ambient_motion",
+            "speaker_emphasis",
+            "cutaway_label"
+          ],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "template_category": { "type": "string", "enum": ["cartoon"] },
+            "background_location": { "type": "string", "enum": ["bedroom", "cafe", "classroom", "generic-room", "hospital-room", "kitchen", "living-room", "office", "park", "school-hallway", "street"] },
+            "background_variant": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "background_tone": { "type": "string", "enum": ["neutral", "scary", "happy", "dramatic", "cold", "warm"] },
+            "framing": { "type": "string", "enum": ["two-shot", "speaker-closeup", "listener-closeup"] },
+            "camera_motion": { "type": "string", "enum": ["static", "push-in", "pull-out", "pan-left", "pan-right"] },
+            "listener_actor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 40 },
+            "speaker_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "speaker_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "speaker_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "listener_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "listener_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "listener_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "visual_event": { "type": "string", "enum": ["none", "alarm-pulse", "screen-change", "audience-silhouette", "metaphor-cutaway", "prop-tremble", "thought-bubble", "reaction-pop", "callback-card"] },
+            "ambient_motion": { "type": "string", "enum": ["none", "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle", "clock-tick", "rain-window", "dust-float"] },
+            "speaker_emphasis": { "type": "string", "enum": ["none", "scale-pop", "rim-glow", "listener-dim", "caption-anchor"] },
+            "cutaway_label": { "type": "string", "maxLength": 80 }
+          }
+        }
+      }
+    }
+  }
+}

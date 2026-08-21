@@ -60,9 +60,9 @@ async function putLegacyPlan(h: Awaited<ReturnType<typeof harness>>, scenes: unk
 async function putCurrentPlan(h: Awaited<ReturnType<typeof harness>>, scenes: unknown[]) {
   return (await h.store.put({
     schema_id: "visual_plan",
-    schema_version: "1.6.0",
+    schema_version: "1.7.0",
     payload: { scenes },
-    produced_by: { transformation: "cartoon_visual_planner", version: "5", run_id: "t", provider: null },
+    produced_by: { transformation: "cartoon_visual_planner", version: "7", run_id: "t", provider: null },
   })).artifact;
 }
 
@@ -82,6 +82,10 @@ function directedScene(scene_index: number, overrides: Record<string, unknown> =
     listener_emotion: "neutral",
     listener_gesture: "idle",
     listener_gaze_target: "auto",
+    visual_event: "none",
+    ambient_motion: "subtle-parallax",
+    speaker_emphasis: "scale-pop",
+    cutaway_label: "",
     ...overrides,
   };
 }
@@ -93,9 +97,12 @@ test("cartoon compiler recovers from legacy template_data=placeholder with conte
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
   const payload = out.artifact.payload as { scenes: Array<{ template_data: string; source: string }> };
-  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string }; characters: Array<{ actorId: string; characterId: string; isSpeaking: boolean; motionOffsetFrames: number }> };
+  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string; ambientMotion: string }; visualEvent: { type: string }; speakerEmphasis: string; characters: Array<{ actorId: string; characterId: string; isSpeaking: boolean; motionOffsetFrames: number }> };
   assert.equal(payload.scenes[0]!.source, "template");
   assert.equal(data.background.location, "bedroom");
+  assert.equal(data.background.ambientMotion, "subtle-parallax");
+  assert.equal(data.visualEvent.type, "alarm-pulse");
+  assert.equal(data.speakerEmphasis, "rim-glow");
   assert.equal(data.characters[0]!.actorId, "host");
   assert.equal(data.characters[0]!.characterId, "pilot");
   assert.equal(data.characters[0]!.isSpeaking, true);
@@ -123,9 +130,11 @@ test("missing legacy plan scenes preserve environment continuity and restrained 
   const payload = out.artifact.payload as { scenes: Array<{ scene_index: number; template_data: string }> };
   assert.equal(payload.scenes.length, 3);
 
-  const scene1 = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string; variant: string }; characters: Array<{ actorId: string; motionOffsetFrames: number }> };
+  const scene1 = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string; variant: string; ambientMotion: string }; visualEvent: { type: string }; characters: Array<{ actorId: string; motionOffsetFrames: number }> };
   const scene2 = JSON.parse(payload.scenes[2]!.template_data) as { background: { location: string; variant: string; tone: string }; camera: { type: string; from: number; to: number }; characters: Array<{ actorId: string; motionOffsetFrames: number; scale: number }> };
   assert.deepEqual({ location: scene1.background.location, variant: scene1.background.variant }, { location: "office", variant: "day" });
+  assert.equal(scene1.background.ambientMotion, "monitor-glow");
+  assert.equal(scene1.visualEvent.type, "audience-silhouette");
   assert.equal(scene1.characters[0]!.actorId, "buddy");
   assert.equal(scene1.characters[0]!.motionOffsetFrames, 41);
   assert.deepEqual({ location: scene2.background.location, variant: scene2.background.variant }, { location: "office", variant: "day" });
@@ -149,8 +158,9 @@ test("fallback keyword matching uses whole words instead of unrelated substrings
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
   const payload = out.artifact.payload as { scenes: Array<{ template_data: string }> };
-  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string; variant: string; tone: string } };
-  assert.deepEqual(data.background, { location: "living-room", variant: "day", tone: "neutral" });
+  const data = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string; variant: string; tone: string; ambientMotion: string } };
+  assert.deepEqual({ location: data.background.location, variant: data.background.variant, tone: data.background.tone }, { location: "living-room", variant: "day", tone: "neutral" });
+  assert.equal(data.background.ambientMotion, "subtle-parallax");
 });
 
 test("metaphorical alarm language does not teleport a continuing scene to a bedroom", async () => {
@@ -163,11 +173,12 @@ test("metaphorical alarm language does not teleport a continuing scene to a bedr
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
   const payload = out.artifact.payload as { scenes: Array<{ template_data: string }> };
-  const scene0 = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string; variant: string } };
-  const scene1 = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string; variant: string; tone: string } };
+  const scene0 = JSON.parse(payload.scenes[0]!.template_data) as { background: { location: string; variant: string }; visualEvent: { type: string } };
+  const scene1 = JSON.parse(payload.scenes[1]!.template_data) as { background: { location: string; variant: string; tone: string }; visualEvent: { type: string } };
   assert.deepEqual({ location: scene0.background.location, variant: scene0.background.variant }, { location: "living-room", variant: "day" });
   assert.deepEqual({ location: scene1.background.location, variant: scene1.background.variant }, { location: "living-room", variant: "day" });
   assert.equal(scene1.background.tone, "neutral");
+  assert.equal(scene1.visualEvent.type, "alarm-pulse");
 });
 
 test("directed closeups and push-ins stay inside production framing limits", async () => {
@@ -185,6 +196,30 @@ test("directed closeups and push-ins stay inside production framing limits", asy
   assert.equal(data.background.tone, "neutral");
   assert.ok(data.characters[0]!.scale <= 1.30);
   assert.ok(data.camera.to - data.camera.from <= 0.03);
+});
+
+test("directed visual events and speaker emphasis pass through to the renderer", async () => {
+  const h = await harness();
+  const plan = await putCurrentPlan(h, [directedScene(0, {
+    background_location: "office",
+    background_variant: "day",
+    visual_event: "metaphor-cutaway",
+    ambient_motion: "monitor-glow",
+    speaker_emphasis: "listener-dim",
+    cutaway_label: "NOT A WOLF",
+  })]);
+  const script = await putScript(h, [{ scene_index: 0, point: "callback", narration: "Kevin is not a wolf.", speaker: "host", emotion: "neutral" }]);
+
+  const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
+  const payload = out.artifact.payload as { scenes: Array<{ template_data: string }> };
+  const data = JSON.parse(payload.scenes[0]!.template_data) as {
+    background: { ambientMotion: string };
+    visualEvent: { type: string; label: string };
+    speakerEmphasis: string;
+  };
+  assert.equal(data.background.ambientMotion, "monitor-glow");
+  assert.deepEqual(data.visualEvent, { type: "metaphor-cutaway", label: "NOT A WOLF" });
+  assert.equal(data.speakerEmphasis, "listener-dim");
 });
 
 test("fallback reaction emphasis keeps the speaking actor on screen without extreme scale mismatch", async () => {

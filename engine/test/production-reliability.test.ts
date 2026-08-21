@@ -175,6 +175,10 @@ test("cartoon compiler preserves shallow shot direction across legacy speaker la
             listener_emotion: "skeptical",
             listener_gesture: "idle",
             listener_gaze_target: "auto",
+            visual_event: "metaphor-cutaway",
+            ambient_motion: "monitor-glow",
+            speaker_emphasis: "listener-dim",
+            cutaway_label: "NOT A WOLF",
           }],
         },
       } as never,
@@ -204,13 +208,21 @@ test("cartoon compiler preserves shallow shot direction across legacy speaker la
 
   const manifest = out.payload as { scenes: Array<{ template_data: string }> };
   const compiled = JSON.parse(manifest.scenes[0]!.template_data) as {
-    background: { location: string; variant: string; tone: string };
+    background: { location: string; variant: string; tone: string; ambientMotion: string };
     camera: { type: string; from?: number; to?: number };
+    visualEvent: { type: string; label: string };
+    speakerEmphasis: string;
     characters: Array<{ actorId: string; isSpeaking: boolean; scale: number }>;
   };
 
-  assert.deepEqual(compiled.background, { location: "office", variant: "day", tone: "dramatic" });
+  assert.deepEqual(
+    { location: compiled.background.location, variant: compiled.background.variant, tone: compiled.background.tone },
+    { location: "office", variant: "day", tone: "dramatic" },
+  );
+  assert.equal(compiled.background.ambientMotion, "monitor-glow");
   assert.deepEqual(compiled.camera, { type: "zoom", from: 1, to: 1.025 });
+  assert.deepEqual(compiled.visualEvent, { type: "metaphor-cutaway", label: "NOT A WOLF" });
+  assert.equal(compiled.speakerEmphasis, "listener-dim");
   assert.equal(compiled.characters.length, 1);
   assert.equal(compiled.characters[0]?.actorId, "host");
   assert.equal(compiled.characters[0]?.isSpeaking, true);

@@ -15,18 +15,24 @@ interface PlanScene {
   listener_emotion?: string;
   listener_gesture?: string;
   listener_gaze_target?: string;
+  visual_event?: string;
+  ambient_motion?: string;
+  speaker_emphasis?: string;
+  cutaway_label?: string;
   template_data?: string;
 }
 
-interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; }
+interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; point?: string; }
 interface CastCharacter { character_id: string; name?: string; rig: string; }
 interface CastRoster { characters: CastCharacter[]; }
 interface Environment { location: string; variant: string; }
+interface DirectionPrimitives { visualEvent: string; ambientMotion: string; speakerEmphasis: string; cutawayLabel: string; }
 interface ShallowCompileResult {
   compiled: Record<string, unknown> | null;
   reason?: string;
   warnings: string[];
 }
+interface CompiledEntry { scene_index: number; source: "template"; template_category: "cartoon"; template_data: string; }
 
 const BACKGROUNDS: Record<string, readonly string[]> = {
   bedroom: ["day", "night", "messy-day", "messy-night"], cafe: ["day"],
@@ -39,12 +45,28 @@ const EMOTIONS = new Set(["neutral", "happy", "amused", "skeptical", "confused",
 const GESTURES = new Set(["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"]);
 const GAZES = new Set(["auto", "camera", "left", "right", "up", "down", "away"]);
 const TONES = new Set(["neutral", "scary", "happy", "dramatic", "cold", "warm"]);
+const VISUAL_EVENTS = new Set(["none", "alarm-pulse", "screen-change", "audience-silhouette", "metaphor-cutaway", "prop-tremble", "thought-bubble", "reaction-pop", "callback-card"]);
+const AMBIENT_MOTIONS = new Set(["none", "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle", "clock-tick", "rain-window", "dust-float"]);
+const SPEAKER_EMPHASIS = new Set(["none", "scale-pop", "rim-glow", "listener-dim", "caption-anchor"]);
 
 const CLOSEUP_SCALE = 1.28;
 const PUSH_IN_SCALE = 1.025;
+const MAX_STATIC_REPEAT = 4;
+const LONG_SCRIPT_SECONDS = 75;
+const WORDS_PER_SECOND = 2.6;
 
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
+}
+
+function cleanLabel(value: unknown): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, 80)
+    : "";
+}
+
+function canonicalFraming(value: PlanScene["framing"]): "two-shot" | "speaker-closeup" | "listener-closeup" {
+  return value === "speaker-closeup" || value === "listener-closeup" ? value : "two-shot";
 }
 
 // Character emotion and environment lighting are separate directions. A person
@@ -108,6 +130,48 @@ function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: 
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
 }
 
+function directionFromPlan(plan: PlanScene): DirectionPrimitives {
+  const visualEvent = pick(plan.visual_event, VISUAL_EVENTS, "none");
+  return {
+    visualEvent,
+    ambientMotion: pick(plan.ambient_motion, AMBIENT_MOTIONS, "subtle-parallax"),
+    speakerEmphasis: pick(plan.speaker_emphasis, SPEAKER_EMPHASIS, "scale-pop"),
+    cutawayLabel: ["metaphor-cutaway", "thought-bubble", "callback-card"].includes(visualEvent)
+      ? cleanLabel(plan.cutaway_label)
+      : "",
+  };
+}
+
+function directionFromText(script: ScriptScene): DirectionPrimitives {
+  const text = script.narration.toLowerCase();
+  if (/\b(?:present|presentation|audience|stage|speech|speaking|meeting|watched|room)\b/.test(text)) {
+    return { visualEvent: "audience-silhouette", ambientMotion: "monitor-glow", speakerEmphasis: "listener-dim", cutawayLabel: "" };
+  }
+  if (/\b(?:alarm|panic|danger|threat|scared|fear|afraid|nervous)\b/.test(text)) {
+    return { visualEvent: "alarm-pulse", ambientMotion: "subtle-parallax", speakerEmphasis: "rim-glow", cutawayLabel: "" };
+  }
+  if (/\b(?:wolf|predator|hunted|ancient|cave|caveman|brain)\b/.test(text)) {
+    return { visualEvent: "metaphor-cutaway", ambientMotion: "dust-float", speakerEmphasis: "scale-pop", cutawayLabel: "ANCIENT ALARM" };
+  }
+  if (/\b(?:phone|screen|text|message|email|notification|chart|slide)\b/.test(text)) {
+    return { visualEvent: "screen-change", ambientMotion: "monitor-glow", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+  }
+  return { visualEvent: "none", ambientMotion: "subtle-parallax", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+}
+
+function applyDirection(compiled: Record<string, unknown>, direction: DirectionPrimitives): Record<string, unknown> {
+  const rawBackground = compiled.background;
+  const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
+    ? { ...(rawBackground as Record<string, unknown>), ambientMotion: direction.ambientMotion }
+    : rawBackground;
+  return {
+    ...compiled,
+    background,
+    visualEvent: { type: direction.visualEvent, label: direction.cutawayLabel },
+    speakerEmphasis: direction.speakerEmphasis,
+  };
+}
+
 function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRoster): ShallowCompileResult {
   const warnings: string[] = [];
   const location = plan.background_location?.trim().toLowerCase();
@@ -163,21 +227,25 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
     ? baseCharacter(roster.characters, listener, false, pick(plan.listener_emotion, EMOTIONS, "neutral"), pick(plan.listener_gesture, GESTURES, "idle"), pick(plan.listener_gaze_target, GAZES, "auto"), baseOffset + 17)
     : null;
 
+  const framing = canonicalFraming(plan.framing);
   let characters: Array<Record<string, unknown>>;
-  if (plan.framing === "speaker-closeup") characters = [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
-  else if (plan.framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
+  if (framing === "speaker-closeup") characters = [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
+  else if (framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
 
   // Avoid stacking an already-large closeup with a second large zoom. A small
   // 2.5% push is enough to create emphasis without making the actor jump size.
   const camera = cameraFor(plan.camera_motion ?? "static");
 
+  const compiled = {
+    background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
+    camera,
+    characters,
+    shot: { framing },
+  };
+
   return {
-    compiled: {
-      background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
-      camera,
-      characters,
-    },
+    compiled: applyDirection(compiled, directionFromPlan(plan)),
     warnings,
   };
 }
@@ -209,30 +277,34 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
   const speakerChar = baseCharacter(roster.characters, speaker, true, pick(script.emotion, EMOTIONS, "neutral"), gesture, "auto", baseOffset);
   const listenerChar = listener ? baseCharacter(roster.characters, listener, false, "neutral", "idle", "auto", baseOffset + 17) : null;
   const environment = fallbackEnvironment(script, previousEnvironment);
+  const direction = directionFromText(script);
   const beat = script.scene_index % 7;
 
   if (beat === 2) {
-    return {
+    return applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "zoom", from: 1, to: 1.018 },
       characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
-    };
+      shot: { framing: "speaker-closeup" },
+    }, direction);
   }
   if (beat === 5 && listenerChar) {
-    return {
+    return applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "static" },
       characters: [
         { ...speakerChar, x: 230, y: 385, scale: 0.96 },
         { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
-    };
+      shot: { framing: "two-shot" },
+    }, direction);
   }
-  return {
+  return applyDirection({
     background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
-  };
+    shot: { framing: "two-shot" },
+  }, direction);
 }
 
 function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: number): Record<string, unknown> {
@@ -257,11 +329,95 @@ function environmentFromCompiled(compiled: Record<string, unknown>): Environment
   return validBackground(location, variant) ? { location, variant } : undefined;
 }
 
+function compiledSceneKey(compiled: Record<string, unknown>): string | null {
+  const rawBackground = compiled.background;
+  if (!rawBackground || typeof rawBackground !== "object" || Array.isArray(rawBackground)) return null;
+  const background = rawBackground as Record<string, unknown>;
+  const location = typeof background.location === "string" ? background.location : "";
+  const variant = typeof background.variant === "string" ? background.variant : "";
+  if (!location || !variant) return null;
+
+  const rawShot = compiled.shot;
+  const shot = rawShot && typeof rawShot === "object" && !Array.isArray(rawShot)
+    ? rawShot as Record<string, unknown>
+    : {};
+  const framing = typeof shot.framing === "string" ? shot.framing : "legacy";
+  return `${location}/${variant}/${framing}`;
+}
+
+function visualEventType(compiled: Record<string, unknown>): string {
+  const raw = compiled.visualEvent;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "none";
+  const value = (raw as Record<string, unknown>).type;
+  return typeof value === "string" ? value : "none";
+}
+
+function assertNoTemplateBoredom(entries: CompiledEntry[]): void {
+  let streakKey: string | null = null;
+  let streakStart = 0;
+  let streakLength = 0;
+
+  for (const entry of entries) {
+    const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
+    const key = visualEventType(compiled) === "none" ? compiledSceneKey(compiled) : null;
+    if (!key) {
+      streakKey = null;
+      streakLength = 0;
+      continue;
+    }
+    if (key === streakKey) {
+      streakLength += 1;
+    } else {
+      streakKey = key;
+      streakStart = entry.scene_index;
+      streakLength = 1;
+    }
+    if (streakLength > MAX_STATIC_REPEAT) {
+      throw new Error(
+        `cartoon_scene_compiler rejected repetitive staging: scenes ${streakStart}-${entry.scene_index} repeat ${key} without visual_event; vary background, framing, or add a visual_event`,
+      );
+    }
+  }
+}
+
+function requiresV3ScriptContract(scriptArtifact: unknown): boolean {
+  const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
+  return producedBy?.transformation === "dialogue_script_writer"
+    && typeof producedBy.version === "string"
+    && Number.parseInt(producedBy.version, 10) >= 3;
+}
+
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function assertV3ScriptContract(scenes: ScriptScene[]): void {
+  if (!scenes.length) return;
+  const ordered = scenes.slice().sort((a, b) => a.scene_index - b.scene_index);
+  const estimatedDurationSec = ordered.reduce((sum, scene) => sum + wordCount(scene.narration), 0) / WORDS_PER_SECOND;
+  const pointLines = ordered.map((scene) => (scene.point ?? "").toLowerCase());
+  const finalPoint = pointLines[pointLines.length - 1] ?? "";
+
+  if (!/(payoff|resolve|resolution|return|opening|final|lands|closes)/.test(finalPoint)) {
+    throw new Error("dialogue_script_writer@3 contract violated: final scene point must mark a payoff/resolution of the opening situation");
+  }
+
+  if (estimatedDurationSec < LONG_SCRIPT_SECONDS) return;
+
+  if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal)/.test(point))) {
+    throw new Error("dialogue_script_writer@3 contract violated: long scripts must include a midpoint turn/reframe point");
+  }
+  const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun)/.test(point)).length;
+  if (engagementCount < 2) {
+    throw new Error("dialogue_script_writer@3 contract violated: long scripts must include at least two engagement beats in scene points");
+  }
+}
+
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "4",
+    version: "5",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -274,11 +430,12 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       const scriptScenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const roster = inputs["cast"]!.payload as CastRoster;
       if (!Array.isArray(roster.characters) || roster.characters.length === 0) throw new Error("cartoon_scene_compiler requires a non-empty cast roster");
+      if (requiresV3ScriptContract(inputs["script"])) assertV3ScriptContract(scriptScenes);
       const planByIndex = new Map(planScenes.map((scene) => [scene.scene_index, scene]));
       if (planByIndex.size !== planScenes.length) throw new Error("cartoon visual plan contains duplicate scene_index values");
 
       let previousEnvironment: Environment | undefined;
-      const entries = scriptScenes.slice().sort((a, b) => a.scene_index - b.scene_index).map((scriptScene) => {
+      const entries: CompiledEntry[] = scriptScenes.slice().sort((a, b) => a.scene_index - b.scene_index).map((scriptScene) => {
         const plan = planByIndex.get(scriptScene.scene_index);
         let compiled: Record<string, unknown>;
 
@@ -295,7 +452,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
           else {
             const legacy = legacyObject(plan);
             if (legacy) {
-              compiled = legacy;
+              compiled = applyDirection(legacy, directionFromText(scriptScene));
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
               compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
@@ -311,6 +468,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
         return { scene_index: scriptScene.scene_index, source: "template" as const, template_category: "cartoon", template_data: JSON.stringify(compiled) };
       });
 
+      assertNoTemplateBoredom(entries);
       return { payload: { scenes: entries, degraded_count: 0 }, blobs: [] };
     },
   };
