@@ -87,7 +87,7 @@ test("missing legacy plan scenes synthesize varied staging and non-repeating mot
   const script = await putScript(h, [
     { scene_index: 0, point: "setup", narration: "Why does this happen?", speaker: "host", emotion: "neutral" },
     { scene_index: 1, point: "reaction", narration: "That meeting invite ruined my morning.", speaker: "buddy", emotion: "surprised" },
-    { scene_index: 2, point: "reveal", narration: "And I had not even opened it.", speaker: "host", emotion: "concerned" },
+    { scene_index: 2, point: "reveal", narration: "And I had not even opened it.", speaker: "host", emotion: "scared" },
   ]);
 
   const out = await h.runner.run(makeCartoonSceneCompilerWorker(), [plan.artifact_id, script.artifact_id, h.cast.artifact_id]);
