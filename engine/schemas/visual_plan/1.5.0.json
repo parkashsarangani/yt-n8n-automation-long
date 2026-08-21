@@ -1,0 +1,47 @@
+{
+  "schema_id": "visual_plan",
+  "version": "1.5.0",
+  "status": "draft",
+  "description": "Cartoon-safe visual planning contract. New cartoon plans use shallow scalar direction fields that Anthropic structured output can enforce without nested renderer JSON. Legacy fields remain readable for compatibility, while Remotion props are compiled deterministically downstream.",
+  "produced_by": ["cartoon_visual_planner"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CartoonVisualPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["scenes"],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scene_index", "template_category"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "template_category": { "type": "string", "enum": ["cartoon"] },
+            "background_location": { "type": "string", "enum": ["bedroom", "cafe", "classroom", "generic-room", "hospital-room", "kitchen", "living-room", "office", "park", "school-hallway", "street"] },
+            "background_variant": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "background_tone": { "type": "string", "enum": ["neutral", "scary", "happy", "dramatic", "cold", "warm"] },
+            "framing": { "type": "string", "enum": ["two-shot", "speaker-closeup", "listener-closeup"] },
+            "camera_motion": { "type": "string", "enum": ["static", "push-in", "pull-out", "pan-left", "pan-right"] },
+            "listener_actor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 40 },
+            "speaker_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "speaker_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "speaker_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "listener_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "listener_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "listener_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "visual_style": { "type": "string", "maxLength": 120 },
+            "template_data": { "type": "string", "maxLength": 12000, "description": "Legacy compatibility only. New cartoon planner output must omit this field." },
+            "search_terms": { "type": "array", "maxItems": 6, "items": { "type": "string", "maxLength": 120 } },
+            "fallback_terms": { "type": "array", "maxItems": 4, "items": { "type": "string", "maxLength": 120 } }
+          }
+        }
+      },
+      "house_style": { "type": "string", "maxLength": 300 }
+    }
+  }
+}

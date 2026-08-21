@@ -4,6 +4,7 @@
   "version": "2",
   "consumes": [{ "schema_id": "script", "range": "^1", "as": "script" }],
   "produces": "visual_plan",
+  "produces_version": "1.3.0",
   "prompt": "visual_planner@2",
   "model": {
     "capability": "reasoning_fast",
