@@ -15,6 +15,10 @@ interface PlanScene {
   listener_emotion?: string;
   listener_gesture?: string;
   listener_gaze_target?: string;
+  visual_event?: string;
+  ambient_motion?: string;
+  speaker_emphasis?: string;
+  cutaway_label?: string;
   template_data?: string;
 }
 
@@ -22,6 +26,7 @@ interface ScriptScene { scene_index: number; narration: string; speaker?: string
 interface CastCharacter { character_id: string; name?: string; rig: string; }
 interface CastRoster { characters: CastCharacter[]; }
 interface Environment { location: string; variant: string; }
+interface DirectionPrimitives { visualEvent: string; ambientMotion: string; speakerEmphasis: string; cutawayLabel: string; }
 interface ShallowCompileResult {
   compiled: Record<string, unknown> | null;
   reason?: string;
@@ -39,12 +44,21 @@ const EMOTIONS = new Set(["neutral", "happy", "amused", "skeptical", "confused",
 const GESTURES = new Set(["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"]);
 const GAZES = new Set(["auto", "camera", "left", "right", "up", "down", "away"]);
 const TONES = new Set(["neutral", "scary", "happy", "dramatic", "cold", "warm"]);
+const VISUAL_EVENTS = new Set(["none", "alarm-pulse", "screen-change", "audience-silhouette", "metaphor-cutaway", "prop-tremble", "thought-bubble", "reaction-pop", "callback-card"]);
+const AMBIENT_MOTIONS = new Set(["none", "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle", "clock-tick", "rain-window", "dust-float"]);
+const SPEAKER_EMPHASIS = new Set(["none", "scale-pop", "rim-glow", "listener-dim", "caption-anchor"]);
 
 const CLOSEUP_SCALE = 1.28;
 const PUSH_IN_SCALE = 1.025;
 
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
+}
+
+function cleanLabel(value: unknown): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, 80)
+    : "";
 }
 
 // Character emotion and environment lighting are separate directions. A person
@@ -106,6 +120,48 @@ function sideFor(cast: CastCharacter[], actorId: string): "left" | "right" {
 function baseCharacter(cast: CastCharacter[], actor: CastCharacter, isSpeaking: boolean, emotion: string, gesture: string, gazeTarget: string, motionOffsetFrames: number) {
   const side = sideFor(cast, actor.character_id);
   return { actorId: actor.character_id, characterId: actor.rig, x: side === "left" ? 280 : 1100, y: 380, scale: 1, isSpeaking, emotion, gesture, gazeTarget, motionOffsetFrames };
+}
+
+function directionFromPlan(plan: PlanScene): DirectionPrimitives {
+  const visualEvent = pick(plan.visual_event, VISUAL_EVENTS, "none");
+  return {
+    visualEvent,
+    ambientMotion: pick(plan.ambient_motion, AMBIENT_MOTIONS, "subtle-parallax"),
+    speakerEmphasis: pick(plan.speaker_emphasis, SPEAKER_EMPHASIS, "scale-pop"),
+    cutawayLabel: ["metaphor-cutaway", "thought-bubble", "callback-card"].includes(visualEvent)
+      ? cleanLabel(plan.cutaway_label)
+      : "",
+  };
+}
+
+function directionFromText(script: ScriptScene): DirectionPrimitives {
+  const text = script.narration.toLowerCase();
+  if (/\b(?:present|presentation|audience|stage|speech|speaking|meeting|watched|room)\b/.test(text)) {
+    return { visualEvent: "audience-silhouette", ambientMotion: "monitor-glow", speakerEmphasis: "listener-dim", cutawayLabel: "" };
+  }
+  if (/\b(?:alarm|panic|danger|threat|scared|fear|afraid|nervous)\b/.test(text)) {
+    return { visualEvent: "alarm-pulse", ambientMotion: "subtle-parallax", speakerEmphasis: "rim-glow", cutawayLabel: "" };
+  }
+  if (/\b(?:wolf|predator|hunted|ancient|cave|caveman|brain)\b/.test(text)) {
+    return { visualEvent: "metaphor-cutaway", ambientMotion: "dust-float", speakerEmphasis: "scale-pop", cutawayLabel: "ANCIENT ALARM" };
+  }
+  if (/\b(?:phone|screen|text|message|email|notification|chart|slide)\b/.test(text)) {
+    return { visualEvent: "screen-change", ambientMotion: "monitor-glow", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+  }
+  return { visualEvent: "none", ambientMotion: "subtle-parallax", speakerEmphasis: "scale-pop", cutawayLabel: "" };
+}
+
+function applyDirection(compiled: Record<string, unknown>, direction: DirectionPrimitives): Record<string, unknown> {
+  const rawBackground = compiled.background;
+  const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
+    ? { ...(rawBackground as Record<string, unknown>), ambientMotion: direction.ambientMotion }
+    : rawBackground;
+  return {
+    ...compiled,
+    background,
+    visualEvent: { type: direction.visualEvent, label: direction.cutawayLabel },
+    speakerEmphasis: direction.speakerEmphasis,
+  };
 }
 
 function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRoster): ShallowCompileResult {
@@ -172,12 +228,14 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   // 2.5% push is enough to create emphasis without making the actor jump size.
   const camera = cameraFor(plan.camera_motion ?? "static");
 
+  const compiled = {
+    background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
+    camera,
+    characters,
+  };
+
   return {
-    compiled: {
-      background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
-      camera,
-      characters,
-    },
+    compiled: applyDirection(compiled, directionFromPlan(plan)),
     warnings,
   };
 }
@@ -209,30 +267,31 @@ function deterministicFallback(script: ScriptScene, roster: CastRoster, previous
   const speakerChar = baseCharacter(roster.characters, speaker, true, pick(script.emotion, EMOTIONS, "neutral"), gesture, "auto", baseOffset);
   const listenerChar = listener ? baseCharacter(roster.characters, listener, false, "neutral", "idle", "auto", baseOffset + 17) : null;
   const environment = fallbackEnvironment(script, previousEnvironment);
+  const direction = directionFromText(script);
   const beat = script.scene_index % 7;
 
   if (beat === 2) {
-    return {
+    return applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "zoom", from: 1, to: 1.018 },
       characters: [{ ...speakerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }],
-    };
+    }, direction);
   }
   if (beat === 5 && listenerChar) {
-    return {
+    return applyDirection({
       background: { ...environment, tone: defaultTone() },
       camera: { type: "static" },
       characters: [
         { ...speakerChar, x: 230, y: 385, scale: 0.96 },
         { ...listenerChar, x: 1060, y: 365, scale: 1.08 },
       ],
-    };
+    }, direction);
   }
-  return {
+  return applyDirection({
     background: { ...environment, tone: defaultTone() },
     camera: { type: "static" },
     characters: listenerChar ? [speakerChar, listenerChar] : [speakerChar],
-  };
+  }, direction);
 }
 
 function ensureMotionOffsets(compiled: Record<string, unknown>, sceneIndex: number): Record<string, unknown> {
@@ -261,9 +320,9 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "4",
+    version: "5",
     consumes: [
-      { schema_id: "visual_plan", range: "^1", as: "plan" },
+      { schema_id: "visual_plan", "range": "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "cast_roster", range: "^1", as: "cast" },
     ],
@@ -295,7 +354,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
           else {
             const legacy = legacyObject(plan);
             if (legacy) {
-              compiled = legacy;
+              compiled = applyDirection(legacy, directionFromText(scriptScene));
               ctx.logger.warn(`[cartoon_scene_compiler] scene ${scriptScene.scene_index}: using legacy template_data compatibility path`);
             } else {
               compiled = deterministicFallback(scriptScene, roster, previousEnvironment);
