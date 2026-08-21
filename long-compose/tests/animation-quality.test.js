@@ -70,14 +70,20 @@ test("conversation direction respects semantic gaze before auto eye contact", ()
   assert.match(sceneSource, /seenActorIds\.has\(actorId\)/);
 });
 
-test("active speaker treatment makes two-shot dialogue readable", () => {
+test("active speaker treatment gives every emphasis mode a distinct rendering path", () => {
   assert.match(characterSource, /emphasis\?: CharacterEmphasis/);
   assert.match(characterSource, /dimmed\?: boolean/);
   assert.match(characterSource, /activePulseScale/);
   assert.match(characterSource, /drop-shadow\(0 0 18px/);
+  assert.match(characterSource, /"caption-anchor"/);
+  assert.match(characterSource, /rgba\(255,221,76,0\.96\)/);
+
   assert.match(sceneSource, /speakerEmphasis\?: SpeakerEmphasis/);
-  assert.match(sceneSource, /characterEmphasisFor/);
-  assert.match(sceneSource, /dimListeners/);
+  assert.match(sceneSource, /case "listener-dim"/);
+  assert.match(sceneSource, /case "caption-anchor"/);
+  assert.match(sceneSource, /speakerEmphasis === "listener-dim"/);
+  assert.match(sceneSource, /useMemo/);
+  assert.match(sceneSource, /withConversationDirection\(characters, speakerEmphasis\)/);
 });
 
 test("cartoon backgrounds expose deterministic ambient motion", () => {
@@ -90,6 +96,14 @@ test("cartoon backgrounds expose deterministic ambient motion", () => {
   assert.match(backgroundSource, /ambientOffset/);
   assert.match(backgroundSource, /AmbientOverlay/);
   assert.match(backgroundSource, /useCurrentFrame/);
+  assert.match(backgroundSource, /AmbientFrameMath/);
+  assert.equal((backgroundSource.match(/Math\.sin\(frame \/ 95\)/g) ?? []).length, 1);
+  assert.equal((backgroundSource.match(/Math\.cos\(frame \/ 131\)/g) ?? []).length, 1);
+});
+
+test("cartoon direction dispatches are exhaustive", () => {
+  assert.match(sceneSource, /assertNever\(type\)/);
+  assert.match(backgroundSource, /assertNever\(ambient\)/);
 });
 
 test("cartoon visual events render deterministic overlays", () => {
