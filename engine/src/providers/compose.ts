@@ -54,7 +54,23 @@ interface ThumbnailResponse {
   error?: string;
 }
 
+export interface DiagnosticThumbnailResult extends ThumbnailResult {
+  /** Why supplied artwork failed when the renderer recovered with a gradient. */
+  degradation_reason?: string;
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function diagnosticText(text: string, limit = 1200): string {
+  const clean = text.trim();
+  if (clean.length <= limit) return clean;
+  // Thumbnail errors often begin with a gigantic ffmpeg command and only put
+  // the useful decoder/filter stderr at the end. Preserve both ends instead of
+  // slicing off the exact reason operators need.
+  const head = Math.min(260, Math.floor(limit * 0.25));
+  const tail = limit - head - 80;
+  return `${clean.slice(0, head)} … [${clean.length - head - tail} chars omitted] … ${clean.slice(-tail)}`;
+}
 
 export class ComposeRenderer implements MediaRenderer {
   readonly id = "long-compose";
@@ -84,7 +100,7 @@ export class ComposeRenderer implements MediaRenderer {
    * resulting `background` value, so this degradation remains visible to QA and
    * later CTR analysis instead of being silently hidden.
    */
-  async renderThumbnail(req: ThumbnailRequest): Promise<ThumbnailResult> {
+  async renderThumbnail(req: ThumbnailRequest): Promise<DiagnosticThumbnailResult> {
     try {
       return await this.renderThumbnailOnce(req, req.image);
     } catch (first) {
@@ -93,13 +109,12 @@ export class ComposeRenderer implements MediaRenderer {
       const firstMessage = first instanceof Error ? first.message : String(first);
       try {
         const result = await this.renderThumbnailOnce(req, undefined);
-        // The gradient fallback succeeded, so nothing above this point ever
-        // sees `first` — without logging it here, a scene that degrades to a
-        // gradient background is otherwise silent about *why* the supplied
-        // artwork failed to composite, which is exactly what a caller (e.g.
-        // the thumbnail worker's strict cartoon policy) needs to diagnose.
+        // The gradient fallback succeeded. Keep the original error on the
+        // returned result as well as in logs so a strict cartoon worker can
+        // surface the actual compositor failure in Studio instead of replacing
+        // it with a generic "degraded to gradient" message.
         console.warn(`[long-compose] thumbnail artwork compositing failed, degraded to gradient: ${firstMessage}`);
-        return result;
+        return { ...result, degradation_reason: firstMessage };
       } catch (second) {
         const secondMessage = second instanceof Error ? second.message : String(second);
         throw new ProviderError(
@@ -127,10 +142,8 @@ export class ComposeRenderer implements MediaRenderer {
 
     const text = await res.text();
     if (!res.ok) {
-      // Preserve enough stderr to diagnose ffmpeg failures from the engine UI.
-      // The old 300-character slice often stopped before the actual filter error.
       throw new ProviderError(
-        `thumbnail render failed (${res.status}): ${text.slice(0, 1200)}`,
+        `thumbnail render failed (${res.status}): ${diagnosticText(text)}`,
       );
     }
 
@@ -139,7 +152,7 @@ export class ComposeRenderer implements MediaRenderer {
       body = JSON.parse(text) as ThumbnailResponse;
     } catch {
       throw new ProviderError(
-        `thumbnail render returned non-JSON (${res.status}): ${text.slice(0, 1200)}`,
+        `thumbnail render returned non-JSON (${res.status}): ${diagnosticText(text)}`,
       );
     }
 

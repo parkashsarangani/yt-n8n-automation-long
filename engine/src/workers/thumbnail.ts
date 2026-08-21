@@ -26,6 +26,10 @@ interface ThumbnailBrief {
   alternatives?: string[];
 }
 
+interface ThumbnailDiagnostic {
+  degradation_reason?: string;
+}
+
 export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDef {
   return {
     name: "thumbnail",
@@ -50,12 +54,23 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       }
 
       let background: Uint8Array | undefined;
+      let backgroundMediaType: string | undefined;
       if (ctx.media.images && imagePrompt) {
         try {
           await ctx.progress({ detail: cartoon ? "generating recurring-cast thumbnail artwork" : `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
           const found = await ctx.media.images.generate({ prompt: imagePrompt, aspect: "16:9", count: 1 });
-          background = found.images[0]?.bytes;
+          const first = found.images[0];
+          background = first?.bytes;
+          backgroundMediaType = first?.media_type;
           if (!background) throw new Error("image provider returned no thumbnail image");
+          // long-compose's inline thumbnail compositor currently stores supplied
+          // bytes as a PNG temp file. Catch a provider contract mismatch here so
+          // ffmpeg never receives JPEG/WebP bytes behind a .png filename.
+          if (cartoon && backgroundMediaType !== "image/png") {
+            throw new Error(
+              `image provider returned ${backgroundMediaType ?? "an unknown media type"}; cartoon thumbnail compositor requires image/png`,
+            );
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (cartoon) {
@@ -76,8 +91,10 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       });
 
       if (cartoon && result.background !== "supplied") {
+        const reason = (result as typeof result & ThumbnailDiagnostic).degradation_reason;
         throw new Error(
-          "cartoon thumbnail compositor degraded to a gradient; refusing to publish without recurring-character artwork",
+          "cartoon thumbnail compositor degraded to a gradient; refusing to publish without recurring-character artwork" +
+          (reason ? `; compositor error: ${reason}` : ""),
         );
       }
 
