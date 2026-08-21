@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 
 test("long-compose requests a YouTube-native engagement outro instead of legacy follow copy", async () => {
-  let submitted: Record<string, unknown> | null = null;
+  const submitted: Record<string, unknown>[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
     if (url.endsWith("/compose") && init?.method === "POST") {
-      submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
+      submitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
       return new Response(JSON.stringify({ job_id: "job-1" }), { status: 200 });
     }
     if (url.endsWith("/compose-status/job-1")) {
@@ -31,7 +31,8 @@ test("long-compose requests a YouTube-native engagement outro instead of legacy 
     scenes: [{ scene_index: 0, audio: new Uint8Array([1]), audio_media_type: "audio/mpeg" }],
   });
 
-  assert.ok(submitted);
-  assert.equal(submitted!.outro_line, "What should we explain next? Subscribe.");
-  assert.doesNotMatch(String(submitted!.outro_line), /follow/i);
+  const body = submitted[0];
+  assert.ok(body);
+  assert.equal(body.outro_line, "What should we explain next? Subscribe.");
+  assert.doesNotMatch(String(body.outro_line), /follow/i);
 });
