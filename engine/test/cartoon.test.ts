@@ -63,45 +63,51 @@ const CARTOON_PLAN_PAYLOAD = {
   scenes: [
     {
       scene_index: 0,
-      search_terms: ["bedroom", "day", "cartoon interior"],
-      visual_style: "cartoon, bedroom day",
-      fallback_terms: ["bedroom", "interior"],
       template_category: "cartoon",
-      template_data: JSON.stringify({
-        background: { location: "bedroom", variant: "day", tone: "happy" },
-        camera: { type: "static" },
-        characters: [
-          { characterId: "pilot-2", x: 260, y: 380, isSpeaking: true, emotion: "surprised" },
-          { characterId: "pilot", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
-        ],
-      }),
+      background_location: "bedroom",
+      background_variant: "day",
+      background_tone: "happy",
+      framing: "two-shot",
+      camera_motion: "static",
+      listener_actor_id: "nova",
+      speaker_emotion: "surprised",
+      speaker_gesture: "hands-open",
+      speaker_gaze_target: "auto",
+      listener_emotion: "skeptical",
+      listener_gesture: "idle",
+      listener_gaze_target: "auto",
     },
     {
       scene_index: 1,
-      search_terms: ["classroom", "map", "cartoon interior"],
-      visual_style: "cartoon, classroom",
-      fallback_terms: ["classroom", "interior"],
       template_category: "cartoon",
-      template_data: JSON.stringify({
-        background: { location: "classroom", variant: "normal", tone: "neutral" },
-        camera: { type: "zoom", from: 1, to: 1.1 },
-        characters: [
-          { characterId: "pilot", x: 260, y: 380, isSpeaking: true, emotion: "neutral" },
-          { characterId: "pilot-2", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
-        ],
-      }),
+      background_location: "classroom",
+      background_variant: "normal",
+      background_tone: "neutral",
+      framing: "speaker-closeup",
+      camera_motion: "push-in",
+      listener_actor_id: "buddy",
+      speaker_emotion: "neutral",
+      speaker_gesture: "explain",
+      speaker_gaze_target: "auto",
+      listener_emotion: "thinking",
+      listener_gesture: "idle",
+      listener_gaze_target: "auto",
     },
     {
       scene_index: 2,
-      search_terms: ["street", "night", "cartoon interior"],
-      visual_style: "cartoon, punchline",
-      fallback_terms: ["street", "night"],
       template_category: "cartoon",
-      template_data: JSON.stringify({
-        background: { flat: "#2E86DE" },
-        camera: { type: "static" },
-        characters: [{ characterId: "pilot", x: 660, y: 300, scale: 1.6, isSpeaking: true, emotion: "neutral" }],
-      }),
+      background_location: "street",
+      background_variant: "night",
+      background_tone: "dramatic",
+      framing: "speaker-closeup",
+      camera_motion: "static",
+      listener_actor_id: "buddy",
+      speaker_emotion: "happy",
+      speaker_gesture: "idle",
+      speaker_gaze_target: "camera",
+      listener_emotion: "amused",
+      listener_gesture: "idle",
+      listener_gaze_target: "auto",
     },
   ],
 };
@@ -136,9 +142,6 @@ test("dialogue_script_writer produces a schema-valid multi-character script", as
 
   assert.equal(out.artifact.schema_id, "script");
   assert.equal(payload.scenes.length, 3);
-  // Every speaker must be a real cast member - this is a prompt-writing
-  // discipline the schema itself can't enforce (speaker is a free string),
-  // so pin it here as the thing that would actually break rendering.
   const knownIds = new Set(CAST_ROSTER.characters.map((c) => c.character_id));
   for (const scene of payload.scenes) {
     assert.ok(scene.speaker && knownIds.has(scene.speaker), `unknown speaker "${scene.speaker}"`);
@@ -155,14 +158,17 @@ test("cartoon_visual_planner produces a schema-valid template_category=cartoon p
   const payload = out.artifact.payload as typeof CARTOON_PLAN_PAYLOAD;
 
   assert.equal(out.artifact.schema_id, "visual_plan");
+  assert.equal(out.artifact.schema_version, "1.6.0");
+  const knownIds = new Set(CAST_ROSTER.characters.map((c) => c.character_id));
   for (const scene of payload.scenes) {
     assert.equal(scene.template_category, "cartoon");
-    const data = JSON.parse(scene.template_data) as { characters: Array<{ characterId: string }>; background: unknown };
-    assert.ok(Array.isArray(data.characters) && data.characters.length >= 1);
-    // characterId must be a real rig folder (from cast_roster.rig), not a
-    // character_id - the two are deliberately allowed to differ.
-    const rigs = new Set(CAST_ROSTER.characters.map((c) => c.rig));
-    for (const c of data.characters) assert.ok(rigs.has(c.characterId), `unknown rig "${c.characterId}"`);
+    assert.ok(knownIds.has(scene.listener_actor_id), `unknown listener "${scene.listener_actor_id}"`);
+    assert.ok(scene.background_location.length > 0);
+    assert.ok(scene.background_variant.length > 0);
+    assert.ok(scene.speaker_emotion.length > 0);
+    assert.ok(scene.listener_emotion.length > 0);
+    assert.equal("template_data" in scene, false);
+    assert.equal("search_terms" in scene, false);
   }
 });
 
@@ -182,8 +188,6 @@ test("dialogue_voice routes each scene to its speaker's voice via the cast roste
     media: { speech },
   });
 
-  // A third line from a speaker NOT in the roster - must fall back to
-  // cast_roster.default_voice_id rather than crashing the render.
   const scriptWithUnknownSpeaker = {
     scenes: [
       ...DIALOGUE_SCRIPT_PAYLOAD.scenes,
@@ -211,10 +215,10 @@ test("dialogue_voice routes each scene to its speaker's voice via the cast roste
   const payload = out.artifact.payload as { voice_id: string; clips: Array<{ scene_index: number }> };
 
   assert.equal(payload.clips.length, 4);
-  assert.equal(out.artifact.produced_by.provider, null); // a worker, not an agent
+  assert.equal(out.artifact.produced_by.provider, null);
 
   const voiceByScene = new Map(speech.calls.map((c, i) => [i, c.voice]));
-  assert.equal(voiceByScene.get(0), "voice-buddy"); // scene 0 speaker: buddy
-  assert.equal(voiceByScene.get(1), "voice-nova"); // scene 1 speaker: nova
-  assert.equal(voiceByScene.get(3), "voice-nova"); // unknown speaker -> cast_roster.default_voice_id
+  assert.equal(voiceByScene.get(0), "voice-buddy");
+  assert.equal(voiceByScene.get(1), "voice-nova");
+  assert.equal(voiceByScene.get(3), "voice-nova");
 });

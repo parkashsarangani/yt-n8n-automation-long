@@ -10,7 +10,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
 import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
-import { ProviderRouter, type CompletionRequest } from "../src/provider.ts";
+import { ProviderRouter, relaxForStructuredOutput, wrapWithConfidence, type CompletionRequest } from "../src/provider.ts";
 import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { GraphExecutor } from "../src/executor.ts";
@@ -37,6 +37,19 @@ const CAST = {
   ],
   default_voice_id: "voice-host"
 };
+
+function countOptionalObjectProperties(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countOptionalObjectProperties(item), 0);
+  if (value === null || typeof value !== "object") return 0;
+  const node = value as Record<string, unknown>;
+  let total = 0;
+  if (node.type === "object" && node.properties && typeof node.properties === "object" && !Array.isArray(node.properties)) {
+    const required = new Set(Array.isArray(node.required) ? node.required.filter((v): v is string => typeof v === "string") : []);
+    total += Object.keys(node.properties as Record<string, unknown>).filter((key) => !required.has(key)).length;
+  }
+  for (const nested of Object.values(node)) total += countOptionalObjectProperties(nested);
+  return total;
+}
 
 test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
@@ -101,18 +114,13 @@ test("visual_plan separates deterministic cartoon templates from legacy media-se
     ],
   };
 
-  // Cartoon/template scenes must not fabricate stock-search metadata.
   assert.doesNotThrow(() => registry.validate("visual_plan", "1.3.0", cartoonPlan));
-
-  // A declared template still needs its render props.
   assert.throws(
     () => registry.validate("visual_plan", "1.3.0", {
       scenes: [{ scene_index: 0, template_category: "cartoon" }],
     }),
     /visual_plan@1.3.0/,
   );
-
-  // Historical non-template artifacts keep their full media-search contract.
   assert.doesNotThrow(
     () => registry.validate("visual_plan", "1.3.0", {
       scenes: [{
@@ -129,6 +137,26 @@ test("visual_plan separates deterministic cartoon templates from legacy media-se
     }),
     /visual_plan@1.3.0/,
   );
+});
+
+test("cartoon visual-plan schema keeps Anthropic structured output low-complexity", async () => {
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const schema = registry.jsonSchema("visual_plan", "1.6.0") as Record<string, unknown>;
+  const wrapped = wrapWithConfidence(schema, ["concreteness", "variety"]);
+  const projected = relaxForStructuredOutput(wrapped);
+
+  assert.ok(
+    countOptionalObjectProperties(projected) <= 4,
+    `cartoon planner structured-output schema has too many optional object properties: ${countOptionalObjectProperties(projected)}`,
+  );
+
+  const scenes = (schema.properties as Record<string, unknown>).scenes as Record<string, unknown>;
+  const scene = scenes.items as { required?: string[]; properties?: Record<string, unknown> };
+  assert.equal(scene.required?.length, 14);
+  for (const legacy of ["template_data", "search_terms", "fallback_terms", "visual_style"]) {
+    assert.equal(legacy in (scene.properties ?? {}), false, `${legacy} must stay out of the model-facing cartoon schema`);
+  }
+  assert.equal("house_style" in (schema.properties as Record<string, unknown>), false);
 });
 
 test("scheduled cast loader survives the real producer allowlist/store boundary", async () => {
@@ -165,15 +193,6 @@ test("scheduled cast loader survives the real producer allowlist/store boundary"
   }
 });
 
-// The rest of this file checks the shipped graph's shape and individual
-// transformations in isolation. Neither catches a wiring regression that
-// still passes static validation - a QA-gate predicate typo, a broken node
-// input mapping, a schema drift between one agent's producer and the next
-// one's consumer. This runs the actual shipped skeleton.json end to end
-// through the real Runner/GraphExecutor with fake providers (zero cost, zero
-// network) - the same guarantee a deleted executor.test.ts case used to give
-// before the production graph moved to cartoon-only and that test's synthetic
-// replacement stopped exercising it.
 test("the shipped production graph runs unattended end to end with fake providers", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "cartoon-e2e-cast-"));
   const castFile = path.join(dir, "cast.json");
@@ -208,15 +227,19 @@ test("the shipped production graph runs unattended end to end with fake provider
   const VISUAL_PLAN = {
     scenes: [0, 1].map((i) => ({
       scene_index: i,
-      search_terms: ["school hallway", "lockers", "cartoon interior"],
-      visual_style: "cartoon, school hallway",
-      fallback_terms: ["hallway", "lockers"],
       template_category: "cartoon",
-      template_data: JSON.stringify({
-        background: { location: "school-hallway", variant: "normal", tone: "neutral" },
-        camera: { type: "static" },
-        characters: [{ characterId: "pilot", x: 660, y: 380, isSpeaking: true }],
-      }),
+      background_location: "school-hallway",
+      background_variant: "normal",
+      background_tone: "neutral",
+      framing: i === 0 ? "two-shot" : "speaker-closeup",
+      camera_motion: i === 0 ? "static" : "push-in",
+      listener_actor_id: "host",
+      speaker_emotion: i === 0 ? "neutral" : "surprised",
+      speaker_gesture: i === 0 ? "idle" : "explain",
+      speaker_gaze_target: "auto",
+      listener_emotion: "neutral",
+      listener_gesture: "idle",
+      listener_gaze_target: "auto",
     })),
   };
   const SEO = {
@@ -243,8 +266,6 @@ test("the shipped production graph runs unattended end to end with fake provider
   const INSIGHTS = { sample_size: 0, confidence_note: "Nothing measured yet; no guidance can be supported.", guidance: [] };
 
   const provider = new FakeProvider((req: CompletionRequest) => {
-    // outputSchema is wrapWithConfidence's wrapper - the original artifact
-    // schema (and its title) is nested at properties.payload, not the top level.
     const schema = req.outputSchema as { properties?: { payload?: { title?: string } } };
     const title = schema.properties?.payload?.title ?? "";
     if (title.includes("ChannelInsights")) return { payload: INSIGHTS, confidence: { overall: 0.9 } };
@@ -295,8 +316,6 @@ test("the shipped production graph runs unattended end to end with fake provider
     });
 
     assert.deepEqual(result.failures, [], `unexpected node failures: ${JSON.stringify(result.failures)}`);
-    // Both gates in skeleton.json use auto_pass_if: "always" - neither should
-    // still be parked waiting for a human once the run settles.
     assert.deepEqual(
       result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
       [],
@@ -304,9 +323,6 @@ test("the shipped production graph runs unattended end to end with fake provider
     for (const nodeId of ["story", "script", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
       assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
     }
-    // approve_publish gates on the real QA verdict, so the run may legitimately
-    // park there rather than publish - "blocked" (an actual node failure) is
-    // the only outcome this test treats as wrong.
     assert.notEqual(result.status, "blocked");
   } finally {
     if (old === undefined) delete process.env["CARTOON_CAST_PATH"];

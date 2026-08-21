@@ -363,3 +363,39 @@ test("compose renderer gives up rather than polling forever", async () => {
     ProviderError,
   );
 });
+
+test("compose renderer logs why supplied thumbnail artwork degraded to a gradient", async () => {
+  // The first /thumbnail call (with real artwork) fails; the retry without
+  // artwork succeeds. Nothing about that first failure is otherwise visible
+  // to a caller — the returned result just says background: "gradient" —
+  // so this only reaches the operator through the console.warn.
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { image_base64: string | null };
+    if (body.image_base64) {
+      return new Response(JSON.stringify({ success: false, error: "ffmpeg: unsupported pixel format" }), {
+        status: 500,
+      });
+    }
+    return new Response(
+      JSON.stringify({ success: true, image_base64: "AAAA", media_type: "image/png", background: "gradient" }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch;
+
+  const renderer = new ComposeRenderer({ baseUrl: "https://compose.example", fetchImpl });
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (msg: string) => void warnings.push(msg);
+  try {
+    const result = await renderer.renderThumbnail({ image: new Uint8Array([1, 2, 3]), text: "IT HUMS" });
+    assert.equal(result.background, "gradient");
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.ok(
+    warnings.some((w) => w.includes("degraded to gradient") && w.includes("ffmpeg: unsupported pixel format")),
+    `expected a warning naming the swallowed failure, got: ${JSON.stringify(warnings)}`,
+  );
+});
