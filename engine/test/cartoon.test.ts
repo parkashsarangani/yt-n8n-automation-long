@@ -71,8 +71,8 @@ const CARTOON_PLAN_PAYLOAD = {
         background: { location: "bedroom", variant: "day", tone: "happy" },
         camera: { type: "static" },
         characters: [
-          { characterId: "pilot-2", x: 260, y: 380, isSpeaking: true, expression: "surprised" },
-          { characterId: "pilot", x: 1100, y: 380, isSpeaking: false, expression: "normal" },
+          { characterId: "pilot-2", x: 260, y: 380, isSpeaking: true, emotion: "surprised" },
+          { characterId: "pilot", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
         ],
       },
     },
@@ -86,8 +86,8 @@ const CARTOON_PLAN_PAYLOAD = {
         background: { location: "classroom", variant: "normal", tone: "neutral" },
         camera: { type: "zoom", from: 1, to: 1.1 },
         characters: [
-          { characterId: "pilot", x: 260, y: 380, isSpeaking: true, expression: "normal" },
-          { characterId: "pilot-2", x: 1100, y: 380, isSpeaking: false, expression: "normal" },
+          { characterId: "pilot", x: 260, y: 380, isSpeaking: true, emotion: "neutral" },
+          { characterId: "pilot-2", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
         ],
       },
     },
@@ -100,7 +100,7 @@ const CARTOON_PLAN_PAYLOAD = {
       template_props: {
         background: { flat: "#2E86DE" },
         camera: { type: "static" },
-        characters: [{ characterId: "pilot", x: 660, y: 300, scale: 1.6, isSpeaking: true, expression: "normal" }],
+        characters: [{ characterId: "pilot", x: 660, y: 300, scale: 1.6, isSpeaking: true, emotion: "neutral" }],
       },
     },
   ],

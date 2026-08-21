@@ -91,14 +91,25 @@
               "properties": {
                 "background": {
                   "type": "object",
-                  "description": "Either a named location/variant/tone, or a flat color for a punchline/reaction beat."
+                  "additionalProperties": false,
+                  "description": "Either a named location/variant/tone, or a flat color for a punchline/reaction beat.",
+                  "properties": {
+                    "location": { "type": "string" },
+                    "variant": { "type": "string" },
+                    "tone": { "type": "string" },
+                    "flat": { "type": "string" }
+                  }
                 },
                 "camera": {
                   "type": "object",
-                  "additionalProperties": true,
-                  "description": "Camera behavior: static (default), zoom (from/to), or pan (panFrom/panTo).",
+                  "additionalProperties": false,
+                  "description": "Camera behavior: static (default, type only), zoom (from/to), or pan (panFrom/panTo).",
                   "properties": {
-                    "type": { "type": "string" }
+                    "type": { "type": "string" },
+                    "from": { "type": "number" },
+                    "to": { "type": "number" },
+                    "panFrom": { "type": "number" },
+                    "panTo": { "type": "number" }
                   }
                 },
                 "characters": {
@@ -107,7 +118,7 @@
                   "maxItems": 4,
                   "items": {
                     "type": "object",
-                    "additionalProperties": true,
+                    "additionalProperties": false,
                     "required": ["characterId", "x", "y"],
                     "properties": {
                       "actorId": { "type": "string" },
