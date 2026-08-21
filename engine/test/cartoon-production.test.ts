@@ -77,14 +77,14 @@ test("cartoon thumbnail brief schema requires artwork separate from compositor t
 
 test("visual_plan separates deterministic cartoon templates from legacy media-search scenes", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  assert.equal(registry.resolveVersion("visual_plan"), "1.4.0");
+  assert.equal(registry.resolveVersion("visual_plan"), "1.3.0");
 
   const cartoonPlan = {
     scenes: [
       {
         scene_index: 0,
         template_category: "cartoon",
-        template_props: {
+        template_data: JSON.stringify({
           background: { flat: "#24364B" },
           camera: { type: "static" },
           characters: [
@@ -96,39 +96,25 @@ test("visual_plan separates deterministic cartoon templates from legacy media-se
               isSpeaking: true,
             },
           ],
-        },
+        }),
       },
     ],
   };
 
   // Cartoon/template scenes must not fabricate stock-search metadata.
-  assert.doesNotThrow(() => registry.validate("visual_plan", "1.4.0", cartoonPlan));
+  assert.doesNotThrow(() => registry.validate("visual_plan", "1.3.0", cartoonPlan));
 
   // A declared template still needs its render props.
   assert.throws(
-    () => registry.validate("visual_plan", "1.4.0", {
+    () => registry.validate("visual_plan", "1.3.0", {
       scenes: [{ scene_index: 0, template_category: "cartoon" }],
     }),
-    /visual_plan@1.4.0/,
-  );
-
-  // A hand-escaped template_data string no longer satisfies a cartoon scene -
-  // this is the exact shape of the bug the native template_props object fixes:
-  // any string, however malformed inside, used to pass schema validation.
-  assert.throws(
-    () => registry.validate("visual_plan", "1.4.0", {
-      scenes: [{
-        scene_index: 0,
-        template_category: "cartoon",
-        template_data: "{}",
-      }],
-    }),
-    /visual_plan@1.4.0/,
+    /visual_plan@1.3.0/,
   );
 
   // Historical non-template artifacts keep their full media-search contract.
   assert.doesNotThrow(
-    () => registry.validate("visual_plan", "1.4.0", {
+    () => registry.validate("visual_plan", "1.3.0", {
       scenes: [{
         scene_index: 0,
         search_terms: ["old library", "dusty shelves", "reading room"],
@@ -138,10 +124,10 @@ test("visual_plan separates deterministic cartoon templates from legacy media-se
     }),
   );
   assert.throws(
-    () => registry.validate("visual_plan", "1.4.0", {
+    () => registry.validate("visual_plan", "1.3.0", {
       scenes: [{ scene_index: 0 }],
     }),
-    /visual_plan@1.4.0/,
+    /visual_plan@1.3.0/,
   );
 });
 
@@ -226,11 +212,11 @@ test("the shipped production graph runs unattended end to end with fake provider
       visual_style: "cartoon, school hallway",
       fallback_terms: ["hallway", "lockers"],
       template_category: "cartoon",
-      template_props: {
+      template_data: JSON.stringify({
         background: { location: "school-hallway", variant: "normal", tone: "neutral" },
         camera: { type: "static" },
         characters: [{ characterId: "pilot", x: 660, y: 380, isSpeaking: true }],
-      },
+      }),
     })),
   };
   const SEO = {

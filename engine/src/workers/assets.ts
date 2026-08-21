@@ -2,10 +2,9 @@
  * Asset collector worker: visual_plan -> asset_manifest.
  *
  * Cartoon/template scenes are render instructions, not media-search requests.
- * Their render props (template_props for cartoon, template_data for the 7
- * motion-graphics templates) are validated at this boundary and passed through
- * without spending on an image provider. Legacy non-template scenes retain the
- * old media fallback ladder for historical/manual artifacts.
+ * Their template_data is validated at this boundary and passed through without
+ * spending on an image provider. Legacy non-template scenes retain the old
+ * media fallback ladder for historical/manual artifacts.
  */
 
 import type { BlobRef } from "../artifact.ts";
@@ -27,7 +26,6 @@ interface PlanScene {
   fallback_terms: string[];
   template_category?: string;
   template_data?: string;
-  template_props?: Record<string, unknown>;
 }
 
 const DEFAULT_PREFIX = "";
@@ -37,10 +35,6 @@ export function buildPrompt(terms: string[], _style: string, _prefix = DEFAULT_P
 }
 
 function parseTemplateData(scene: PlanScene): Record<string, unknown> {
-  if (scene.template_category === "cartoon") {
-    return validateCartoonProps(scene);
-  }
-
   if (!scene.template_data?.trim()) {
     throw new Error(
       `scene ${scene.scene_index}: template_category="${scene.template_category}" requires template_data`,
@@ -60,59 +54,44 @@ function parseTemplateData(scene: PlanScene): Record<string, unknown> {
     throw new Error(`scene ${scene.scene_index}: template_data must decode to a JSON object`);
   }
 
+  if (scene.template_category === "cartoon") {
+    const data = parsed as {
+      background?: unknown;
+      characters?: Array<{ characterId?: unknown; x?: unknown; y?: unknown; scale?: unknown; isSpeaking?: unknown }>;
+    };
+    if (!data.background || typeof data.background !== "object") {
+      throw new Error(`scene ${scene.scene_index}: cartoon template_data requires background`);
+    }
+    if (!Array.isArray(data.characters) || data.characters.length === 0) {
+      throw new Error(`scene ${scene.scene_index}: cartoon template_data requires at least one character`);
+    }
+    if (data.characters.length > 4) {
+      throw new Error(`scene ${scene.scene_index}: cartoon scene has ${data.characters.length} characters; maximum is 4`);
+    }
+    for (const [i, c] of data.characters.entries()) {
+      if (!c || typeof c.characterId !== "string" || !c.characterId.trim()) {
+        throw new Error(`scene ${scene.scene_index}: character ${i} has no characterId/rig`);
+      }
+      // typeof must be checked before Number(...): Number(null) and Number("")
+      // both coerce to 0 (finite), which would silently accept a missing/blank
+      // coordinate as "0" instead of rejecting it as the validation intends.
+      if (typeof c.x !== "number" || !Number.isFinite(c.x) || typeof c.y !== "number" || !Number.isFinite(c.y)) {
+        throw new Error(`scene ${scene.scene_index}: character ${i} needs numeric x/y staging coordinates`);
+      }
+      if (c.scale !== undefined) {
+        const scale = Number(c.scale);
+        if (!Number.isFinite(scale) || scale < 0.35 || scale > 2.5) {
+          throw new Error(`scene ${scene.scene_index}: character ${i} scale ${String(c.scale)} is outside 0.35..2.5`);
+        }
+      }
+    }
+    const speakers = data.characters.filter((c) => c.isSpeaking === true).length;
+    if (speakers > 1) {
+      throw new Error(`scene ${scene.scene_index}: ${speakers} characters are marked isSpeaking; one dialogue line may have at most one active speaker`);
+    }
+  }
+
   return parsed as Record<string, unknown>;
-}
-
-/**
- * Cartoon scenes carry their render props as a native `template_props` object
- * (visual_plan@1.4.0+) rather than a hand-escaped JSON string in
- * `template_data`. Structured-output providers enforce object/array shape at
- * generation time, so this field can't arrive malformed the way a string
- * field could - the schema itself is the first line of defense here.
- */
-function validateCartoonProps(scene: PlanScene): Record<string, unknown> {
-  const data = scene.template_props as
-    | {
-        background?: unknown;
-        characters?: Array<{ characterId?: unknown; x?: unknown; y?: unknown; scale?: unknown; isSpeaking?: unknown }>;
-      }
-    | undefined;
-
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`scene ${scene.scene_index}: template_category="cartoon" requires template_props`);
-  }
-  if (!data.background || typeof data.background !== "object") {
-    throw new Error(`scene ${scene.scene_index}: cartoon template_props requires background`);
-  }
-  if (!Array.isArray(data.characters) || data.characters.length === 0) {
-    throw new Error(`scene ${scene.scene_index}: cartoon template_props requires at least one character`);
-  }
-  if (data.characters.length > 4) {
-    throw new Error(`scene ${scene.scene_index}: cartoon scene has ${data.characters.length} characters; maximum is 4`);
-  }
-  for (const [i, c] of data.characters.entries()) {
-    if (!c || typeof c.characterId !== "string" || !c.characterId.trim()) {
-      throw new Error(`scene ${scene.scene_index}: character ${i} has no characterId/rig`);
-    }
-    // typeof must be checked before Number(...): Number(null) and Number("")
-    // both coerce to 0 (finite), which would silently accept a missing/blank
-    // coordinate as "0" instead of rejecting it as the validation intends.
-    if (typeof c.x !== "number" || !Number.isFinite(c.x) || typeof c.y !== "number" || !Number.isFinite(c.y)) {
-      throw new Error(`scene ${scene.scene_index}: character ${i} needs numeric x/y staging coordinates`);
-    }
-    if (c.scale !== undefined) {
-      const scale = Number(c.scale);
-      if (!Number.isFinite(scale) || scale < 0.35 || scale > 2.5) {
-        throw new Error(`scene ${scene.scene_index}: character ${i} scale ${String(c.scale)} is outside 0.35..2.5`);
-      }
-    }
-  }
-  const speakers = data.characters.filter((c) => c.isSpeaking === true).length;
-  if (speakers > 1) {
-    throw new Error(`scene ${scene.scene_index}: ${speakers} characters are marked isSpeaking; one dialogue line may have at most one active speaker`);
-  }
-
-  return data as Record<string, unknown>;
 }
 
 export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
@@ -122,7 +101,7 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
   return {
     name: "asset_collector",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "3",
     consumes: [{ schema_id: "visual_plan", range: "^1", as: "plan" }],
     produces: "asset_manifest",
 

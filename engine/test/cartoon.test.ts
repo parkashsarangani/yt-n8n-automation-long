@@ -67,14 +67,14 @@ const CARTOON_PLAN_PAYLOAD = {
       visual_style: "cartoon, bedroom day",
       fallback_terms: ["bedroom", "interior"],
       template_category: "cartoon",
-      template_props: {
+      template_data: JSON.stringify({
         background: { location: "bedroom", variant: "day", tone: "happy" },
         camera: { type: "static" },
         characters: [
           { characterId: "pilot-2", x: 260, y: 380, isSpeaking: true, emotion: "surprised" },
           { characterId: "pilot", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
         ],
-      },
+      }),
     },
     {
       scene_index: 1,
@@ -82,14 +82,14 @@ const CARTOON_PLAN_PAYLOAD = {
       visual_style: "cartoon, classroom",
       fallback_terms: ["classroom", "interior"],
       template_category: "cartoon",
-      template_props: {
+      template_data: JSON.stringify({
         background: { location: "classroom", variant: "normal", tone: "neutral" },
         camera: { type: "zoom", from: 1, to: 1.1 },
         characters: [
           { characterId: "pilot", x: 260, y: 380, isSpeaking: true, emotion: "neutral" },
           { characterId: "pilot-2", x: 1100, y: 380, isSpeaking: false, emotion: "neutral" },
         ],
-      },
+      }),
     },
     {
       scene_index: 2,
@@ -97,11 +97,11 @@ const CARTOON_PLAN_PAYLOAD = {
       visual_style: "cartoon, punchline",
       fallback_terms: ["street", "night"],
       template_category: "cartoon",
-      template_props: {
+      template_data: JSON.stringify({
         background: { flat: "#2E86DE" },
         camera: { type: "static" },
         characters: [{ characterId: "pilot", x: 660, y: 300, scale: 1.6, isSpeaking: true, emotion: "neutral" }],
-      },
+      }),
     },
   ],
 };
@@ -157,7 +157,7 @@ test("cartoon_visual_planner produces a schema-valid template_category=cartoon p
   assert.equal(out.artifact.schema_id, "visual_plan");
   for (const scene of payload.scenes) {
     assert.equal(scene.template_category, "cartoon");
-    const data = scene.template_props as { characters: Array<{ characterId: string }>; background: unknown };
+    const data = JSON.parse(scene.template_data) as { characters: Array<{ characterId: string }>; background: unknown };
     assert.ok(Array.isArray(data.characters) && data.characters.length >= 1);
     // characterId must be a real rig folder (from cast_roster.rig), not a
     // character_id - the two are deliberately allowed to differ.
