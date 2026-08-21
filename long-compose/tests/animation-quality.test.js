@@ -12,6 +12,10 @@ const sceneSource = fs.readFileSync(
   path.join(root, "remotion", "src", "compositions", "CartoonScene.tsx"),
   "utf8",
 );
+const backgroundSource = fs.readFileSync(
+  path.join(root, "remotion", "src", "components", "Background.tsx"),
+  "utf8",
+);
 const environmentSource = fs.readFileSync(
   path.join(root, "remotion", "src", "lib", "environment.ts"),
   "utf8",
@@ -58,13 +62,46 @@ test("panic performance is character-local and never continuous whole-frame shak
 });
 
 test("conversation direction respects semantic gaze before auto eye contact", () => {
-  assert.match(sceneSource, /character\.gazeTarget !== undefined/);
-  assert.match(sceneSource, /character\.gazeTarget !== "auto"/);
+  assert.match(sceneSource, /character\.gazeTarget === "auto"/);
   assert.match(sceneSource, /actorId = character\.actorId \?\? character\.animationKey/);
   // Two characters given the same explicit actorId/animationKey must not
   // silently collide into the same animation phase seed (regression test for
   // the fixed "duplicate actorId reintroduces lockstep" bug).
   assert.match(sceneSource, /seenActorIds\.has\(actorId\)/);
+});
+
+test("active speaker treatment makes two-shot dialogue readable", () => {
+  assert.match(characterSource, /emphasis\?: CharacterEmphasis/);
+  assert.match(characterSource, /dimmed\?: boolean/);
+  assert.match(characterSource, /activePulseScale/);
+  assert.match(characterSource, /drop-shadow\(0 0 18px/);
+  assert.match(sceneSource, /speakerEmphasis\?: SpeakerEmphasis/);
+  assert.match(sceneSource, /characterEmphasisFor/);
+  assert.match(sceneSource, /dimListeners/);
+});
+
+test("cartoon backgrounds expose deterministic ambient motion", () => {
+  for (const motion of [
+    "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle",
+    "clock-tick", "rain-window", "dust-float",
+  ]) {
+    assert.match(backgroundSource, new RegExp(`"${motion}"`));
+  }
+  assert.match(backgroundSource, /ambientOffset/);
+  assert.match(backgroundSource, /AmbientOverlay/);
+  assert.match(backgroundSource, /useCurrentFrame/);
+});
+
+test("cartoon visual events render deterministic overlays", () => {
+  for (const event of [
+    "alarm-pulse", "screen-change", "audience-silhouette", "metaphor-cutaway",
+    "prop-tremble", "thought-bubble", "reaction-pop", "callback-card",
+  ]) {
+    assert.match(sceneSource, new RegExp(`"${event}"`));
+  }
+  assert.match(sceneSource, /VisualEventOverlay/);
+  assert.match(sceneSource, /audience-silhouette/);
+  assert.match(sceneSource, /ANCIENT ALARM|WHAT YOUR BRAIN SEES/);
 });
 
 test("production rigs have distinct silhouettes and coherent palettes", () => {
