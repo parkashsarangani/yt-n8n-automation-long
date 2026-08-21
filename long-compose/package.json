@@ -2,9 +2,9 @@
   "name": "long-compose",
   "version": "2.0.0",
   "description": "Hybrid Remotion + FFmpeg composition service for studio-grade YouTube long-form — Remotion for motion graphics and captions, FFmpeg for stock scenes, audio mixing, and final encoding.",
-  "main": "compose-runtime.js",
+  "main": "compose.js",
   "scripts": {
-    "start": "node compose-runtime.js",
+    "start": "node compose.js",
     "test": "node --test tests/*.test.js",
     "remotion:studio": "cd remotion && npx remotion studio"
   },
