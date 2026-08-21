@@ -41,7 +41,7 @@
           "properties": {
             "scene_index": { "type": "integer", "minimum": 0 },
             "template_category": { "type": "string", "enum": ["cartoon"] },
-            "background_location": { "type": "string", "enum": ["bedroom", "cafe", "classroom", "generic-room", "hospital-room", "kitchen", "living-room", "office", "park", "school-hallway", "street"] },
+            "background_location": { "type": "string", "enum": ["airplane-cabin", "airport-gate", "bedroom", "cafe", "classroom", "engineering-lab", "generic-room", "hospital-room", "kitchen", "living-room", "office", "park", "school-hallway", "street"] },
             "background_variant": { "type": "string", "minLength": 1, "maxLength": 40 },
             "background_tone": { "type": "string", "enum": ["neutral", "scary", "happy", "dramatic", "cold", "warm"] },
             "framing": { "type": "string", "enum": ["two-shot", "speaker-closeup", "listener-closeup"] },
