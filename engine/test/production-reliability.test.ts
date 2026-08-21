@@ -210,11 +210,11 @@ test("cartoon compiler preserves shallow shot direction across legacy speaker la
   };
 
   assert.deepEqual(compiled.background, { location: "office", variant: "day", tone: "dramatic" });
-  assert.deepEqual(compiled.camera, { type: "zoom", from: 1, to: 1.1 });
+  assert.deepEqual(compiled.camera, { type: "zoom", from: 1, to: 1.025 });
   assert.equal(compiled.characters.length, 1);
   assert.equal(compiled.characters[0]?.actorId, "host");
   assert.equal(compiled.characters[0]?.isSpeaking, true);
-  assert.equal(compiled.characters[0]?.scale, 1.55);
+  assert.equal(compiled.characters[0]?.scale, 1.28);
   assert.ok(warnings.some((line) => line.includes("office/night") && line.includes("office/day")));
   assert.ok(warnings.some((line) => line.includes('resolved legacy speaker label "Host" to cast id "host"')));
   assert.equal(warnings.some((line) => line.includes("synthesizing deterministic staging")), false);
