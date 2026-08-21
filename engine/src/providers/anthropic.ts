@@ -41,7 +41,7 @@ const PRICES: Record<string, Price> = {
 export interface AnthropicProviderOptions {
   model: string;
   apiKey?: string;
-  /** Defaults to 8192; keep non-streaming requests well under the timeout cliff. */
+  /** Defaults to 8192. Requests stream, so this can safely go well into five figures without hitting the SDK's non-streaming ~10-minute limit. */
   maxOutputTokens?: number;
   effort?: CompletionRequest["effort"];
   client?: Anthropic;
@@ -76,7 +76,13 @@ export class AnthropicProvider implements ModelProvider {
 
     let response;
     try {
-      response = await this.client.messages.create({
+      // The SDK refuses a non-streaming request outright once its own estimate
+      // of completion time crosses ~10 minutes (a real risk once max_tokens
+      // gets into five figures, which several agents' output budgets now do) —
+      // streaming is the documented way around that limit, not a workaround.
+      // finalMessage() returns the same accumulated Message shape create()
+      // does, so nothing below this needs to know the request was streamed.
+      const stream = this.client.messages.stream({
         model: this.model,
         max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
         thinking: { type: "adaptive" },
@@ -85,7 +91,8 @@ export class AnthropicProvider implements ModelProvider {
           format: { type: "json_schema", schema },
         },
         messages: [{ role: "user", content: req.prompt }],
-      } as Parameters<Anthropic["messages"]["create"]>[0]);
+      } as Parameters<Anthropic["messages"]["stream"]>[0]);
+      response = await stream.finalMessage();
     } catch (err) {
       throw new ProviderError(`${this.id} request failed: ${String(err)}`);
     }
