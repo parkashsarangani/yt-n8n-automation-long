@@ -35,12 +35,13 @@ jobs:
 
       - name: Build and deploy
         env:
-          # All optional. Unset secrets arrive as empty strings, which the engine
-          # treats as "not configured" — so a missing secret never clobbers a
-          # credential already saved through the UI (those live in vidgen_data).
+          # Unset secrets arrive as empty strings, which the engine treats as
+          # "not configured". FAL_KEY is required for production cartoon
+          # thumbnails and is asserted again after deployment below.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
@@ -89,9 +90,18 @@ jobs:
 
       - name: Report
         run: |
+          set -e
           echo "=== Active graph and provider wiring ==="
-          curl -s -H "Host: localhost" http://127.0.0.1:4321/api/config \
-            | jq '{graph, providers: [.providers[] | {role, provider, real}]}' || true
+          config=$(curl -sf -H "Host: localhost" http://127.0.0.1:4321/api/config)
+          echo "$config" | jq '{graph, providers: [.providers[] | {role, provider, real}]}'
+
+          # Cartoon publishing requires generated recurring-character artwork.
+          # A deploy with a missing/empty FAL_KEY must fail here instead of
+          # quietly putting FakeImageProvider in front of the real compositor.
+          if ! echo "$config" | jq -e '.providers[] | select(.role == "images" and .real == true)' > /dev/null; then
+            echo "::error::cartoon image provider is not live after deploy; verify the production FAL_KEY secret"
+            exit 1
+          fi
 
       - name: Cleanup
         run: |
