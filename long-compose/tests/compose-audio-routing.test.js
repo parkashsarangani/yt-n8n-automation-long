@@ -20,7 +20,13 @@ describe("compose cartoon render routing", () => {
     assert.match(source, /if \(!preserveSceneAudioForLipSync\) \{[\s\S]*buildGaplessVoice/);
     assert.match(source, /const voiceLabel = preserveSceneAudioForLipSync \? "0:a" : "1:a"/);
     assert.match(source, /const mixLabels = \[voiceLabel\]/);
-    assert.match(source, /sidechaincompress[^`]*\$\{voiceLabel\}/);
+    // ffmpeg filtergraph syntax is [in1][in2]filtername=args - the inputs
+    // necessarily precede the filter name, so voiceLabel appears before
+    // "sidechaincompress" in valid syntax, not after. Check both facts
+    // independently instead of assuming a substring order that valid ffmpeg
+    // syntax can't produce.
+    assert.match(source, /sidechaincompress/);
+    assert.match(source, /\[music\]\[\$\{voiceLabel\}\]sidechaincompress/);
     assert.match(source, /"-map", mixLabels\.length > 1 \? "\[final_a\]" : voiceLabel/);
   });
 });
