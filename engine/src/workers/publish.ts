@@ -12,6 +12,7 @@
 
 import type { PublishMetadata, PublishTarget } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 
 export interface PublishWorkerOptions {
   target: PublishTarget;
@@ -94,6 +95,12 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       assertFits(metadata, video, reqs, target.id);
 
       const bytes = await ctx.blobs.get(video.video_uri);
+      // This repository's production programme is 16:9 1080p. Read geometry
+      // from the actual MP4 bytes immediately before the irreversible upload;
+      // renderer metadata or filenames cannot hide a 720p regression.
+      if (target.id === "youtube" && video.media_type === "video/mp4") {
+        assertYouTubeProductionGeometry(bytes);
+      }
 
       // The designed thumbnail wins over whatever the video render happened to
       // emit: it was reasoned about, and the render's is a by-product.

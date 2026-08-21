@@ -5,8 +5,11 @@
 # drift from it.
 FROM node:22-slim
 
-# curl is only here for the container healthcheck.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# curl is for the healthcheck. ffmpeg is intentionally present in the engine as
+# well as long-compose: the voice worker uses ElevenLabs' character timestamps
+# to trim only leading/trailing TTS padding before audio is stored, keeping
+# separately generated dialogue turns tight without silence-detection heuristics.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

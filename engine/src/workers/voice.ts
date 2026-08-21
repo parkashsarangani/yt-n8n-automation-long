@@ -12,7 +12,9 @@
 
 import type { BlobRef } from "../artifact.ts";
 import { mapWithConcurrency } from "../concurrency.ts";
+import type { SpeechProvider } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { trimMp3ToSpeechWindow } from "../audio/speech-trim.ts";
 
 export interface VoiceWorkerOptions {
   voiceId: string;
@@ -26,11 +28,41 @@ interface ScriptScene {
   narration: string;
 }
 
+type SpeechResult = Awaited<ReturnType<SpeechProvider["synthesize"]>>;
+
+async function trimProductionSpeech(
+  speech: SpeechProvider,
+  result: SpeechResult,
+  ctx: WorkerContext,
+): Promise<SpeechResult> {
+  // Fake providers intentionally emit tiny non-media fixtures. Only normalize
+  // the real ElevenLabs MP3 path; CI/dry-run providers remain byte-for-byte.
+  if (!speech.id.startsWith("elevenlabs/") || result.media_type !== "audio/mpeg" || result.alignment === undefined) {
+    return result;
+  }
+  try {
+    const trimmed = await trimMp3ToSpeechWindow(result.audio, result.alignment);
+    if (!trimmed) return result;
+    return {
+      ...result,
+      audio: trimmed.audio,
+      alignment: trimmed.alignment,
+      duration_sec: trimmed.duration_sec,
+    };
+  } catch (error) {
+    // Trimming is quality normalization, not a reason to discard otherwise
+    // valid speech. Production images ship FFmpeg, but preserve the original
+    // clip if a one-off decode fails and make that degradation visible.
+    ctx.logger.warn(`[voice] speech-boundary trim failed (${String(error)}); keeping provider audio`);
+    return result;
+  }
+}
+
 export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
   return {
     name: "voice",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [{ schema_id: "script", range: "^1", as: "script" }],
     produces: "voice",
 
@@ -48,7 +80,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
         ordered,
         opts.concurrency ?? 1,
         async (scene, i) => {
-          const result = await speech.synthesize({
+          let result = await speech.synthesize({
             text: scene.narration,
             voice: opts.voiceId,
             context: {
@@ -56,6 +88,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
               ...(i < ordered.length - 1 ? { next: ordered[i + 1]!.narration } : {}),
             },
           });
+          result = await trimProductionSpeech(speech, result, ctx);
 
           const audio = await ctx.blobs.put(result.audio, {
             role: "audio",
@@ -137,7 +170,7 @@ export function makeDialogueVoiceWorker(opts: DialogueVoiceWorkerOptions): Worke
   return {
     name: "dialogue_voice",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "cast_roster", range: "^1", as: "cast_roster" },
@@ -163,7 +196,7 @@ export function makeDialogueVoiceWorker(opts: DialogueVoiceWorkerOptions): Worke
         opts.concurrency ?? 1,
         async (scene, i) => {
           const voiceId = (scene.speaker && voiceFor.get(scene.speaker)) || fallbackVoiceId;
-          const result = await speech.synthesize({
+          let result = await speech.synthesize({
             text: scene.narration,
             voice: voiceId,
             context: {
@@ -171,6 +204,7 @@ export function makeDialogueVoiceWorker(opts: DialogueVoiceWorkerOptions): Worke
               ...(i < ordered.length - 1 ? { next: ordered[i + 1]!.narration } : {}),
             },
           });
+          result = await trimProductionSpeech(speech, result, ctx);
 
           const audio = await ctx.blobs.put(result.audio, {
             role: "audio",
