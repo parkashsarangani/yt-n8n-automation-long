@@ -13,6 +13,7 @@
  */
 
 import type { BlobRef } from "../artifact.ts";
+import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import type { RenderScene } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
@@ -47,7 +48,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -123,6 +124,13 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
           },
         },
       );
+
+      if (renderer.id === "long-compose" && result.media_type === "video/mp4") {
+        // The reviewed artifact is the production object a human approves.
+        // Do not wait until upload to discover that long-compose regressed to
+        // 720p; reject the rendered_video artifact before it can be stored.
+        assertYouTubeProductionGeometry(result.video);
+      }
 
       const blobs: BlobRef[] = [];
       const video = await ctx.blobs.put(result.video, {
