@@ -58,6 +58,56 @@ test("ComposeRenderer returns the real supplied-artwork failure when gradient re
   assert.match(result.degradation_reason ?? "", /Invalid PNG signature/);
 });
 
+test("production thumbnail refuses fake image bytes before calling the real compositor", async () => {
+  const worker = makeThumbnailWorker();
+  let generated = false;
+  let rendered = false;
+
+  await assert.rejects(
+    () => worker.execute(
+      {
+        brief: {
+          payload: {
+            mode: "cartoon",
+            text: "CAN WE TALK?",
+            art_prompt: "recurring cartoon host looking at a phone",
+            accent: "#18A6A6",
+            rationale: "recognizable situation",
+          },
+        } as never,
+      },
+      {
+        media: {
+          images: {
+            id: "fake/image",
+            async generate() {
+              generated = true;
+              return {
+                images: [{ bytes: new Uint8Array(128), media_type: "image/png" }],
+                usage: { input_tokens: 0, output_tokens: 0, cost_usd: 0, provider: "fake", model: "fake" },
+              };
+            },
+          },
+          renderer: {
+            id: "long-compose",
+            async renderThumbnail() {
+              rendered = true;
+              throw new Error("must not be called");
+            },
+            async render() { throw new Error("unused"); },
+          },
+        },
+        progress: async () => {},
+        logger: { log() {}, warn() {}, error() {} },
+      } as never,
+    ),
+    /current image provider is fake\/image\. Set FAL_KEY before retrying/,
+  );
+
+  assert.equal(generated, false, "fake artwork generation must be stopped before it emits test bytes");
+  assert.equal(rendered, false, "long-compose must never receive fake image bytes");
+});
+
 test("cartoon thumbnail worker rejects non-PNG provider output before it reaches ffmpeg", async () => {
   const worker = makeThumbnailWorker();
   let rendererCalled = false;
