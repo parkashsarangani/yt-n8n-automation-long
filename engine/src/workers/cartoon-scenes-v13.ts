@@ -85,17 +85,25 @@ function callbackText(creative: CreativeDirection, role: CreativeScene["callback
   }
 }
 
-function performanceCueType(scene: CreativeScene): PerformanceCueType {
-  const text = normalized(`${scene.performance_note} ${scene.scene_function} ${scene.energy_beat} ${scene.blocking.power_shift}`);
+function explicitPerformanceCue(text: string): PerformanceCueType | null {
+  if (!text) return null;
   if (/\b(?:deadpan|dry|flat|blunt)\b/.test(text)) return "deadpan";
   if (/\b(?:side eye|skeptical|suspicious|judges|judge)\b/.test(text)) return "side-eye";
   if (/\b(?:betrayed|recoil|backs away|scared|panic|dread|startled)\b/.test(text)) return "recoil";
   if (/\b(?:concedes|concede|reluctant|acceptance|accepts|fine|quietly redirects|finally)\b/.test(text)) return "reluctant-acceptance";
   if (/\b(?:defeat|embarrass|caught|wrong|loses|beat)\b/.test(text)) return "small-defeat";
-  if (/\b(?:points|point|object|cue|prop|phone|clock|keys|kettle)\b/.test(text)) return "point-at-prop";
   if (/\b(?:realizes|realizing|sudden|wait|double take)\b/.test(text)) return "double-take";
   if (/\b(?:hesitat|pause|freezes|before|holds back|stops)\b/.test(text)) return "hesitate";
-  return "notice";
+  if (/\b(?:points|point|object|cue|prop|phone|clock|keys|kettle)\b/.test(text)) return "point-at-prop";
+  return null;
+}
+
+function performanceCueType(scene: CreativeScene): PerformanceCueType {
+  const noteCue = explicitPerformanceCue(normalized(scene.performance_note));
+  if (noteCue) return noteCue;
+
+  const fallbackCue = explicitPerformanceCue(normalized(`${scene.scene_function} ${scene.energy_beat}`));
+  return fallbackCue ?? "notice";
 }
 
 function cueLabel(cue: PerformanceCueType, scene: CreativeScene): string {
