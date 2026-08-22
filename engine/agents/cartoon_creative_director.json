@@ -1,0 +1,19 @@
+{
+  "name": "cartoon_creative_director",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "cast_roster", "range": "^1", "as": "cast_roster" }
+  ],
+  "produces": "creative_direction",
+  "produces_version": "1.0.0",
+  "prompt": "cartoon_creative_director@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 24000,
+    "effort": "medium"
+  },
+  "confidence_dimensions": ["character_voice", "blocking_specificity", "metaphor_specificity", "callback_strength", "renderability"],
+  "retry": { "max_attempts": 3 }
+}
