@@ -37,6 +37,7 @@ const NATURAL_DIALOGUE_SCRIPT_VERSION = 6;
 const LONG_EPISODE_SECONDS = 120;
 const MIN_LONG_PROP_STATES = 5;
 const MIN_LONG_CUTAWAYS = 3;
+const PLANNING_TOPIC_PROPS = new Set(["clock", "keys", "calendar", "route-map", "door", "coffee", "shoes"]);
 
 function dialogueWriterVersion(scriptArtifact: unknown): number {
   const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
@@ -152,11 +153,38 @@ function allSceneText(scenes: ScriptScene[]): string {
 }
 
 function isPlanningOrLatenessTopic(scenes: ScriptScene[]): boolean {
-  return /\b(?:late|lateness|leaving early|leave early|planning fallacy|plan|planned|schedule|estimate|buffer|clock|timer|keys?|traffic|route|calendar|morning|minutes?|spare|door)\b/.test(allSceneText(scenes));
+  return /\b(?:late|lateness|leaving early|leave early|planning fallacy|schedule|estimate|buffer|clock|timer|keys?|traffic|route|calendar|morning|spare|door)\b/.test(allSceneText(scenes));
+}
+
+function hasAuthoritativeNonPlanningProp(scenes: ScriptScene[]): boolean {
+  const ordered = scenes.filter((scene) => !scene.is_outro).slice().sort((a, b) => a.scene_index - b.scene_index);
+  if (ordered.length === 0) return false;
+  const counts = new Map<string, number>();
+  for (const scene of ordered) {
+    const prop = propValue(scene);
+    if (!isMeaningfulProp(prop)) continue;
+    counts.set(prop, (counts.get(prop) ?? 0) + 1);
+  }
+  let dominantProp = "";
+  let dominantCount = 0;
+  for (const [prop, count] of counts) {
+    if (count > dominantCount) {
+      dominantProp = prop;
+      dominantCount = count;
+    }
+  }
+  return dominantProp.length > 0
+    && !PLANNING_TOPIC_PROPS.has(dominantProp)
+    && dominantCount >= 3
+    && dominantCount >= Math.ceil(ordered.length * 0.6);
+}
+
+function shouldUsePlanningTopicProps(scenes: ScriptScene[]): boolean {
+  return isPlanningOrLatenessTopic(scenes) && !hasAuthoritativeNonPlanningProp(scenes);
 }
 
 function topicPropForScene(scene: ScriptScene, allScenes: ScriptScene[]): string {
-  if (!isPlanningOrLatenessTopic(allScenes)) return "";
+  if (!shouldUsePlanningTopicProps(allScenes)) return "";
   const text = `${scene.narration} ${scene.point ?? ""}`.toLowerCase();
   if (/\b(?:keys?|keyring|pocket)\b/.test(text)) return "keys";
   if (/\b(?:traffic|route|map|gps|drive|commute)\b/.test(text)) return "route-map";
@@ -298,7 +326,7 @@ function applyForegroundProps(entries: CompiledEntry[], scripts: ScriptScene[], 
 
 function assertForegroundCoverage(scripts: ScriptScene[], entries: CompiledEntry[]): void {
   const ordered = scripts.filter((scene) => !scene.is_outro).slice().sort((a, b) => a.scene_index - b.scene_index);
-  const central = isPlanningOrLatenessTopic(ordered)
+  const central = shouldUsePlanningTopicProps(ordered)
     ? { prop: "clock", thirds: new Set<string>(["opening", "middle", "final"]), count: 3 }
     : centralPropCoverage(ordered);
   if (!central.prop) return;
