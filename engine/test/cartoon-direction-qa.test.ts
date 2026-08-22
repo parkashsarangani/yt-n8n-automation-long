@@ -236,3 +236,29 @@ test("dialogue_script_writer v5 scripts must return the central object in the pa
     /action quality gate failed: score/,
   );
 });
+
+test("dialogue_script_writer v5 explanation-framed actions do not count as visible action", async () => {
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    { scene_index: 0, point: "action=Host holds the bill at the kitchen table; prop=bill; function=opening_problem; value=the confusing bill is visible", narration: "This bill grew teeth.", speaker: "host", emotion: "surprised" },
+    { scene_index: 1, point: "action=Buddy explains while pointing at the bill; prop=bill; function=escalation; value=the fee is introduced", narration: "That fee is doing the humming.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 2, point: "action=Host says the bill is confusing; prop=bill; function=midpoint_turn; value=names the misunderstanding", narration: "I still hate it.", speaker: "host", emotion: "angry" },
+    { scene_index: 3, point: "action=Buddy summarizes the fee while pointing at the bill; prop=bill; function=practical_action viewer_value; value=read the line item before reacting", narration: "Read the boring line first.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 4, point: "action=Host folds the bill and nods; prop=bill; function=payoff_resolution practical_action; value=return to the object with changed behavior", narration: "Fine. Teeth removed.", speaker: "host", emotion: "happy" },
+  ];
+
+  await assert.rejects(
+    () => worker.execute(
+      {
+        plan: { payload: { scenes: scenes.map((scene) => directedScene(scene.scene_index, { visual_event: "reaction-pop" })) } },
+        script: {
+          payload: { scenes },
+          produced_by: { transformation: "dialogue_script_writer", version: "5" },
+        },
+        cast,
+      } as never,
+      ctx as never,
+    ),
+    /2\/5 scenes have visible actions/,
+  );
+});
