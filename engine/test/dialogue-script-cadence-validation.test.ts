@@ -236,3 +236,62 @@ test("dialogue_script_writer retries a short but impersonal script for too few h
   assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
   assert.match(records[0]!.error ?? "", /Rewrite as short, human, situational dialogue/);
 });
+
+// SHORT_AND_HUMAN_LINES narration already satisfies the length and human-moment
+// checks and already reads as a planning/lateness topic (schedule, buffer, clock,
+// traffic, morning, door). Overriding the point= prop to "phone" isolates the
+// topic prop gate specifically, proving it fires independently of the other two.
+function pointWithProp(prop: string, functionName: string) {
+  return `action=Host handles the morning beat; prop=${prop}; function=${functionName}; value=viewer sees the plan meet reality`;
+}
+
+function scriptPayloadWithProp(lines: string[], prop: string) {
+  return {
+    scenes: lines.map((line, index) => ({
+      scene_index: index,
+      act_index: index < 6 ? 0 : index < 13 ? 1 : 2,
+      point: pointWithProp(prop, index === 0 ? "opening_problem" : index === 18 ? "payoff_resolution practical_action callback" : "routine_escalation engagement"),
+      narration: line,
+      speaker: index % 2 === 0 ? "host" : "buddy",
+      emotion: index % 2 === 0 ? "surprised" : "neutral",
+    })),
+    word_count: lines.join(" ").trim().split(/\s+/).filter(Boolean).length,
+  };
+}
+
+test("dialogue_script_writer retries a planning/lateness script that defaults to phone as the central prop", async () => {
+  const h = await harness((_req, attempt) => ({
+    payload: attempt === 0
+      ? scriptPayloadWithProp(SHORT_AND_HUMAN_LINES, "phone")
+      : scriptPayloadWithProp(SHORT_AND_HUMAN_LINES, "clock"),
+    confidence: { overall: attempt === 0 ? 0.72 : 0.9 },
+  }));
+
+  const story = await h.store.put({
+    schema_id: "story",
+    payload: STORY_PAYLOAD,
+    produced_by: { transformation: "story_architect", version: "1", run_id: "run_seed", provider: null },
+  });
+  const cast = await h.store.put({
+    schema_id: "cast_roster",
+    schema_version: "1.0.0",
+    payload: CAST_PAYLOAD,
+    produced_by: { transformation: "human", version: "1", run_id: "run_seed", provider: null },
+  });
+
+  const out = await h.runner.run(h.agents.get("dialogue_script_writer")!, [story.artifact.artifact_id, cast.artifact.artifact_id]);
+
+  assert.equal(out.attempts, 2);
+  assert.equal(h.provider.calls.length, 2);
+  assert.match(h.provider.calls[1]!.prompt, /topic prop gate failed/);
+  assert.match(h.provider.calls[1]!.prompt, /use phone as the central prop/);
+  assert.match(h.provider.calls[1]!.prompt, /Use clock, keys, calendar, route-map, door, coffee, or shoes/);
+  assert.doesNotMatch(h.provider.calls[1]!.prompt, /natural dialogue gate failed/);
+
+  const payload = out.artifact.payload as { scenes: Array<{ point: string }> };
+  assert.ok(payload.scenes.every((scene) => scene.point.includes("prop=clock")));
+
+  const records = await h.runLog.all();
+  assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
+  assert.match(records[0]!.error ?? "", /use phone as the central prop/);
+});
