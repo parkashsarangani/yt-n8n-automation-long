@@ -209,7 +209,7 @@ function compiledForegroundProp(compiled: Record<string, unknown>): ForegroundPr
 function attachForegroundProp(compiled: Record<string, unknown>, prop: ForegroundPropSpec | null): Record<string, unknown> {
   if (!prop) return compiled;
   const rawEvent = compiled.visualEvent;
-  const visualEvent = rawEvent && typeof rawEvent === "object" && !Array.isArray(rawEvent)
+  const visualEvent: Record<string, unknown> = rawEvent && typeof rawEvent === "object" && !Array.isArray(rawEvent)
     ? { ...(rawEvent as Record<string, unknown>) }
     : { type: "none" };
   if (prop.type === "phone" && visualEvent.type === "none") visualEvent.type = "screen-change";
