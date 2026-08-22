@@ -1,13 +1,6 @@
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 import { makeCartoonSceneCompilerWorker as makeV12CartoonSceneCompilerWorker } from "./cartoon-scenes-v12.ts";
 
-interface ScriptScene {
-  scene_index: number;
-  narration: string;
-  speaker?: string;
-  is_outro?: boolean;
-}
-
 interface CompiledEntry {
   scene_index: number;
   source: "template";
@@ -64,6 +57,12 @@ type PerformanceCueType =
   | "reluctant-acceptance"
   | "point-at-prop";
 
+interface RendererEnvironment {
+  location: "kitchen" | "living-room" | "office" | "street";
+  variant: "day" | "night";
+  ambientMotion?: string;
+}
+
 function clean(value: unknown, max = 160): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
@@ -89,13 +88,13 @@ function explicitPerformanceCue(text: string): PerformanceCueType | null {
   if (!text) return null;
   if (/\b(?:deadpan|dry|flat|blunt)\b/.test(text)) return "deadpan";
   if (/\b(?:side eye|skeptical|suspicious|judges|judge)\b/.test(text)) return "side-eye";
-  if (/\b(?:betrayed|recoil|backs away|scared|panic|dread|startled)\b/.test(text)) return "recoil";
+  if (/\b(?:betrayed|recoils?|backs away|scared|panic|dread|startled)\b/.test(text)) return "recoil";
   if (/\b(?:concedes|concede|reluctant|acceptance|accepts|fine|quietly redirects|finally)\b/.test(text)) return "reluctant-acceptance";
-  if (/\b(?:defeat|embarrass|caught|wrong|loses|beat)\b/.test(text)) return "small-defeat";
+  if (/\b(?:defeat|embarrass\w*|caught|wrong|loses|beat)\b/.test(text)) return "small-defeat";
   if (/\b(?:realizes|realizing|sudden|wait|double take)\b/.test(text)) return "double-take";
   if (/\b(?:notices?|spots?|catches?|sees?|watches|recognizes?|observes?|looks at)\b/.test(text)) return "notice";
-  if (/\b(?:hesitat|pause|freezes|holds back|stops)\b/.test(text)) return "hesitate";
-  if (/\b(?:points|point|object|cue|prop|phone|clock|keys|kettle)\b/.test(text)) return "point-at-prop";
+  if (/\b(?:hesitat\w*|pauses?|freezes|holds back|stops)\b/.test(text)) return "hesitate";
+  if (/\b(?:points?|pointing|pointed)\b/.test(text) || /\b(?:toward|at) the (?:object|cue|prop|phone|clock|keys|kettle|laptop)\b/.test(text)) return "point-at-prop";
   return null;
 }
 
@@ -107,9 +106,7 @@ function performanceCueType(scene: CreativeScene): PerformanceCueType {
   return fallbackCue ?? "notice";
 }
 
-function cueLabel(cue: PerformanceCueType, scene: CreativeScene): string {
-  const note = clean(scene.performance_note, 90);
-  if (note) return note;
+function cueLabel(cue: PerformanceCueType): string {
   switch (cue) {
     case "double-take": return "DOUBLE TAKE";
     case "side-eye": return "SIDE-EYE";
@@ -124,7 +121,7 @@ function cueLabel(cue: PerformanceCueType, scene: CreativeScene): string {
 }
 
 function callbackEchoFor(scene: CreativeScene, creative: CreativeDirection): Record<string, unknown> | null {
-  if (scene.callback_role === "none") return null;
+  if (scene.callback_role === "none" || scene.callback_role === "payoff") return null;
   const text = callbackText(creative, scene.callback_role);
   const label = clean(scene.metaphor.label, 80) || text;
   return {
@@ -134,8 +131,14 @@ function callbackEchoFor(scene: CreativeScene, creative: CreativeDirection): Rec
     motif: clean(scene.foreground_prop.type, 40) || "callback",
     propType: clean(scene.foreground_prop.type, 40),
     propState: clean(scene.foreground_prop.state, 60),
-    intensity: scene.callback_role === "payoff" ? "high" : scene.callback_role === "escalation" ? "medium" : "low",
+    intensity: scene.callback_role === "escalation" ? "medium" : "low",
   };
+}
+
+function viewerPropType(value: unknown): string {
+  const type = normalized(value);
+  if (!type || type === "none" || type === "object" || type === "appliance" || type === "device") return "visual beat";
+  return clean(value, 40).toLowerCase();
 }
 
 function metaphorVisualFor(scene: CreativeScene): Record<string, unknown> | null {
@@ -145,7 +148,7 @@ function metaphorVisualFor(scene: CreativeScene): Record<string, unknown> | null
     type,
     label: clean(scene.metaphor.label, 80),
     emotionalBeat: clean(scene.metaphor.emotional_beat, 120),
-    propType: clean(scene.foreground_prop.type, 40),
+    propType: viewerPropType(scene.foreground_prop.type),
     propState: clean(scene.foreground_prop.state, 60),
   };
 }
@@ -154,11 +157,15 @@ function performanceCueFor(scene: CreativeScene): Record<string, unknown> {
   const type = performanceCueType(scene);
   return {
     type,
-    label: cueLabel(type, scene),
+    label: cueLabel(type),
     anchor: scene.blocking.speaker_position || "center",
     propType: clean(scene.foreground_prop.type, 40),
     intensity: scene.callback_role === "payoff" ? "high" : scene.callback_role === "escalation" ? "medium" : "low",
   };
+}
+
+function hasPrimaryOverlay(visualEvent: Record<string, unknown>): boolean {
+  return Boolean(visualEvent.callbackEcho || visualEvent.metaphorVisual || visualEvent.type === "callback-card");
 }
 
 function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: CreativeDirection): Record<string, unknown> {
@@ -167,19 +174,84 @@ function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: Creati
     : { type: "none" };
 
   const callbackEcho = callbackEchoFor(scene, creative);
+  if (scene.callback_role === "payoff") {
+    visualEvent.type = "callback-card";
+    visualEvent.label = clean(scene.metaphor.label, 80) || callbackText(creative, "payoff");
+    delete visualEvent.callbackEcho;
+    delete visualEvent.metaphorVisual;
+    delete visualEvent.performanceCue;
+    return visualEvent;
+  }
+
   if (callbackEcho) {
     visualEvent.callbackEcho = callbackEcho;
-    if (scene.callback_role === "payoff") {
-      visualEvent.type = "callback-card";
-      visualEvent.label = clean(scene.metaphor.label, 80) || callbackText(creative, "payoff");
+    delete visualEvent.metaphorVisual;
+    if (visualEvent.type === "callback-card") visualEvent.type = "none";
+  } else {
+    const metaphorVisual = metaphorVisualFor(scene);
+    if (metaphorVisual) {
+      visualEvent.metaphorVisual = metaphorVisual;
+      if (["metaphor-cutaway", "thought-bubble", "callback-card"].includes(String(visualEvent.type))) visualEvent.type = "none";
     }
   }
 
-  const metaphorVisual = metaphorVisualFor(scene);
-  if (metaphorVisual) visualEvent.metaphorVisual = metaphorVisual;
-
-  visualEvent.performanceCue = performanceCueFor(scene);
+  if (hasPrimaryOverlay(visualEvent)) {
+    delete visualEvent.performanceCue;
+  } else {
+    visualEvent.performanceCue = performanceCueFor(scene);
+  }
   return visualEvent;
+}
+
+function sceneEnvironmentText(scene: CreativeScene): string {
+  return normalized([
+    scene.scene_function,
+    scene.energy_beat,
+    scene.foreground_prop.type,
+    scene.foreground_prop.state,
+    scene.foreground_prop.action,
+    scene.blocking.power_shift,
+    scene.metaphor.label,
+    scene.metaphor.emotional_beat,
+    scene.performance_note,
+  ].join(" "));
+}
+
+function rendererEnvironmentFor(scene: CreativeScene): RendererEnvironment | null {
+  const text = sceneEnvironmentText(scene);
+  if (/\b(?:downstairs|kitchen|counter|coffee|kettle|breakfast|mug|sink|fridge)\b/.test(text)) {
+    return { location: "kitchen", variant: "day", ambientMotion: "subtle-parallax" };
+  }
+  if (/\b(?:out the door|doorway|hallway|leaving the room|leave the room|outside the room)\b/.test(text)) {
+    return { location: "living-room", variant: "day", ambientMotion: "subtle-parallax" };
+  }
+  if (/\b(?:office|desk|deadline|work|laptop|email|meeting)\b/.test(text)) {
+    return { location: "office", variant: "day", ambientMotion: "monitor-glow" };
+  }
+  if (/\b(?:street|commute|bus|train|traffic|sidewalk)\b/.test(text)) {
+    return { location: "street", variant: "day", ambientMotion: "subtle-parallax" };
+  }
+  return null;
+}
+
+function applyRendererEnvironment(compiled: Record<string, unknown>, scene: CreativeScene): Record<string, unknown> {
+  const environment = rendererEnvironmentFor(scene);
+  if (!environment) return compiled;
+  const rawBackground = compiled.background;
+  const background = rawBackground && typeof rawBackground === "object" && !Array.isArray(rawBackground)
+    ? rawBackground as Record<string, unknown>
+    : {};
+  if (background.location === environment.location && background.variant === environment.variant) return compiled;
+  return {
+    ...compiled,
+    background: {
+      ...background,
+      location: environment.location,
+      variant: environment.variant,
+      tone: typeof background.tone === "string" ? background.tone : "neutral",
+      ambientMotion: environment.ambientMotion ?? background.ambientMotion ?? "subtle-parallax",
+    },
+  };
 }
 
 function applyRendererSignals(entries: CompiledEntry[], creative: CreativeDirection): CompiledEntry[] {
@@ -188,9 +260,10 @@ function applyRendererSignals(entries: CompiledEntry[], creative: CreativeDirect
     const scene = scenesByIndex.get(entry.scene_index);
     if (!scene) return entry;
     const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
+    const withEnvironment = applyRendererEnvironment(compiled, scene);
     const next = {
-      ...compiled,
-      visualEvent: enhanceVisualEvent(compiled.visualEvent, scene, creative),
+      ...withEnvironment,
+      visualEvent: enhanceVisualEvent(withEnvironment.visualEvent, scene, creative),
       rendererPerformance: {
         version: "13",
         cue: performanceCueType(scene),
