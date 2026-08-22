@@ -2,7 +2,7 @@
   "schema_id": "visual_plan",
   "version": "1.7.0",
   "status": "draft",
-  "description": "Cartoon shot-direction contract with deterministic direction primitives, visible foreground prop staging, ambient background motion, and active-speaker readability. The deterministic cartoon scene compiler owns Remotion props and older visual_plan versions remain readable for resume compatibility.",
+  "description": "Cartoon shot-direction contract with deterministic direction primitives, foreground prop staging, ambient background motion, and active-speaker readability. The deterministic cartoon scene compiler owns Remotion props and older visual_plan versions remain readable for resume compatibility.",
   "produced_by": ["cartoon_visual_planner"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -36,11 +36,7 @@
             "visual_event",
             "ambient_motion",
             "speaker_emphasis",
-            "cutaway_label",
-            "primary_prop",
-            "prop_state",
-            "prop_motion",
-            "foreground_action"
+            "cutaway_label"
           ],
           "properties": {
             "scene_index": { "type": "integer", "minimum": 0 },
@@ -61,10 +57,10 @@
             "ambient_motion": { "type": "string", "enum": ["none", "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle", "clock-tick", "rain-window", "dust-float"] },
             "speaker_emphasis": { "type": "string", "enum": ["none", "scale-pop", "rim-glow", "listener-dim", "caption-anchor"] },
             "cutaway_label": { "type": "string", "maxLength": 80 },
-            "primary_prop": { "type": "string", "minLength": 1, "maxLength": 40, "description": "The visible foreground object/interface in this scene, or none." },
-            "prop_state": { "type": "string", "minLength": 1, "maxLength": 60, "description": "The visible state of the foreground object, such as phone-unlocked, lock-screen-glow, notification-badge, face-down, across-room, kettle-replacement, open, closed, or none." },
+            "primary_prop": { "type": "string", "maxLength": 40, "description": "Optional visible foreground object/interface in this scene, or none. The compiler can also derive this from script point metadata." },
+            "prop_state": { "type": "string", "maxLength": 60, "description": "Optional visible state of the foreground object, such as phone-unlocked, lock-screen-glow, notification-badge, face-down, across-room, kettle-replacement, open, closed, or none." },
             "prop_motion": { "type": "string", "enum": ["none", "pulse", "glow", "tremble", "slide-away", "thumb-hover", "open", "close", "bounce"] },
-            "foreground_action": { "type": "string", "minLength": 1, "maxLength": 120, "description": "What visibly happens to the foreground object in this scene, or none." }
+            "foreground_action": { "type": "string", "maxLength": 120, "description": "Optional visible foreground-object action. The compiler can also derive this from script point metadata." }
           }
         }
       }
