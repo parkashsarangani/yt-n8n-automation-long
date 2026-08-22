@@ -137,7 +137,7 @@ export class GraphExecutor {
   ): Promise<GraphRunResult> {
     const ref = graphRef(graph);
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const completed = await this.deriveCompleted(runId, ref);
+    const completed = await this.deriveCompleted(graph, runId, ref);
 
     const failures: NodeFailure[] = [];
     const waiting: GateWait[] = [];
@@ -362,12 +362,51 @@ export class GraphExecutor {
     return null;
   }
 
+  private isCurrentCompletion(record: RunRecord, byId: Map<string, GraphNode>): boolean {
+    if (!record.node_id) return false;
+    const node = byId.get(record.node_id);
+    if (!node) return false;
+
+    const kind = nodeType(node);
+    if (kind === "input") return record.transformation === "input";
+    if (kind === "human_gate") return record.transformation === "human_gate";
+
+    const tn = node as TransformationNode;
+    const def = this.deps.transformations.get(tn.transformation);
+    if (!def) return false;
+    return record.transformation === tn.transformation
+      && record.transformation_version === (def.version ?? "1");
+  }
+
+  private pruneIncompleteDependencies(completed: Map<string, string>, byId: Map<string, GraphNode>): void {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [nodeId] of completed) {
+        const node = byId.get(nodeId);
+        if (!node) {
+          completed.delete(nodeId);
+          changed = true;
+          continue;
+        }
+        if (nodeType(node) === "input") continue;
+        if (inputsOf(node).some((upstream) => !completed.has(upstream))) {
+          completed.delete(nodeId);
+          changed = true;
+        }
+      }
+    }
+  }
+
   /** Nodes already completed for this run, from the run log (last success wins). */
-  private async deriveCompleted(runId: string, ref: string): Promise<Map<string, string>> {
+  private async deriveCompleted(graph: GraphDoc, runId: string, ref: string): Promise<Map<string, string>> {
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const out = new Map<string, string>();
     const retried = new Set<string>();
     const records = await this.deps.runLog.all();
     // Scan in order: a "retry" record invalidates the prior success for that node.
+    // A version-stale success does not count as complete after graph code changes;
+    // otherwise resume can keep feeding old artifacts into newly tightened gates.
     for (const r of records) {
       if (r.run_id !== runId || r.graph_id !== ref || !r.node_id) continue;
       if (r.status === "retry") {
@@ -377,9 +416,11 @@ export class GraphExecutor {
       }
       if (!r.output) continue;
       if (r.status !== "ok" && r.status !== "cache_hit") continue;
+      if (!this.isCurrentCompletion(r, byId)) continue;
       out.set(r.node_id, r.output);
       retried.delete(r.node_id);
     }
+    this.pruneIncompleteDependencies(out, byId);
     return out;
   }
 
@@ -411,4 +452,3 @@ export class GraphExecutor {
     });
   }
 }
-
