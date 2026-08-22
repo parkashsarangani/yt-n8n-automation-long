@@ -220,13 +220,35 @@ test("the shipped production graph runs unattended end to end with fake provider
   };
   const SCRIPT = {
     scenes: [
-      { scene_index: 0, act_index: 0, point: "the rumor", narration: "There's a locker that hums.", speaker: "host", emotion: "neutral" },
-      { scene_index: 1, act_index: 1, point: "payoff_scene: the dare", narration: "So open it. I dare you.", speaker: "host", emotion: "surprised" },
+      {
+        scene_index: 0,
+        act_index: 0,
+        point: "action=Host stops beside a humming locker; prop=locker; function=opening_problem; value=the mystery is visible immediately",
+        narration: "That locker is humming.",
+        speaker: "host",
+        emotion: "neutral",
+      },
+      {
+        scene_index: 1,
+        act_index: 1,
+        point: "action=Host reaches for the locker handle but pulls back; prop=locker; function=failed_attempt midpoint_turn; value=the dare becomes a visible choice",
+        narration: "I hate that it sounds patient.",
+        speaker: "host",
+        emotion: "scared",
+      },
+      {
+        scene_index: 2,
+        act_index: 2,
+        point: "action=Host opens the locker and the hum gets louder; prop=locker; function=payoff_resolution practical_action; value=return to the object and answer the opening mystery",
+        narration: "Fine. It was waiting.",
+        speaker: "host",
+        emotion: "surprised",
+      },
     ],
-    word_count: 14,
+    word_count: 17,
   };
   const VISUAL_PLAN = {
-    scenes: [0, 1].map((i) => ({
+    scenes: [0, 1, 2].map((i) => ({
       scene_index: i,
       template_category: "cartoon",
       background_location: "school-hallway",
@@ -241,10 +263,10 @@ test("the shipped production graph runs unattended end to end with fake provider
       listener_emotion: "neutral",
       listener_gesture: "idle",
       listener_gaze_target: "auto",
-      visual_event: i === 0 ? "none" : "reaction-pop",
+      visual_event: i === 0 ? "screen-change" : i === 1 ? "prop-tremble" : "callback-card",
       ambient_motion: "subtle-parallax",
       speaker_emphasis: "scale-pop",
-      cutaway_label: "",
+      cutaway_label: i === 2 ? "THE HUM ANSWERS" : "",
     })),
   };
   const SEO = {
