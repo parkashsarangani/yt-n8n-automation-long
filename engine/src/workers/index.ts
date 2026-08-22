@@ -9,7 +9,7 @@
 import type { TransformationDef, WorkerDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
-import { makeCartoonSceneCompilerWorker as makeV11CartoonSceneCompilerWorker } from "./cartoon-scenes-v11.ts";
+import { makeCartoonSceneCompilerWorker as makeV12CartoonSceneCompilerWorker } from "./cartoon-scenes-v12.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -33,11 +33,12 @@ export { buildPrompt } from "./assets.ts";
 
 /**
  * Compatibility factory for focused unit tests that exercise the compiler
- * outside the production graph. The shipped graph still routes the full v11
- * worker, including creative_direction as a first-class dependency.
+ * outside the production graph. The shipped graph still routes the full v12
+ * worker, including creative_direction as a first-class dependency and taste
+ * gates as hard production checks.
  */
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
-  const worker = makeV11CartoonSceneCompilerWorker();
+  const worker = makeV12CartoonSceneCompilerWorker();
   return {
     ...worker,
     consumes: worker.consumes.filter((input) => input.as !== "creative_direction"),
@@ -61,7 +62,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
-    makeV11CartoonSceneCompilerWorker(),
+    makeV12CartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),

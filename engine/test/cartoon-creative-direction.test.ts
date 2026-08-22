@@ -90,6 +90,55 @@ function directedScene(scene_index: number) {
   };
 }
 
+const creativeSceneFunctions = [
+  "opening_problem",
+  "failed_attempt",
+  "cue_mechanism",
+  "practical_swap",
+  "automatic_reach",
+  "payoff_resolution",
+];
+const creativeEnergyBeats = [
+  "hook",
+  "self-own",
+  "temptation",
+  "practical turn",
+  "relapse beat",
+  "callback payoff",
+];
+const creativeBlocking = [
+  { speaker_position: "left", listener_position: "right", prop_position: "table", power_shift: "the phone wins the first look before anyone explains it" },
+  { speaker_position: "right", listener_position: "left", prop_position: "foreground-center", power_shift: "Buddy catches the rule breaking in real time" },
+  { speaker_position: "center", listener_position: "right", prop_position: "background", power_shift: "the room exposes the cue before Host can defend it" },
+  { speaker_position: "right", listener_position: "left", prop_position: "foreground-right", power_shift: "Buddy moves the bait out of easy reach" },
+  { speaker_position: "left", listener_position: "right", prop_position: "foreground-left", power_shift: "Host's hand betrays the plan before Host does" },
+  { speaker_position: "center", listener_position: "right", prop_position: "table", power_shift: "the kettle replaces the phone as the new action" },
+];
+const creativeForegroundProps = [
+  { type: "phone", state: "phone-unlocked", motion: "glow", anchor: "table", action: "Phone is already open before Host remembers touching it" },
+  { type: "phone", state: "one-minute-timer", motion: "pulse", anchor: "foreground", action: "Phone proves the one-minute promise is already broken" },
+  { type: "clock", state: "running-late", motion: "pulse", anchor: "background", action: "Clock interrupts the excuse from behind the phone" },
+  { type: "phone", state: "across-room", motion: "slide-away", anchor: "right", action: "Buddy slides the phone out of reach" },
+  { type: "phone", state: "empty-spot", motion: "tremble", anchor: "left", action: "Host reaches where the phone used to be" },
+  { type: "kettle", state: "kettle-wins", motion: "bounce", anchor: "table", action: "Host grabs the kettle instead of the phone" },
+];
+const creativeMetaphors = [
+  { type: "none", label: "", emotional_beat: "" },
+  { type: "none", label: "", emotional_beat: "" },
+  { type: "callback-card", label: "THE BAIT BLINKS", emotional_beat: "caught by the cue" },
+  { type: "none", label: "", emotional_beat: "" },
+  { type: "reaction-pop", label: "HAND WENT ROGUE", emotional_beat: "the habit moves before the person chooses" },
+  { type: "callback-card", label: "KETTLE WINS", emotional_beat: "the replacement action closes the loop" },
+];
+const creativePerformanceNotes = [
+  "Host should notice the unlocked phone before saying anything clever",
+  "Buddy points once, then lets the accusation sit",
+  "Host looks betrayed by the blinking cue, not educated by it",
+  "Buddy makes the slide-away motion small and practical",
+  "Host catches their own hand mid-reach and looks offended",
+  "Host accepts the kettle like a tiny defeat that actually works",
+];
+
 function creativeDirection(overrides: Record<string, unknown> = {}) {
   return {
     character_roles: [
@@ -113,28 +162,13 @@ function creativeDirection(overrides: Record<string, unknown> = {}) {
     },
     scenes: scriptScenes().map((scene) => ({
       scene_index: scene.scene_index,
-      scene_function: scene.scene_index === 0 ? "opening_problem" : scene.scene_index === 5 ? "payoff_resolution" : "habit_escalation",
-      energy_beat: scene.scene_index === 0 ? "hook" : scene.scene_index === 5 ? "callback payoff" : "temptation",
-      foreground_prop: {
-        type: scene.scene_index === 2 ? "clock" : "phone",
-        state: scene.scene_index === 2 ? "running-late" : "notification-badge",
-        motion: scene.scene_index === 2 ? "pulse" : "glow",
-        anchor: scene.scene_index === 2 ? "background" : "table",
-        action: scene.scene_index === 2 ? "Clock interrupts the excuse" : "Phone stays visible as the temptation",
-      },
-      blocking: {
-        speaker_position: "left",
-        listener_position: "right",
-        prop_position: scene.scene_index === 2 ? "background" : "table",
-        power_shift: scene.scene_index === 2 ? "the room proves the excuse wrong" : "attention stays on the cue",
-      },
-      metaphor: {
-        type: scene.scene_index === 2 ? "callback-card" : "none",
-        label: scene.scene_index === 2 ? "THE BAIT BLINKS" : "",
-        emotional_beat: scene.scene_index === 2 ? "caught by the cue" : "",
-      },
+      scene_function: creativeSceneFunctions[scene.scene_index]!,
+      energy_beat: creativeEnergyBeats[scene.scene_index]!,
+      foreground_prop: creativeForegroundProps[scene.scene_index]!,
+      blocking: creativeBlocking[scene.scene_index]!,
+      metaphor: creativeMetaphors[scene.scene_index]!,
       callback_role: scene.scene_index === 0 ? "seed" : scene.scene_index === 2 ? "escalation" : scene.scene_index === 5 ? "payoff" : "none",
-      performance_note: scene.scene_index === 2 ? "Host looks betrayed by the room" : "Keep the exchange small and human",
+      performance_note: creativePerformanceNotes[scene.scene_index]!,
     })),
     ...overrides,
   };
@@ -167,7 +201,7 @@ test("creative_direction foreground props override visual plan props", async () 
   assert.equal(compiled.visualEvent.foregroundProp?.state, "running-late");
   assert.equal(compiled.visualEvent.type, "callback-card");
   assert.equal(compiled.visualEvent.label, "THE BAIT BLINKS");
-  assert.equal(compiled.creativeBlocking?.power_shift, "the room proves the excuse wrong");
+  assert.equal(compiled.creativeBlocking?.power_shift, "the room exposes the cue before Host can defend it");
   assert.equal(compiled.creativeEnergyBeat, "temptation");
 });
 
