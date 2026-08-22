@@ -162,7 +162,17 @@ test("v5 runtime density gate rejects long low-density explainers", async () => 
   await assert.rejects(
     () => worker.execute(
       {
-        plan: { payload: { scenes: scenes.map((scene) => directedScene(scene.scene_index, { primary_prop: "phone", prop_state: "phone-visible", visual_event: "reaction-pop" })) } },
+        plan: {
+          payload: {
+            scenes: scenes.map((scene) => directedScene(scene.scene_index, {
+              background_location: scene.scene_index % 2 === 0 ? "living-room" : "kitchen",
+              background_variant: scene.scene_index % 2 === 0 ? "day" : "night",
+              primary_prop: "phone",
+              prop_state: "phone-visible",
+              visual_event: "reaction-pop",
+            })),
+          },
+        },
         script: {
           payload: { scenes },
           produced_by: { transformation: "dialogue_script_writer", version: "5" },
