@@ -2,9 +2,11 @@ import type { AgentDef } from "./runner.ts";
 import type { Artifact } from "./artifact.ts";
 
 const LONG_CARTOON_PLAN_SCENES = 13;
+const SHORT_DIALOGUE_WORD_LIMIT = 10;
 
 interface ScriptScene {
   scene_index: number;
+  narration?: string;
   is_outro?: boolean;
 }
 
@@ -20,10 +22,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function scriptScenes(inputs: Record<string, Artifact>): ScriptScene[] {
-  const payload = asRecord(inputs["script"]?.payload);
-  const scenes = payload?.scenes;
+function scenesFromPayload(payload: unknown): ScriptScene[] {
+  const record = asRecord(payload);
+  const scenes = record?.scenes;
   return Array.isArray(scenes) ? scenes as ScriptScene[] : [];
+}
+
+function inputScriptScenes(inputs: Record<string, Artifact>): ScriptScene[] {
+  return scenesFromPayload(inputs["script"]?.payload);
 }
 
 function planScenes(payload: unknown): PlanScene[] {
@@ -39,8 +45,32 @@ function backgroundKey(scene: PlanScene | undefined): string {
   return location && variant ? `${location}/${variant}` : "";
 }
 
+function wordCount(value: unknown): number {
+  return typeof value === "string"
+    ? value.trim().split(/\s+/).filter(Boolean).length
+    : 0;
+}
+
+function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
+  const contentScenes = scenesFromPayload(payload)
+    .filter((scene) => !scene.is_outro)
+    .sort((a, b) => a.scene_index - b.scene_index);
+  if (contentScenes.length === 0) return [];
+
+  const shortLineCount = contentScenes.filter((scene) => wordCount(scene.narration) <= SHORT_DIALOGUE_WORD_LIMIT).length;
+  const requiredShortLines = Math.ceil(contentScenes.length / 2);
+  if (shortLineCount >= requiredShortLines) return [];
+
+  return [
+    `${def.name}@${def.version ?? "1"} natural dialogue gate failed: `
+    + `${shortLineCount}/${contentScenes.length} lines are ${SHORT_DIALOGUE_WORD_LIMIT} words or fewer; `
+    + `at least half (${requiredShortLines}/${contentScenes.length}) must be short. `
+    + `Rewrite as short, human, situational dialogue, not textbook/explainer speech.`,
+  ];
+}
+
 function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Artifact>): string[] {
-  const contentScenes = scriptScenes(inputs)
+  const contentScenes = inputScriptScenes(inputs)
     .filter((scene) => !scene.is_outro)
     .sort((a, b) => a.scene_index - b.scene_index);
   if (contentScenes.length < LONG_CARTOON_PLAN_SCENES) return [];
@@ -66,6 +96,9 @@ export function agentSemanticValidationErrors(
   payload: unknown,
   inputs: Record<string, Artifact>,
 ): string[] {
+  if (def.name === "dialogue_script_writer" && def.produces === "script") {
+    return validateDialogueScript(payload, def);
+  }
   if (def.name === "cartoon_visual_planner" && def.produces === "visual_plan") {
     return validateCartoonVisualPlan(payload, inputs);
   }
