@@ -35,6 +35,8 @@ export interface Consumes {
   range?: string;
   /** Name this input is bound to in the prompt, e.g. {{story}}. */
   as: string;
+  /** Optional compatibility input for direct transformation tests. */
+  optional?: boolean;
 }
 
 export interface AgentDef {
@@ -157,14 +159,27 @@ export class Runner {
     def: TransformationDef,
     inputIds: string[],
   ): Promise<Record<string, Artifact>> {
-    if (inputIds.length !== def.consumes.length) {
+    const requiredCount = def.consumes.filter((spec) => !spec.optional).length;
+    if (inputIds.length < requiredCount || inputIds.length > def.consumes.length) {
+      const expected = requiredCount === def.consumes.length
+        ? String(def.consumes.length)
+        : `${requiredCount}-${def.consumes.length}`;
       throw new RunnerError(
-        `${def.name} consumes ${def.consumes.length} artifact(s) but got ${inputIds.length}`,
+        `${def.name} consumes ${expected} artifact(s) but got ${inputIds.length}`,
       );
     }
     const bound: Record<string, Artifact> = {};
-    for (const [i, spec] of def.consumes.entries()) {
-      const id = inputIds[i]!;
+    let inputIndex = 0;
+    for (const [specIndex, spec] of def.consumes.entries()) {
+      const requiredRemainingAfter = def.consumes
+        .slice(specIndex + 1)
+        .filter((candidate) => !candidate.optional).length;
+      const suppliedRemaining = inputIds.length - inputIndex;
+      if (spec.optional && suppliedRemaining <= requiredRemainingAfter) {
+        continue;
+      }
+      const id = inputIds[inputIndex]!;
+      inputIndex += 1;
       bound[spec.as] = await this.deps.store.require(id, {
         schema_id: spec.schema_id,
         ...(spec.range ? { range: spec.range } : {}),
@@ -207,6 +222,9 @@ export class Runner {
     const vars: Record<string, string> = {};
     for (const [name, artifact] of Object.entries(inputs)) {
       vars[name] = JSON.stringify(artifact.payload, null, 2);
+    }
+    for (const spec of def.consumes) {
+      if (spec.optional && !(spec.as in vars)) vars[spec.as] = "null";
     }
 
     let lastErrors: string[] = [];

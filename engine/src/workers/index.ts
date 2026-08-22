@@ -6,10 +6,10 @@
  * should not be.
  */
 
-import type { TransformationDef } from "../runner.ts";
+import type { TransformationDef, WorkerDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
-import { makeCartoonSceneCompilerWorker } from "./cartoon-scenes-v10.ts";
+import { makeCartoonSceneCompilerWorker as makeV11CartoonSceneCompilerWorker } from "./cartoon-scenes-v11.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -21,7 +21,6 @@ export {
   makeVoiceWorker,
   makeDialogueVoiceWorker,
   makeAssetWorker,
-  makeCartoonSceneCompilerWorker,
   makeRenderWorker,
   makeCartoonRenderWorker,
   makeThumbnailWorker,
@@ -31,6 +30,19 @@ export {
   makeCastLoaderWorker,
 };
 export { buildPrompt } from "./assets.ts";
+
+/**
+ * Compatibility factory for focused unit tests that exercise the compiler
+ * outside the production graph. The shipped graph still routes the full v11
+ * worker, including creative_direction as a first-class dependency.
+ */
+export function makeCartoonSceneCompilerWorker(): WorkerDef {
+  const worker = makeV11CartoonSceneCompilerWorker();
+  return {
+    ...worker,
+    consumes: worker.consumes.filter((input) => input.as !== "creative_direction"),
+  };
+}
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
@@ -49,7 +61,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
-    makeCartoonSceneCompilerWorker(),
+    makeV11CartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),

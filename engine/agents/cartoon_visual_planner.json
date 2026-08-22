@@ -1,19 +1,20 @@
 {
   "name": "cartoon_visual_planner",
   "kind": "agent",
-  "version": "8",
+  "version": "9",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
-    { "schema_id": "cast_roster", "range": "^1", "as": "cast_roster" }
+    { "schema_id": "cast_roster", "range": "^1", "as": "cast_roster" },
+    { "schema_id": "creative_direction", "range": "^1", "as": "creative_direction", "optional": true }
   ],
   "produces": "visual_plan",
   "produces_version": "1.7.0",
-  "prompt": "cartoon_visual_planner@8",
+  "prompt": "cartoon_visual_planner@9",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 32000,
     "effort": "medium"
   },
-  "confidence_dimensions": ["concreteness", "variety", "visual_momentum", "speaker_readability"],
+  "confidence_dimensions": ["concreteness", "variety", "visual_momentum", "speaker_readability", "creative_direction_fidelity"],
   "retry": { "max_attempts": 3 }
 }

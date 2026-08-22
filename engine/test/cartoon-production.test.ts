@@ -55,7 +55,7 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "12");
+  assert.equal(graph.version, "13");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
   assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "cartoon_visual_planner");
@@ -247,6 +247,58 @@ test("the shipped production graph runs unattended end to end with fake provider
     ],
     word_count: 17,
   };
+  const CREATIVE_DIRECTION = {
+    character_roles: [
+      {
+        character_id: "host",
+        comic_role: "curious narrator who fears the locker but opens it anyway",
+        voice_markers: ["That locker", "I hate", "Fine"],
+        reaction_pattern: "freezes beside the locker, names the dread, then acts despite it",
+      },
+    ],
+    callback: {
+      seed: "the locker is humming",
+      escalation: "the hum sounds patient",
+      payoff: "the hum was waiting",
+    },
+    scenes: SCRIPT.scenes.map((scene) => ({
+      scene_index: scene.scene_index,
+      scene_function: scene.scene_index === 0 ? "opening_problem" : scene.scene_index === 1 ? "failed_attempt" : "payoff_resolution",
+      energy_beat: scene.scene_index === 0 ? "hook" : scene.scene_index === 1 ? "dread escalation" : "callback payoff",
+      foreground_prop: {
+        type: "locker",
+        state: scene.scene_index === 0 ? "humming" : scene.scene_index === 1 ? "handle-waiting" : "open-humming",
+        motion: scene.scene_index === 1 ? "tremble" : scene.scene_index === 2 ? "open" : "pulse",
+        anchor: "background",
+        action: scene.scene_index === 0
+          ? "Locker hums before Host touches it"
+          : scene.scene_index === 1
+            ? "Locker handle waits while Host pulls back"
+            : "Locker opens and answers the setup",
+      },
+      blocking: {
+        speaker_position: "left",
+        listener_position: "unchanged",
+        prop_position: "background",
+        power_shift: scene.scene_index === 0
+          ? "the locker owns the room"
+          : scene.scene_index === 1
+            ? "the dare pushes Host toward the handle"
+            : "Host chooses to open the object",
+      },
+      metaphor: {
+        type: scene.scene_index === 2 ? "callback-card" : scene.scene_index === 1 ? "reaction-pop" : "none",
+        label: scene.scene_index === 2 ? "THE HUM ANSWERS" : scene.scene_index === 1 ? "PATIENT" : "",
+        emotional_beat: scene.scene_index === 0 ? "uneasy curiosity" : scene.scene_index === 1 ? "dread becomes visible" : "the mystery answers back",
+      },
+      callback_role: scene.scene_index === 0 ? "seed" : scene.scene_index === 1 ? "escalation" : "payoff",
+      performance_note: scene.scene_index === 0
+        ? "Host notices the sound before explaining it"
+        : scene.scene_index === 1
+          ? "Host should look annoyed that the hum feels patient"
+          : "Let the final line land as reluctant acceptance",
+    })),
+  };
   const VISUAL_PLAN = {
     scenes: [0, 1, 2].map((i) => ({
       scene_index: i,
@@ -298,6 +350,7 @@ test("the shipped production graph runs unattended end to end with fake provider
     if (title.includes("ChannelInsights")) return { payload: INSIGHTS, confidence: { overall: 0.9 } };
     if (title.includes("Story")) return { payload: STORY, confidence: { overall: 0.9 } };
     if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
+    if (title.includes("CartoonCreativeDirection")) return { payload: CREATIVE_DIRECTION, confidence: { overall: 0.9 } };
     if (title.includes("VisualPlan")) return { payload: VISUAL_PLAN, confidence: { overall: 0.9 } };
     if (title.includes("Seo")) return { payload: SEO, confidence: { overall: 0.9 } };
     if (title.includes("ThumbnailBrief")) return { payload: THUMBNAIL_BRIEF, confidence: { overall: 0.9 } };
@@ -347,7 +400,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
       [],
     );
-    for (const nodeId of ["story", "script", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
+    for (const nodeId of ["story", "script", "creative_direction", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
       assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
     }
     assert.notEqual(result.status, "blocked");

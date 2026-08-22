@@ -111,6 +111,7 @@ test("the catalog loads every agent as pure data", async () => {
   assert.deepEqual(
     [...agents.keys()].sort(),
     [
+      "cartoon_creative_director",
       "cartoon_thumbnail_designer",
       "cartoon_visual_planner",
       "channel_strategist",
