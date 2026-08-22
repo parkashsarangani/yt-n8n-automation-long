@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
 import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
+import { agentSemanticValidationErrors } from "./agent-validators.ts";
 import {
   ProviderError,
   ProviderRefusal,
@@ -320,6 +321,41 @@ export class Runner {
         continue;
       }
 
+      const semanticErrors = agentSemanticValidationErrors(def, payload, inputs);
+      if (semanticErrors.length > 0) {
+        lastErrors = semanticErrors;
+        await this.writeRecord({
+          run_id: runId,
+          graph_id: opts.graphId ?? null,
+          node_id: opts.nodeId ?? null,
+          transformation: def.name,
+          transformation_version: transformationVersion,
+          inputs: inputIds,
+          output: null,
+          status: "schema_invalid",
+          attempt,
+          max_attempts: maxAttempts,
+          provider: provider.id,
+          model: usage?.model ?? null,
+          prompt_ref: def.prompt,
+          usage,
+          confidence,
+          started_at: startedAt,
+          startedMs,
+          error: semanticErrors.join("; "),
+        });
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} failed semantic validation: ${semanticErrors.join("; ")}`,
+        );
+        if (attempt === maxAttempts) {
+          throw new RunnerError(
+            `${def.name} produced an invalid ${def.produces} after ${maxAttempts} attempts: ` +
+              semanticErrors.join("; "),
+          );
+        }
+        continue;
+      }
+
       const producedBy: ProducedBy = {
         transformation: def.name,
         version: transformationVersion,
@@ -492,7 +528,7 @@ function renderRetryBlock(errors: string[]): string {
   if (errors.length === 0) return "";
   return (
     `\n\n---\n## Your previous attempt was rejected\n\n` +
-    `It failed schema validation with these errors:\n` +
+    `It failed schema or semantic validation with these errors:\n` +
     errors.map((e) => `- ${e}`).join("\n") +
     `\n\nFix exactly these problems and return the corrected result. ` +
     `Do not change anything else, and do not explain the fix.\n`
