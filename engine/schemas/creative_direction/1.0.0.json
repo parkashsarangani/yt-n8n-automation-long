@@ -1,7 +1,7 @@
 {
   "schema_id": "creative_direction",
   "version": "1.0.0",
-  "status": "draft",
+  "status": "active",
   "description": "Structured creative direction for cartoon episodes: character voice roles, callback loop, scene-level foreground prop authority, blocking intent, metaphor intent, and performance notes. This artifact is consumed directly by the visual planner and cartoon scene compiler so taste decisions do not have to be inferred from dialogue text.",
   "produced_by": ["cartoon_creative_director"],
   "json_schema": {
