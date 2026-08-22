@@ -93,7 +93,8 @@ function explicitPerformanceCue(text: string): PerformanceCueType | null {
   if (/\b(?:concedes|concede|reluctant|acceptance|accepts|fine|quietly redirects|finally)\b/.test(text)) return "reluctant-acceptance";
   if (/\b(?:defeat|embarrass|caught|wrong|loses|beat)\b/.test(text)) return "small-defeat";
   if (/\b(?:realizes|realizing|sudden|wait|double take)\b/.test(text)) return "double-take";
-  if (/\b(?:hesitat|pause|freezes|before|holds back|stops)\b/.test(text)) return "hesitate";
+  if (/\b(?:notices?|spots?|catches?|sees?|watches|recognizes?|observes?|looks at)\b/.test(text)) return "notice";
+  if (/\b(?:hesitat|pause|freezes|holds back|stops)\b/.test(text)) return "hesitate";
   if (/\b(?:points|point|object|cue|prop|phone|clock|keys|kettle)\b/.test(text)) return "point-at-prop";
   return null;
 }
