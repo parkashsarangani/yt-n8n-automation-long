@@ -51,20 +51,43 @@ function wordCount(value: unknown): number {
     : 0;
 }
 
+// Mirrors cartoon_scene_compiler's assertNaturalDialogue humanMomentLines check
+// (engine/src/workers/cartoon-scenes-v9.ts) so the writer retries on this signal
+// before the compiler ever sees the script, instead of failing two stages later.
+const HUMAN_MOMENT_PATTERN = /\b(?:i|i'm|im|i’ll|i'd|me|my|you|you're|youre|your|we|we're|were|wait|nope|ugh|okay|still|again|late|where|why|how|fine|hate|rude|keys?)\b|(?:n't|'m|'re|'ve|'ll|'d)/i;
+const HUMAN_MOMENT_MIN_RATIO = 0.45;
+
 function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
   const contentScenes = scenesFromPayload(payload)
     .filter((scene) => !scene.is_outro)
     .sort((a, b) => a.scene_index - b.scene_index);
   if (contentScenes.length === 0) return [];
 
+  const failures: string[] = [];
+
   const shortLineCount = contentScenes.filter((scene) => wordCount(scene.narration) <= SHORT_DIALOGUE_WORD_LIMIT).length;
   const requiredShortLines = Math.ceil(contentScenes.length / 2);
-  if (shortLineCount >= requiredShortLines) return [];
+  if (shortLineCount < requiredShortLines) {
+    failures.push(
+      `${shortLineCount}/${contentScenes.length} lines are ${SHORT_DIALOGUE_WORD_LIMIT} words or fewer; `
+      + `at least half (${requiredShortLines}/${contentScenes.length}) must be short`,
+    );
+  }
+
+  const humanMomentCount = contentScenes.filter((scene) => HUMAN_MOMENT_PATTERN.test(scene.narration ?? "")).length;
+  const requiredHumanMomentLines = Math.ceil(contentScenes.length * HUMAN_MOMENT_MIN_RATIO);
+  if (humanMomentCount < requiredHumanMomentLines) {
+    failures.push(
+      `${humanMomentCount}/${contentScenes.length} lines sound like someone inside the situation `
+      + `(first/second-person pronouns, contractions, or situational words); `
+      + `at least ${requiredHumanMomentLines}/${contentScenes.length} are required`,
+    );
+  }
+
+  if (failures.length === 0) return [];
 
   return [
-    `${def.name}@${def.version ?? "1"} natural dialogue gate failed: `
-    + `${shortLineCount}/${contentScenes.length} lines are ${SHORT_DIALOGUE_WORD_LIMIT} words or fewer; `
-    + `at least half (${requiredShortLines}/${contentScenes.length}) must be short. `
+    `${def.name}@${def.version ?? "1"} natural dialogue gate failed: ${failures.join("; ")}. `
     + `Rewrite as short, human, situational dialogue, not textbook/explainer speech.`,
   ];
 }

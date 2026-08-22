@@ -53,7 +53,7 @@ const STORY_PAYLOAD = {
 const DIALOGUE_SCRIPT_PAYLOAD = {
   scenes: [
     { scene_index: 0, act_index: 0, point: "open on the absurdity", narration: "Wait, Chile is HOW long?", speaker: "buddy", emotion: "surprised" },
-    { scene_index: 1, act_index: 0, point: "the mountains decided", narration: "Longer than London to Baghdad. The Andes drew this border.", speaker: "nova", emotion: "neutral" },
+    { scene_index: 1, act_index: 0, point: "the mountains decided", narration: "Longer than London to Baghdad. The Andes did that to you.", speaker: "nova", emotion: "neutral" },
     { scene_index: 2, act_index: 1, point: "payoff", narration: "It's rock. Not politics.", speaker: "nova", emotion: "happy" },
   ],
   word_count: 22,

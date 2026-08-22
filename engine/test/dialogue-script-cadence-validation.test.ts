@@ -158,3 +158,81 @@ test("dialogue_script_writer retries before storing a script with too few short 
   assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
   assert.match(records[0]!.error ?? "", /Rewrite as short, human, situational dialogue/);
 });
+
+// Short lines that read as impersonal fact statements rather than someone speaking
+// inside the situation. All are <=10 words, so this isolates the human-moment check.
+const SHORT_BUT_IMPERSONAL_LINES = [
+  "Fantasy schedules never survive contact with reality.",
+  "The clock keeps its own version of time.",
+  "Coffee delays the actual start of morning.",
+  "Traffic adds minutes nobody budgeted for.",
+  "Calendars assume a version of events that never happens.",
+  "Buffers exist precisely because plans lie.",
+  "The route map shows distance, not delay.",
+  "Schedules collapse under real-world friction.",
+  "Estimates ignore the cost of interruptions.",
+  "Morning routines rarely follow the plan.",
+  "The alarm marks time, not readiness.",
+  "Doors open later than intended most days.",
+  "Kettles boil slower than expectations allow.",
+  "Shoes get located after schedules already slipped.",
+  "Plans assume nothing interrupts the sequence.",
+  "Reality adds friction plans never model.",
+  "Buffers absorb the gap between plan and result.",
+  "The door finally opens later than planned.",
+  "A buffer changes the final outcome quietly.",
+];
+
+const SHORT_AND_HUMAN_LINES = [
+  "Wait, my fantasy schedule already collapsed.",
+  "The clock keeps its own version of time.",
+  "You blame coffee, but it's the traffic.",
+  "Traffic adds minutes nobody budgeted for.",
+  "I never plan for delays, apparently.",
+  "Buffers exist precisely because plans lie.",
+  "Your route map hides the real delay.",
+  "Schedules collapse under real-world friction.",
+  "I underestimate everything, every single time.",
+  "Morning routines rarely follow the plan.",
+  "The alarm marks time, not readiness.",
+  "You open the door later than planned.",
+  "Kettles boil slower than expectations allow.",
+  "Where are my shoes, again?",
+  "Plans assume nothing interrupts the sequence.",
+  "I add friction plans never model.",
+  "Buffers absorb the gap, and I finally notice.",
+  "Still, the door opens later than planned.",
+  "A buffer changes the outcome, and I notice.",
+];
+
+test("dialogue_script_writer retries a short but impersonal script for too few human-moment lines", async () => {
+  const h = await harness((_req, attempt) => ({
+    payload: attempt === 0 ? scriptPayload(SHORT_BUT_IMPERSONAL_LINES) : scriptPayload(SHORT_AND_HUMAN_LINES),
+    confidence: { overall: attempt === 0 ? 0.72 : 0.9 },
+  }));
+
+  const story = await h.store.put({
+    schema_id: "story",
+    payload: STORY_PAYLOAD,
+    produced_by: { transformation: "story_architect", version: "1", run_id: "run_seed", provider: null },
+  });
+  const cast = await h.store.put({
+    schema_id: "cast_roster",
+    schema_version: "1.0.0",
+    payload: CAST_PAYLOAD,
+    produced_by: { transformation: "human", version: "1", run_id: "run_seed", provider: null },
+  });
+
+  const out = await h.runner.run(h.agents.get("dialogue_script_writer")!, [story.artifact.artifact_id, cast.artifact.artifact_id]);
+
+  assert.equal(out.attempts, 2);
+  assert.equal(h.provider.calls.length, 2);
+  assert.match(h.provider.calls[1]!.prompt, /natural dialogue gate failed/);
+  assert.match(h.provider.calls[1]!.prompt, /0\/19 lines sound like someone inside the situation/);
+  assert.match(h.provider.calls[1]!.prompt, /at least 9\/19 are required/);
+  assert.doesNotMatch(h.provider.calls[1]!.prompt, /lines are 10 words or fewer/);
+
+  const records = await h.runLog.all();
+  assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
+  assert.match(records[0]!.error ?? "", /Rewrite as short, human, situational dialogue/);
+});
