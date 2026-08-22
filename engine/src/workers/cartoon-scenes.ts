@@ -507,11 +507,26 @@ function pointField(scene: ScriptScene, keys: string[]): string {
 
 function normalizedProp(value: string): string {
   const cleaned = value
-    .replace(/\b(?:the|a|an|central|object|prop)\b/g, " ")
+    .replace(/\b(?:the|a|an|central|object|prop|this|that|my|your|his|her|their|our|its)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (/\b(?:phone|screen|app|notification|message|text)\b/.test(cleaned)) return "phone";
-  if (/\b(?:window|airplane window|plane window)\b/.test(cleaned)) return "window";
+
+  const canonicalizers: Array<[RegExp, string]> = [
+    [/\b(?:phone|screen|app|notification|message|text|lock\s*screen)\b/, "phone"],
+    [/\b(?:airplane\s+window|plane\s+window|cabin\s+window|window)\b/, "window"],
+    [/\b(?:kettle|tea\s+kettle)\b/, "kettle"],
+    [/\b(?:bill|invoice|receipt|statement)\b/, "bill"],
+    [/\b(?:letter|envelope|mail)\b/, "letter"],
+    [/\b(?:door|doorway)\b/, "door"],
+    [/\b(?:tool|hammer|wrench|screwdriver|drill)\b/, "tool"],
+    [/\b(?:vehicle|car|bus|train|bike|bicycle|scooter|airplane|plane)\b/, "vehicle"],
+    [/\b(?:food|meal|snack|banana|sandwich|pizza|cake|soup|coffee|tea)\b/, "food"],
+    [/\b(?:microwave|oven|fridge|refrigerator)\b/, "appliance"],
+    [/\b(?:book|notebook|paper|document|form)\b/, "document"],
+  ];
+  for (const [pattern, canonical] of canonicalizers) {
+    if (pattern.test(cleaned)) return canonical;
+  }
   return cleaned.split(/[,/]/)[0]?.trim() ?? "";
 }
 
@@ -540,7 +555,8 @@ function hasVisibleAction(scene: ScriptScene): boolean {
   const action = actionValue(scene);
   if (action.length < 6) return false;
   if (/^(none|n\/a|na|null|summary|explain|explanation|lecture|dialogue|talking head|talking heads)$/.test(action)) return false;
-  return !/^\s*(?:explains?|defines?|summari[sz]es?|states?|says?|talks?)\b/.test(action);
+  if (/^\s*(?:[a-z][a-z0-9_-]*\s+)?(?:explains?|defines?|summari[sz]es?|states?|says?|talks?|lectures?)\b/.test(action)) return false;
+  return true;
 }
 
 function thirdForIndex(index: number, total: number): "opening" | "middle" | "final" {
@@ -601,12 +617,17 @@ function assertActionQualityContract(scenes: ScriptScene[]): void {
   const viewerTakeaway = /practical_action|viewer_value|takeaway|changed behavior|replacement|replace|remove the cue|concrete action/.test(pointText) ? 2 : 0;
   const payoffResolution = /payoff_resolution|payoff|resolution|resolve|return/.test(finalText) && hasVisibleAction(finalScene) ? 2 : 0;
   const score = hookClarity + visibleStoryAction + centralObjectUsage + viewerTakeaway + payoffResolution;
+  const failedHardDimensions: string[] = [];
+  if (hookClarity === 0) failedHardDimensions.push("hook_clarity");
+  if (centralObjectUsage === 0) failedHardDimensions.push("central_object_usage");
+  if (payoffResolution === 0) failedHardDimensions.push("payoff_resolution");
 
-  if (visibleActions < requiredActions || score < MIN_ACTION_QUALITY_SCORE) {
+  if (visibleActions < requiredActions || score < MIN_ACTION_QUALITY_SCORE || failedHardDimensions.length > 0) {
     throw new Error(
       `dialogue_script_writer@5 action quality gate failed: score ${score}/10 `
       + `(hook=${hookClarity}, action=${visibleStoryAction}, central_object=${centralObjectUsage}, viewer_value=${viewerTakeaway}, payoff=${payoffResolution}; `
-      + `${visibleActions}/${ordered.length} scenes have visible actions, central_object=${central.prop || "none"}). Target is at least ${MIN_ACTION_QUALITY_SCORE}/10.`,
+      + `${visibleActions}/${ordered.length} scenes have visible actions, central_object=${central.prop || "none"}, failed_hard_dimensions=${failedHardDimensions.join(",") || "none"}). `
+      + `Target is at least ${MIN_ACTION_QUALITY_SCORE}/10 with nonzero hook, central object, and payoff dimensions.`,
     );
   }
 }
