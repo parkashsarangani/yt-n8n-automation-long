@@ -20,14 +20,43 @@ export interface ForegroundPropSpec {
     type?: string;
     state?: string;
     motion?: "none" | "pulse" | "glow" | "tremble" | "slide-away" | "thumb-hover" | "open" | "close" | "bounce" | string;
-    anchor?: "hand" | "table" | "foreground" | "background" | string;
+    anchor?: "hand" | "table" | "foreground" | "background" | "left" | "right" | "center" | string;
     label?: string;
+}
+
+export interface CallbackEchoSpec {
+    role?: "seed" | "escalation" | "payoff" | string;
+    text?: string;
+    label?: string;
+    motif?: string;
+    propType?: string;
+    propState?: string;
+    intensity?: "low" | "medium" | "high" | string;
+}
+
+export interface PerformanceCueSpec {
+    type?: "notice" | "hesitate" | "double-take" | "side-eye" | "deadpan" | "recoil" | "small-defeat" | "reluctant-acceptance" | "point-at-prop" | string;
+    label?: string;
+    anchor?: "left" | "right" | "center" | "offscreen" | string;
+    propType?: string;
+    intensity?: "low" | "medium" | "high" | string;
+}
+
+export interface MetaphorVisualSpec {
+    type?: string;
+    label?: string;
+    emotionalBeat?: string;
+    propType?: string;
+    propState?: string;
 }
 
 export interface VisualEventSpec {
     type?: VisualEventType;
     label?: string;
     foregroundProp?: ForegroundPropSpec;
+    callbackEcho?: CallbackEchoSpec;
+    performanceCue?: PerformanceCueSpec;
+    metaphorVisual?: MetaphorVisualSpec;
 }
 
 export type SpeakerEmphasis = "none" | "scale-pop" | "rim-glow" | "listener-dim" | "caption-anchor";
@@ -129,6 +158,32 @@ function objectLabel(prop: ForegroundPropSpec): string {
     return String(raw).replace(/[-_]+/g, " ").toUpperCase().slice(0, 28);
 }
 
+function anchorX(anchor?: string): number {
+    switch (anchor) {
+        case "background": return 1320;
+        case "hand": return 1000;
+        case "table": return 980;
+        case "left": return 95;
+        case "right": return 1060;
+        case "center":
+        case "foreground": return 880;
+        default: return 1110;
+    }
+}
+
+function anchorY(anchor?: string): number {
+    switch (anchor) {
+        case "background": return 250;
+        case "hand": return 515;
+        case "table": return 590;
+        case "left":
+        case "right":
+        case "center":
+        case "foreground": return 560;
+        default: return 575;
+    }
+}
+
 function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
     const frame = useCurrentFrame();
     if (!prop?.type || prop.type === "none") return null;
@@ -141,8 +196,8 @@ function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
     const slideX = motion === "slide-away" ? interpolate(Math.min(frame, 24), [0, 24], [0, 120], { extrapolateRight: "clamp" }) : 0;
     const hoverY = motion === "thumb-hover" ? Math.sin(frame / 5) * 6 : 0;
     const scale = motion === "pulse" || motion === "glow" ? 1 + pulse * 0.035 : 1;
-    const x = prop.anchor === "background" ? 1320 : prop.anchor === "hand" ? 1000 : 1110;
-    const y = prop.anchor === "background" ? 250 : prop.anchor === "hand" ? 515 : 575;
+    const x = anchorX(prop.anchor);
+    const y = anchorY(prop.anchor);
 
     if (type === "phone") {
         const faceDown = /face-down|across/.test(state);
@@ -220,9 +275,82 @@ function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
 
     const label = objectLabel(prop);
     return (
-        <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, minWidth: 180, maxWidth: 300, padding: "22px 26px", borderRadius: type === "door" ? 12 : 24, background: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "rgba(255,255,255,0.92)" : "rgba(18,24,34,0.86)", color: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "#20242C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, textAlign: "center", boxShadow: motion === "glow" || motion === "pulse" ? `0 0 ${28 + pulse * 28}px rgba(80,190,255,0.45)` : "0 18px 38px rgba(0,0,0,0.24)", transform: `rotate(${type === "letter" || type === "bill" || type === "document" ? -4 : 2}deg) scale(${scale})`, zIndex: 7 }}>
+        <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, minWidth: 180, maxWidth: 300, padding: "22px 26px", borderRadius: 24, background: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "rgba(255,255,255,0.92)" : "rgba(18,24,34,0.86)", color: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "#20242C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, textAlign: "center", boxShadow: motion === "glow" || motion === "pulse" ? `0 0 ${28 + pulse * 28}px rgba(80,190,255,0.45)` : "0 18px 38px rgba(0,0,0,0.24)", transform: `rotate(${type === "letter" || type === "bill" || type === "document" ? -4 : 2}deg) scale(${scale})`, zIndex: 7 }}>
             {label}
         </div>
+    );
+}
+
+function CallbackEchoOverlay({ echo }: { echo?: CallbackEchoSpec }) {
+    const frame = useCurrentFrame();
+    if (!echo?.role || echo.role === "none") return null;
+    const role = String(echo.role).toLowerCase();
+    const pulse = 0.5 + Math.sin(frame / 7) * 0.5;
+    const enter = interpolate(Math.min(frame, 14), [0, 14], [0, 1], { extrapolateRight: "clamp" });
+    const text = String(echo.label || echo.text || echo.role).replace(/\s+/g, " ").trim().toUpperCase().slice(0, 42);
+    const motif = String(echo.motif || echo.propType || "CALLBACK").replace(/[-_]+/g, " ").toUpperCase().slice(0, 20);
+    const top = role === "payoff" ? 612 : role === "escalation" ? 92 : 34;
+    const left = role === "payoff" ? 330 : role === "escalation" ? 720 : 70;
+    const width = role === "payoff" ? 620 : 460;
+    return (
+        <div style={{ position: "absolute", left, top, width, minHeight: 88, borderRadius: 28, background: role === "payoff" ? "rgba(20,24,32,0.92)" : "rgba(255,255,255,0.90)", color: role === "payoff" ? "#FFFFFF" : "#20242C", border: role === "payoff" ? "5px solid rgba(255,255,255,0.85)" : "5px solid rgba(32,36,44,0.28)", boxShadow: role === "payoff" ? `0 0 ${30 + pulse * 34}px rgba(251,191,36,0.42)` : "0 18px 42px rgba(0,0,0,0.20)", transform: `translateY(${(1 - enter) * 18}px) scale(${0.98 + pulse * 0.012})`, zIndex: 8, overflow: "hidden" }}>
+            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 12, background: role === "seed" ? "#60A5FA" : role === "escalation" ? "#F59E0B" : "#22C55E" }} />
+            <div style={{ position: "absolute", right: 20, top: 16, padding: "8px 12px", borderRadius: 18, background: role === "payoff" ? "rgba(255,255,255,0.16)" : "rgba(32,36,44,0.08)", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 18, letterSpacing: 1 }}>{role.toUpperCase()}</div>
+            <div style={{ padding: "18px 134px 16px 34px", fontFamily: "Inter, sans-serif" }}>
+                <div style={{ fontWeight: 900, fontSize: 19, letterSpacing: 1, opacity: 0.72 }}>{motif}</div>
+                <div style={{ marginTop: 4, fontWeight: 900, fontSize: role === "payoff" ? 34 : 28, lineHeight: 1.04 }}>{text}</div>
+            </div>
+        </div>
+    );
+}
+
+function PerformanceCueOverlay({ cue }: { cue?: PerformanceCueSpec }) {
+    const frame = useCurrentFrame();
+    if (!cue?.type) return null;
+    const type = String(cue.type).toLowerCase();
+    const pulse = 0.5 + Math.sin(frame / 5) * 0.5;
+    const enter = interpolate(Math.min(frame, 10), [0, 10], [0, 1], { extrapolateRight: "clamp" });
+    const anchor = String(cue.anchor || "center");
+    const x = anchor === "left" ? 245 : anchor === "right" ? 950 : 610;
+    const y = type === "small-defeat" || type === "reluctant-acceptance" ? 486 : 126;
+    const label = String(cue.label || type).replace(/\s+/g, " ").trim().slice(0, 54);
+    const symbol = type === "double-take" ? "?!" : type === "side-eye" ? "LOOK" : type === "deadpan" ? "..." : type === "recoil" ? "!" : type === "small-defeat" ? "oh." : type === "reluctant-acceptance" ? "fine" : type === "point-at-prop" ? "→" : type === "hesitate" ? "wait" : "";
+    return (
+        <div style={{ position: "absolute", left: x, top: y, maxWidth: 310, transform: `translateY(${(1 - enter) * -10}px) scale(${0.96 + enter * 0.04})`, zIndex: 9, pointerEvents: "none" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 12, padding: "12px 18px", borderRadius: 999, background: "rgba(255,255,255,0.88)", color: "#20242C", border: "4px solid rgba(32,36,44,0.18)", boxShadow: `0 14px ${28 + pulse * 8}px rgba(0,0,0,0.20)`, fontFamily: "Inter, sans-serif" }}>
+                <div style={{ minWidth: 46, height: 46, borderRadius: 46, background: type === "recoil" ? "#FEE2E2" : type === "reluctant-acceptance" ? "#DCFCE7" : "#DBEAFE", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 20 }}>{symbol}</div>
+                <div style={{ fontWeight: 850, fontSize: 18, lineHeight: 1.05 }}>{label}</div>
+            </div>
+        </div>
+    );
+}
+
+function MetaphorVisualOverlay({ visual }: { visual?: MetaphorVisualSpec }) {
+    const frame = useCurrentFrame();
+    if (!visual?.type || visual.type === "none") return null;
+    const pulse = 0.5 + Math.sin(frame / 8) * 0.5;
+    const label = String(visual.label || visual.propType || "VISUAL BEAT").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 34);
+    const beat = String(visual.emotionalBeat || "").replace(/\s+/g, " ").trim().slice(0, 58);
+    const prop = String(visual.propType || "object").replace(/[-_]+/g, " ").toUpperCase().slice(0, 18);
+    return (
+        <div style={{ position: "absolute", right: 74, top: 78, width: 360, minHeight: 154, borderRadius: 30, background: "rgba(18,24,34,0.78)", color: "#FFFFFF", boxShadow: `0 20px ${42 + pulse * 16}px rgba(0,0,0,0.28)`, border: "5px solid rgba(255,255,255,0.20)", zIndex: 6, overflow: "hidden", fontFamily: "Inter, sans-serif" }}>
+            <div style={{ position: "absolute", left: -42, top: -42, width: 130, height: 130, borderRadius: 130, border: "12px solid rgba(96,165,250,0.38)", transform: `scale(${0.94 + pulse * 0.08})` }} />
+            <div style={{ padding: "24px 28px" }}>
+                <div style={{ fontSize: 18, fontWeight: 900, opacity: 0.75, letterSpacing: 1 }}>{prop}</div>
+                <div style={{ marginTop: 8, fontSize: 34, lineHeight: 1.02, fontWeight: 950 }}>{label}</div>
+                {beat && <div style={{ marginTop: 10, fontSize: 18, lineHeight: 1.18, fontWeight: 700, opacity: 0.86 }}>{beat}</div>}
+            </div>
+        </div>
+    );
+}
+
+function EventEnhancements({ event }: { event?: VisualEventSpec }) {
+    return (
+        <>
+            <MetaphorVisualOverlay visual={event?.metaphorVisual} />
+            <CallbackEchoOverlay echo={event?.callbackEcho} />
+            <PerformanceCueOverlay cue={event?.performanceCue} />
+        </>
     );
 }
 
@@ -239,7 +367,12 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
 
     switch (type) {
         case "none":
-            return event?.foregroundProp ? <ForegroundPropOverlay prop={event.foregroundProp} /> : null;
+            return (
+                <>
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
+                </>
+            );
         case "alarm-pulse":
             return (
                 <>
@@ -247,6 +380,7 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
                         <div style={{ position: "absolute", left: 690, top: 220, width: 540, height: 540, borderRadius: 540, border: "10px solid rgba(255,70,70,0.38)", transform: `scale(${0.84 + pulse * 0.16})`, boxShadow: "0 0 70px rgba(255,80,80,0.25)" }} />
                     </AbsoluteFill>
                     <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
                 </>
             );
         case "audience-silhouette":
@@ -258,6 +392,7 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
                         ))}
                     </AbsoluteFill>
                     <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
                 </>
             );
         case "screen-change":
@@ -265,15 +400,22 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
                 <>
                     {!event?.foregroundProp && <div style={{ position: "absolute", right: 110, top: 110, width: 360, height: 190, borderRadius: 20, background: "rgba(20,30,44,0.78)", border: "5px solid rgba(255,255,255,0.75)", boxShadow: "0 0 32px rgba(80,190,255,0.35)", transform: `scale(${0.98 + pulse * 0.02})`, color: "white", fontFamily: "Inter, sans-serif", fontWeight: 800, fontSize: 34, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24 }}>{label || "NEW SLIDE"}</div>}
                     <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
                 </>
             );
         case "prop-tremble":
-            return <ForegroundPropOverlay prop={event?.foregroundProp || { type: "document", state: "trembling", motion: "tremble", label: label || "PROP" }} />;
+            return (
+                <>
+                    <ForegroundPropOverlay prop={event?.foregroundProp || { type: "document", state: "trembling", motion: "tremble", label: label || "PROP" }} />
+                    <EventEnhancements event={event} />
+                </>
+            );
         case "reaction-pop":
             return (
                 <>
                     <div style={{ position: "absolute", left: 760, top: 160, padding: "24px 34px", borderRadius: 36, background: "rgba(255,255,255,0.88)", color: "#20242C", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 58, transform: `scale(${enter * (0.94 + pulse * 0.04)})`, boxShadow: "0 16px 44px rgba(0,0,0,0.22)" }}>!</div>
                     <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
                 </>
             );
         case "metaphor-cutaway":
@@ -287,6 +429,7 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
                         {text}
                     </div>
                     <ForegroundPropOverlay prop={event?.foregroundProp} />
+                    <EventEnhancements event={event} />
                 </>
             );
         }
