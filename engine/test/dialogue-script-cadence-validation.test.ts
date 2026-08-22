@@ -89,16 +89,16 @@ const BAD_LINES = [
   "Only a little.",
   "Define little.",
   "Don't do that.",
-  "I got eight hours and somehow my soul still wants a refund.",
-  "Your body was in bed while your brain kept opening tabs.",
-  "The coffee at six was still arguing with midnight.",
-  "Your calendar also scheduled tomorrow inside your pillow somehow.",
-  "The glowing rectangle ran a tiny casino beside your face.",
-  "Stress does not clock out because the blanket arrives.",
-  "You rested like a laptop with twenty tabs still open.",
-  "That is rude enough to sound medically adjacent but useful.",
-  "Tonight the phone sleeps outside and the alarm stays boring.",
-  "Same eight hours, but this time we stop leaking them.",
+  "I got eight hours and still woke up feeling completely borrowed from tomorrow.",
+  "Your body was in bed while your brain kept opening extra tabs.",
+  "The coffee at six was still arguing with midnight in the hallway.",
+  "Your calendar also scheduled tomorrow inside your pillow for no reason.",
+  "The glowing rectangle ran a tiny casino beside your face all night.",
+  "Stress does not clock out just because the blanket finally arrives.",
+  "You rested like a laptop with twenty angry tabs still open.",
+  "That is rude enough to sound useful and unfortunately very accurate.",
+  "Tonight the phone sleeps outside and the alarm clock stays boring.",
+  "Same eight hours, but this time we stop leaking them everywhere.",
 ];
 
 const GOOD_LINES = [
@@ -151,7 +151,7 @@ test("dialogue_script_writer retries before storing a script with too few short 
 
   const payload = out.artifact.payload as { scenes: Array<{ narration: string }> };
   const shortLines = payload.scenes.filter((entry) => entry.narration.trim().split(/\s+/).filter(Boolean).length <= 10).length;
-  assert.equal(shortLines, 14);
+  assert.equal(shortLines, 18);
   assert.equal(out.artifact.produced_by.version, "7");
 
   const records = await h.runLog.all();
