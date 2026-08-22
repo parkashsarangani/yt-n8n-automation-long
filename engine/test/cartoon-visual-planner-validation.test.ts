@@ -18,6 +18,8 @@ import { loadAgentDefs } from "../src/catalog.ts";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 
+type EnvironmentTuple = [string, string];
+
 function silent() {
   return { log: () => { }, warn: () => { }, error: () => { } };
 }
@@ -86,7 +88,7 @@ function planScene(index: number, location: string, variant: string) {
   };
 }
 
-function planPayload(locations: Array<[string, string]>) {
+function planPayload(locations: EnvironmentTuple[]) {
   return {
     scenes: locations.map(([location, variant], index) => planScene(index, location, variant)),
   };
@@ -96,7 +98,7 @@ test("cartoon_visual_planner retries before storing a long one-room visual plan"
   const h = await harness((_req, attempt) => {
     if (attempt === 0) {
       return {
-        payload: planPayload(Array.from({ length: 13 }, () => ["living-room", "day"])),
+        payload: planPayload(Array.from({ length: 13 }, () => ["living-room", "day"] as EnvironmentTuple)),
         confidence: { overall: 0.7 },
       };
     }
