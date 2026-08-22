@@ -22,7 +22,7 @@ interface PlanScene {
   template_data?: string;
 }
 
-interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; point?: string; }
+interface ScriptScene { scene_index: number; narration: string; speaker?: string; emotion?: string; point?: string; is_outro?: boolean; }
 interface CastCharacter { character_id: string; name?: string; rig: string; }
 interface CastRoster { characters: CastCharacter[]; }
 interface Environment { location: string; variant: string; }
@@ -57,6 +57,8 @@ const MAX_STATIC_REPEAT = 4;
 const LONG_SCRIPT_SECONDS = 75;
 const WORDS_PER_SECOND = 2.6;
 const MIN_DYNAMIC_BACKGROUND_SCENES = 13;
+const ACTION_QUALITY_SCRIPT_VERSION = 5;
+const MIN_ACTION_QUALITY_SCORE = 8;
 
 function pick(value: unknown, allowed: Set<string>, fallback: string): string {
   return typeof value === "string" && allowed.has(value) ? value : fallback;
@@ -72,9 +74,6 @@ function canonicalFraming(value: PlanScene["framing"]): "two-shot" | "speaker-cl
   return value === "speaker-closeup" || value === "listener-closeup" ? value : "two-shot";
 }
 
-// Character emotion and environment lighting are separate directions. A person
-// can panic in an ordinary bright room; only an explicit planner background_tone
-// should turn the environment scary/dramatic/cold.
 function defaultTone(): string {
   return "neutral";
 }
@@ -225,10 +224,6 @@ function topicEnvironment(script: ScriptScene): Environment | null {
 
 function isPlannerBackgroundOverridable(background: Record<string, unknown>): boolean {
   const location = typeof background.location === "string" ? background.location : "";
-  // Do not silently relocate deliberate, valid planner staging. This override
-  // exists as a defensive correction for generic/classroom-style stale plans,
-  // not as a global keyword router for every idiom that mentions a window,
-  // corner, round, square, force, seat, sky, or lean.
   return location === "" || location === "generic-room" || location === "classroom" || location === "living-room";
 }
 
@@ -313,10 +308,7 @@ function compileFromShallow(plan: PlanScene, script: ScriptScene, roster: CastRo
   else if (framing === "listener-closeup" && listenerChar) characters = [{ ...listenerChar, x: 710, y: 365, scale: CLOSEUP_SCALE }];
   else characters = listenerChar ? [speakerChar, listenerChar] : [speakerChar];
 
-  // Avoid stacking an already-large closeup with a second large zoom. A small
-  // 2.5% push is enough to create emphasis without making the actor jump size.
   const camera = cameraFor(plan.camera_motion ?? "static");
-
   const compiled = {
     background: { location, variant, tone: pick(plan.background_tone, TONES, defaultTone()) },
     camera,
@@ -346,8 +338,6 @@ function explicitFallbackEnvironment(script: ScriptScene): Environment | null {
 }
 
 function fallbackEnvironment(script: ScriptScene, previous?: Environment): Environment {
-  // Preserve the current room/time-of-day through ordinary back-and-forth.
-  // Only an explicit contextual cue moves the scene elsewhere.
   return explicitFallbackEnvironment(script) ?? previous ?? catalogBackground("living-room", "day");
 }
 
@@ -488,15 +478,158 @@ function assertBackgroundVariety(entries: CompiledEntry[]): void {
   }
 }
 
-function requiresV3ScriptContract(scriptArtifact: unknown): boolean {
+function dialogueWriterVersion(scriptArtifact: unknown): number {
   const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
-  return producedBy?.transformation === "dialogue_script_writer"
-    && typeof producedBy.version === "string"
-    && Number.parseInt(producedBy.version, 10) >= 3;
+  if (producedBy?.transformation !== "dialogue_script_writer" || typeof producedBy.version !== "string") return 0;
+  return Number.parseInt(producedBy.version, 10) || 0;
+}
+
+function requiresV3ScriptContract(scriptArtifact: unknown): boolean {
+  return dialogueWriterVersion(scriptArtifact) >= 3;
+}
+
+function requiresActionQualityContract(scriptArtifact: unknown): boolean {
+  return dialogueWriterVersion(scriptArtifact) >= ACTION_QUALITY_SCRIPT_VERSION;
 }
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function pointField(scene: ScriptScene, keys: string[]): string {
+  const point = scene.point ?? "";
+  for (const key of keys) {
+    const match = new RegExp(`(?:^|[;|])\\s*${key}\\s*[:=]\\s*([^;|]+)`, "i").exec(point);
+    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  return "";
+}
+
+function normalizedProp(value: string): string {
+  const cleaned = value
+    .replace(/\b(?:the|a|an|central|object|prop|this|that|my|your|his|her|their|our|its)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const canonicalizers: Array<[RegExp, string]> = [
+    [/\b(?:phone|screen|app|notification|message|text|lock\s*screen)\b/, "phone"],
+    [/\b(?:airplane\s+window|plane\s+window|cabin\s+window|window)\b/, "window"],
+    [/\b(?:kettle|tea\s+kettle)\b/, "kettle"],
+    [/\b(?:bill|invoice|receipt|statement)\b/, "bill"],
+    [/\b(?:letter|envelope|mail)\b/, "letter"],
+    [/\b(?:door|doorway)\b/, "door"],
+    [/\b(?:tool|hammer|wrench|screwdriver|drill)\b/, "tool"],
+    [/\b(?:vehicle|car|bus|train|bike|bicycle|scooter|airplane|plane)\b/, "vehicle"],
+    [/\b(?:food|meal|snack|banana|sandwich|pizza|cake|soup|coffee|tea)\b/, "food"],
+    [/\b(?:microwave|oven|fridge|refrigerator)\b/, "appliance"],
+    [/\b(?:book|notebook|paper|document|form)\b/, "document"],
+  ];
+  for (const [pattern, canonical] of canonicalizers) {
+    if (pattern.test(cleaned)) return canonical;
+  }
+  return cleaned.split(/[,/]/)[0]?.trim() ?? "";
+}
+
+function isMeaningfulProp(value: string): boolean {
+  const prop = normalizedProp(value);
+  return prop.length > 1 && !/^(none|n\/a|na|null|room|scene|character|characters|host|buddy)$/i.test(prop);
+}
+
+function actionValue(scene: ScriptScene): string {
+  return pointField(scene, ["action", "observable_action", "visible_action"]);
+}
+
+function propValue(scene: ScriptScene): string {
+  return normalizedProp(pointField(scene, ["prop", "central_object", "prop_in_scene", "object"]));
+}
+
+function functionValue(scene: ScriptScene): string {
+  return pointField(scene, ["function", "story_function", "tag"]);
+}
+
+function viewerValue(scene: ScriptScene): string {
+  return pointField(scene, ["value", "viewer_value", "takeaway"]);
+}
+
+function hasVisibleAction(scene: ScriptScene): boolean {
+  const action = actionValue(scene);
+  if (action.length < 6) return false;
+  if (/^(none|n\/a|na|null|summary|explain|explanation|lecture|dialogue|talking head|talking heads)$/.test(action)) return false;
+  if (/^\s*(?:[a-z][a-z0-9_-]*\s+)?(?:explains?|defines?|summari[sz]es?|states?|says?|talks?|lectures?)\b/.test(action)) return false;
+  return true;
+}
+
+function thirdForIndex(index: number, total: number): "opening" | "middle" | "final" {
+  if (index < total / 3) return "opening";
+  if (index < (total * 2) / 3) return "middle";
+  return "final";
+}
+
+function centralPropCoverage(scenes: ScriptScene[]): { prop: string; thirds: Set<string>; count: number } {
+  const counts = new Map<string, number>();
+  for (const scene of scenes) {
+    const prop = propValue(scene);
+    if (!isMeaningfulProp(prop)) continue;
+    counts.set(prop, (counts.get(prop) ?? 0) + 1);
+  }
+  let prop = "";
+  let count = 0;
+  for (const [candidate, candidateCount] of counts) {
+    if (candidateCount > count) {
+      prop = candidate;
+      count = candidateCount;
+    }
+  }
+  const thirds = new Set<string>();
+  if (prop) {
+    scenes.forEach((scene, index) => {
+      if (propValue(scene) === prop) thirds.add(thirdForIndex(index, scenes.length));
+    });
+  }
+  return { prop, thirds, count };
+}
+
+function assertActionQualityContract(scenes: ScriptScene[]): void {
+  const ordered = scenes
+    .filter((scene) => !scene.is_outro)
+    .slice()
+    .sort((a, b) => a.scene_index - b.scene_index);
+  if (ordered.length === 0) return;
+
+  const missingMetadata = ordered.filter((scene) => !actionValue(scene) || !functionValue(scene) || !viewerValue(scene));
+  if (missingMetadata.length > 0) {
+    throw new Error(
+      `dialogue_script_writer@5 action quality gate failed: scenes ${missingMetadata.map((s) => s.scene_index).join(", ")} must include action=, function=, and value= metadata in point`,
+    );
+  }
+
+  const visibleActions = ordered.filter(hasVisibleAction).length;
+  const requiredActions = Math.ceil(ordered.length * 0.6);
+  const openingScenes = ordered.slice(0, Math.min(2, ordered.length));
+  const finalScene = ordered[ordered.length - 1]!;
+  const pointText = ordered.map((scene) => `${scene.point ?? ""}`).join("\n").toLowerCase();
+  const finalText = `${finalScene.point ?? ""} ${functionValue(finalScene)}`.toLowerCase();
+  const central = centralPropCoverage(ordered);
+
+  const hookClarity = openingScenes.some((scene) => /opening_problem|hook/.test(functionValue(scene)) && hasVisibleAction(scene) && isMeaningfulProp(propValue(scene))) ? 2 : 0;
+  const visibleStoryAction = visibleActions >= requiredActions ? 2 : 0;
+  const centralObjectUsage = central.prop && central.count >= 3 && central.thirds.has("opening") && central.thirds.has("middle") && central.thirds.has("final") ? 2 : 0;
+  const viewerTakeaway = /practical_action|viewer_value|takeaway|changed behavior|replacement|replace|remove the cue|concrete action/.test(pointText) ? 2 : 0;
+  const payoffResolution = /payoff_resolution|payoff|resolution|resolve|return/.test(finalText) && hasVisibleAction(finalScene) ? 2 : 0;
+  const score = hookClarity + visibleStoryAction + centralObjectUsage + viewerTakeaway + payoffResolution;
+  const failedHardDimensions: string[] = [];
+  if (hookClarity === 0) failedHardDimensions.push("hook_clarity");
+  if (centralObjectUsage === 0) failedHardDimensions.push("central_object_usage");
+  if (payoffResolution === 0) failedHardDimensions.push("payoff_resolution");
+
+  if (visibleActions < requiredActions || score < MIN_ACTION_QUALITY_SCORE || failedHardDimensions.length > 0) {
+    throw new Error(
+      `dialogue_script_writer@5 action quality gate failed: score ${score}/10 `
+      + `(hook=${hookClarity}, action=${visibleStoryAction}, central_object=${centralObjectUsage}, viewer_value=${viewerTakeaway}, payoff=${payoffResolution}; `
+      + `${visibleActions}/${ordered.length} scenes have visible actions, central_object=${central.prop || "none"}, failed_hard_dimensions=${failedHardDimensions.join(",") || "none"}). `
+      + `Target is at least ${MIN_ACTION_QUALITY_SCORE}/10 with nonzero hook, central object, and payoff dimensions.`,
+    );
+  }
 }
 
 function assertV3ScriptContract(scenes: ScriptScene[]): void {
@@ -525,7 +658,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     name: "cartoon_scene_compiler",
     kind: "worker",
-    version: "6",
+    version: "7",
     consumes: [
       { schema_id: "visual_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -539,6 +672,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       const roster = inputs["cast"]!.payload as CastRoster;
       if (!Array.isArray(roster.characters) || roster.characters.length === 0) throw new Error("cartoon_scene_compiler requires a non-empty cast roster");
       if (requiresV3ScriptContract(inputs["script"])) assertV3ScriptContract(scriptScenes);
+      if (requiresActionQualityContract(inputs["script"])) assertActionQualityContract(scriptScenes);
       const planByIndex = new Map(planScenes.map((scene) => [scene.scene_index, scene]));
       if (planByIndex.size !== planScenes.length) throw new Error("cartoon visual plan contains duplicate scene_index values");
 

@@ -114,3 +114,151 @@ test("long dialogue_script_writer v3 scripts must carry midpoint and engagement 
     /long scripts must include a midpoint turn\/reframe point/,
   );
 });
+
+test("dialogue_script_writer v5 scripts must include action metadata", async () => {
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = Array.from({ length: 5 }, (_, scene_index) => ({
+    scene_index,
+    point: scene_index === 4 ? "payoff_resolution summary" : `explanation beat ${scene_index}`,
+    narration: "This explains the phone habit but does not direct visible action.",
+    speaker: scene_index % 2 === 0 ? "host" : "buddy",
+    emotion: "neutral",
+  }));
+
+  await assert.rejects(
+    () => worker.execute(
+      {
+        plan: { payload: { scenes: scenes.map((scene) => directedScene(scene.scene_index, { visual_event: "reaction-pop" })) } },
+        script: {
+          payload: { scenes },
+          produced_by: { transformation: "dialogue_script_writer", version: "5" },
+        },
+        cast,
+      } as never,
+      ctx as never,
+    ),
+    /action quality gate failed: scenes 0, 1, 2, 3, 4 must include action=, function=, and value=/,
+  );
+});
+
+test("dialogue_script_writer v5 scripts must score at least 8\/10 for visible action and payoff", async () => {
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    {
+      scene_index: 0,
+      point: "action=Host freezes with phone already unlocked; prop=phone; function=opening_problem; value=viewer recognizes automatic checking",
+      narration: "Wait. I am holding my phone again.",
+      speaker: "host",
+      emotion: "surprised",
+    },
+    {
+      scene_index: 1,
+      point: "action=Buddy points at the phone in Host's hand; prop=phone; function=escalation engagement; value=the habit is visible, not abstract",
+      narration: "You did not even blink first.",
+      speaker: "buddy",
+      emotion: "neutral",
+    },
+    {
+      scene_index: 2,
+      point: "action=Host places the phone face down; prop=phone; function=failed_attempt joke; value=a small attempt becomes testable",
+      narration: "Fine. One minute. No checking.",
+      speaker: "host",
+      emotion: "neutral",
+    },
+    {
+      scene_index: 3,
+      point: "action=Phone lights up and Host's hand drifts back; prop=phone; function=midpoint_turn visual_gag; value=the cue pulls behavior before choice",
+      narration: "My thumb has apparently formed a union.",
+      speaker: "host",
+      emotion: "scared",
+    },
+    {
+      scene_index: 4,
+      point: "action=Buddy slides the phone across the table; prop=phone; function=practical_action viewer_value; value=remove the cue before willpower is needed",
+      narration: "Move the cue. Then decide.",
+      speaker: "buddy",
+      emotion: "neutral",
+    },
+    {
+      scene_index: 5,
+      point: "action=Host reaches, notices, and grabs the kettle instead; prop=phone; function=payoff_resolution practical_action callback; value=replaces the cue with changed behavior",
+      narration: "Kettle wins one.",
+      speaker: "host",
+      emotion: "happy",
+    },
+  ];
+
+  const out = await worker.execute(
+    {
+      plan: {
+        payload: {
+          scenes: scenes.map((scene) => directedScene(scene.scene_index, {
+            visual_event: scene.scene_index === 0 || scene.scene_index === 3 ? "screen-change" : "reaction-pop",
+            ambient_motion: scene.scene_index === 3 ? "monitor-glow" : "subtle-parallax",
+          })),
+        },
+      },
+      script: {
+        payload: { scenes },
+        produced_by: { transformation: "dialogue_script_writer", version: "5" },
+      },
+      cast,
+    } as never,
+    ctx as never,
+  );
+
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, 6);
+});
+
+test("dialogue_script_writer v5 scripts must return the central object in the payoff", async () => {
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    { scene_index: 0, point: "action=Host freezes with phone unlocked; prop=phone; function=opening_problem; value=recognize automatic checking", narration: "I checked it again.", speaker: "host", emotion: "surprised" },
+    { scene_index: 1, point: "action=Buddy points at the phone; prop=phone; function=escalation; value=the cue is visible", narration: "It keeps happening.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 2, point: "action=Host tries a one minute challenge; prop=none; function=failed_attempt; value=make the habit testable", narration: "One minute. Easy.", speaker: "host", emotion: "neutral" },
+    { scene_index: 3, point: "action=Buddy explains while pointing at a chart; prop=none; function=midpoint_turn; value=variable rewards explain the pull", narration: "The reward is unpredictable.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 4, point: "action=Host walks to the kitchen; prop=kettle; function=payoff_resolution practical_action; value=changed behavior", narration: "Tea instead.", speaker: "host", emotion: "happy" },
+  ];
+
+  await assert.rejects(
+    () => worker.execute(
+      {
+        plan: { payload: { scenes: scenes.map((scene) => directedScene(scene.scene_index, { visual_event: "reaction-pop" })) } },
+        script: {
+          payload: { scenes },
+          produced_by: { transformation: "dialogue_script_writer", version: "5" },
+        },
+        cast,
+      } as never,
+      ctx as never,
+    ),
+    /action quality gate failed: score/,
+  );
+});
+
+test("dialogue_script_writer v5 explanation-framed actions do not count as visible action", async () => {
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    { scene_index: 0, point: "action=Host holds the bill at the kitchen table; prop=bill; function=opening_problem; value=the confusing bill is visible", narration: "This bill grew teeth.", speaker: "host", emotion: "surprised" },
+    { scene_index: 1, point: "action=Buddy explains while pointing at the bill; prop=bill; function=escalation; value=the fee is introduced", narration: "That fee is doing the humming.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 2, point: "action=Host says the bill is confusing; prop=bill; function=midpoint_turn; value=names the misunderstanding", narration: "I still hate it.", speaker: "host", emotion: "angry" },
+    { scene_index: 3, point: "action=Buddy summarizes the fee while pointing at the bill; prop=bill; function=practical_action viewer_value; value=read the line item before reacting", narration: "Read the boring line first.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 4, point: "action=Host folds the bill and nods; prop=bill; function=payoff_resolution practical_action; value=return to the object with changed behavior", narration: "Fine. Teeth removed.", speaker: "host", emotion: "happy" },
+  ];
+
+  await assert.rejects(
+    () => worker.execute(
+      {
+        plan: { payload: { scenes: scenes.map((scene) => directedScene(scene.scene_index, { visual_event: "reaction-pop" })) } },
+        script: {
+          payload: { scenes },
+          produced_by: { transformation: "dialogue_script_writer", version: "5" },
+        },
+        cast,
+      } as never,
+      ctx as never,
+    ),
+    /2\/5 scenes have visible actions/,
+  );
+});

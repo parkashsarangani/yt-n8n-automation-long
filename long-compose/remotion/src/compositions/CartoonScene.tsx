@@ -16,9 +16,18 @@ export type VisualEventType =
     | "none" | "alarm-pulse" | "screen-change" | "audience-silhouette" | "metaphor-cutaway"
     | "prop-tremble" | "thought-bubble" | "reaction-pop" | "callback-card";
 
+export interface ForegroundPropSpec {
+    type?: string;
+    state?: string;
+    motion?: "none" | "pulse" | "glow" | "tremble" | "slide-away" | "thumb-hover" | "open" | "close" | "bounce" | string;
+    anchor?: "hand" | "table" | "foreground" | "background" | string;
+    label?: string;
+}
+
 export interface VisualEventSpec {
     type?: VisualEventType;
     label?: string;
+    foregroundProp?: ForegroundPropSpec;
 }
 
 export type SpeakerEmphasis = "none" | "scale-pop" | "rim-glow" | "listener-dim" | "caption-anchor";
@@ -63,12 +72,6 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     const seenActorIds = new Set<string>();
     const resolved = characters.map((character, index) => {
         let actorId = character.actorId ?? character.animationKey ?? `${character.characterId}-${index}`;
-        // Two characters given the same explicit actorId/animationKey would
-        // otherwise get the identical deterministic animation phase seed in
-        // Character.tsx and move in visible lockstep - the previous fallback
-        // only filled in a default when both fields were absent, so an
-        // explicit collision passed through untouched. Disambiguate any
-        // collision here, not just the missing-identity case.
         if (seenActorIds.has(actorId)) actorId = `${actorId}-dup${index}`;
         seenActorIds.add(actorId);
         return { ...character, actorId };
@@ -113,6 +116,59 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
+function phoneScreenText(state: string): string {
+    if (/notification|badge/.test(state)) return "1";
+    if (/unlocked/.test(state)) return "APP";
+    if (/face-down|across/.test(state)) return "";
+    if (/thumb/.test(state)) return "...";
+    return "PHONE";
+}
+
+function objectLabel(prop: ForegroundPropSpec): string {
+    const raw = prop.label || prop.state || prop.type || "OBJECT";
+    return String(raw).replace(/[-_]+/g, " ").toUpperCase().slice(0, 28);
+}
+
+function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
+    const frame = useCurrentFrame();
+    if (!prop?.type || prop.type === "none") return null;
+
+    const type = String(prop.type).toLowerCase();
+    const state = String(prop.state || "visible").toLowerCase();
+    const motion = String(prop.motion || "none").toLowerCase();
+    const pulse = 0.5 + Math.sin(frame / 6) * 0.5;
+    const trembleX = motion === "tremble" ? Math.sin(frame * 1.8) * 5 : 0;
+    const slideX = motion === "slide-away" ? interpolate(Math.min(frame, 24), [0, 24], [0, 120], { extrapolateRight: "clamp" }) : 0;
+    const hoverY = motion === "thumb-hover" ? Math.sin(frame / 5) * 6 : 0;
+    const scale = motion === "pulse" || motion === "glow" ? 1 + pulse * 0.035 : 1;
+    const x = prop.anchor === "background" ? 1320 : prop.anchor === "hand" ? 1000 : 1110;
+    const y = prop.anchor === "background" ? 250 : prop.anchor === "hand" ? 515 : 575;
+
+    if (type === "phone") {
+        const faceDown = /face-down|across/.test(state);
+        const screenGlow = /glow|notification|unlocked|thumb/.test(state);
+        return (
+            <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, width: 154, height: 250, borderRadius: 28, background: faceDown ? "#20242C" : "#111827", border: "8px solid #F8FAFC", boxShadow: screenGlow ? `0 0 ${34 + pulse * 28}px rgba(80,190,255,0.58)` : "0 18px 38px rgba(0,0,0,0.28)", transform: `rotate(${prop.anchor === "hand" ? -8 : 5}deg) scale(${scale})`, zIndex: 7 }}>
+                {!faceDown && (
+                    <div style={{ position: "absolute", left: 14, top: 18, width: 126, height: 210, borderRadius: 18, background: "linear-gradient(180deg,#58C7FF,#1E3A8A)", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: /notification|badge/.test(state) ? 86 : 34 }}>
+                        {phoneScreenText(state)}
+                    </div>
+                )}
+                {motion === "thumb-hover" && (
+                    <div style={{ position: "absolute", left: -45, bottom: 35 + hoverY, width: 70, height: 44, borderRadius: 28, background: "#F2C7A5", border: "5px solid rgba(40,35,30,0.45)", transform: "rotate(14deg)", boxShadow: "0 8px 16px rgba(0,0,0,0.18)" }} />
+                )}
+            </div>
+        );
+    }
+
+    const label = objectLabel(prop);
+    return (
+        <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, minWidth: 180, maxWidth: 300, padding: "22px 26px", borderRadius: type === "door" ? 12 : 24, background: type === "kettle" || type === "food" ? "rgba(255,255,255,0.92)" : "rgba(18,24,34,0.86)", color: type === "kettle" || type === "food" ? "#20242C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, textAlign: "center", boxShadow: motion === "glow" || motion === "pulse" ? `0 0 ${28 + pulse * 28}px rgba(80,190,255,0.45)` : "0 18px 38px rgba(0,0,0,0.24)", transform: `rotate(${type === "letter" || type === "bill" || type === "document" ? -4 : 2}deg) scale(${scale})`, zIndex: 7 }}>
+            {label}
+        </div>
+    );
+}
+
 function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
     const frame = useCurrentFrame();
     const { durationInFrames } = useVideoConfig();
@@ -126,36 +182,55 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
 
     switch (type) {
         case "none":
-            return null;
+            return event?.foregroundProp ? <ForegroundPropOverlay prop={event.foregroundProp} /> : null;
         case "alarm-pulse":
             return (
-                <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.35 + pulse * 0.18 }}>
-                    <div style={{ position: "absolute", left: 690, top: 220, width: 540, height: 540, borderRadius: 540, border: "10px solid rgba(255,70,70,0.38)", transform: `scale(${0.84 + pulse * 0.16})`, boxShadow: "0 0 70px rgba(255,80,80,0.25)" }} />
-                </AbsoluteFill>
+                <>
+                    <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.35 + pulse * 0.18 }}>
+                        <div style={{ position: "absolute", left: 690, top: 220, width: 540, height: 540, borderRadius: 540, border: "10px solid rgba(255,70,70,0.38)", transform: `scale(${0.84 + pulse * 0.16})`, boxShadow: "0 0 70px rgba(255,80,80,0.25)" }} />
+                    </AbsoluteFill>
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                </>
             );
         case "audience-silhouette":
             return (
-                <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.7 * enter }}>
-                    {Array.from({ length: 7 }, (_, i) => (
-                        <div key={i} style={{ position: "absolute", bottom: -70, left: 170 + i * 235, width: 125, height: 190 + (i % 2) * 34, borderRadius: "70px 70px 18px 18px", background: "rgba(20,24,32,0.55)", filter: "blur(0.2px)" }} />
-                    ))}
-                </AbsoluteFill>
+                <>
+                    <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.7 * enter }}>
+                        {Array.from({ length: 7 }, (_, i) => (
+                            <div key={i} style={{ position: "absolute", bottom: -70, left: 170 + i * 235, width: 125, height: 190 + (i % 2) * 34, borderRadius: "70px 70px 18px 18px", background: "rgba(20,24,32,0.55)", filter: "blur(0.2px)" }} />
+                        ))}
+                    </AbsoluteFill>
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                </>
             );
         case "screen-change":
-            return <div style={{ position: "absolute", right: 110, top: 110, width: 360, height: 190, borderRadius: 20, background: "rgba(20,30,44,0.78)", border: "5px solid rgba(255,255,255,0.75)", boxShadow: "0 0 32px rgba(80,190,255,0.35)", transform: `scale(${0.98 + pulse * 0.02})`, color: "white", fontFamily: "Inter, sans-serif", fontWeight: 800, fontSize: 34, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24 }}>NEW SLIDE</div>;
+            return (
+                <>
+                    {!event?.foregroundProp && <div style={{ position: "absolute", right: 110, top: 110, width: 360, height: 190, borderRadius: 20, background: "rgba(20,30,44,0.78)", border: "5px solid rgba(255,255,255,0.75)", boxShadow: "0 0 32px rgba(80,190,255,0.35)", transform: `scale(${0.98 + pulse * 0.02})`, color: "white", fontFamily: "Inter, sans-serif", fontWeight: 800, fontSize: 34, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24 }}>{label || "NEW SLIDE"}</div>}
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                </>
+            );
         case "prop-tremble":
-            return <div style={{ position: "absolute", left: 800 + Math.sin(frame / 2) * 4, top: 650 + Math.cos(frame / 3) * 2, width: 180, height: 120, background: "rgba(255,255,255,0.92)", borderRadius: 10, boxShadow: "0 8px 18px rgba(0,0,0,0.18)", transform: `rotate(${Math.sin(frame / 2) * 2}deg)` }} />;
+            return <ForegroundPropOverlay prop={event?.foregroundProp || { type: "document", state: "trembling", motion: "tremble", label: label || "PROP" }} />;
         case "reaction-pop":
-            return <div style={{ position: "absolute", left: 760, top: 160, padding: "24px 34px", borderRadius: 36, background: "rgba(255,255,255,0.88)", color: "#20242C", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 58, transform: `scale(${enter * (0.94 + pulse * 0.04)})`, boxShadow: "0 16px 44px rgba(0,0,0,0.22)" }}>!</div>;
+            return (
+                <>
+                    <div style={{ position: "absolute", left: 760, top: 160, padding: "24px 34px", borderRadius: 36, background: "rgba(255,255,255,0.88)", color: "#20242C", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 58, transform: `scale(${enter * (0.94 + pulse * 0.04)})`, boxShadow: "0 16px 44px rgba(0,0,0,0.22)" }}>!</div>
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                </>
+            );
         case "metaphor-cutaway":
         case "thought-bubble":
         case "callback-card": {
             const text = label || (type === "metaphor-cutaway" ? "WHAT YOUR BRAIN SEES" : type === "thought-bubble" ? "WHAT IF...?" : "CALLBACK");
             const bubble = type === "thought-bubble";
             return (
-                <div style={{ position: "absolute", left: 118, top: 90, maxWidth: 520, padding: "26px 34px", borderRadius: bubble ? 44 : 24, background: bubble ? "rgba(255,255,255,0.84)" : "rgba(18,24,34,0.84)", color: bubble ? "#26313C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 44, lineHeight: 1.05, letterSpacing: 0.5, transform: `translateY(${(1 - enter) * -16}px) scale(${0.98 + pulse * 0.015})`, boxShadow: "0 20px 52px rgba(0,0,0,0.24)" }}>
-                    {text}
-                </div>
+                <>
+                    <div style={{ position: "absolute", left: 118, top: 90, maxWidth: 520, padding: "26px 34px", borderRadius: bubble ? 44 : 24, background: bubble ? "rgba(255,255,255,0.84)" : "rgba(18,24,34,0.84)", color: bubble ? "#26313C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 44, lineHeight: 1.05, letterSpacing: 0.5, transform: `translateY(${(1 - enter) * -16}px) scale(${0.98 + pulse * 0.015})`, boxShadow: "0 20px 52px rgba(0,0,0,0.24)" }}>
+                        {text}
+                    </div>
+                    <ForegroundPropOverlay prop={event?.foregroundProp} />
+                </>
             );
         }
         default:

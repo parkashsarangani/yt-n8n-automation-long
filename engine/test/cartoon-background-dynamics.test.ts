@@ -77,6 +77,10 @@ function directedScene(scene_index: number, overrides: Record<string, unknown> =
     ambient_motion: "subtle-parallax",
     speaker_emphasis: "scale-pop",
     cutaway_label: "",
+    primary_prop: "none",
+    prop_state: "none",
+    prop_motion: "none",
+    foreground_action: "none",
     ...overrides,
   };
 }
