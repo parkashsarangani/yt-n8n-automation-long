@@ -165,7 +165,13 @@ function performanceCueFor(scene: CreativeScene): Record<string, unknown> {
 }
 
 function hasPrimaryOverlay(visualEvent: Record<string, unknown>): boolean {
-  return Boolean(visualEvent.callbackEcho || visualEvent.metaphorVisual || visualEvent.type === "callback-card");
+  const type = typeof visualEvent.type === "string" ? visualEvent.type : "none";
+  const hasForegroundProp = Boolean(visualEvent.foregroundProp);
+  return Boolean(visualEvent.callbackEcho || visualEvent.metaphorVisual)
+    || type === "callback-card"
+    || type === "metaphor-cutaway"
+    || type === "thought-bubble"
+    || (type === "screen-change" && !hasForegroundProp);
 }
 
 function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: CreativeDirection): Record<string, unknown> {
