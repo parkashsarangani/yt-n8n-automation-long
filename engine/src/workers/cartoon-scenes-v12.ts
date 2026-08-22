@@ -57,8 +57,14 @@ const GENERIC_LABELS = new Set([
   "", "callback", "new slide", "screen change", "what your brain sees", "what if", "lesson",
   "the point", "important", "remember this", "big idea", "concept", "metaphor", "visual",
 ]);
-const GENERIC_NOTES = /\b(?:make it funny|keep it interesting|be expressive|act natural|say it clearly|generic|same energy|explain this)\b/i;
-const GENERIC_POWER = /\b(?:same|unchanged|no change|continues|explains|talks|speaks|neutral|none)\b/i;
+const GENERIC_NOTE_VALUES = new Set([
+  "", "make it funny", "keep it interesting", "be expressive", "act natural",
+  "say it clearly", "generic", "same energy", "explain this",
+]);
+const GENERIC_POWER_VALUES = new Set([
+  "", "same", "unchanged", "no change", "continues", "explains", "talks",
+  "speaks", "neutral", "none",
+]);
 const ABSTRACT_EVENT_TYPES = new Set(["metaphor-cutaway", "thought-bubble", "reaction-pop", "screen-change"]);
 
 function clean(value: unknown, max = 160): string {
@@ -67,6 +73,10 @@ function clean(value: unknown, max = 160): string {
 
 function normalized(value: unknown): string {
   return clean(value, 200).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function isGenericExact(value: unknown, genericValues: Set<string>): boolean {
+  return genericValues.has(normalized(value));
 }
 
 function contentCreativeScenes(creative: CreativeDirection): CreativeScene[] {
@@ -189,7 +199,7 @@ function assertBlockingVariety(creative: CreativeDirection): void {
   }
   const powerShifts = scenes.map((scene) => clean(scene.blocking.power_shift, 120));
   for (const [index, powerShift] of powerShifts.entries()) {
-    if (!powerShift || GENERIC_POWER.test(powerShift)) {
+    if (!powerShift || isGenericExact(powerShift, GENERIC_POWER_VALUES)) {
       throw new Error(`cartoon_creative_director@2 blocking gate failed: scene ${scenes[index]!.scene_index} needs a concrete power_shift`);
     }
   }
@@ -205,7 +215,7 @@ function assertPerformanceSpecificity(creative: CreativeDirection): void {
   const scenes = contentCreativeScenes(creative);
   const notes = scenes.map((scene) => clean(scene.performance_note, 180));
   for (const [index, note] of notes.entries()) {
-    if (note.length < 12 || GENERIC_NOTES.test(note)) {
+    if (note.length < 12 || isGenericExact(note, GENERIC_NOTE_VALUES)) {
       throw new Error(`cartoon_creative_director@2 performance gate failed: scene ${scenes[index]!.scene_index} needs a concrete performance note`);
     }
   }
