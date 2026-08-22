@@ -160,10 +160,10 @@ function topicPropForScene(scene: ScriptScene, allScenes: ScriptScene[]): string
   const text = `${scene.narration} ${scene.point ?? ""}`.toLowerCase();
   if (/\b(?:keys?|keyring|pocket)\b/.test(text)) return "keys";
   if (/\b(?:traffic|route|map|gps|drive|commute)\b/.test(text)) return "route-map";
-  if (/\b(?:calendar|schedule|planner|estimate|buffer|half again|add half|spare|minutes?)\b/.test(text)) return "calendar";
-  if (/\b(?:door|leave|leaving|left|out the door)\b/.test(text)) return "door";
+  if (/\b(?:door|front\s+door|doorway|leave|leaving|left|out\s+the\s+door)\b/.test(text)) return "door";
   if (/\b(?:coffee|cup|mug)\b/.test(text)) return "coffee";
   if (/\b(?:shoes?|sneakers?|boots?)\b/.test(text)) return "shoes";
+  if (/\b(?:calendar|schedule|planner|estimate|buffer|half again|add half|spare)\b/.test(text)) return "calendar";
   return "clock";
 }
 
