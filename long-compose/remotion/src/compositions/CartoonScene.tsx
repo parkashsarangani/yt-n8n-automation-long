@@ -161,9 +161,66 @@ function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
         );
     }
 
+    if (type === "clock") {
+        const minute = -90 + (frame % 120) * 3;
+        const urgent = /late|jump|running/.test(state);
+        return (
+            <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 190, height: 190, borderRadius: 190, background: urgent ? "#FFF2F2" : "#FFFFFF", border: `10px solid ${urgent ? "#EF4444" : "#20242C"}`, boxShadow: urgent ? `0 0 ${24 + pulse * 26}px rgba(239,68,68,0.38)` : "0 18px 38px rgba(0,0,0,0.22)", transform: `scale(${scale})`, zIndex: 7 }}>
+                <div style={{ position: "absolute", left: 84, top: 32, width: 12, height: 60, borderRadius: 6, background: "#20242C", transformOrigin: "6px 58px", transform: "rotate(25deg)" }} />
+                <div style={{ position: "absolute", left: 84, top: 36, width: 12, height: 70, borderRadius: 6, background: urgent ? "#EF4444" : "#2563EB", transformOrigin: "6px 64px", transform: `rotate(${minute}deg)` }} />
+                <div style={{ position: "absolute", left: 74, top: 74, width: 34, height: 34, borderRadius: 34, background: "#20242C" }} />
+                <div style={{ position: "absolute", left: 38, bottom: 28, right: 38, textAlign: "center", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 22, color: urgent ? "#EF4444" : "#20242C" }}>{/buffer|spare/.test(state) ? "+8 MIN" : urgent ? "LATE" : "8:00"}</div>
+            </div>
+        );
+    }
+
+    if (type === "keys") {
+        return (
+            <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 240, height: 130, transform: `rotate(-8deg) scale(${scale})`, zIndex: 7 }}>
+                <div style={{ position: "absolute", left: 12, top: 30, width: 72, height: 72, borderRadius: 72, border: "14px solid #FBBF24", boxShadow: "0 12px 24px rgba(0,0,0,0.22)" }} />
+                <div style={{ position: "absolute", left: 74, top: 60, width: 142, height: 18, borderRadius: 10, background: "#F59E0B", boxShadow: "0 12px 24px rgba(0,0,0,0.18)" }} />
+                <div style={{ position: "absolute", right: 20, top: 48, width: 22, height: 44, background: "#F59E0B" }} />
+                <div style={{ position: "absolute", right: 55, top: 60, width: 18, height: 36, background: "#F59E0B" }} />
+                {/missing|search/.test(state) && <div style={{ position: "absolute", left: 70, top: -18, fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 42, color: "#EF4444" }}>?</div>}
+            </div>
+        );
+    }
+
+    if (type === "route-map") {
+        return (
+            <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 360, height: 210, borderRadius: 24, background: "#EFF6FF", border: "8px solid #FFFFFF", boxShadow: "0 18px 42px rgba(0,0,0,0.25)", transform: `rotate(3deg) scale(${scale})`, zIndex: 7, overflow: "hidden" }}>
+                <div style={{ position: "absolute", left: 0, top: 86, width: 360, height: 18, background: "#BFDBFE" }} />
+                <div style={{ position: "absolute", left: 58, top: 26, width: 34, height: 160, borderRadius: 24, background: "#BFDBFE" }} />
+                <div style={{ position: "absolute", left: 64, top: 103, width: 230, height: 16, borderRadius: 12, background: /traffic|delay|red/.test(state) ? "#EF4444" : "#22C55E", boxShadow: /traffic|delay|red/.test(state) ? `0 0 ${18 + pulse * 20}px rgba(239,68,68,0.42)` : "0 0 18px rgba(34,197,94,0.28)" }} />
+                <div style={{ position: "absolute", left: 42, bottom: 18, fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, color: /traffic|delay|red/.test(state) ? "#EF4444" : "#16A34A" }}>{/traffic|delay|red/.test(state) ? "+12 MIN" : "ON TIME"}</div>
+            </div>
+        );
+    }
+
+    if (type === "calendar") {
+        return (
+            <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 260, height: 210, borderRadius: 22, background: "#FFFFFF", border: "8px solid #20242C", boxShadow: "0 18px 40px rgba(0,0,0,0.24)", transform: `rotate(-3deg) scale(${scale})`, zIndex: 7, overflow: "hidden" }}>
+                <div style={{ height: 48, background: /buffer/.test(state) ? "#22C55E" : "#2563EB" }} />
+                <div style={{ position: "absolute", left: 28, top: 70, right: 28, height: 20, borderRadius: 10, background: "#CBD5E1" }} />
+                <div style={{ position: "absolute", left: 28, top: 106, right: /buffer/.test(state) ? 28 : 92, height: 20, borderRadius: 10, background: /buffer/.test(state) ? "#22C55E" : "#CBD5E1" }} />
+                <div style={{ position: "absolute", left: 28, bottom: 28, fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 30, color: /buffer/.test(state) ? "#16A34A" : "#20242C" }}>{/buffer/.test(state) ? "+50%" : "PLAN"}</div>
+            </div>
+        );
+    }
+
+    if (type === "door") {
+        const open = /open|leaving/.test(state);
+        return (
+            <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY - 70, width: 170, height: 300, borderRadius: 10, background: open ? "#92400E" : "#78350F", border: "8px solid #451A03", boxShadow: open ? `0 0 ${28 + pulse * 22}px rgba(251,191,36,0.35)` : "0 18px 38px rgba(0,0,0,0.25)", transform: `perspective(360px) rotateY(${open ? -20 : 0}deg) scale(${scale})`, transformOrigin: "left center", zIndex: 7 }}>
+                <div style={{ position: "absolute", right: 18, top: 142, width: 18, height: 18, borderRadius: 18, background: "#FBBF24" }} />
+                <div style={{ position: "absolute", left: 18, bottom: 22, right: 18, textAlign: "center", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 22, color: "#FDE68A" }}>{open ? "LEAVING" : "DOOR"}</div>
+            </div>
+        );
+    }
+
     const label = objectLabel(prop);
     return (
-        <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, minWidth: 180, maxWidth: 300, padding: "22px 26px", borderRadius: type === "door" ? 12 : 24, background: type === "kettle" || type === "food" ? "rgba(255,255,255,0.92)" : "rgba(18,24,34,0.86)", color: type === "kettle" || type === "food" ? "#20242C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, textAlign: "center", boxShadow: motion === "glow" || motion === "pulse" ? `0 0 ${28 + pulse * 28}px rgba(80,190,255,0.45)` : "0 18px 38px rgba(0,0,0,0.24)", transform: `rotate(${type === "letter" || type === "bill" || type === "document" ? -4 : 2}deg) scale(${scale})`, zIndex: 7 }}>
+        <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, minWidth: 180, maxWidth: 300, padding: "22px 26px", borderRadius: type === "door" ? 12 : 24, background: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "rgba(255,255,255,0.92)" : "rgba(18,24,34,0.86)", color: type === "kettle" || type === "food" || type === "coffee" || type === "shoes" ? "#20242C" : "#FFFFFF", fontFamily: "Inter, sans-serif", fontWeight: 900, fontSize: 28, textAlign: "center", boxShadow: motion === "glow" || motion === "pulse" ? `0 0 ${28 + pulse * 28}px rgba(80,190,255,0.45)` : "0 18px 38px rgba(0,0,0,0.24)", transform: `rotate(${type === "letter" || type === "bill" || type === "document" ? -4 : 2}deg) scale(${scale})`, zIndex: 7 }}>
             {label}
         </div>
     );
