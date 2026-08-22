@@ -151,9 +151,17 @@ test("v5 foreground prop gate fails if the compiled central object is absent fro
 
 test("v5 runtime density gate rejects long low-density explainers", async () => {
   const worker = makeCartoonSceneCompilerWorker();
+  const functionFor = (scene_index: number) => {
+    if (scene_index === 0) return "opening_problem";
+    if (scene_index === 4) return "escalation engagement";
+    if (scene_index === 9) return "midpoint_turn visual_gag";
+    if (scene_index === 12) return "escalation engagement";
+    if (scene_index === 17) return "payoff_resolution practical_action callback";
+    return "escalation";
+  };
   const scenes = Array.from({ length: 18 }, (_, scene_index) => ({
     scene_index,
-    point: `action=Host holds the phone during beat ${scene_index}; prop=phone; function=${scene_index === 0 ? "opening_problem" : scene_index === 17 ? "payoff_resolution practical_action" : scene_index === 9 ? "midpoint_turn" : "escalation"}; value=visible phone habit beat ${scene_index}`,
+    point: `action=Host holds the phone during beat ${scene_index}; prop=phone; function=${functionFor(scene_index)}; value=visible phone habit beat ${scene_index}`,
     narration: "This deliberately long narration line keeps talking about the phone habit and variable rewards without adding enough visual density for a long episode.",
     speaker: scene_index % 2 === 0 ? "host" : "buddy",
     emotion: "neutral",
