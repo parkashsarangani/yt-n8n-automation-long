@@ -199,6 +199,7 @@ test("compiler v13 emits sanitized renderer overlays without raw production note
     visualEvent?: {
       type?: string;
       label?: string;
+      foregroundProp?: { label?: string; state?: string; type?: string };
       callbackEcho?: { role?: string; text?: string; intensity?: string };
       metaphorVisual?: { label?: string; emotionalBeat?: string; propType?: string };
       performanceCue?: { type?: string; label?: string };
@@ -214,6 +215,7 @@ test("compiler v13 emits sanitized renderer overlays without raw production note
 
   assert.equal(seed.visualEvent?.callbackEcho?.role, "seed");
   assert.equal(seed.visualEvent?.callbackEcho?.text, "the phone is already open");
+  assert.equal(seed.visualEvent?.foregroundProp?.label, "PHONE");
   assert.equal(seed.visualEvent?.performanceCue, undefined);
   assert.equal(seed.rendererPerformance?.version, "13");
   assert.equal(seed.rendererPerformance?.cue, "notice");
@@ -230,6 +232,7 @@ test("compiler v13 emits sanitized renderer overlays without raw production note
   assert.equal(primaryOverlayCount(escalation.visualEvent ?? {}), 1);
 
   assert.equal(metaphor.visualEvent?.type, "none");
+  assert.equal(metaphor.visualEvent?.foregroundProp?.label, "GLOW");
   assert.equal(metaphor.visualEvent?.metaphorVisual?.label, "THE GLOW THAT WON'T QUIT");
   assert.equal(metaphor.visualEvent?.metaphorVisual?.emotionalBeat, "the culprit lights up literally");
   assert.equal(metaphor.visualEvent?.metaphorVisual?.propType, "visual beat");
@@ -238,6 +241,7 @@ test("compiler v13 emits sanitized renderer overlays without raw production note
 
   assert.equal(payoff.visualEvent?.type, "callback-card");
   assert.equal(payoff.visualEvent?.label, "LAPTOP STAYS DOWNSTAIRS");
+  assert.equal(payoff.visualEvent?.foregroundProp?.label, "LAPTOP DOWNSTAIRS");
   assert.equal(payoff.visualEvent?.callbackEcho, undefined);
   assert.equal(payoff.visualEvent?.performanceCue, undefined);
   assert.equal(payoff.background?.location, "kitchen");
