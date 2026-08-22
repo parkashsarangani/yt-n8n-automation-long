@@ -141,6 +141,33 @@ function viewerPropType(value: unknown): string {
   return clean(value, 40).toLowerCase();
 }
 
+function foregroundPropLabel(scene: CreativeScene): string {
+  const type = normalized(scene.foreground_prop.type);
+  const text = sceneEnvironmentText(scene);
+  if (type === "phone") return "PHONE";
+  if (type === "clock" || /\balarm clock\b/.test(text)) return "8:00";
+  if (type === "keys") return "KEYS";
+  if (type === "route map" || type === "route-map") return "ROUTE";
+  if (type === "calendar") return "PLAN";
+  if (type === "door" || type === "doorway") return "DOOR";
+  if (type === "coffee" || type === "mug") return "COFFEE";
+  if (type === "kettle") return "KETTLE";
+  if (type === "shoes") return "SHOES";
+  if (type === "laptop") return /\bdownstairs\b/.test(text) ? "LAPTOP DOWNSTAIRS" : "LAPTOP";
+  if (type === "bed" || type === "sheets" || /\bbed\b/.test(text)) return "BED";
+  if (type === "appliance" || type === "device" || /\bglow\b/.test(text)) return "GLOW";
+  return clean(scene.foreground_prop.type, 24).toUpperCase() || "OBJECT";
+}
+
+function sanitizeForegroundProp(visualEvent: Record<string, unknown>, scene: CreativeScene): void {
+  const raw = visualEvent.foregroundProp;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+  visualEvent.foregroundProp = {
+    ...(raw as Record<string, unknown>),
+    label: foregroundPropLabel(scene),
+  };
+}
+
 function metaphorVisualFor(scene: CreativeScene): Record<string, unknown> | null {
   const type = clean(scene.metaphor.type, 40);
   if (!type || type === "none") return null;
@@ -178,6 +205,7 @@ function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: Creati
   const visualEvent: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw)
     ? { ...(raw as Record<string, unknown>) }
     : { type: "none" };
+  sanitizeForegroundProp(visualEvent, scene);
 
   const callbackEcho = callbackEchoFor(scene, creative);
   if (scene.callback_role === "payoff") {
