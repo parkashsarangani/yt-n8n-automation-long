@@ -7,6 +7,7 @@ const SHORT_DIALOGUE_WORD_LIMIT = 10;
 interface ScriptScene {
   scene_index: number;
   narration?: string;
+  point?: string;
   is_outro?: boolean;
 }
 
@@ -57,12 +58,73 @@ function wordCount(value: unknown): number {
 const HUMAN_MOMENT_PATTERN = /\b(?:i|i'm|im|i’ll|i'd|me|my|you|you're|youre|your|we|we're|were|wait|nope|ugh|okay|still|again|late|where|why|how|fine|hate|rude|keys?)\b|(?:n't|'m|'re|'ve|'ll|'d)/i;
 const HUMAN_MOMENT_MIN_RATIO = 0.45;
 
+// Mirrors cartoon_scene_compiler's assertTopicPropSemantics (engine/src/workers/
+// cartoon-scenes-v9.ts): planning/lateness scripts must not default to phone as
+// the central prop. Ported here so the writer retries on this signal instead of
+// leaving an already-"current" v7 script permanently stuck at the compiler gate
+// (resume only re-runs a node whose recorded version is stale, so a script that
+// passes writer-stage checks once will never be re-validated against a gate that
+// only exists downstream).
+
+function pointField(scene: ScriptScene, keys: string[]): string {
+  const point = scene.point ?? "";
+  for (const key of keys) {
+    const match = new RegExp(`(?:^|[;|])\\s*${key}\\s*[:=]\\s*([^;|]+)`, "i").exec(point);
+    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim().toLowerCase();
+  }
+  return "";
+}
+
+function normalizedProp(value: string): string {
+  const cleaned = value
+    .replace(/\b(?:the|a|an|central|object|prop|this|that|my|your|his|her|their|our|its)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const canonicalizers: Array<[RegExp, string]> = [
+    [/\b(?:phone|screen|app|notification|message|text|lock\s*screen)\b/, "phone"],
+    [/\b(?:airplane\s+window|plane\s+window|cabin\s+window|window)\b/, "window"],
+    [/\b(?:clock|timer|alarm|watch|countdown|time)\b/, "clock"],
+    [/\b(?:keys?|keyring)\b/, "keys"],
+    [/\b(?:calendar|schedule|planner|plan|estimate|buffer)\b/, "calendar"],
+    [/\b(?:route\s*map|map|route|traffic|gps)\b/, "route-map"],
+    [/\b(?:door|doorway|front\s+door)\b/, "door"],
+    [/\b(?:coffee|cup|mug)\b/, "coffee"],
+    [/\b(?:shoes?|sneakers?|boots?)\b/, "shoes"],
+    [/\b(?:kettle|tea\s+kettle)\b/, "kettle"],
+    [/\b(?:bill|invoice|receipt|statement)\b/, "bill"],
+    [/\b(?:letter|envelope|mail)\b/, "letter"],
+    [/\b(?:tool|hammer|wrench|screwdriver|drill)\b/, "tool"],
+    [/\b(?:vehicle|car|bus|train|bike|bicycle|scooter|airplane|plane)\b/, "vehicle"],
+    [/\b(?:food|meal|snack|banana|sandwich|pizza|cake|soup|tea)\b/, "food"],
+    [/\b(?:microwave|oven|fridge|refrigerator)\b/, "appliance"],
+    [/\b(?:book|notebook|paper|document|form)\b/, "document"],
+    [/\b(?:locker|cabinet|box)\b/, "locker"],
+  ];
+  for (const [pattern, canonical] of canonicalizers) {
+    if (pattern.test(cleaned)) return canonical;
+  }
+  return cleaned.split(/[,/]/)[0]?.trim() ?? "";
+}
+
+function propValue(scene: ScriptScene): string {
+  return normalizedProp(pointField(scene, ["prop", "central_object", "prop_in_scene", "object"]));
+}
+
+function allSceneText(scenes: ScriptScene[]): string {
+  return scenes.map((scene) => `${scene.narration ?? ""} ${scene.point ?? ""}`).join("\n").toLowerCase();
+}
+
+function isPlanningOrLatenessTopic(scenes: ScriptScene[]): boolean {
+  return /\b(?:late|lateness|leaving early|leave early|planning fallacy|schedule|estimate|buffer|clock|timer|keys?|traffic|route|calendar|morning|spare|door)\b/.test(allSceneText(scenes));
+}
+
 function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
   const contentScenes = scenesFromPayload(payload)
     .filter((scene) => !scene.is_outro)
     .sort((a, b) => a.scene_index - b.scene_index);
   if (contentScenes.length === 0) return [];
 
+  const errors: string[] = [];
   const failures: string[] = [];
 
   const shortLineCount = contentScenes.filter((scene) => wordCount(scene.narration) <= SHORT_DIALOGUE_WORD_LIMIT).length;
@@ -84,12 +146,25 @@ function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
     );
   }
 
-  if (failures.length === 0) return [];
+  if (failures.length > 0) {
+    errors.push(
+      `${def.name}@${def.version ?? "1"} natural dialogue gate failed: ${failures.join("; ")}. `
+      + `Rewrite as short, human, situational dialogue, not textbook/explainer speech.`,
+    );
+  }
 
-  return [
-    `${def.name}@${def.version ?? "1"} natural dialogue gate failed: ${failures.join("; ")}. `
-    + `Rewrite as short, human, situational dialogue, not textbook/explainer speech.`,
-  ];
+  if (isPlanningOrLatenessTopic(contentScenes)) {
+    const phoneScenes = contentScenes.filter((scene) => propValue(scene) === "phone");
+    if (phoneScenes.length > 0) {
+      errors.push(
+        `${def.name}@${def.version ?? "1"} topic prop gate failed: planning/lateness scenes `
+        + `${phoneScenes.map((s) => s.scene_index).join(", ")} use phone as the central prop. `
+        + `Use clock, keys, calendar, route-map, door, coffee, or shoes unless the story is specifically about a phone.`,
+      );
+    }
+  }
+
+  return errors;
 }
 
 function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Artifact>): string[] {
