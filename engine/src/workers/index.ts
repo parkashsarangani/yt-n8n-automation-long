@@ -9,7 +9,7 @@
 import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
-import { makeCartoonSceneCompilerWorker } from "./cartoon-scenes-v9.ts";
+import { makeCartoonSceneCompilerWorker } from "./cartoon-scenes-v10.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
