@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character, CharacterProps, CharacterEmphasis } from "../components/Character";
 import { Background, BackgroundSpec } from "../components/Background";
 import { getScheme, Mood } from "../lib/colors";
@@ -308,8 +308,6 @@ function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
         );
     }
 
-    // Unknown props used to render as text cards. They now render nothing so
-    // production metadata cannot leak into the final video.
     return null;
 }
 
@@ -372,12 +370,14 @@ function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
 
 export const CartoonScene: React.FC<CartoonSceneProps> = ({ background, mood = "neutral", characters, camera, visualEvent, speakerEmphasis = "scale-pop" }) => {
     const frame = useCurrentFrame();
+    const { durationInFrames } = useVideoConfig();
     const scheme = getScheme(mood);
+    const endFrame = Math.max(1, durationInFrames - 1);
 
     const zoomFrom = camera?.from ?? 1;
     const zoomTo = camera?.to ?? zoomFrom;
     const zoom = camera?.type === "zoom"
-        ? interpolate(frame, [0, 1], [zoomFrom, zoomTo], {
+        ? interpolate(frame, [0, endFrame], [zoomFrom, zoomTo], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: cameraEasing,
@@ -385,7 +385,7 @@ export const CartoonScene: React.FC<CartoonSceneProps> = ({ background, mood = "
         : 1;
 
     const panX = camera?.type === "pan"
-        ? interpolate(frame, [0, 1], [camera.panFrom ?? 0, camera.panTo ?? 0], {
+        ? interpolate(frame, [0, endFrame], [camera.panFrom ?? 0, camera.panTo ?? 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: cameraEasing,
