@@ -57,6 +57,21 @@ type PerformanceCueType =
   | "reluctant-acceptance"
   | "point-at-prop";
 
+type RendererShotType = "wide" | "medium" | "close-up" | "prop-close-up" | "doorway-transition" | "counter-shot" | "table-shot";
+type RendererStyleName = "clean-flat" | "warm-modern" | "bold-outline" | "soft-editorial";
+type RendererLighting = "neutral" | "warm-window" | "cool-monitor" | "morning-soft";
+type RendererDepth = "flat" | "layered-parallax" | "stage-depth";
+type RendererShadow = "none" | "soft-offset" | "deep-stage";
+
+interface RendererVisualStyle {
+  name: RendererStyleName;
+  lineWeight: number;
+  shadow: RendererShadow;
+  depth: RendererDepth;
+  lighting: RendererLighting;
+  propScale: number;
+}
+
 interface RendererEnvironment {
   location: "kitchen" | "living-room" | "office" | "street";
   variant: "day" | "night";
@@ -300,6 +315,51 @@ function applyRendererEnvironment(compiled: Record<string, unknown>, scene: Crea
   };
 }
 
+function foregroundPropKind(scene: CreativeScene): string {
+  return normalized(scene.foreground_prop.type).replace(/\s+/g, "-");
+}
+
+function rendererShotTypeFor(scene: CreativeScene): RendererShotType {
+  const propType = foregroundPropKind(scene);
+  const propPosition = normalized(scene.blocking.prop_position);
+  const energy = normalized(`${scene.scene_function} ${scene.energy_beat}`);
+
+  if (scene.callback_role === "payoff" || propPosition.includes("foreground")) return "prop-close-up";
+  if (propType === "door" || propType === "doorway") return "doorway-transition";
+  if (["coffee", "mug", "kettle", "food", "appliance", "device"].includes(propType)) return "counter-shot";
+  if (["route-map", "calendar", "document", "bill", "invoice", "receipt", "letter", "envelope", "keys"].includes(propType) || propPosition === "table") return "table-shot";
+  if (/\b(?:realization|realizes|caught|defeat|betrayed|side eye|deadpan|recoil)\b/.test(energy)) return "close-up";
+  if (scene.scene_index % 5 === 0) return "wide";
+  return "medium";
+}
+
+function rendererVisualStyleFor(scene: CreativeScene): RendererVisualStyle {
+  const propType = foregroundPropKind(scene);
+  const text = sceneEnvironmentText(scene);
+  const cue = performanceCueType(scene);
+
+  const name: RendererStyleName = scene.callback_role === "payoff" || cue === "recoil" || cue === "small-defeat"
+    ? "bold-outline"
+    : /\b(?:sleep|morning|tired|bed|window|coffee|kettle|kitchen)\b/.test(text)
+      ? "warm-modern"
+      : /\b(?:office|laptop|email|screen|monitor)\b/.test(text)
+        ? "soft-editorial"
+        : "clean-flat";
+
+  const lighting: RendererLighting = ["laptop", "phone", "appliance", "device"].includes(propType) || /\b(?:office|screen|monitor|email)\b/.test(text)
+    ? "cool-monitor"
+    : /\b(?:morning|kitchen|coffee|kettle|window|breakfast)\b/.test(text)
+      ? "warm-window"
+      : "neutral";
+
+  const depth: RendererDepth = scene.callback_role === "payoff" || scene.callback_role === "escalation" ? "stage-depth" : "layered-parallax";
+  const shadow: RendererShadow = name === "bold-outline" ? "deep-stage" : "soft-offset";
+  const lineWeight = name === "bold-outline" ? 10 : name === "soft-editorial" ? 5 : 7;
+  const propScale = rendererShotTypeFor(scene) === "prop-close-up" ? 1.12 : 1.03;
+
+  return { name, lineWeight, shadow, depth, lighting, propScale };
+}
+
 function applyRendererSignals(entries: CompiledEntry[], creative: CreativeDirection): CompiledEntry[] {
   const scenesByIndex = new Map(contentCreativeScenes(creative).map((scene) => [scene.scene_index, scene]));
   return entries.map((entry) => {
@@ -307,8 +367,12 @@ function applyRendererSignals(entries: CompiledEntry[], creative: CreativeDirect
     if (!scene) return entry;
     const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
     const withEnvironment = applyRendererEnvironment(compiled, scene);
+    const shotType = rendererShotTypeFor(scene);
+    const visualStyle = rendererVisualStyleFor(scene);
     const next = {
       ...withEnvironment,
+      shotType,
+      visualStyle,
       visualEvent: enhanceVisualEvent(withEnvironment.visualEvent, scene, creative),
       rendererPerformance: {
         version: "13",
@@ -316,6 +380,8 @@ function applyRendererSignals(entries: CompiledEntry[], creative: CreativeDirect
         callbackRole: scene.callback_role,
         metaphorType: scene.metaphor.type,
         performanceNote: scene.performance_note,
+        shotType,
+        visualStyle: visualStyle.name,
       },
     };
     return { ...entry, template_data: JSON.stringify(next) };
