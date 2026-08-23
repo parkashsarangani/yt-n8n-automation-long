@@ -41,8 +41,8 @@ function scriptScenes() {
     },
     {
       scene_index: 3,
-      point: "action=Buddy turns the phone face down; prop=phone; function=practical_swap; value=changed behavior starts on screen",
-      narration: "Turn it over.",
+      point: "action=Buddy turns the glowing appliance away; prop=appliance; function=practical_swap; value=the visible cue moves out of the way",
+      narration: "Move the glow.",
       speaker: "buddy",
       emotion: "neutral",
     },
@@ -55,8 +55,8 @@ function scriptScenes() {
     },
     {
       scene_index: 5,
-      point: "action=Host grabs the kettle instead of the phone; prop=phone; function=callback_payoff practical_action; value=the opening habit resolves as a changed behavior",
-      narration: "Fine. Kettle gets the counter.",
+      point: "action=Host carries the laptop downstairs to the kitchen counter; prop=laptop; function=callback_payoff practical_action; value=the opening habit resolves as changed behavior",
+      narration: "Fine. Laptop stays downstairs.",
       speaker: "host",
       emotion: "happy",
     },
@@ -64,13 +64,15 @@ function scriptScenes() {
 }
 
 function directedScene(scene_index: number) {
-  const states = ["phone-unlocked", "phone-visible", "notification-badge", "face-down", "across-room", "phone-away"];
-  const motions = ["glow", "none", "pulse", "close", "slide-away", "none"];
+  const states = ["phone-unlocked", "phone-visible", "notification-badge", "blue-screen-glow", "across-room", "closed-downstairs"];
+  const motions = ["glow", "none", "pulse", "glow", "slide-away", "none"];
+  const locations = ["living-room", "living-room", "living-room", "living-room", "living-room", "bedroom"];
+  const variants = ["day", "day", "day", "day", "day", "night"];
   return {
     scene_index,
     template_category: "cartoon",
-    background_location: "living-room",
-    background_variant: "day",
+    background_location: locations[scene_index],
+    background_variant: variants[scene_index],
     background_tone: "neutral",
     framing: "two-shot",
     camera_motion: scene_index === 2 ? "push-in" : "static",
@@ -81,22 +83,23 @@ function directedScene(scene_index: number) {
     listener_emotion: "skeptical",
     listener_gesture: "idle",
     listener_gaze_target: "auto",
-    visual_event: scene_index === 2 ? "reaction-pop" : scene_index === 5 ? "callback-card" : "screen-change",
+    visual_event: scene_index === 2 ? "callback-card" : scene_index === 5 ? "callback-card" : scene_index === 3 ? "thought-bubble" : "screen-change",
     ambient_motion: "subtle-parallax",
     speaker_emphasis: "scale-pop",
-    cutaway_label: scene_index === 2 ? "THE BAIT BLINKS" : scene_index === 5 ? "KETTLE GETS THE COUNTER" : "",
-    primary_prop: "phone",
+    cutaway_label: scene_index === 2 ? "THE BAIT BLINKS" : scene_index === 5 ? "LAPTOP STAYS DOWNSTAIRS" : scene_index === 3 ? "THE GLOW THAT WON'T QUIT" : "",
+    primary_prop: scene_index === 3 ? "appliance" : scene_index === 5 ? "laptop" : "phone",
     prop_state: states[scene_index],
     prop_motion: motions[scene_index],
-    foreground_action: "Phone remains the visible cue",
+    foreground_action: scene_index === 5 ? "Laptop is carried downstairs and left on the kitchen counter" : "Prop remains the visible cue",
   };
 }
 
 function creativeDirection() {
   const sceneFunctions = ["opening_problem", "denial", "hidden_mechanism", "practical_swap", "relapse_escalation", "callback_payoff"];
   const energyBeats = ["hook", "dry correction", "visual proof", "practical correction", "relapse gag", "callback payoff"];
-  const states = ["phone-unlocked", "phone-visible", "notification-badge", "face-down", "across-room", "phone-away"];
-  const motions = ["glow", "none", "pulse", "close", "slide-away", "none"];
+  const types = ["phone", "phone", "phone", "appliance", "phone", "laptop"];
+  const states = ["phone-unlocked", "phone-visible", "notification-badge", "blue-screen-glow", "across-room", "closed-downstairs"];
+  const motions = ["glow", "none", "pulse", "glow", "slide-away", "none"];
   const propPositions = ["foreground-right", "table", "foreground-center", "hand", "foreground-left", "table"];
   const speakerPositions = ["left", "right", "center", "center", "left", "right"];
   const listenerPositions = ["right", "left", "right", "left", "right", "left"];
@@ -104,9 +107,9 @@ function creativeDirection() {
     "the unlocked phone owns the first look",
     "Buddy catches the excuse before it grows",
     "the blinking cue wins attention for a beat",
-    "Buddy takes control by turning the object over",
+    "the glowing appliance is moved away from the bed",
     "the habit pulls Host back toward the empty spot",
-    "Host gives the counter to the kettle instead",
+    "Host carries the laptop downstairs to the kitchen counter",
   ];
   const performance = [
     "Host notices the open screen before trying to explain it away.",
@@ -114,7 +117,7 @@ function creativeDirection() {
     "Host looks personally betrayed by one tiny notification blink.",
     "Buddy moves slowly so the fix feels embarrassingly obvious.",
     "Host reaches before realizing the hand moved without permission.",
-    "Host concedes quietly and redirects the hand to the kettle.",
+    "Host concedes quietly and redirects the laptop downstairs.",
   ];
 
   return {
@@ -128,21 +131,21 @@ function creativeDirection() {
       {
         character_id: "buddy",
         comic_role: "dry observer who moves the practical fix closer",
-        voice_markers: ["You lasted", "Turn it over"],
+        voice_markers: ["You lasted", "Move the glow"],
         reaction_pattern: "points at the cue and gives one blunt action instead of a lecture",
       },
     ],
     callback: {
       seed: "the phone is already open",
       escalation: "the bait blinks before Host decides",
-      payoff: "the kettle gets the counter instead",
+      payoff: "the laptop stays downstairs",
     },
     scenes: scriptScenes().map((scene) => ({
       scene_index: scene.scene_index,
       scene_function: sceneFunctions[scene.scene_index],
       energy_beat: energyBeats[scene.scene_index],
       foreground_prop: {
-        type: "phone",
+        type: types[scene.scene_index],
         state: states[scene.scene_index],
         motion: motions[scene.scene_index],
         anchor: "table",
@@ -155,9 +158,9 @@ function creativeDirection() {
         power_shift: powerShifts[scene.scene_index],
       },
       metaphor: {
-        type: scene.scene_index === 2 ? "reaction-pop" : scene.scene_index === 5 ? "callback-card" : "none",
-        label: scene.scene_index === 2 ? "THE BAIT BLINKS" : scene.scene_index === 5 ? "KETTLE GETS THE COUNTER" : "",
-        emotional_beat: scene.scene_index === 2 ? "the cue beats intention" : scene.scene_index === 5 ? "changed behavior closes the loop" : "watching the cue move attention",
+        type: scene.scene_index === 2 ? "callback-card" : scene.scene_index === 3 ? "thought-bubble" : scene.scene_index === 5 ? "callback-card" : "none",
+        label: scene.scene_index === 2 ? "THE BAIT BLINKS" : scene.scene_index === 3 ? "THE GLOW THAT WON'T QUIT" : scene.scene_index === 5 ? "LAPTOP STAYS DOWNSTAIRS" : "",
+        emotional_beat: scene.scene_index === 2 ? "the cue beats intention" : scene.scene_index === 3 ? "the culprit lights up literally" : scene.scene_index === 5 ? "changed behavior closes the loop" : "watching the cue move attention",
       },
       callback_role: scene.scene_index === 0 ? "seed" : scene.scene_index === 2 ? "escalation" : scene.scene_index === 5 ? "payoff" : "none",
       performance_note: performance[scene.scene_index],
@@ -182,35 +185,69 @@ async function compile() {
   );
 }
 
-test("compiler v13 emits renderer-facing callback echoes and performance cues", async () => {
+function primaryOverlayCount(event: { type?: string; callbackEcho?: unknown; metaphorVisual?: unknown }): number {
+  return Number(Boolean(event.callbackEcho))
+    + Number(Boolean(event.metaphorVisual))
+    + Number(["callback-card", "metaphor-cutaway", "thought-bubble"].includes(String(event.type)));
+}
+
+test("compiler v13 emits sanitized renderer overlays without raw production notes", async () => {
   const out = await compile();
   const payload = out.payload as { scenes: Array<{ scene_index: number; template_data: string }> };
-  const seed = JSON.parse(payload.scenes.find((entry) => entry.scene_index === 0)!.template_data) as {
-    visualEvent?: { callbackEcho?: { role?: string; text?: string }; performanceCue?: { type?: string } };
-    rendererPerformance?: { version?: string; callbackRole?: string };
-  };
-  const escalation = JSON.parse(payload.scenes.find((entry) => entry.scene_index === 2)!.template_data) as {
-    visualEvent?: { callbackEcho?: { role?: string; text?: string }; metaphorVisual?: { label?: string; emotionalBeat?: string }; performanceCue?: { type?: string } };
-  };
-  const payoff = JSON.parse(payload.scenes.find((entry) => entry.scene_index === 5)!.template_data) as {
-    visualEvent?: { type?: string; label?: string; callbackEcho?: { role?: string; text?: string; intensity?: string }; performanceCue?: { type?: string } };
+  const scene = (index: number) => JSON.parse(payload.scenes.find((entry) => entry.scene_index === index)!.template_data) as {
+    background?: { location?: string; variant?: string };
+    visualEvent?: {
+      type?: string;
+      label?: string;
+      foregroundProp?: { label?: string; state?: string; type?: string };
+      callbackEcho?: { role?: string; text?: string; intensity?: string };
+      metaphorVisual?: { label?: string; emotionalBeat?: string; propType?: string };
+      performanceCue?: { type?: string; label?: string };
+    };
     rendererPerformance?: { version?: string; cue?: string; callbackRole?: string };
   };
 
+  const seed = scene(0);
+  const deadpan = scene(1);
+  const escalation = scene(2);
+  const metaphor = scene(3);
+  const payoff = scene(5);
+
   assert.equal(seed.visualEvent?.callbackEcho?.role, "seed");
   assert.equal(seed.visualEvent?.callbackEcho?.text, "the phone is already open");
-  assert.equal(seed.visualEvent?.performanceCue?.type, "notice");
+  assert.equal(seed.visualEvent?.foregroundProp?.label, "PHONE");
+  assert.equal(seed.visualEvent?.performanceCue, undefined);
   assert.equal(seed.rendererPerformance?.version, "13");
+  assert.equal(seed.rendererPerformance?.cue, "notice");
+  assert.equal(primaryOverlayCount(seed.visualEvent ?? {}), 1);
 
-  assert.equal(escalation.visualEvent?.callbackEcho?.role, "escalation");
-  assert.equal(escalation.visualEvent?.metaphorVisual?.label, "THE BAIT BLINKS");
-  assert.equal(escalation.visualEvent?.metaphorVisual?.emotionalBeat, "the cue beats intention");
-  assert.equal(escalation.visualEvent?.performanceCue?.type, "recoil");
+  assert.equal(deadpan.visualEvent?.performanceCue?.type, "deadpan");
+  assert.equal(deadpan.visualEvent?.performanceCue?.label, "DEADPAN");
+  assert.ok(!JSON.stringify(deadpan.visualEvent).includes("four seconds were generous"));
+
+  assert.equal(escalation.visualEvent?.type, "callback-card");
+  assert.equal(escalation.visualEvent?.label, "THE BAIT BLINKS");
+  assert.equal(escalation.visualEvent?.callbackEcho, undefined);
+  assert.equal(escalation.visualEvent?.metaphorVisual, undefined);
+  assert.equal(escalation.visualEvent?.performanceCue, undefined);
+  assert.equal(escalation.rendererPerformance?.cue, "recoil");
+  assert.equal(primaryOverlayCount(escalation.visualEvent ?? {}), 1);
+
+  assert.equal(metaphor.visualEvent?.type, "thought-bubble");
+  assert.equal(metaphor.visualEvent?.foregroundProp?.label, "GLOW");
+  assert.equal(metaphor.visualEvent?.metaphorVisual, undefined);
+  assert.equal(metaphor.visualEvent?.performanceCue, undefined);
+  assert.ok(!JSON.stringify(metaphor.visualEvent).includes("APPLIANCE"));
+  assert.equal(primaryOverlayCount(metaphor.visualEvent ?? {}), 1);
 
   assert.equal(payoff.visualEvent?.type, "callback-card");
-  assert.equal(payoff.visualEvent?.label, "KETTLE GETS THE COUNTER");
-  assert.equal(payoff.visualEvent?.callbackEcho?.role, "payoff");
-  assert.equal(payoff.visualEvent?.callbackEcho?.intensity, "high");
-  assert.equal(payoff.visualEvent?.performanceCue?.type, "reluctant-acceptance");
+  assert.equal(payoff.visualEvent?.label, "LAPTOP STAYS DOWNSTAIRS");
+  assert.equal(payoff.visualEvent?.foregroundProp?.label, "LAPTOP DOWNSTAIRS");
+  assert.equal(payoff.visualEvent?.callbackEcho, undefined);
+  assert.equal(payoff.visualEvent?.performanceCue, undefined);
+  assert.equal(payoff.background?.location, "kitchen");
+  assert.equal(payoff.background?.variant, "day");
+  assert.equal(payoff.rendererPerformance?.cue, "reluctant-acceptance");
   assert.equal(payoff.rendererPerformance?.callbackRole, "payoff");
+  assert.equal(primaryOverlayCount(payoff.visualEvent ?? {}), 1);
 });
