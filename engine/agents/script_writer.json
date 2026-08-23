@@ -7,7 +7,7 @@
   "prompt": "script_writer@2",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 16000
+    "max_output_tokens": 10000
   },
   "confidence_dimensions": ["narrative_coherence", "pacing", "hook_strength", "retention_fidelity"],
   "retry": { "max_attempts": 3 }
