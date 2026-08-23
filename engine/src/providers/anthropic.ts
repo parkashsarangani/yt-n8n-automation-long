@@ -53,6 +53,13 @@ export function effectiveAnthropicModel(
   return configuredModel;
 }
 
+export function supportsAdaptiveThinking(model: string): boolean {
+  // Anthropic returns 400 for adaptive thinking on Haiku. Keep thinking on the
+  // Sonnet/Opus family where it is supported, but omit the field entirely for
+  // Haiku so cheap low-effort calls remain valid.
+  return !model.toLowerCase().includes("haiku");
+}
+
 export interface AnthropicProviderOptions {
   model: string;
   apiKey?: string;
@@ -103,7 +110,7 @@ export class AnthropicProvider implements ModelProvider {
       const stream = this.client.messages.stream({
         model,
         max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
-        thinking: { type: "adaptive" },
+        ...(supportsAdaptiveThinking(model) ? { thinking: { type: "adaptive" } } : {}),
         output_config: {
           effort,
           format: { type: "json_schema", schema },
