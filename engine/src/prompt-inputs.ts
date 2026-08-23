@@ -38,7 +38,14 @@ export function promptInputView(agentName: string, inputName: string, payload: u
     case "story":
       return storyView(payload);
     case "script":
-      return scriptView(payload, agentName === "seo_optimizer" ? 12 : 18);
+      // 24 matches creativeDirectionView/visualPlanView's cap below: script scenes
+      // and creative_direction scenes are the same array, 1:1 by scene_index, and
+      // assertCreativeSceneCoverage requires creative_direction to cover every
+      // script scene regardless of what the model saw. A cap below the real scene
+      // count silently blinds the model to a scene it must still produce output
+      // for — usually the payoff, since it's last. 18 was below the standard
+      // 19-scene long-episode fixture used throughout this project's tests.
+      return scriptView(payload, agentName === "seo_optimizer" ? 12 : 24);
     case "cast":
     case "cast_roster":
       return castView(payload);

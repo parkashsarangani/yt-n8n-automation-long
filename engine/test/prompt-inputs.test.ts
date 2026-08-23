@@ -32,6 +32,30 @@ test("script prompt views keep scene essentials and drop unneeded bulky fields",
   assert.doesNotMatch(rendered, /timing_debug/);
 });
 
+test("script prompt views keep the payoff scene for a realistic-length long episode", () => {
+  // 19 scenes (indices 0-18) is the standard long-episode fixture size used
+  // throughout this project's compiler/gate tests. The final scene is
+  // typically the payoff/callback resolution — the one scene
+  // assertCreativeSceneCoverage most needs cartoon_creative_director and
+  // cartoon_visual_planner to have actually seen, not guessed at.
+  const script = {
+    scenes: Array.from({ length: 19 }, (_, i) => ({
+      scene_index: i,
+      speaker_id: i % 2 === 0 ? "host" : "buddy",
+      point: `beat ${i}`,
+      narration: i === 18 ? "Fine. Laptop stays downstairs." : `narration line ${i}`,
+    })),
+    word_count: 19,
+  };
+
+  for (const agentName of ["cartoon_creative_director", "cartoon_visual_planner"]) {
+    const view = promptInputView(agentName, "script", script) as { scenes?: Array<{ scene_index: number }> };
+    assert.equal(view.scenes?.length, 19, `${agentName} should see all 19 scenes`);
+    assert.equal(view.scenes?.at(-1)?.scene_index, 18);
+    assert.match(text(view), /Laptop stays downstairs/);
+  }
+});
+
 test("story prompt views preserve act structure but trim long prose", () => {
   const story = {
     topic: "Why you forget why you walked into a room",
