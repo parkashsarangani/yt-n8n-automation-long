@@ -1,13 +1,8 @@
 /**
  * Transformation runner (RFC 0003).
  *
- * One harness for every transformation. Reasoning agents are *data* — a
- * definition plus a prompt — so adding the eighth agent introduces no control
- * flow. Workers are code, because they have side effects.
- *
- * Rules 1 and 2 of RFC 0001 are enforced structurally: an agent is never given
- * a WorkerContext (no filesystem, no network), and a worker is never given a
- * ModelProvider. Violating either requires editing this file.
+ * One harness for every transformation. Reasoning agents are data — a
+ * definition plus a prompt. Workers are code, because they have side effects.
  */
 
 import { randomUUID } from "node:crypto";
@@ -15,6 +10,7 @@ import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
 import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors } from "./agent-validators.ts";
+import { promptInputView } from "./prompt-inputs.ts";
 import {
   ProviderError,
   ProviderRefusal,
@@ -32,11 +28,8 @@ import type { RunLog, RunRecord, RunStatus } from "./runlog.ts";
 
 export interface Consumes {
   schema_id: string;
-  /** semver range the consumer accepts, e.g. "^1". */
   range?: string;
-  /** Name this input is bound to in the prompt, e.g. {{story}}. */
   as: string;
-  /** Optional compatibility input for direct transformation tests. */
   optional?: boolean;
 }
 
@@ -46,7 +39,6 @@ export interface AgentDef {
   consumes: Consumes[];
   produces: string;
   produces_version?: string;
-  /** "name@version" into the prompt store. */
   prompt: string;
   model: {
     capability: string;
@@ -55,21 +47,9 @@ export interface AgentDef {
   };
   confidence_dimensions?: string[];
   retry?: { max_attempts?: number };
-  /** Bumped when behaviour changes; recorded on every artifact. */
   version?: string;
 }
 
-/**
- * What a worker is allowed to touch: bytes, media services, a logger.
- *
- * Deliberately NOT extended with a ModelProvider. The runner constructs this,
- * so adding one requires editing the runner — a visible, reviewable act rather
- * than an accident inside a handler (RFC 0001 rule 1).
- *
- * Honest limitation: this proves nothing about dependencies a worker closes
- * over at construction time. The injected surface is enforced; construction is
- * still convention plus review.
- */
 export interface WorkerContext {
   logger: Pick<Console, "log" | "warn" | "error">;
   blobs: BlobStore;
@@ -79,15 +59,9 @@ export interface WorkerContext {
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
   };
-  /**
-   * Emit an interim run-log record for a long-running job (RFC 0006: everything
-   * observable). Without this, a 20-minute render is a black box and a crash
-   * leaves no trace of the external job it had started.
-   */
   progress(note: { detail: string; job_id?: string }): Promise<void>;
 }
 
-/** Workers declare the blobs they created so the envelope can own them. */
 export interface WorkerOutput {
   payload: unknown;
   blobs?: BlobRef[];
@@ -130,7 +104,6 @@ export interface RunnerDeps {
   providers: ProviderRouter;
   runLog: RunLog;
   logger?: Pick<Console, "log" | "warn" | "error">;
-  /** Required only if any worker produces bytes. */
   blobs?: BlobStore;
   media?: {
     speech?: SpeechProvider;
@@ -143,32 +116,21 @@ export interface RunnerDeps {
 export class Runner {
   constructor(private readonly deps: RunnerDeps) {}
 
-  async run(
-    def: TransformationDef,
-    inputIds: string[],
-    opts: RunOptions = {},
-  ): Promise<RunOutcome> {
+  async run(def: TransformationDef, inputIds: string[], opts: RunOptions = {}): Promise<RunOutcome> {
     return def.kind === "agent"
       ? this.runAgent(def, inputIds, opts)
       : this.runWorker(def, inputIds, opts);
   }
 
-  // -- shared -------------------------------------------------------------
-
-  /** Bind positional input ids to their declared names, validating on read. */
-  private async bindInputs(
-    def: TransformationDef,
-    inputIds: string[],
-  ): Promise<Record<string, Artifact>> {
+  private async bindInputs(def: TransformationDef, inputIds: string[]): Promise<Record<string, Artifact>> {
     const requiredCount = def.consumes.filter((spec) => !spec.optional).length;
     if (inputIds.length < requiredCount || inputIds.length > def.consumes.length) {
       const expected = requiredCount === def.consumes.length
         ? String(def.consumes.length)
         : `${requiredCount}-${def.consumes.length}`;
-      throw new RunnerError(
-        `${def.name} consumes ${expected} artifact(s) but got ${inputIds.length}`,
-      );
+      throw new RunnerError(`${def.name} consumes ${expected} artifact(s) but got ${inputIds.length}`);
     }
+
     const bound: Record<string, Artifact> = {};
     let inputIndex = 0;
     for (const [specIndex, spec] of def.consumes.entries()) {
@@ -176,9 +138,8 @@ export class Runner {
         .slice(specIndex + 1)
         .filter((candidate) => !candidate.optional).length;
       const suppliedRemaining = inputIds.length - inputIndex;
-      if (spec.optional && suppliedRemaining <= requiredRemainingAfter) {
-        continue;
-      }
+      if (spec.optional && suppliedRemaining <= requiredRemainingAfter) continue;
+
       const id = inputIds[inputIndex]!;
       inputIndex += 1;
       bound[spec.as] = await this.deps.store.require(id, {
@@ -198,13 +159,7 @@ export class Runner {
     await this.deps.runLog.record({ ...rest, duration_ms: Date.now() - startedMs });
   }
 
-  // -- agents -------------------------------------------------------------
-
-  private async runAgent(
-    def: AgentDef,
-    inputIds: string[],
-    opts: RunOptions,
-  ): Promise<RunOutcome> {
+  private async runAgent(def: AgentDef, inputIds: string[], opts: RunOptions): Promise<RunOutcome> {
     const runId = opts.runId ?? `run_${randomUUID()}`;
     const maxAttempts = def.retry?.max_attempts ?? 3;
     const version = this.outputVersion(def);
@@ -212,9 +167,6 @@ export class Runner {
 
     const inputs = await this.bindInputs(def, inputIds);
     const provider = this.deps.providers.forCapability(def.model.capability);
-
-    // The provider sees payload+confidence; confidence stays out of the payload
-    // so it cannot affect the content hash (RFC 0002).
     const outputSchema = wrapWithConfidence(
       this.deps.registry.jsonSchema(def.produces, version),
       def.confidence_dimensions ?? [],
@@ -222,7 +174,7 @@ export class Runner {
 
     const vars: Record<string, string> = {};
     for (const [name, artifact] of Object.entries(inputs)) {
-      vars[name] = JSON.stringify(artifact.payload, null, 2);
+      vars[name] = JSON.stringify(promptInputView(def.name, name, artifact.payload), null, 2);
     }
     for (const spec of def.consumes) {
       if (spec.optional && !(spec.as in vars)) vars[spec.as] = "null";
@@ -233,11 +185,7 @@ export class Runner {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
-
-      // A retry MUST differ from the attempt that failed, or it fails
-      // identically (RFC 0003). The validation errors are the difference.
-      const prompt =
-        this.deps.prompts.render(def.prompt, vars) + renderRetryBlock(lastErrors);
+      const prompt = this.deps.prompts.render(def.prompt, vars) + renderRetryBlock(lastErrors);
 
       let value: unknown;
       let usage: Usage | null = null;
@@ -247,9 +195,7 @@ export class Runner {
         const result = await provider.complete({
           prompt,
           outputSchema,
-          ...(def.model.max_output_tokens
-            ? { maxOutputTokens: def.model.max_output_tokens }
-            : {}),
+          ...(def.model.max_output_tokens ? { maxOutputTokens: def.model.max_output_tokens } : {}),
           ...(def.model.effort ? { effort: def.model.effort } : {}),
         });
         value = result.value;
@@ -277,7 +223,6 @@ export class Runner {
           startedMs,
           error: String(err),
         });
-        // A refusal will not resolve by retrying the same prompt.
         if (refusal || attempt === maxAttempts) throw err;
         continue;
       }
@@ -401,27 +346,18 @@ export class Runner {
     throw new RunnerError(`${def.name} exhausted ${maxAttempts} attempts`);
   }
 
-  // -- workers ------------------------------------------------------------
-
-  private async runWorker(
-    def: WorkerDef,
-    inputIds: string[],
-    opts: RunOptions,
-  ): Promise<RunOutcome> {
+  private async runWorker(def: WorkerDef, inputIds: string[], opts: RunOptions): Promise<RunOutcome> {
     const runId = opts.runId ?? `run_${randomUUID()}`;
     const version = this.outputVersion(def);
     const transformationVersion = def.version ?? "1";
     const startedAt = new Date().toISOString();
     const startedMs = Date.now();
-
     const inputs = await this.bindInputs(def, inputIds);
 
-    // Note what is absent: no ModelProvider. A worker cannot think (RFC 0001).
     if (!this.deps.blobs) {
-      throw new RunnerError(
-        `worker "${def.name}" needs a blob store; construct the Runner with { blobs }`,
-      );
+      throw new RunnerError(`worker "${def.name}" needs a blob store; construct the Runner with { blobs }`);
     }
+
     const ctx: WorkerContext = {
       logger: this.deps.logger ?? console,
       blobs: this.deps.blobs,
@@ -517,9 +453,7 @@ function unwrap(value: unknown, agent: string): { payload: unknown; confidence: 
   }
   const overall = v.confidence?.overall;
   if (typeof overall !== "number" || !(overall >= 0 && overall <= 1)) {
-    throw new ProviderError(
-      `${agent} response is missing a valid confidence.overall in [0,1]`,
-    );
+    throw new ProviderError(`${agent} response is missing a valid confidence.overall in [0,1]`);
   }
   return { payload: v.payload, confidence: v.confidence as Confidence };
 }
