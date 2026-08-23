@@ -7,17 +7,21 @@ import { applyRendererStaging } from "../src/workers/cartoon-scenes-v14.ts";
 const v14Source = readFileSync(new URL("../src/workers/cartoon-scenes-v14.ts", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../src/workers/index.ts", import.meta.url), "utf8");
 
-test("production cartoon compiler routes through v14 doorway staging", () => {
+test("production cartoon compiler routes through v14 set-piece staging", () => {
   assert.match(indexSource, /cartoon-scenes-v14\.ts/);
   assert.match(indexSource, /makeV14CartoonSceneCompilerWorker/);
   assert.doesNotMatch(indexSource, /makeV13CartoonSceneCompilerWorker/);
 });
 
-test("door props are removed from foreground overlays and converted to environment staging", () => {
-  assert.match(v14Source, /isDoorProp/);
+test("large props use a generic background set-piece policy", () => {
+  assert.match(v14Source, /type SetPieceKind =/);
+  assert.match(v14Source, /setPieceKindFromProp/);
+  assert.match(v14Source, /setPieceSpecForScene/);
   assert.match(v14Source, /delete visualEvent\.foregroundProp/);
-  assert.match(v14Source, /ambientMotion:\s*"doorway-cross"/);
-  assert.match(v14Source, /doorwayStaging:\s*"environment"/);
+  assert.match(v14Source, /setPieceStaging:\s*"background"/);
+  for (const kind of ["doorway", "window", "bed", "locker", "vehicle"]) {
+    assert.match(v14Source, new RegExp(`"${kind}"`));
+  }
 });
 
 test("door-dominant episodes preserve central-object coverage as rendered doorway set pieces", () => {
@@ -67,8 +71,10 @@ test("door-dominant episodes preserve central-object coverage as rendered doorwa
   for (const scene of compiled) {
     assert.equal(scene.visualEvent.foregroundProp, undefined, "door must not survive as a foreground overlay");
     assert.equal(scene.background.ambientMotion, "doorway-cross");
-    assert.equal(scene.background.doorwaySetPiece, true);
-    assert.equal(scene.rendererPerformance.doorwayStaging, "environment");
+    assert.equal(scene.background.setPiece.kind, "doorway");
+    assert.equal(scene.background.setPiece.motion, "cross");
+    assert.equal(scene.rendererPerformance.setPieceStaging, "background");
+    assert.equal(scene.rendererPerformance.setPieceKind, "doorway");
     assert.equal(scene.rendererPerformance.visibleCentralObject, "doorway-set-piece");
     assert.equal(scene.shotType, "doorway-transition");
   }
@@ -77,12 +83,43 @@ test("door-dominant episodes preserve central-object coverage as rendered doorwa
   assert.ok(environments.size >= 2, "doorway-dominant episodes must still move between visible environments");
 });
 
-test("large set-piece props are forced away from character face space", () => {
-  assert.match(v14Source, /locker/);
-  assert.match(v14Source, /window/);
-  assert.match(v14Source, /bed/);
-  assert.match(v14Source, /vehicle/);
-  assert.match(v14Source, /anchor:\s*foregroundProp\.anchor === "left" \|\| foregroundProp\.anchor === "right"/);
+test("non-door set pieces are dynamic per prop kind", () => {
+  const props = ["window", "bed", "locker", "vehicle"];
+  const entries = props.map((prop, sceneIndex) => ({
+    scene_index: sceneIndex,
+    source: "template" as const,
+    template_category: "cartoon" as const,
+    template_data: JSON.stringify({
+      background: { location: "living-room", variant: "day", tone: "neutral" },
+      shotType: "medium",
+      visualEvent: {
+        type: "prop-tremble",
+        foregroundProp: { type: prop, state: prop === "locker" ? "glow" : "visible", motion: "tremble", anchor: "foreground" },
+      },
+    }),
+  }));
+
+  const creative = {
+    character_roles: [],
+    callback: { seed: "", escalation: "", payoff: "" },
+    scenes: props.map((prop, sceneIndex) => ({
+      scene_index: sceneIndex,
+      scene_function: "visual beat",
+      energy_beat: `${prop} becomes the central set piece`,
+      foreground_prop: { type: prop, state: "visible", motion: "none", anchor: "foreground", action: `${prop} fills the set` },
+      blocking: { speaker_position: "left", listener_position: "right", prop_position: "foreground", power_shift: "object owns the frame" },
+      metaphor: { type: "none", label: "", emotional_beat: "set-piece object" },
+      callback_role: "none" as const,
+      performance_note: "Keep the large object behind the characters",
+    })),
+  };
+
+  const staged = applyRendererStaging(entries, creative);
+  const compiled = staged.map((entry) => JSON.parse(entry.template_data) as Record<string, any>);
+
+  assert.deepEqual(compiled.map((scene) => scene.background.setPiece.kind), props);
+  assert.ok(compiled.every((scene) => scene.visualEvent.foregroundProp === undefined));
+  assert.ok(compiled.every((scene) => scene.rendererPerformance.setPieceStaging === "background"));
 });
 
 test("doorway memory scenes force at least room-level environment changes", () => {
