@@ -10,7 +10,7 @@
   "prompt": "story_architect@4",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 8192
+    "max_output_tokens": 5000
   },
   "confidence_dimensions": ["premise_strength", "novelty", "visual_potential"],
   "retry": { "max_attempts": 3 }
