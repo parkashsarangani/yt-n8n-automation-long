@@ -11,7 +11,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { AnthropicProvider, effectiveAnthropicModel, supportsAdaptiveThinking } from "../src/providers/anthropic.ts";
+import {
+  AnthropicProvider,
+  effectiveAnthropicModel,
+  supportsAdaptiveThinking,
+  supportsOutputConfigEffort,
+} from "../src/providers/anthropic.ts";
 import { ProviderError, ProviderRefusal } from "../src/provider.ts";
 
 interface StreamCall {
@@ -54,6 +59,7 @@ test("streams instead of using create(), and calls finalMessage() for the result
   assert.equal(calls[0]!.body["model"], "claude-sonnet-5");
   assert.equal(calls[0]!.body["max_tokens"], 32000);
   assert.deepEqual(calls[0]!.body["thinking"], { type: "adaptive" });
+  assert.deepEqual((calls[0]!.body["output_config"] as { effort?: string }).effort, "high");
   assert.deepEqual(result.value, { ok: true });
   assert.equal(result.usage.input_tokens, 10);
   assert.equal(result.usage.output_tokens, 5);
@@ -61,7 +67,7 @@ test("streams instead of using create(), and calls finalMessage() for the result
   assert.equal(result.providerRef, "anthropic/claude-sonnet-5");
 });
 
-test("low-effort Sonnet requests use the cheaper Haiku model without adaptive thinking", async () => {
+test("low-effort Sonnet requests use Haiku without unsupported model-specific parameters", async () => {
   const calls: StreamCall[] = [];
   const client = stubClient(
     async () => ({
@@ -79,9 +85,15 @@ test("low-effort Sonnet requests use the cheaper Haiku model without adaptive th
   assert.equal(effectiveAnthropicModel("claude-sonnet-5", "medium"), "claude-sonnet-5");
   assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), true);
   assert.equal(supportsAdaptiveThinking("claude-haiku-4-5"), false);
+  assert.equal(supportsOutputConfigEffort("claude-sonnet-5"), true);
+  assert.equal(supportsOutputConfigEffort("claude-haiku-4-5"), false);
   assert.equal(calls[0]!.body["model"], "claude-haiku-4-5");
   assert.equal("thinking" in calls[0]!.body, false);
-  assert.deepEqual((calls[0]!.body["output_config"] as { effort?: string }).effort, "low");
+  assert.equal("effort" in (calls[0]!.body["output_config"] as Record<string, unknown>), false);
+  assert.deepEqual(
+    (calls[0]!.body["output_config"] as { format?: { type?: string } }).format?.type,
+    "json_schema",
+  );
   assert.equal(result.usage.model, "claude-haiku-4-5");
   assert.equal(result.providerRef, "anthropic/claude-haiku-4-5");
 });
