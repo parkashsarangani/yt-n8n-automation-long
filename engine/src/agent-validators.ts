@@ -58,6 +58,9 @@ function wordCount(value: unknown): number {
 const HUMAN_MOMENT_PATTERN = /\b(?:i|i'm|im|i’ll|i'd|me|my|you|you're|youre|your|we|we're|were|wait|nope|ugh|okay|still|again|late|where|why|how|fine|hate|rude|keys?)\b|(?:n't|'m|'re|'ve|'ll|'d)/i;
 const HUMAN_MOMENT_MIN_RATIO = 0.45;
 
+const DEFINITIONAL_DIALOGUE_PATTERN = /\b(?:this means|the reason is|in other words|research shows|studies show|is called|it's called|it is called|by that|actually tested this|that is fascinating|that's fascinating|interesting)\b/i;
+const TRAILING_ELLIPSIS_PATTERN = /\.\.\.\s*$/;
+
 // Mirrors cartoon_scene_compiler's assertTopicPropSemantics (engine/src/workers/
 // cartoon-scenes-v9.ts): planning/lateness scripts must not default to phone as
 // the central prop. Ported here so the writer retries on this signal instead of
@@ -118,6 +121,38 @@ function isPlanningOrLatenessTopic(scenes: ScriptScene[]): boolean {
   return /\b(?:late|lateness|leaving early|leave early|planning fallacy|schedule|estimate|buffer|clock|timer|keys?|traffic|route|calendar|morning|spare|door)\b/.test(allSceneText(scenes));
 }
 
+function repeatedPhraseFailure(scene: ScriptScene): string | null {
+  const narration = scene.narration ?? "";
+  const phrases = narration
+    .split(/[.!?;,]+/)
+    .map((part) => part.replace(/\s+/g, " ").trim().toLowerCase())
+    .filter(Boolean);
+  const counts = new Map<string, number>();
+  for (const phrase of phrases) {
+    counts.set(phrase, (counts.get(phrase) ?? 0) + 1);
+    if ((counts.get(phrase) ?? 0) >= 3 && wordCount(phrase) <= 4) {
+      return `scene ${scene.scene_index} repeats "${phrase}" three times in one line`;
+    }
+  }
+  return null;
+}
+
+function roboticDialogueFailures(scenes: ScriptScene[]): string[] {
+  const failures: string[] = [];
+  for (const scene of scenes) {
+    const narration = scene.narration ?? "";
+    const repeated = repeatedPhraseFailure(scene);
+    if (repeated) failures.push(repeated);
+    if (TRAILING_ELLIPSIS_PATTERN.test(narration)) {
+      failures.push(`scene ${scene.scene_index} ends with unresolved ellipsis`);
+    }
+    if (DEFINITIONAL_DIALOGUE_PATTERN.test(narration)) {
+      failures.push(`scene ${scene.scene_index} uses definition/explainer phrasing`);
+    }
+  }
+  return failures;
+}
+
 function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
   const contentScenes = scenesFromPayload(payload)
     .filter((scene) => !scene.is_outro)
@@ -143,6 +178,14 @@ function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
       `${humanMomentCount}/${contentScenes.length} lines sound like someone inside the situation `
       + `(first/second-person pronouns, contractions, or situational words); `
       + `at least ${requiredHumanMomentLines}/${contentScenes.length} are required`,
+    );
+  }
+
+  const roboticFailures = roboticDialogueFailures(contentScenes);
+  if (roboticFailures.length > 0) {
+    failures.push(
+      `robotic dialogue patterns: ${roboticFailures.slice(0, 6).join("; ")}. `
+      + `Rewrite with ordinary spoken responses, complete thoughts, and no repeated incantations.`,
     );
   }
 
