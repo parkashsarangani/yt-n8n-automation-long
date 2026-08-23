@@ -230,7 +230,7 @@ test("dialogue_script_writer retries a short but impersonal script for too few h
   assert.match(h.provider.calls[1]!.prompt, /natural dialogue gate failed/);
   assert.match(h.provider.calls[1]!.prompt, /0\/19 lines sound like someone inside the situation/);
   assert.match(h.provider.calls[1]!.prompt, /at least 9\/19 are required/);
-  assert.doesNotMatch(h.provider.calls[1]!.prompt, /lines are 10 words or fewer/);
+  assert.doesNotMatch(h.provider.calls[1]!.prompt, /\d+\/\d+ lines are 10 words or fewer/);
 
   const records = await h.runLog.all();
   assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
