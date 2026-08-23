@@ -1,14 +1,13 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CARTOON_SCENE = path.join(HERE, "../../long-compose/remotion/src/compositions/CartoonScene.tsx");
+const root = path.join(__dirname, "..");
+const CARTOON_SCENE = path.join(root, "remotion", "src", "compositions", "CartoonScene.tsx");
 
 test("cartoon renderer does not render text-heavy event cards", () => {
-  const source = readFileSync(CARTOON_SCENE, "utf8");
+  const source = fs.readFileSync(CARTOON_SCENE, "utf8");
 
   assert.doesNotMatch(source, /function\s+CallbackEchoOverlay/);
   assert.doesNotMatch(source, /function\s+PerformanceCueOverlay/);
@@ -22,7 +21,7 @@ test("cartoon renderer does not render text-heavy event cards", () => {
 });
 
 test("cartoon renderer draws every prompt-valid prop textlessly instead of dropping it", () => {
-  const source = readFileSync(CARTOON_SCENE, "utf8");
+  const source = fs.readFileSync(CARTOON_SCENE, "utf8");
 
   // Types the creative director prompt (engine/prompts/cartoon_creative_director/*.md)
   // is still allowed to choose. Every one of these must produce a drawn shape, not
