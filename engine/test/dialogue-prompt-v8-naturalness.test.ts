@@ -19,7 +19,7 @@ test("v8 prompt blocks the unnatural patterns seen in the doorway render", () =>
 });
 
 test("v8 prompt tells doorway topics to treat doors as set beats", () => {
-  assert.match(prompt, /door is a scene\/set element/);
+  assert.match(prompt, /`door`\s*is a scene\/set element/);
   assert.match(prompt, /crossing, opening, or leaving through the doorway/);
   assert.match(prompt, /not as a giant foreground object/);
 });
