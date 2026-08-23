@@ -49,6 +49,19 @@ test("dialogue writer rejects textbook and unresolved filler phrasing", () => {
   assert.match(errors.join("\n"), /unresolved ellipsis/);
 });
 
+test("dialogue writer does not reject natural by-that questions", () => {
+  const errors = errorsFor([
+    "Wait. Why am I in here?",
+    "What do you mean by that?",
+    "The room changed.",
+    "And my cue vanished.",
+    "That's annoying.",
+    "Say it while you cross.",
+  ]);
+
+  assert.deepEqual(errors, []);
+});
+
 test("dialogue writer accepts short situational doorway dialogue", () => {
   const errors = errorsFor([
     "Charger. I came in for the charger.",
