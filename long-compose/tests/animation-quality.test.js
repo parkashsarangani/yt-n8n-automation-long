@@ -115,7 +115,9 @@ test("cartoon visual events render deterministic overlays", () => {
   }
   assert.match(sceneSource, /VisualEventOverlay/);
   assert.match(sceneSource, /audience-silhouette/);
-  assert.match(sceneSource, /ANCIENT ALARM|WHAT YOUR BRAIN SEES/);
+  // Non-card effects still render distinct visual treatment, not text.
+  assert.match(sceneSource, /rgba\(255,70,70,0\.38\)/);
+  assert.match(sceneSource, /rgba\(37,99,235,0\.50\)/);
 });
 
 test("production rigs have distinct silhouettes and coherent palettes", () => {
