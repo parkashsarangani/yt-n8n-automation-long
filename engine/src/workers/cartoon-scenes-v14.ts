@@ -46,6 +46,15 @@ interface CreativeDirection {
   scenes: CreativeScene[];
 }
 
+type SetPieceKind = "doorway" | "window" | "bed" | "locker" | "vehicle";
+type SetPieceMotion = "still" | "cross" | "glow" | "settle";
+
+interface SetPieceSpec {
+  kind: SetPieceKind;
+  motion: SetPieceMotion;
+  emphasis: "low" | "medium" | "high";
+}
+
 function clean(value: unknown, max = 240): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
@@ -77,21 +86,54 @@ function sceneText(scene: CreativeScene): string {
   ].join(" "));
 }
 
-function isDoorProp(scene: CreativeScene): boolean {
-  const prop = foregroundPropKind(scene);
-  return prop === "door" || prop === "doorway" || prop === "front-door";
+function setPieceKindFromProp(propType: string): SetPieceKind | null {
+  if (["door", "doorway", "front-door"].includes(propType)) return "doorway";
+  if (propType === "window") return "window";
+  if (propType === "bed" || propType === "sheets") return "bed";
+  if (propType === "locker" || propType === "cabinet") return "locker";
+  if (propType === "vehicle" || propType === "car") return "vehicle";
+  return null;
 }
 
 function isDoorwayMemoryScene(scene: CreativeScene): boolean {
-  if (isDoorProp(scene)) return true;
+  if (setPieceKindFromProp(foregroundPropKind(scene)) === "doorway") return true;
   return /\b(?:doorway|new room|old room|walked into|walk into|cross(?:ed|ing)?|location updating|without a door|through the door|room changed|room switch)\b/.test(sceneText(scene));
 }
 
-function doorwayEnvironment(scene: CreativeScene, orderedDoorwayScenes: CreativeScene[]): "office" | "living-room" | "kitchen" {
-  const position = Math.max(0, orderedDoorwayScenes.findIndex((candidate) => candidate.scene_index === scene.scene_index));
+function spatialEnvironment(scene: CreativeScene, orderedSpatialScenes: CreativeScene[]): "office" | "living-room" | "kitchen" {
+  const position = Math.max(0, orderedSpatialScenes.findIndex((candidate) => candidate.scene_index === scene.scene_index));
   if (position <= 1) return "office";
   if (position % 3 === 1) return "living-room";
   return "kitchen";
+}
+
+function setPieceMotionFor(kind: SetPieceKind, scene: CreativeScene): SetPieceMotion {
+  const text = sceneText(scene);
+  if (kind === "doorway") return /\b(?:cross|through|walk|enter|leave|leaving|open)\b/.test(text) ? "cross" : "still";
+  if (kind === "locker") return /\b(?:glow|hum|open|pulse)\b/.test(text) ? "glow" : "still";
+  if (kind === "vehicle") return /\b(?:arrive|leave|move|traffic|commute)\b/.test(text) ? "settle" : "still";
+  return "still";
+}
+
+function setPieceSpecForScene(scene: CreativeScene): SetPieceSpec | null {
+  const directKind = setPieceKindFromProp(foregroundPropKind(scene));
+  const kind = directKind ?? (isDoorwayMemoryScene(scene) ? "doorway" : null);
+  if (!kind) return null;
+  return {
+    kind,
+    motion: setPieceMotionFor(kind, scene),
+    emphasis: scene.callback_role === "payoff" ? "high" : scene.callback_role === "escalation" ? "medium" : "low",
+  };
+}
+
+function ambientMotionForSetPiece(spec: SetPieceSpec): "doorway-cross" | "window-light" | "dust-float" | "subtle-parallax" {
+  switch (spec.kind) {
+    case "doorway": return "doorway-cross";
+    case "window": return "window-light";
+    case "bed": return "dust-float";
+    case "locker":
+    case "vehicle": return "subtle-parallax";
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -100,7 +142,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function sanitizeLargeSetPieceProps(compiled: Record<string, unknown>, scene: CreativeScene): Record<string, unknown> {
+function sanitizeSetPieceForeground(compiled: Record<string, unknown>, scene: CreativeScene): Record<string, unknown> {
   const visualEvent = asRecord(compiled.visualEvent);
   if (!visualEvent) return compiled;
 
@@ -108,63 +150,57 @@ function sanitizeLargeSetPieceProps(compiled: Record<string, unknown>, scene: Cr
   if (!foregroundProp) return compiled;
 
   const propType = normalized(foregroundProp.type ?? scene.foreground_prop.type).replace(/\s+/g, "-");
-  if (propType === "door" || propType === "doorway" || propType === "front-door") {
-    delete visualEvent.foregroundProp;
-    if (["prop-tremble", "callback-card", "thought-bubble", "metaphor-cutaway"].includes(String(visualEvent.type))) {
-      visualEvent.type = "screen-change";
-    }
-    return { ...compiled, visualEvent };
-  }
+  if (!setPieceKindFromProp(propType)) return compiled;
 
-  if (["locker", "cabinet", "window", "bed", "vehicle", "car"].includes(propType)) {
-    visualEvent.foregroundProp = {
-      ...foregroundProp,
-      anchor: foregroundProp.anchor === "left" || foregroundProp.anchor === "right" ? foregroundProp.anchor : "background",
-      motion: foregroundProp.motion === "tremble" ? "none" : foregroundProp.motion,
-    };
-    return { ...compiled, visualEvent };
+  delete visualEvent.foregroundProp;
+  if (["prop-tremble", "callback-card", "thought-bubble", "metaphor-cutaway"].includes(String(visualEvent.type))) {
+    visualEvent.type = "screen-change";
   }
-
-  return compiled;
+  return { ...compiled, visualEvent };
 }
 
-function applyDoorwayStaging(compiled: Record<string, unknown>, scene: CreativeScene, orderedDoorwayScenes: CreativeScene[]): Record<string, unknown> {
-  const withoutUnsafeProp = sanitizeLargeSetPieceProps(compiled, scene);
-  if (!isDoorwayMemoryScene(scene)) return withoutUnsafeProp;
+function applySetPieceStaging(compiled: Record<string, unknown>, scene: CreativeScene, orderedSpatialScenes: CreativeScene[]): Record<string, unknown> {
+  const withoutUnsafeProp = sanitizeSetPieceForeground(compiled, scene);
+  const setPiece = setPieceSpecForScene(scene);
+  if (!setPiece) return withoutUnsafeProp;
 
   const rawBackground = asRecord(withoutUnsafeProp.background) ?? {};
-  const location = doorwayEnvironment(scene, orderedDoorwayScenes);
-  const shotType = /\b(?:cross|door|doorway|walk|through)\b/.test(sceneText(scene)) ? "doorway-transition" : withoutUnsafeProp.shotType;
+  const isSpatialDoorway = setPiece.kind === "doorway" && isDoorwayMemoryScene(scene);
+  const location = isSpatialDoorway ? spatialEnvironment(scene, orderedSpatialScenes) : rawBackground.location;
   const existingPerformance = asRecord(withoutUnsafeProp.rendererPerformance) ?? {};
 
   return {
     ...withoutUnsafeProp,
-    shotType,
+    shotType: setPiece.kind === "doorway" ? "doorway-transition" : withoutUnsafeProp.shotType,
     background: {
       ...rawBackground,
-      location,
-      variant: "day",
+      location: typeof location === "string" && location ? location : rawBackground.location,
+      variant: typeof rawBackground.variant === "string" ? rawBackground.variant : "day",
       tone: typeof rawBackground.tone === "string" ? rawBackground.tone : "neutral",
-      ambientMotion: "doorway-cross",
-      doorwaySetPiece: true,
+      ambientMotion: ambientMotionForSetPiece(setPiece),
+      setPiece,
+      doorwaySetPiece: setPiece.kind === "doorway",
     },
     rendererPerformance: {
       ...existingPerformance,
-      doorwayStaging: "environment",
-      doorwayEnvironment: location,
-      visibleCentralObject: "doorway-set-piece",
+      setPieceStaging: "background",
+      setPieceKind: setPiece.kind,
+      setPieceMotion: setPiece.motion,
+      doorwayStaging: setPiece.kind === "doorway" ? "environment" : existingPerformance.doorwayStaging,
+      doorwayEnvironment: setPiece.kind === "doorway" ? location : existingPerformance.doorwayEnvironment,
+      visibleCentralObject: `${setPiece.kind}-set-piece`,
     },
   };
 }
 
 export function applyRendererStaging(entries: CompiledEntry[], creative: CreativeDirection): CompiledEntry[] {
   const scenesByIndex = new Map(contentCreativeScenes(creative).map((scene) => [scene.scene_index, scene]));
-  const doorwayScenes = contentCreativeScenes(creative).filter(isDoorwayMemoryScene);
+  const spatialScenes = contentCreativeScenes(creative).filter(isDoorwayMemoryScene);
   return entries.map((entry) => {
     const scene = scenesByIndex.get(entry.scene_index);
     if (!scene) return entry;
     const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
-    const staged = applyDoorwayStaging(compiled, scene, doorwayScenes);
+    const staged = applySetPieceStaging(compiled, scene, spatialScenes);
     return { ...entry, template_data: JSON.stringify(staged) };
   });
 }

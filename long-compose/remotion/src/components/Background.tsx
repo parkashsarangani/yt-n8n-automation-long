@@ -11,11 +11,22 @@ export type AmbientMotion =
     | "none" | "subtle-parallax" | "window-light" | "monitor-glow" | "chart-wiggle"
     | "clock-tick" | "rain-window" | "dust-float" | "doorway-cross";
 
+export type BackgroundSetPieceKind = "doorway" | "window" | "bed" | "locker" | "vehicle";
+
+export interface BackgroundSetPiece {
+    kind?: BackgroundSetPieceKind;
+    motion?: "still" | "cross" | "glow" | "settle";
+    emphasis?: "low" | "medium" | "high";
+}
+
 export interface BackgroundSpec {
     location?: string;
     variant?: string;
     tone?: EnvironmentTone;
     ambientMotion?: AmbientMotion;
+    setPiece?: BackgroundSetPiece;
+    /** Backwards-compatible flag from compiler v14 doorway staging. Prefer `setPiece.kind = "doorway"`. */
+    doorwaySetPiece?: boolean;
     /** Resolved server-side (compose.js checks the filesystem) — which of back/middle/front exist for this location/variant. */
     layers?: BackgroundLayers;
     /** Hex color. When set, skips location/variant/layers entirely — a solid card for punchlines/reactions. */
@@ -85,62 +96,46 @@ function ambientOffset(layer: keyof BackgroundLayers, ambient: AmbientMotion, ba
     }
 }
 
-function DoorwayCrossOverlay({ frame }: { frame: number }) {
+function DoorwaySetPiece({ frame }: { frame: number }) {
     const open = 0.5 + Math.sin(frame / 28) * 0.5;
     return (
-        <AbsoluteFill style={{ pointerEvents: "none" }}>
-            <div
-                style={{
-                    position: "absolute",
-                    left: 104,
-                    top: 86,
-                    width: 260,
-                    height: 538,
-                    borderRadius: "18px 18px 8px 8px",
-                    background: "linear-gradient(90deg, rgba(69,26,3,0.92), rgba(120,53,15,0.88))",
-                    boxShadow: "0 22px 48px rgba(69,26,3,0.20)",
-                }}
-            />
-            <div
-                style={{
-                    position: "absolute",
-                    left: 154,
-                    top: 122,
-                    width: 168 + open * 20,
-                    height: 466,
-                    borderRadius: "10px 10px 4px 4px",
-                    background: "linear-gradient(180deg, rgba(255,247,237,0.72), rgba(186,230,253,0.42))",
-                    boxShadow: "inset 0 0 64px rgba(255,255,255,0.34)",
-                }}
-            />
-            <div
-                style={{
-                    position: "absolute",
-                    left: 332,
-                    top: 118,
-                    width: 42,
-                    height: 482,
-                    borderRadius: "8px",
-                    background: "#78350F",
-                    transform: `translateX(${open * 18}px) rotateY(${12 + open * 5}deg)`,
-                    transformOrigin: "left center",
-                    boxShadow: "0 18px 32px rgba(69,26,3,0.22)",
-                }}
-            />
-            <div
-                style={{
-                    position: "absolute",
-                    left: 380,
-                    top: 70,
-                    width: 480,
-                    height: 580,
-                    background: "linear-gradient(90deg, rgba(255,255,255,0.12), transparent 62%)",
-                    opacity: 0.35 + open * 0.16,
-                    clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 78%)",
-                }}
-            />
-        </AbsoluteFill>
+        <>
+            <div style={{ position: "absolute", left: 104, top: 86, width: 260, height: 538, borderRadius: "18px 18px 8px 8px", background: "linear-gradient(90deg, rgba(69,26,3,0.92), rgba(120,53,15,0.88))", boxShadow: "0 22px 48px rgba(69,26,3,0.20)" }} />
+            <div style={{ position: "absolute", left: 154, top: 122, width: 168 + open * 20, height: 466, borderRadius: "10px 10px 4px 4px", background: "linear-gradient(180deg, rgba(255,247,237,0.72), rgba(186,230,253,0.42))", boxShadow: "inset 0 0 64px rgba(255,255,255,0.34)" }} />
+            <div style={{ position: "absolute", left: 332, top: 118, width: 42, height: 482, borderRadius: "8px", background: "#78350F", transform: `translateX(${open * 18}px) rotateY(${12 + open * 5}deg)`, transformOrigin: "left center", boxShadow: "0 18px 32px rgba(69,26,3,0.22)" }} />
+            <div style={{ position: "absolute", left: 380, top: 70, width: 480, height: 580, background: "linear-gradient(90deg, rgba(255,255,255,0.12), transparent 62%)", opacity: 0.35 + open * 0.16, clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 78%)" }} />
+        </>
     );
+}
+
+function WindowSetPiece({ frame }: { frame: number }) {
+    const glow = 0.5 + Math.sin(frame / 42) * 0.5;
+    return <div style={{ position: "absolute", left: 105, top: 92, width: 300, height: 260, borderRadius: 22, background: "linear-gradient(180deg, rgba(186,230,253,0.86), rgba(253,230,138,0.52))", border: "14px solid rgba(255,255,255,0.78)", boxShadow: `0 18px 50px rgba(251,191,36,${0.14 + glow * 0.08})` }}><div style={{ position: "absolute", left: 132, top: 0, width: 14, height: 260, background: "rgba(255,255,255,0.78)" }} /><div style={{ position: "absolute", left: 0, top: 116, width: 300, height: 14, background: "rgba(255,255,255,0.78)" }} /></div>;
+}
+
+function BedSetPiece() {
+    return <div style={{ position: "absolute", right: 118, bottom: 74, width: 460, height: 170 }}><div style={{ position: "absolute", left: 0, top: 72, width: 460, height: 86, borderRadius: "34px 34px 18px 18px", background: "rgba(147,197,253,0.92)", border: "10px solid rgba(15,23,42,0.22)", boxShadow: "0 20px 44px rgba(15,23,42,0.16)" }} /><div style={{ position: "absolute", left: 28, top: 28, width: 144, height: 68, borderRadius: 22, background: "rgba(255,255,255,0.86)", border: "7px solid rgba(15,23,42,0.14)" }} /></div>;
+}
+
+function LockerSetPiece({ frame, motion }: { frame: number; motion?: string }) {
+    const pulse = motion === "glow" ? 0.5 + Math.sin(frame / 20) * 0.5 : 0;
+    return <div style={{ position: "absolute", right: 126, top: 122, width: 210, height: 430, borderRadius: 18, background: "#64748B", border: "12px solid #1E293B", boxShadow: motion === "glow" ? `0 0 ${26 + pulse * 26}px rgba(56,189,248,0.36)` : "0 20px 46px rgba(15,23,42,0.18)" }}><div style={{ position: "absolute", left: 0, top: 206, width: 210, height: 10, background: "#1E293B" }} /><div style={{ position: "absolute", right: 20, top: 92, width: 16, height: 16, borderRadius: 16, background: "#FACC15" }} /><div style={{ position: "absolute", right: 20, top: 310, width: 16, height: 16, borderRadius: 16, background: "#FACC15" }} /></div>;
+}
+
+function VehicleSetPiece() {
+    return <div style={{ position: "absolute", left: 106, bottom: 82, width: 420, height: 168 }}><div style={{ position: "absolute", left: 34, top: 48, width: 350, height: 86, borderRadius: "34px 34px 18px 18px", background: "rgba(56,189,248,0.88)", boxShadow: "0 18px 42px rgba(15,23,42,0.18)" }} /><div style={{ position: "absolute", left: 126, top: 10, width: 170, height: 58, borderRadius: "24px 24px 0 0", background: "rgba(147,197,253,0.92)", border: "8px solid rgba(30,58,138,0.62)" }} /><div style={{ position: "absolute", left: 72, top: 114, width: 66, height: 66, borderRadius: 66, background: "#1E293B", border: "8px solid #475569" }} /><div style={{ position: "absolute", right: 72, top: 114, width: 66, height: 66, borderRadius: 66, background: "#1E293B", border: "8px solid #475569" }} /></div>;
+}
+
+function SetPieceOverlay({ setPiece, frame }: { setPiece?: BackgroundSetPiece; frame: number }) {
+    if (!setPiece?.kind) return null;
+    switch (setPiece.kind) {
+        case "doorway": return <AbsoluteFill style={{ pointerEvents: "none" }}><DoorwaySetPiece frame={frame} /></AbsoluteFill>;
+        case "window": return <AbsoluteFill style={{ pointerEvents: "none" }}><WindowSetPiece frame={frame} /></AbsoluteFill>;
+        case "bed": return <AbsoluteFill style={{ pointerEvents: "none" }}><BedSetPiece /></AbsoluteFill>;
+        case "locker": return <AbsoluteFill style={{ pointerEvents: "none" }}><LockerSetPiece frame={frame} motion={setPiece.motion} /></AbsoluteFill>;
+        case "vehicle": return <AbsoluteFill style={{ pointerEvents: "none" }}><VehicleSetPiece /></AbsoluteFill>;
+        default: return assertNever(setPiece.kind);
+    }
 }
 
 function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: number }) {
@@ -152,7 +147,7 @@ function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: num
         case "clock-tick":
             return null;
         case "doorway-cross":
-            return <DoorwayCrossOverlay frame={frame} />;
+            return <AbsoluteFill style={{ pointerEvents: "none", background: "linear-gradient(90deg, rgba(255,255,255,0.10), transparent 50%)", opacity: 0.35 + pulse * 0.12 }} />;
         case "window-light":
             return <AbsoluteFill style={{ background: "linear-gradient(105deg, rgba(255,245,205,0.16), transparent 42%)", opacity: 0.45 + pulse * 0.12 }} />;
         case "monitor-glow":
@@ -179,6 +174,7 @@ export const Background: React.FC<BackgroundProps> = ({ background, panX = 0 }) 
 
     const effect = getEnvironmentEffect(background.tone);
     const ambient = background.ambientMotion ?? "none";
+    const setPiece = background.setPiece ?? (background.doorwaySetPiece ? { kind: "doorway" as const, motion: "cross" as const } : undefined);
     const ambientBase: AmbientFrameMath = {
         slow: Math.sin(frame / 95),
         slower: Math.cos(frame / 131),
@@ -209,6 +205,7 @@ export const Background: React.FC<BackgroundProps> = ({ background, panX = 0 }) 
                 </div>
             )}
 
+            <SetPieceOverlay setPiece={setPiece} frame={frame} />
             <AmbientOverlay ambient={ambient} frame={frame} />
 
             {effect.fog > 0 && (
