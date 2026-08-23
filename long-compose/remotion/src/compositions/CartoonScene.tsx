@@ -250,6 +250,86 @@ function ForegroundPropOverlay({ prop }: { prop?: ForegroundPropSpec }) {
         return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY - 90, width: 230, height: 210, borderRadius: 20, background: "linear-gradient(180deg,#BAE6FD,#FDE68A)", border: "10px solid #F8FAFC", boxShadow: "0 16px 34px rgba(0,0,0,0.20)", transform: `scale(${scale})`, zIndex: 6 }}><div style={{ position: "absolute", left: 100, top: 0, width: 10, height: 210, background: "#F8FAFC" }} /><div style={{ position: "absolute", left: 0, top: 94, width: 230, height: 10, background: "#F8FAFC" }} /></div>;
     }
 
+    if (type === "kettle") {
+        const boiling = /boil|steam|hot|whistl/.test(state);
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 200, height: 170, transform: `scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 30, top: 40, width: 130, height: 110, borderRadius: "50% 50% 30% 30% / 60% 60% 20% 20%", background: "#E5E7EB", border: "8px solid #334155", boxShadow: boiling ? `0 0 ${20 + pulse * 22}px rgba(248,113,113,0.4)` : "0 16px 32px rgba(0,0,0,0.2)" }} />
+            <div style={{ position: "absolute", left: 4, top: 66, width: 46, height: 56, borderRadius: "24px 6px 6px 24px", border: "10px solid #334155", borderRight: "none" }} />
+            <div style={{ position: "absolute", right: 6, top: 46, width: 44, height: 26, borderRadius: "0 18px 18px 0", background: "#334155", transform: "rotate(-18deg)" }} />
+            {boiling && <div style={{ position: "absolute", right: 24, top: 6 + Math.sin(frame / 7) * 6, width: 12, height: 34, borderRadius: 12, background: "rgba(255,255,255,0.68)" }} />}
+        </div>;
+    }
+
+    if (type === "food") {
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 220, height: 130, transform: `scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 50, width: 220, height: 68, borderRadius: 110, background: "#F8FAFC", border: "8px solid #CBD5E1", boxShadow: "0 16px 32px rgba(0,0,0,0.2)" }} />
+            <div style={{ position: "absolute", left: 46, top: 24, width: 128, height: 64, borderRadius: "60% 60% 40% 40%", background: "#F59E0B" }} />
+            <div style={{ position: "absolute", left: 76, top: 30, width: 40, height: 30, borderRadius: "50%", background: "#EF4444" }} />
+        </div>;
+    }
+
+    if (type === "document") {
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 200, height: 240, transform: `rotate(-2deg) scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 0, width: 200, height: 240, background: "#FFFFFF", border: "6px solid #20242C", boxShadow: "0 18px 38px rgba(0,0,0,0.22)" }}>
+                <div style={{ position: "absolute", right: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 0 30px 30px", borderColor: "transparent transparent #CBD5E1 transparent" }} />
+                {[40, 76, 112, 148].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 20, top: topOffset, width: 160, height: 12, borderRadius: 6, background: "#CBD5E1" }} />)}
+            </div>
+        </div>;
+    }
+
+    if (type === "locker" || type === "cabinet") {
+        const open = /open/.test(state);
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY - 60, width: 180, height: 280, transform: `perspective(360px) rotateY(${open ? -14 : 0}deg) scale(${scale})`, transformOrigin: "left center", zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 0, width: 180, height: 280, borderRadius: 12, background: "#64748B", border: "8px solid #1E293B", boxShadow: open ? `0 0 ${22 + pulse * 20}px rgba(148,163,184,0.4)` : "0 18px 38px rgba(0,0,0,0.24)" }}>
+                <div style={{ position: "absolute", left: 0, top: 138, width: 180, height: 8, background: "#1E293B" }} />
+                <div style={{ position: "absolute", left: 158, top: 66, width: 12, height: 12, borderRadius: 12, background: "#FBBF24" }} />
+                <div style={{ position: "absolute", left: 158, top: 200, width: 12, height: 12, borderRadius: 12, background: "#FBBF24" }} />
+            </div>
+        </div>;
+    }
+
+    if (type === "vehicle" || type === "car") {
+        return <div style={{ position: "absolute", left: x + trembleX + slideX, top: y + hoverY, width: 280, height: 130, transform: `scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 20, top: 20, width: 240, height: 70, borderRadius: "24px 24px 12px 12px", background: "#2563EB", boxShadow: "0 16px 32px rgba(0,0,0,0.22)" }} />
+            <div style={{ position: "absolute", left: 78, top: -6, width: 130, height: 46, borderRadius: "18px 18px 0 0", background: "#93C5FD", border: "6px solid #1E3A8A" }} />
+            <div style={{ position: "absolute", left: 44, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: "8px solid #475569" }} />
+            <div style={{ position: "absolute", left: 190, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: "8px solid #475569" }} />
+        </div>;
+    }
+
+    if (type === "tool") {
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 200, height: 200, transform: `rotate(-30deg) scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 82, top: 60, width: 26, height: 130, borderRadius: 10, background: "#92400E" }} />
+            <div style={{ position: "absolute", left: 40, top: 10, width: 110, height: 60, borderRadius: 14, background: "#64748B", border: "6px solid #334155" }} />
+        </div>;
+    }
+
+    if (type === "appliance" || type === "device") {
+        const glow = /glow|on|running/.test(state);
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 220, height: 220, transform: `scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 220, borderRadius: 24, background: "#E2E8F0", border: "8px solid #334155", boxShadow: glow ? `0 0 ${24 + pulse * 26}px rgba(56,189,248,0.42)` : "0 18px 38px rgba(0,0,0,0.22)" }}>
+                <div style={{ position: "absolute", left: 20, top: 20, width: 180, height: 130, borderRadius: 12, background: glow ? "linear-gradient(180deg,#38BDF8,#1E3A8A)" : "#1E293B" }} />
+                <div style={{ position: "absolute", left: 20, top: 166, width: 40, height: 40, borderRadius: 40, background: glow ? "#22C55E" : "#64748B" }} />
+            </div>
+        </div>;
+    }
+
+    if (type === "bill" || type === "invoice" || type === "receipt") {
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 150, height: 240, transform: `rotate(3deg) scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 0, width: 150, height: 220, background: "#FFFFFF", boxShadow: "0 18px 38px rgba(0,0,0,0.22)" }}>
+                {[30, 60, 90, 120, 150].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 16, top: topOffset, width: 118, height: 10, borderRadius: 5, background: "#CBD5E1" }} />)}
+            </div>
+            <div style={{ position: "absolute", left: 0, top: 216, width: 150, height: 14, background: "repeating-linear-gradient(-45deg,#FFFFFF,#FFFFFF 8px,transparent 8px,transparent 16px)" }} />
+        </div>;
+    }
+
+    if (type === "letter" || type === "envelope") {
+        return <div style={{ position: "absolute", left: x + trembleX, top: y + hoverY, width: 220, height: 150, transform: `scale(${scale})`, zIndex: 7 }}>
+            <div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 150, borderRadius: 10, background: "#F8FAFC", border: "8px solid #334155", boxShadow: "0 16px 32px rgba(0,0,0,0.2)" }} />
+            <div style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 110px 76px 110px", borderColor: "transparent transparent #CBD5E1 transparent" }} />
+        </div>;
+    }
+
     return null;
 }
 
@@ -258,19 +338,23 @@ function NonCardEventEffect({ event }: { event?: VisualEventSpec }) {
     const type = event?.type ?? "none";
     const pulse = 0.5 + Math.sin(frame / 6) * 0.5;
 
-    if (type === "alarm-pulse") {
-        return <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.35 + pulse * 0.18 }}><div style={{ position: "absolute", left: 690, top: 220, width: 540, height: 540, borderRadius: 540, border: "10px solid rgba(255,70,70,0.38)", transform: `scale(${0.84 + pulse * 0.16})`, boxShadow: "0 0 70px rgba(255,80,80,0.25)" }} /></AbsoluteFill>;
+    switch (type) {
+        case "alarm-pulse":
+            return <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.35 + pulse * 0.18 }}><div style={{ position: "absolute", left: 690, top: 220, width: 540, height: 540, borderRadius: 540, border: "10px solid rgba(255,70,70,0.38)", transform: `scale(${0.84 + pulse * 0.16})`, boxShadow: "0 0 70px rgba(255,80,80,0.25)" }} /></AbsoluteFill>;
+        case "audience-silhouette":
+            return <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.7 }}>{Array.from({ length: 7 }, (_, i) => <div key={i} style={{ position: "absolute", bottom: -70, left: 170 + i * 235, width: 125, height: 190 + (i % 2) * 34, borderRadius: "70px 70px 18px 18px", background: "rgba(20,24,32,0.55)", filter: "blur(0.2px)" }} />)}</AbsoluteFill>;
+        case "reaction-pop":
+            return <div style={{ position: "absolute", left: 748, top: 150, width: 118, height: 118, borderRadius: 118, background: "rgba(255,255,255,0.42)", border: "10px solid rgba(37,99,235,0.50)", transform: `scale(${0.86 + pulse * 0.12})`, boxShadow: "0 16px 44px rgba(0,0,0,0.16)", zIndex: 5 }} />;
+        case "none":
+        case "screen-change":
+        case "metaphor-cutaway":
+        case "prop-tremble":
+        case "thought-bubble":
+        case "callback-card":
+            return null;
+        default:
+            return assertNever(type);
     }
-
-    if (type === "audience-silhouette") {
-        return <AbsoluteFill style={{ pointerEvents: "none", opacity: 0.7 }}>{Array.from({ length: 7 }, (_, i) => <div key={i} style={{ position: "absolute", bottom: -70, left: 170 + i * 235, width: 125, height: 190 + (i % 2) * 34, borderRadius: "70px 70px 18px 18px", background: "rgba(20,24,32,0.55)", filter: "blur(0.2px)" }} />)}</AbsoluteFill>;
-    }
-
-    if (type === "reaction-pop") {
-        return <div style={{ position: "absolute", left: 748, top: 150, width: 118, height: 118, borderRadius: 118, background: "rgba(255,255,255,0.42)", border: "10px solid rgba(37,99,235,0.50)", transform: `scale(${0.86 + pulse * 0.12})`, boxShadow: "0 16px 44px rgba(0,0,0,0.16)", zIndex: 5 }} />;
-    }
-
-    return null;
 }
 
 function VisualEventOverlay({ event }: { event?: VisualEventSpec }) {
