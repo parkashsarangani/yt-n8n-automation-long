@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { promptInputView } from "../src/prompt-inputs.ts";
 
@@ -80,4 +81,11 @@ test("performance prompt views cap large episode arrays", () => {
   assert.match(rendered, /video-79/);
   assert.doesNotMatch(rendered, /video-80/);
   assert.doesNotMatch(rendered, /raw_platform_blob/);
+});
+
+test("runner renders agent prompts from compact views, not raw artifact payloads", () => {
+  const runner = readFileSync(new URL("../src/runner.ts", import.meta.url), "utf8");
+
+  assert.match(runner, /promptInputView\(def\.name, name, artifact\.payload\)/);
+  assert.doesNotMatch(runner, /JSON\.stringify\(artifact\.payload, null, 2\)/);
 });
