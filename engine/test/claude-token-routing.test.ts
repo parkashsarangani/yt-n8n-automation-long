@@ -71,3 +71,10 @@ test("agent output budgets stay bounded", () => {
     );
   }
 });
+
+test("prompt input compression is wired into the runner", () => {
+  const runner = readFileSync(new URL("../src/runner.ts", import.meta.url), "utf8");
+
+  assert.match(runner, /promptInputView\(def\.name, name, artifact\.payload\)/);
+  assert.doesNotMatch(runner, /JSON\.stringify\(artifact\.payload, null, 2\)/);
+});
