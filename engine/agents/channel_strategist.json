@@ -7,8 +7,8 @@
   "prompt": "channel_strategist@1",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 4000,
-    "effort": "medium"
+    "max_output_tokens": 3000,
+    "effort": "low"
   },
   "confidence_dimensions": ["evidence_strength", "specificity"],
   "retry": { "max_attempts": 3 }
