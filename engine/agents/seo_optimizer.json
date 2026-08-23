@@ -10,8 +10,8 @@
   "prompt": "seo_optimizer@1",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 4000,
-    "effort": "medium"
+    "max_output_tokens": 2000,
+    "effort": "low"
   },
   "confidence_dimensions": ["searchability", "honesty"],
   "retry": { "max_attempts": 3 }

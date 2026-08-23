@@ -9,8 +9,9 @@
   "produces": "topic_candidates",
   "prompt": "discovery@2",
   "model": {
-    "capability": "reasoning_high",
-    "max_output_tokens": 6000
+    "capability": "reasoning_fast",
+    "max_output_tokens": 3000,
+    "effort": "low"
   },
   "confidence_dimensions": ["novelty", "evidence_strength"],
   "retry": { "max_attempts": 3 }

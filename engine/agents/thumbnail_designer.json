@@ -9,7 +9,7 @@
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 2000,
-    "effort": "medium"
+    "effort": "low"
   },
   "confidence_dimensions": ["clarity", "curiosity"],
   "retry": { "max_attempts": 3 }

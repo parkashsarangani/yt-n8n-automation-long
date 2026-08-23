@@ -11,9 +11,9 @@
   "produces_version": "1.2.0",
   "prompt": "cartoon_thumbnail_designer@1",
   "model": {
-    "capability": "reasoning_high",
-    "max_output_tokens": 8192,
-    "effort": "high"
+    "capability": "reasoning_fast",
+    "max_output_tokens": 4096,
+    "effort": "low"
   },
   "confidence_dimensions": ["clarity", "curiosity", "representativeness"],
   "retry": { "max_attempts": 3 }
