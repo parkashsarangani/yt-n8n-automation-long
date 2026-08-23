@@ -9,7 +9,7 @@ export interface BackgroundLayers {
 
 export type AmbientMotion =
     | "none" | "subtle-parallax" | "window-light" | "monitor-glow" | "chart-wiggle"
-    | "clock-tick" | "rain-window" | "dust-float";
+    | "clock-tick" | "rain-window" | "dust-float" | "doorway-cross";
 
 export interface BackgroundSpec {
     location?: string;
@@ -80,8 +80,67 @@ function ambientOffset(layer: keyof BackgroundLayers, ambient: AmbientMotion, ba
         case "window-light": return { x: slow * 1.5, y: slower * 0.8 };
         case "monitor-glow": return { x: slow, y: 0 };
         case "subtle-parallax": return { x: slow * 4, y: slower };
+        case "doorway-cross": return { x: slow * 5, y: slower * 1.2 };
         default: return assertNever(ambient);
     }
+}
+
+function DoorwayCrossOverlay({ frame }: { frame: number }) {
+    const open = 0.5 + Math.sin(frame / 28) * 0.5;
+    return (
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
+            <div
+                style={{
+                    position: "absolute",
+                    left: 104,
+                    top: 86,
+                    width: 260,
+                    height: 538,
+                    borderRadius: "18px 18px 8px 8px",
+                    background: "linear-gradient(90deg, rgba(69,26,3,0.92), rgba(120,53,15,0.88))",
+                    boxShadow: "0 22px 48px rgba(69,26,3,0.20)",
+                }}
+            />
+            <div
+                style={{
+                    position: "absolute",
+                    left: 154,
+                    top: 122,
+                    width: 168 + open * 20,
+                    height: 466,
+                    borderRadius: "10px 10px 4px 4px",
+                    background: "linear-gradient(180deg, rgba(255,247,237,0.72), rgba(186,230,253,0.42))",
+                    boxShadow: "inset 0 0 64px rgba(255,255,255,0.34)",
+                }}
+            />
+            <div
+                style={{
+                    position: "absolute",
+                    left: 332,
+                    top: 118,
+                    width: 42,
+                    height: 482,
+                    borderRadius: "8px",
+                    background: "#78350F",
+                    transform: `translateX(${open * 18}px) rotateY(${12 + open * 5}deg)`,
+                    transformOrigin: "left center",
+                    boxShadow: "0 18px 32px rgba(69,26,3,0.22)",
+                }}
+            />
+            <div
+                style={{
+                    position: "absolute",
+                    left: 380,
+                    top: 70,
+                    width: 480,
+                    height: 580,
+                    background: "linear-gradient(90deg, rgba(255,255,255,0.12), transparent 62%)",
+                    opacity: 0.35 + open * 0.16,
+                    clipPath: "polygon(0 14%, 100% 0, 100% 100%, 0 78%)",
+                }}
+            />
+        </AbsoluteFill>
+    );
 }
 
 function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: number }) {
@@ -92,6 +151,8 @@ function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: num
         case "chart-wiggle":
         case "clock-tick":
             return null;
+        case "doorway-cross":
+            return <DoorwayCrossOverlay frame={frame} />;
         case "window-light":
             return <AbsoluteFill style={{ background: "linear-gradient(105deg, rgba(255,245,205,0.16), transparent 42%)", opacity: 0.45 + pulse * 0.12 }} />;
         case "monitor-glow":
