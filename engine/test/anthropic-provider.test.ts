@@ -11,7 +11,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { AnthropicProvider } from "../src/providers/anthropic.ts";
+import { AnthropicProvider, effectiveAnthropicModel } from "../src/providers/anthropic.ts";
 import { ProviderError, ProviderRefusal } from "../src/provider.ts";
 
 interface StreamCall {
@@ -51,11 +51,35 @@ test("streams instead of using create(), and calls finalMessage() for the result
   const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 32000 });
 
   assert.equal(calls.length, 1, "expected exactly one messages.stream() call");
+  assert.equal(calls[0]!.body["model"], "claude-sonnet-5");
   assert.equal(calls[0]!.body["max_tokens"], 32000);
   assert.deepEqual(result.value, { ok: true });
   assert.equal(result.usage.input_tokens, 10);
   assert.equal(result.usage.output_tokens, 5);
+  assert.equal(result.usage.model, "claude-sonnet-5");
   assert.equal(result.providerRef, "anthropic/claude-sonnet-5");
+});
+
+test("low-effort Sonnet requests use the cheaper Haiku model", async () => {
+  const calls: StreamCall[] = [];
+  const client = stubClient(
+    async () => ({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: '{"ok":true}' }],
+      usage: { input_tokens: 100, output_tokens: 20 },
+    }),
+    calls,
+  );
+  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
+
+  const result = await provider.complete({ prompt: "cheap", outputSchema: SCHEMA, effort: "low" });
+
+  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "low"), "claude-haiku-4-5");
+  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "medium"), "claude-sonnet-5");
+  assert.equal(calls[0]!.body["model"], "claude-haiku-4-5");
+  assert.deepEqual((calls[0]!.body["output_config"] as { effort?: string }).effort, "low");
+  assert.equal(result.usage.model, "claude-haiku-4-5");
+  assert.equal(result.providerRef, "anthropic/claude-haiku-4-5");
 });
 
 test("a refusal surfaces as ProviderRefusal, not a crash on empty content", async () => {
