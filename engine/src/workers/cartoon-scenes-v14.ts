@@ -146,16 +146,18 @@ function applyDoorwayStaging(compiled: Record<string, unknown>, scene: CreativeS
       variant: "day",
       tone: typeof rawBackground.tone === "string" ? rawBackground.tone : "neutral",
       ambientMotion: "doorway-cross",
+      doorwaySetPiece: true,
     },
     rendererPerformance: {
       ...existingPerformance,
       doorwayStaging: "environment",
       doorwayEnvironment: location,
+      visibleCentralObject: "doorway-set-piece",
     },
   };
 }
 
-function applyRendererStaging(entries: CompiledEntry[], creative: CreativeDirection): CompiledEntry[] {
+export function applyRendererStaging(entries: CompiledEntry[], creative: CreativeDirection): CompiledEntry[] {
   const scenesByIndex = new Map(contentCreativeScenes(creative).map((scene) => [scene.scene_index, scene]));
   const doorwayScenes = contentCreativeScenes(creative).filter(isDoorwayMemoryScene);
   return entries.map((entry) => {
