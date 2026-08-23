@@ -143,9 +143,9 @@ function viewerPropType(value: unknown): string {
 
 function foregroundPropLabel(scene: CreativeScene): string {
   const type = normalized(scene.foreground_prop.type);
-  const text = sceneEnvironmentText(scene);
+  const propText = normalized(`${scene.foreground_prop.state} ${scene.foreground_prop.action}`);
   if (type === "phone") return "PHONE";
-  if (type === "clock" || /\balarm clock\b/.test(text)) return "8:00";
+  if (type === "clock") return "8:00";
   if (type === "keys") return "KEYS";
   if (type === "route map" || type === "route-map") return "ROUTE";
   if (type === "calendar") return "PLAN";
@@ -153,9 +153,9 @@ function foregroundPropLabel(scene: CreativeScene): string {
   if (type === "coffee" || type === "mug") return "COFFEE";
   if (type === "kettle") return "KETTLE";
   if (type === "shoes") return "SHOES";
-  if (type === "laptop") return /\bdownstairs\b/.test(text) ? "LAPTOP DOWNSTAIRS" : "LAPTOP";
-  if (type === "bed" || type === "sheets" || /\bbed\b/.test(text)) return "BED";
-  if (type === "appliance" || type === "device" || /\bglow\b/.test(text)) return "GLOW";
+  if (type === "laptop") return /\bdownstairs\b/.test(propText) ? "LAPTOP DOWNSTAIRS" : "LAPTOP";
+  if (type === "bed" || type === "sheets") return "BED";
+  if (type === "appliance" || type === "device") return "GLOW";
   return clean(scene.foreground_prop.type, 24).toUpperCase() || "OBJECT";
 }
 
@@ -191,14 +191,22 @@ function performanceCueFor(scene: CreativeScene): Record<string, unknown> {
   };
 }
 
+function isPrimaryTextCard(type: unknown): boolean {
+  return ["callback-card", "metaphor-cutaway", "thought-bubble"].includes(String(type));
+}
+
 function hasPrimaryOverlay(visualEvent: Record<string, unknown>): boolean {
   const type = typeof visualEvent.type === "string" ? visualEvent.type : "none";
   const hasForegroundProp = Boolean(visualEvent.foregroundProp);
   return Boolean(visualEvent.callbackEcho || visualEvent.metaphorVisual)
-    || type === "callback-card"
-    || type === "metaphor-cutaway"
-    || type === "thought-bubble"
+    || isPrimaryTextCard(type)
     || (type === "screen-change" && !hasForegroundProp);
+}
+
+function stripEnhancementOverlays(visualEvent: Record<string, unknown>): void {
+  delete visualEvent.callbackEcho;
+  delete visualEvent.metaphorVisual;
+  delete visualEvent.performanceCue;
 }
 
 function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: CreativeDirection): Record<string, unknown> {
@@ -211,21 +219,25 @@ function enhanceVisualEvent(raw: unknown, scene: CreativeScene, creative: Creati
   if (scene.callback_role === "payoff") {
     visualEvent.type = "callback-card";
     visualEvent.label = clean(scene.metaphor.label, 80) || callbackText(creative, "payoff");
-    delete visualEvent.callbackEcho;
-    delete visualEvent.metaphorVisual;
-    delete visualEvent.performanceCue;
+    stripEnhancementOverlays(visualEvent);
     return visualEvent;
   }
 
   if (callbackEcho) {
+    if (isPrimaryTextCard(visualEvent.type)) {
+      stripEnhancementOverlays(visualEvent);
+      return visualEvent;
+    }
     visualEvent.callbackEcho = callbackEcho;
     delete visualEvent.metaphorVisual;
-    if (visualEvent.type === "callback-card") visualEvent.type = "none";
   } else {
     const metaphorVisual = metaphorVisualFor(scene);
     if (metaphorVisual) {
+      if (isPrimaryTextCard(visualEvent.type)) {
+        stripEnhancementOverlays(visualEvent);
+        return visualEvent;
+      }
       visualEvent.metaphorVisual = metaphorVisual;
-      if (["metaphor-cutaway", "thought-bubble", "callback-card"].includes(String(visualEvent.type))) visualEvent.type = "none";
     }
   }
 
