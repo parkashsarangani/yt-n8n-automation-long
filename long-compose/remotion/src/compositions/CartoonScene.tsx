@@ -180,38 +180,23 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
-function coerceShadow(value: unknown): ResolvedVisualStyle["shadow"] | undefined {
-    if (value === "none" || value === "soft-offset" || value === "deep-stage") return value;
-    return undefined;
-}
-
-function coerceDepth(value: unknown): ResolvedVisualStyle["depth"] | undefined {
-    if (value === "flat" || value === "layered-parallax" || value === "stage-depth") return value;
-    return undefined;
-}
-
-function coerceLighting(value: unknown): ResolvedVisualStyle["lighting"] | undefined {
-    if (value === "neutral" || value === "warm-window" || value === "cool-monitor" || value === "morning-soft") return value;
-    return undefined;
-}
+const STYLE_PRESETS: Record<CartoonVisualStyleName, ResolvedVisualStyle> = {
+    "clean-flat": { name: "clean-flat", lineWeight: 6, shadow: "soft-offset", depth: "layered-parallax", lighting: "neutral", propScale: 1, palette: { outline: "#18212F", paper: "#F8FAFC", accent: "#2563EB", accent2: "#38BDF8", surface: "#E2E8F0", shadow: "rgba(15,23,42,0.24)" } },
+    "warm-modern": { name: "warm-modern", lineWeight: 7, shadow: "soft-offset", depth: "stage-depth", lighting: "warm-window", propScale: 1.04, palette: { outline: "#1F2937", paper: "#FFF7ED", accent: "#F97316", accent2: "#38BDF8", surface: "#FDE68A", shadow: "rgba(90,55,20,0.24)" } },
+    "bold-outline": { name: "bold-outline", lineWeight: 10, shadow: "deep-stage", depth: "stage-depth", lighting: "neutral", propScale: 1.08, palette: { outline: "#0F172A", paper: "#F8FAFC", accent: "#DC2626", accent2: "#2563EB", surface: "#F1F5F9", shadow: "rgba(2,6,23,0.34)" } },
+    "soft-editorial": { name: "soft-editorial", lineWeight: 5, shadow: "soft-offset", depth: "layered-parallax", lighting: "morning-soft", propScale: 1, palette: { outline: "#334155", paper: "#FFFFFF", accent: "#14B8A6", accent2: "#A78BFA", surface: "#E0F2FE", shadow: "rgba(51,65,85,0.18)" } },
+};
 
 function resolveVisualStyle(style?: CartoonVisualStyle | CartoonVisualStyleName): ResolvedVisualStyle {
-    const input = typeof style === "string" ? { name: style } : (style ?? {});
-    const presets: Record<CartoonVisualStyleName, ResolvedVisualStyle> = {
-        "clean-flat": { name: "clean-flat", lineWeight: 6, shadow: "soft-offset", depth: "layered-parallax", lighting: "neutral", propScale: 1, palette: { outline: "#18212F", paper: "#F8FAFC", accent: "#2563EB", accent2: "#38BDF8", surface: "#E2E8F0", shadow: "rgba(15,23,42,0.24)" } },
-        "warm-modern": { name: "warm-modern", lineWeight: 7, shadow: "soft-offset", depth: "stage-depth", lighting: "warm-window", propScale: 1.04, palette: { outline: "#1F2937", paper: "#FFF7ED", accent: "#F97316", accent2: "#38BDF8", surface: "#FDE68A", shadow: "rgba(90,55,20,0.24)" } },
-        "bold-outline": { name: "bold-outline", lineWeight: 10, shadow: "deep-stage", depth: "stage-depth", lighting: "neutral", propScale: 1.08, palette: { outline: "#0F172A", paper: "#F8FAFC", accent: "#DC2626", accent2: "#2563EB", surface: "#F1F5F9", shadow: "rgba(2,6,23,0.34)" } },
-        "soft-editorial": { name: "soft-editorial", lineWeight: 5, shadow: "soft-offset", depth: "layered-parallax", lighting: "morning-soft", propScale: 1, palette: { outline: "#334155", paper: "#FFFFFF", accent: "#14B8A6", accent2: "#A78BFA", surface: "#E0F2FE", shadow: "rgba(51,65,85,0.18)" } },
-    };
-    const name = input.name ?? "warm-modern";
-    const base = presets[name as CartoonVisualStyleName] ?? presets["warm-modern"];
+    const input: CartoonVisualStyle = typeof style === "string" ? { name: style } : (style ?? {});
+    const base = STYLE_PRESETS[input.name as CartoonVisualStyleName] ?? STYLE_PRESETS["warm-modern"];
     return {
         ...base,
-        name,
+        name: input.name ?? base.name,
         lineWeight: input.lineWeight ?? base.lineWeight,
-        shadow: coerceShadow(input.shadow) ?? base.shadow,
-        depth: coerceDepth(input.depth) ?? base.depth,
-        lighting: coerceLighting(input.lighting) ?? base.lighting,
+        shadow: input.shadow === "none" || input.shadow === "soft-offset" || input.shadow === "deep-stage" ? input.shadow : base.shadow,
+        depth: input.depth === "flat" || input.depth === "layered-parallax" || input.depth === "stage-depth" ? input.depth : base.depth,
+        lighting: input.lighting === "neutral" || input.lighting === "warm-window" || input.lighting === "cool-monitor" || input.lighting === "morning-soft" ? input.lighting : base.lighting,
         propScale: input.propScale ?? base.propScale,
         palette: { ...base.palette, ...(input.palette ?? {}) },
     };
@@ -266,30 +251,22 @@ function outline(style: ResolvedVisualStyle): string {
     return `${style.lineWeight}px solid ${style.palette.outline}`;
 }
 
-function shotPropTransform(shotType: CartoonShotType, scale: number, rotate = "0deg"): string {
+function shotOffset(shotType: CartoonShotType): { x: number; y: number; scale: number } {
     switch (shotType) {
-        case "wide": return `rotate(${rotate}) scale(${scale * 0.82})`;
-        case "medium": return `rotate(${rotate}) scale(${scale})`;
-        case "close-up": return `rotate(${rotate}) scale(${scale * 1.08})`;
-        case "prop-close-up": return `rotate(${rotate}) scale(${scale * 1.42})`;
-        case "doorway-transition": return `perspective(460px) rotateY(-8deg) rotate(${rotate}) scale(${scale * 1.05})`;
-        case "counter-shot": return `rotate(${rotate}) scale(${scale * 1.18})`;
-        case "table-shot": return `rotate(${rotate}) scale(${scale * 1.12})`;
+        case "wide": return { x: 0, y: 0, scale: 0.82 };
+        case "medium": return { x: 0, y: 0, scale: 1 };
+        case "close-up": return { x: -40, y: 22, scale: 1.08 };
+        case "prop-close-up": return { x: -250, y: -70, scale: 1.42 };
+        case "doorway-transition": return { x: -85, y: -16, scale: 1.05 };
+        case "counter-shot": return { x: -105, y: -42, scale: 1.18 };
+        case "table-shot": return { x: -70, y: -58, scale: 1.12 };
         default: return assertNever(shotType);
     }
 }
 
-function shotOffset(shotType: CartoonShotType): { x: number; y: number } {
-    switch (shotType) {
-        case "wide": return { x: 0, y: 0 };
-        case "medium": return { x: 0, y: 0 };
-        case "close-up": return { x: -40, y: 22 };
-        case "prop-close-up": return { x: -250, y: -70 };
-        case "doorway-transition": return { x: -85, y: -16 };
-        case "counter-shot": return { x: -105, y: -42 };
-        case "table-shot": return { x: -70, y: -58 };
-        default: return assertNever(shotType);
-    }
+function propTransform(shotType: CartoonShotType, scale: number, rotate = "0deg"): string {
+    const shot = shotOffset(shotType);
+    return `rotate(${rotate}) scale(${scale * shot.scale})`;
 }
 
 function propBaseStyle(x: number, y: number, transform: string, style: ResolvedVisualStyle, zIndex = 7): CSSProperties {
@@ -302,8 +279,8 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: Foregro
 
     const type = String(prop.type).toLowerCase();
     const state = String(prop.state || "visible").toLowerCase();
-    const { trembleX, slideX, hoverY, pulse, scale } = motionStyle(prop, frame, visualStyle);
     const shot = shotOffset(shotType);
+    const { trembleX, slideX, hoverY, pulse, scale } = motionStyle(prop, frame, visualStyle);
     const x = anchorX(prop.anchor) + shot.x + trembleX + slideX;
     const y = anchorY(prop.anchor) + shot.y + hoverY;
     const border = outline(visualStyle);
@@ -313,93 +290,31 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: Foregro
     if (type === "phone") {
         const faceDown = /face-down|across/.test(state);
         const glow = /glow|notification|unlocked|thumb/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, prop.anchor === "hand" ? "-8deg" : "5deg"), visualStyle), width: 154, height: 250, borderRadius: 28, background: faceDown ? "#20242C" : "#111827", border, boxShadow: glow ? `0 0 ${34 + pulse * 28}px rgba(80,190,255,0.58)` : shadow }}>{!faceDown && <div style={{ position: "absolute", left: 14, top: 18, width: 126, height: 210, borderRadius: 18, background: `linear-gradient(180deg,${accent2},#1E3A8A)`, boxShadow: glow ? "inset 0 0 24px rgba(255,255,255,0.22)" : "none" }} />}{String(prop.motion || "").toLowerCase() === "thumb-hover" && <div style={{ position: "absolute", left: -45, bottom: 35 + hoverY, width: 70, height: 44, borderRadius: 28, background: "#F2C7A5", border: "5px solid rgba(40,35,30,0.45)", transform: "rotate(14deg)", boxShadow: "0 8px 16px rgba(0,0,0,0.18)" }} />}</div>;
+        return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, prop.anchor === "hand" ? "-8deg" : "5deg"), visualStyle), width: 154, height: 250, borderRadius: 28, background: faceDown ? "#20242C" : "#111827", border, boxShadow: glow ? `0 0 ${34 + pulse * 28}px rgba(80,190,255,0.58)` : shadow }}>{!faceDown && <div style={{ position: "absolute", left: 14, top: 18, width: 126, height: 210, borderRadius: 18, background: `linear-gradient(180deg,${accent2},#1E3A8A)`, boxShadow: glow ? "inset 0 0 24px rgba(255,255,255,0.22)" : "none" }} />}{String(prop.motion || "").toLowerCase() === "thumb-hover" && <div style={{ position: "absolute", left: -45, bottom: 35 + hoverY, width: 70, height: 44, borderRadius: 28, background: "#F2C7A5", border: "5px solid rgba(40,35,30,0.45)", transform: "rotate(14deg)", boxShadow: "0 8px 16px rgba(0,0,0,0.18)" }} />}</div>;
     }
-
     if (type === "clock" || type === "alarm clock") {
         const urgent = /late|jump|running/.test(state);
         const minute = -90 + (frame % 120) * 3;
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 190, height: 190, borderRadius: 190, background: urgent ? "#FFF2F2" : paper, border, boxShadow: urgent ? `0 0 ${24 + pulse * 26}px rgba(239,68,68,0.38)` : shadow }}><div style={{ position: "absolute", left: 84, top: 32, width: 12, height: 60, borderRadius: 6, background: stroke, transformOrigin: "6px 58px", transform: "rotate(25deg)" }} /><div style={{ position: "absolute", left: 84, top: 36, width: 12, height: 70, borderRadius: 6, background: urgent ? "#EF4444" : accent2, transformOrigin: "6px 64px", transform: `rotate(${minute}deg)` }} /><div style={{ position: "absolute", left: 74, top: 74, width: 34, height: 34, borderRadius: 34, background: stroke }} /></div>;
+        return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 190, height: 190, borderRadius: 190, background: urgent ? "#FFF2F2" : paper, border, boxShadow: urgent ? `0 0 ${24 + pulse * 26}px rgba(239,68,68,0.38)` : shadow }}><div style={{ position: "absolute", left: 84, top: 32, width: 12, height: 60, borderRadius: 6, background: stroke, transformOrigin: "6px 58px", transform: "rotate(25deg)" }} /><div style={{ position: "absolute", left: 84, top: 36, width: 12, height: 70, borderRadius: 6, background: urgent ? "#EF4444" : accent2, transformOrigin: "6px 64px", transform: `rotate(${minute}deg)` }} /><div style={{ position: "absolute", left: 74, top: 74, width: 34, height: 34, borderRadius: 34, background: stroke }} /></div>;
     }
-
-    if (type === "keys") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-8deg"), visualStyle), width: 240, height: 130 }}><div style={{ position: "absolute", left: 12, top: 30, width: 72, height: 72, borderRadius: 72, border: `${visualStyle.lineWeight * 2}px solid ${accent}`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 74, top: 60, width: 142, height: 18, borderRadius: 10, background: accent, boxShadow: shadow }} /><div style={{ position: "absolute", right: 20, top: 48, width: 22, height: 44, background: accent }} /><div style={{ position: "absolute", right: 55, top: 60, width: 18, height: 36, background: accent }} /></div>;
-    }
-
-    if (type === "route-map") {
-        const delayed = /traffic|delay|red/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "3deg"), visualStyle), width: 360, height: 210, borderRadius: 24, background: "#EFF6FF", border: `${visualStyle.lineWeight}px solid ${paper}`, boxShadow: shadow, overflow: "hidden" }}><div style={{ position: "absolute", left: 0, top: 86, width: 360, height: 18, background: "#BFDBFE" }} /><div style={{ position: "absolute", left: 58, top: 26, width: 34, height: 160, borderRadius: 24, background: "#BFDBFE" }} /><div style={{ position: "absolute", left: 64, top: 103, width: 230, height: 16, borderRadius: 12, background: delayed ? "#EF4444" : "#22C55E", boxShadow: delayed ? `0 0 ${18 + pulse * 20}px rgba(239,68,68,0.42)` : "0 0 18px rgba(34,197,94,0.28)" }} /><div style={{ position: "absolute", left: 274, top: 89, width: 42, height: 42, borderRadius: 42, background: delayed ? "#EF4444" : "#22C55E", border: `${visualStyle.lineWeight}px solid ${paper}` }} /></div>;
-    }
-
-    if (type === "calendar") {
-        const buffered = /buffer/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-3deg"), visualStyle), width: 260, height: 210, borderRadius: 22, background: paper, border, boxShadow: shadow, overflow: "hidden" }}><div style={{ height: 48, background: buffered ? "#22C55E" : accent2 }} /><div style={{ position: "absolute", left: 28, top: 70, right: 28, height: 20, borderRadius: 10, background: "#CBD5E1" }} /><div style={{ position: "absolute", left: 28, top: 106, right: buffered ? 28 : 92, height: 20, borderRadius: 10, background: buffered ? "#22C55E" : "#CBD5E1" }} /><div style={{ position: "absolute", left: 28, top: 144, right: 64, height: 20, borderRadius: 10, background: "#CBD5E1" }} /></div>;
-    }
-
-    if (type === "door") {
-        const open = /open|leaving/.test(state);
-        return <div style={{ ...propBaseStyle(x, y - 70, shotPropTransform(shotType, scale), visualStyle), width: 170, height: 300, borderRadius: 10, background: open ? "#92400E" : "#78350F", border: `${visualStyle.lineWeight}px solid #451A03`, boxShadow: open ? `0 0 ${28 + pulse * 22}px rgba(251,191,36,0.35)` : shadow, transformOrigin: "left center" }}><div style={{ position: "absolute", right: 18, top: 142, width: 18, height: 18, borderRadius: 18, background: accent }} /></div>;
-    }
-
-    if (type === "coffee" || type === "mug") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-3deg"), visualStyle), width: 160, height: 150 }}><div style={{ position: "absolute", left: 30, top: 42, width: 100, height: 92, borderRadius: "0 0 32px 32px", background: paper, border, boxShadow: shadow }} /><div style={{ position: "absolute", right: 8, top: 60, width: 46, height: 44, borderRadius: 44, border }} /><div style={{ position: "absolute", left: 52, top: 20 + Math.sin(frame / 8) * 5, width: 16, height: 38, borderRadius: 16, background: "rgba(255,255,255,0.68)" }} /><div style={{ position: "absolute", left: 88, top: 14 + Math.sin(frame / 7) * 5, width: 14, height: 48, borderRadius: 14, background: "rgba(255,255,255,0.58)" }} /></div>;
-    }
-
-    if (type === "shoes" || type === "shoe") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-4deg"), visualStyle), width: 270, height: 130 }}><div style={{ position: "absolute", left: 10, top: 50, width: 118, height: 54, borderRadius: "48px 28px 18px 18px", background: stroke, boxShadow: shadow }} /><div style={{ position: "absolute", left: 142, top: 54, width: 118, height: 54, borderRadius: "48px 28px 18px 18px", background: "#475569", boxShadow: shadow }} /><div style={{ position: "absolute", left: 28, top: 42, width: 62, height: 8, borderRadius: 8, background: paper }} /><div style={{ position: "absolute", left: 160, top: 46, width: 62, height: 8, borderRadius: 8, background: paper }} /></div>;
-    }
-
-    if (type === "laptop") {
-        const glow = /glow|open|screen/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "2deg"), visualStyle), width: 300, height: 190 }}><div style={{ position: "absolute", left: 42, top: 8, width: 216, height: 126, borderRadius: 16, background: glow ? `linear-gradient(180deg,${accent2},#1E3A8A)` : "#334155", border: `${visualStyle.lineWeight}px solid #0F172A`, boxShadow: glow ? `0 0 ${24 + pulse * 24}px rgba(56,189,248,0.42)` : shadow }} /><div style={{ position: "absolute", left: 8, top: 130, width: 284, height: 34, borderRadius: "8px 8px 20px 20px", background: "#CBD5E1", border: `${visualStyle.lineWeight}px solid #0F172A` }} /></div>;
-    }
-
-    if (type === "bed" || type === "sheets") {
-        return <div style={{ ...propBaseStyle(x, y - 20, shotPropTransform(shotType, scale), visualStyle), width: 330, height: 150 }}><div style={{ position: "absolute", left: 0, top: 58, width: 330, height: 72, borderRadius: "26px 26px 18px 18px", background: "#93C5FD", border: `${visualStyle.lineWeight}px solid rgba(15,23,42,0.45)`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 22, top: 22, width: 112, height: 58, borderRadius: 20, background: paper, border: `${Math.max(4, visualStyle.lineWeight - 1)}px solid rgba(15,23,42,0.26)` }} /><div style={{ position: "absolute", right: 18, bottom: 6, width: 46, height: 70, borderRadius: 14, background: "#1E293B" }} /></div>;
-    }
-
-    if (type === "window") {
-        return <div style={{ ...propBaseStyle(x, y - 90, shotPropTransform(shotType, scale), visualStyle, 6), width: 230, height: 210, borderRadius: 20, background: "linear-gradient(180deg,#BAE6FD,#FDE68A)", border: `${visualStyle.lineWeight + 2}px solid ${paper}`, boxShadow: shadow }}><div style={{ position: "absolute", left: 100, top: 0, width: 10, height: 210, background: paper }} /><div style={{ position: "absolute", left: 0, top: 94, width: 230, height: 10, background: paper }} /></div>;
-    }
-
-    if (type === "kettle") {
-        const boiling = /boil|steam|hot|whistl/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 200, height: 170 }}><div style={{ position: "absolute", left: 30, top: 40, width: 130, height: 110, borderRadius: "50% 50% 30% 30% / 60% 60% 20% 20%", background: surface, border, boxShadow: boiling ? `0 0 ${20 + pulse * 22}px rgba(248,113,113,0.4)` : shadow }} /><div style={{ position: "absolute", left: 4, top: 66, width: 46, height: 56, borderRadius: "24px 6px 6px 24px", border: `${visualStyle.lineWeight + 2}px solid ${stroke}`, borderRight: "none" }} /><div style={{ position: "absolute", right: 6, top: 46, width: 44, height: 26, borderRadius: "0 18px 18px 0", background: stroke, transform: "rotate(-18deg)" }} />{boiling && <div style={{ position: "absolute", right: 24, top: 6 + Math.sin(frame / 7) * 6, width: 12, height: 34, borderRadius: 12, background: "rgba(255,255,255,0.68)" }} />}</div>;
-    }
-
-    if (type === "food") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 220, height: 130 }}><div style={{ position: "absolute", left: 0, top: 50, width: 220, height: 68, borderRadius: 110, background: paper, border: `${visualStyle.lineWeight}px solid #CBD5E1`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 46, top: 24, width: 128, height: 64, borderRadius: "60% 60% 40% 40%", background: accent }} /><div style={{ position: "absolute", left: 76, top: 30, width: 40, height: 30, borderRadius: "50%", background: "#EF4444" }} /></div>;
-    }
-
-    if (type === "document") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-2deg"), visualStyle), width: 200, height: 240 }}><div style={{ position: "absolute", left: 0, top: 0, width: 200, height: 240, background: paper, border, boxShadow: shadow }}><div style={{ position: "absolute", right: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 0 30px 30px", borderColor: "transparent transparent #CBD5E1 transparent" }} />{[40, 76, 112, 148].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 20, top: topOffset, width: 160, height: 12, borderRadius: 6, background: "#CBD5E1" }} />)}</div></div>;
-    }
-
-    if (type === "locker" || type === "cabinet") {
-        const open = /open/.test(state);
-        return <div style={{ ...propBaseStyle(x, y - 60, `perspective(360px) rotateY(${open ? -14 : 0}deg) ${shotPropTransform(shotType, scale)}`, visualStyle), width: 180, height: 280, transformOrigin: "left center" }}><div style={{ position: "absolute", left: 0, top: 0, width: 180, height: 280, borderRadius: 12, background: "#64748B", border: `${visualStyle.lineWeight}px solid #1E293B`, boxShadow: open ? `0 0 ${22 + pulse * 20}px rgba(148,163,184,0.4)` : shadow }}><div style={{ position: "absolute", left: 0, top: 138, width: 180, height: 8, background: "#1E293B" }} /><div style={{ position: "absolute", left: 158, top: 66, width: 12, height: 12, borderRadius: 12, background: accent }} /><div style={{ position: "absolute", left: 158, top: 200, width: 12, height: 12, borderRadius: 12, background: accent }} /></div></div>;
-    }
-
-    if (type === "vehicle" || type === "car") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 280, height: 130 }}><div style={{ position: "absolute", left: 20, top: 20, width: 240, height: 70, borderRadius: "24px 24px 12px 12px", background: accent2, boxShadow: shadow }} /><div style={{ position: "absolute", left: 78, top: -6, width: 130, height: 46, borderRadius: "18px 18px 0 0", background: "#93C5FD", border: `${visualStyle.lineWeight}px solid #1E3A8A` }} /><div style={{ position: "absolute", left: 44, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: `${visualStyle.lineWeight}px solid #475569` }} /><div style={{ position: "absolute", left: 190, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: `${visualStyle.lineWeight}px solid #475569` }} /></div>;
-    }
-
-    if (type === "tool") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "-30deg"), visualStyle), width: 200, height: 200 }}><div style={{ position: "absolute", left: 82, top: 60, width: 26, height: 130, borderRadius: 10, background: "#92400E" }} /><div style={{ position: "absolute", left: 40, top: 10, width: 110, height: 60, borderRadius: 14, background: "#64748B", border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: shadow }} /></div>;
-    }
-
-    if (type === "appliance" || type === "device") {
-        const glow = /glow|on|running/.test(state);
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 220, height: 220 }}><div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 220, borderRadius: 24, background: surface, border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: glow ? `0 0 ${24 + pulse * 26}px rgba(56,189,248,0.42)` : shadow }}><div style={{ position: "absolute", left: 20, top: 20, width: 180, height: 130, borderRadius: 12, background: glow ? `linear-gradient(180deg,${accent2},#1E3A8A)` : "#1E293B" }} /><div style={{ position: "absolute", left: 20, top: 166, width: 40, height: 40, borderRadius: 40, background: glow ? "#22C55E" : "#64748B" }} /></div></div>;
-    }
-
-    if (type === "bill" || type === "invoice" || type === "receipt") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale, "3deg"), visualStyle), width: 150, height: 240 }}><div style={{ position: "absolute", left: 0, top: 0, width: 150, height: 220, background: paper, boxShadow: shadow }}>{[30, 60, 90, 120, 150].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 16, top: topOffset, width: 118, height: 10, borderRadius: 5, background: "#CBD5E1" }} />)}</div><div style={{ position: "absolute", left: 0, top: 216, width: 150, height: 14, background: "repeating-linear-gradient(-45deg,#FFFFFF,#FFFFFF 8px,transparent 8px,transparent 16px)" }} /></div>;
-    }
-
-    if (type === "letter" || type === "envelope") {
-        return <div style={{ ...propBaseStyle(x, y, shotPropTransform(shotType, scale), visualStyle), width: 220, height: 150 }}><div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 150, borderRadius: 10, background: paper, border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 110px 76px 110px", borderColor: "transparent transparent #CBD5E1 transparent" }} /></div>;
-    }
+    if (type === "keys") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-8deg"), visualStyle), width: 240, height: 130 }}><div style={{ position: "absolute", left: 12, top: 30, width: 72, height: 72, borderRadius: 72, border: `${visualStyle.lineWeight * 2}px solid ${accent}`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 74, top: 60, width: 142, height: 18, borderRadius: 10, background: accent, boxShadow: shadow }} /><div style={{ position: "absolute", right: 20, top: 48, width: 22, height: 44, background: accent }} /><div style={{ position: "absolute", right: 55, top: 60, width: 18, height: 36, background: accent }} /></div>;
+    if (type === "route-map") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "3deg"), visualStyle), width: 360, height: 210, borderRadius: 24, background: "#EFF6FF", border: `${visualStyle.lineWeight}px solid ${paper}`, boxShadow: shadow, overflow: "hidden" }}><div style={{ position: "absolute", left: 0, top: 86, width: 360, height: 18, background: "#BFDBFE" }} /><div style={{ position: "absolute", left: 58, top: 26, width: 34, height: 160, borderRadius: 24, background: "#BFDBFE" }} /><div style={{ position: "absolute", left: 64, top: 103, width: 230, height: 16, borderRadius: 12, background: /traffic|delay|red/.test(state) ? "#EF4444" : "#22C55E", boxShadow: /traffic|delay|red/.test(state) ? `0 0 ${18 + pulse * 20}px rgba(239,68,68,0.42)` : "0 0 18px rgba(34,197,94,0.28)" }} /><div style={{ position: "absolute", left: 274, top: 89, width: 42, height: 42, borderRadius: 42, background: /traffic|delay|red/.test(state) ? "#EF4444" : "#22C55E", border: `${visualStyle.lineWeight}px solid ${paper}` }} /></div>;
+    if (type === "calendar") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-3deg"), visualStyle), width: 260, height: 210, borderRadius: 22, background: paper, border, boxShadow: shadow, overflow: "hidden" }}><div style={{ height: 48, background: /buffer/.test(state) ? "#22C55E" : accent2 }} /><div style={{ position: "absolute", left: 28, top: 70, right: 28, height: 20, borderRadius: 10, background: "#CBD5E1" }} /><div style={{ position: "absolute", left: 28, top: 106, right: /buffer/.test(state) ? 28 : 92, height: 20, borderRadius: 10, background: /buffer/.test(state) ? "#22C55E" : "#CBD5E1" }} /><div style={{ position: "absolute", left: 28, top: 144, right: 64, height: 20, borderRadius: 10, background: "#CBD5E1" }} /></div>;
+    if (type === "door") return <div style={{ ...propBaseStyle(x, y - 70, propTransform(shotType, scale), visualStyle), width: 170, height: 300, borderRadius: 10, background: /open|leaving/.test(state) ? "#92400E" : "#78350F", border: `${visualStyle.lineWeight}px solid #451A03`, boxShadow: /open|leaving/.test(state) ? `0 0 ${28 + pulse * 22}px rgba(251,191,36,0.35)` : shadow, transformOrigin: "left center" }}><div style={{ position: "absolute", right: 18, top: 142, width: 18, height: 18, borderRadius: 18, background: accent }} /></div>;
+    if (type === "coffee" || type === "mug") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-3deg"), visualStyle), width: 160, height: 150 }}><div style={{ position: "absolute", left: 30, top: 42, width: 100, height: 92, borderRadius: "0 0 32px 32px", background: paper, border, boxShadow: shadow }} /><div style={{ position: "absolute", right: 8, top: 60, width: 46, height: 44, borderRadius: 44, border }} /><div style={{ position: "absolute", left: 52, top: 20 + Math.sin(frame / 8) * 5, width: 16, height: 38, borderRadius: 16, background: "rgba(255,255,255,0.68)" }} /><div style={{ position: "absolute", left: 88, top: 14 + Math.sin(frame / 7) * 5, width: 14, height: 48, borderRadius: 14, background: "rgba(255,255,255,0.58)" }} /></div>;
+    if (type === "shoes" || type === "shoe") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-4deg"), visualStyle), width: 270, height: 130 }}><div style={{ position: "absolute", left: 10, top: 50, width: 118, height: 54, borderRadius: "48px 28px 18px 18px", background: stroke, boxShadow: shadow }} /><div style={{ position: "absolute", left: 142, top: 54, width: 118, height: 54, borderRadius: "48px 28px 18px 18px", background: "#475569", boxShadow: shadow }} /><div style={{ position: "absolute", left: 28, top: 42, width: 62, height: 8, borderRadius: 8, background: paper }} /><div style={{ position: "absolute", left: 160, top: 46, width: 62, height: 8, borderRadius: 8, background: paper }} /></div>;
+    if (type === "laptop") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "2deg"), visualStyle), width: 300, height: 190 }}><div style={{ position: "absolute", left: 42, top: 8, width: 216, height: 126, borderRadius: 16, background: /glow|open|screen/.test(state) ? `linear-gradient(180deg,${accent2},#1E3A8A)` : "#334155", border: `${visualStyle.lineWeight}px solid #0F172A`, boxShadow: /glow|open|screen/.test(state) ? `0 0 ${24 + pulse * 24}px rgba(56,189,248,0.42)` : shadow }} /><div style={{ position: "absolute", left: 8, top: 130, width: 284, height: 34, borderRadius: "8px 8px 20px 20px", background: "#CBD5E1", border: `${visualStyle.lineWeight}px solid #0F172A` }} /></div>;
+    if (type === "bed" || type === "sheets") return <div style={{ ...propBaseStyle(x, y - 20, propTransform(shotType, scale), visualStyle), width: 330, height: 150 }}><div style={{ position: "absolute", left: 0, top: 58, width: 330, height: 72, borderRadius: "26px 26px 18px 18px", background: "#93C5FD", border: `${visualStyle.lineWeight}px solid rgba(15,23,42,0.45)`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 22, top: 22, width: 112, height: 58, borderRadius: 20, background: paper, border: `${Math.max(4, visualStyle.lineWeight - 1)}px solid rgba(15,23,42,0.26)` }} /><div style={{ position: "absolute", right: 18, bottom: 6, width: 46, height: 70, borderRadius: 14, background: "#1E293B" }} /></div>;
+    if (type === "window") return <div style={{ ...propBaseStyle(x, y - 90, propTransform(shotType, scale), visualStyle, 6), width: 230, height: 210, borderRadius: 20, background: "linear-gradient(180deg,#BAE6FD,#FDE68A)", border: `${visualStyle.lineWeight + 2}px solid ${paper}`, boxShadow: shadow }}><div style={{ position: "absolute", left: 100, top: 0, width: 10, height: 210, background: paper }} /><div style={{ position: "absolute", left: 0, top: 94, width: 230, height: 10, background: paper }} /></div>;
+    if (type === "kettle") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 200, height: 170 }}><div style={{ position: "absolute", left: 30, top: 40, width: 130, height: 110, borderRadius: "50% 50% 30% 30% / 60% 60% 20% 20%", background: surface, border, boxShadow: /boil|steam|hot|whistl/.test(state) ? `0 0 ${20 + pulse * 22}px rgba(248,113,113,0.4)` : shadow }} /><div style={{ position: "absolute", left: 4, top: 66, width: 46, height: 56, borderRadius: "24px 6px 6px 24px", border: `${visualStyle.lineWeight + 2}px solid ${stroke}`, borderRight: "none" }} /><div style={{ position: "absolute", right: 6, top: 46, width: 44, height: 26, borderRadius: "0 18px 18px 0", background: stroke, transform: "rotate(-18deg)" }} />{/boil|steam|hot|whistl/.test(state) && <div style={{ position: "absolute", right: 24, top: 6 + Math.sin(frame / 7) * 6, width: 12, height: 34, borderRadius: 12, background: "rgba(255,255,255,0.68)" }} />}</div>;
+    if (type === "food") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 220, height: 130 }}><div style={{ position: "absolute", left: 0, top: 50, width: 220, height: 68, borderRadius: 110, background: paper, border: `${visualStyle.lineWeight}px solid #CBD5E1`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 46, top: 24, width: 128, height: 64, borderRadius: "60% 60% 40% 40%", background: accent }} /><div style={{ position: "absolute", left: 76, top: 30, width: 40, height: 30, borderRadius: "50%", background: "#EF4444" }} /></div>;
+    if (type === "document") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-2deg"), visualStyle), width: 200, height: 240 }}><div style={{ position: "absolute", left: 0, top: 0, width: 200, height: 240, background: paper, border, boxShadow: shadow }}><div style={{ position: "absolute", right: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 0 30px 30px", borderColor: "transparent transparent #CBD5E1 transparent" }} />{[40, 76, 112, 148].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 20, top: topOffset, width: 160, height: 12, borderRadius: 6, background: "#CBD5E1" }} />)}</div></div>;
+    if (type === "locker" || type === "cabinet") return <div style={{ ...propBaseStyle(x, y - 60, `perspective(360px) rotateY(${/open/.test(state) ? -14 : 0}deg) ${propTransform(shotType, scale)}`, visualStyle), width: 180, height: 280, transformOrigin: "left center" }}><div style={{ position: "absolute", left: 0, top: 0, width: 180, height: 280, borderRadius: 12, background: "#64748B", border: `${visualStyle.lineWeight}px solid #1E293B`, boxShadow: /open/.test(state) ? `0 0 ${22 + pulse * 20}px rgba(148,163,184,0.4)` : shadow }}><div style={{ position: "absolute", left: 0, top: 138, width: 180, height: 8, background: "#1E293B" }} /><div style={{ position: "absolute", left: 158, top: 66, width: 12, height: 12, borderRadius: 12, background: accent }} /><div style={{ position: "absolute", left: 158, top: 200, width: 12, height: 12, borderRadius: 12, background: accent }} /></div></div>;
+    if (type === "vehicle" || type === "car") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 280, height: 130 }}><div style={{ position: "absolute", left: 20, top: 20, width: 240, height: 70, borderRadius: "24px 24px 12px 12px", background: accent2, boxShadow: shadow }} /><div style={{ position: "absolute", left: 78, top: -6, width: 130, height: 46, borderRadius: "18px 18px 0 0", background: "#93C5FD", border: `${visualStyle.lineWeight}px solid #1E3A8A` }} /><div style={{ position: "absolute", left: 44, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: `${visualStyle.lineWeight}px solid #475569` }} /><div style={{ position: "absolute", left: 190, top: 78, width: 52, height: 52, borderRadius: 52, background: "#1E293B", border: `${visualStyle.lineWeight}px solid #475569` }} /></div>;
+    if (type === "tool") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "-30deg"), visualStyle), width: 200, height: 200 }}><div style={{ position: "absolute", left: 82, top: 60, width: 26, height: 130, borderRadius: 10, background: "#92400E" }} /><div style={{ position: "absolute", left: 40, top: 10, width: 110, height: 60, borderRadius: 14, background: "#64748B", border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: shadow }} /></div>;
+    if (type === "appliance" || type === "device") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 220, height: 220 }}><div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 220, borderRadius: 24, background: surface, border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: /glow|on|running/.test(state) ? `0 0 ${24 + pulse * 26}px rgba(56,189,248,0.42)` : shadow }}><div style={{ position: "absolute", left: 20, top: 20, width: 180, height: 130, borderRadius: 12, background: /glow|on|running/.test(state) ? `linear-gradient(180deg,${accent2},#1E3A8A)` : "#1E293B" }} /><div style={{ position: "absolute", left: 20, top: 166, width: 40, height: 40, borderRadius: 40, background: /glow|on|running/.test(state) ? "#22C55E" : "#64748B" }} /></div></div>;
+    if (type === "bill" || type === "invoice" || type === "receipt") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale, "3deg"), visualStyle), width: 150, height: 240 }}><div style={{ position: "absolute", left: 0, top: 0, width: 150, height: 220, background: paper, boxShadow: shadow }}>{[30, 60, 90, 120, 150].map((topOffset) => <div key={topOffset} style={{ position: "absolute", left: 16, top: topOffset, width: 118, height: 10, borderRadius: 5, background: "#CBD5E1" }} />)}</div><div style={{ position: "absolute", left: 0, top: 216, width: 150, height: 14, background: "repeating-linear-gradient(-45deg,#FFFFFF,#FFFFFF 8px,transparent 8px,transparent 16px)" }} /></div>;
+    if (type === "letter" || type === "envelope") return <div style={{ ...propBaseStyle(x, y, propTransform(shotType, scale), visualStyle), width: 220, height: 150 }}><div style={{ position: "absolute", left: 0, top: 0, width: 220, height: 150, borderRadius: 10, background: paper, border: `${visualStyle.lineWeight}px solid #334155`, boxShadow: shadow }} /><div style={{ position: "absolute", left: 0, top: 0, width: 0, height: 0, borderStyle: "solid", borderWidth: "0 110px 76px 110px", borderColor: "transparent transparent #CBD5E1 transparent" }} /></div>;
 
     return null;
 }
