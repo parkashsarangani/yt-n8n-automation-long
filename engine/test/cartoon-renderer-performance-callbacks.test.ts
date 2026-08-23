@@ -83,7 +83,7 @@ function directedScene(scene_index: number) {
     listener_emotion: "skeptical",
     listener_gesture: "idle",
     listener_gaze_target: "auto",
-    visual_event: scene_index === 2 ? "reaction-pop" : scene_index === 5 ? "callback-card" : scene_index === 3 ? "thought-bubble" : "screen-change",
+    visual_event: scene_index === 2 ? "callback-card" : scene_index === 5 ? "callback-card" : scene_index === 3 ? "thought-bubble" : "screen-change",
     ambient_motion: "subtle-parallax",
     speaker_emphasis: "scale-pop",
     cutaway_label: scene_index === 2 ? "THE BAIT BLINKS" : scene_index === 5 ? "LAPTOP STAYS DOWNSTAIRS" : scene_index === 3 ? "THE GLOW THAT WON'T QUIT" : "",
@@ -158,7 +158,7 @@ function creativeDirection() {
         power_shift: powerShifts[scene.scene_index],
       },
       metaphor: {
-        type: scene.scene_index === 2 ? "reaction-pop" : scene.scene_index === 3 ? "thought-bubble" : scene.scene_index === 5 ? "callback-card" : "none",
+        type: scene.scene_index === 2 ? "callback-card" : scene.scene_index === 3 ? "thought-bubble" : scene.scene_index === 5 ? "callback-card" : "none",
         label: scene.scene_index === 2 ? "THE BAIT BLINKS" : scene.scene_index === 3 ? "THE GLOW THAT WON'T QUIT" : scene.scene_index === 5 ? "LAPTOP STAYS DOWNSTAIRS" : "",
         emotional_beat: scene.scene_index === 2 ? "the cue beats intention" : scene.scene_index === 3 ? "the culprit lights up literally" : scene.scene_index === 5 ? "changed behavior closes the loop" : "watching the cue move attention",
       },
@@ -188,7 +188,7 @@ async function compile() {
 function primaryOverlayCount(event: { type?: string; callbackEcho?: unknown; metaphorVisual?: unknown }): number {
   return Number(Boolean(event.callbackEcho))
     + Number(Boolean(event.metaphorVisual))
-    + Number(event.type === "callback-card");
+    + Number(["callback-card", "metaphor-cutaway", "thought-bubble"].includes(String(event.type)));
 }
 
 test("compiler v13 emits sanitized renderer overlays without raw production notes", async () => {
@@ -225,18 +225,19 @@ test("compiler v13 emits sanitized renderer overlays without raw production note
   assert.equal(deadpan.visualEvent?.performanceCue?.label, "DEADPAN");
   assert.ok(!JSON.stringify(deadpan.visualEvent).includes("four seconds were generous"));
 
-  assert.equal(escalation.visualEvent?.callbackEcho?.role, "escalation");
+  assert.equal(escalation.visualEvent?.type, "callback-card");
+  assert.equal(escalation.visualEvent?.label, "THE BAIT BLINKS");
+  assert.equal(escalation.visualEvent?.callbackEcho, undefined);
   assert.equal(escalation.visualEvent?.metaphorVisual, undefined);
   assert.equal(escalation.visualEvent?.performanceCue, undefined);
   assert.equal(escalation.rendererPerformance?.cue, "recoil");
   assert.equal(primaryOverlayCount(escalation.visualEvent ?? {}), 1);
 
-  assert.equal(metaphor.visualEvent?.type, "none");
+  assert.equal(metaphor.visualEvent?.type, "thought-bubble");
   assert.equal(metaphor.visualEvent?.foregroundProp?.label, "GLOW");
-  assert.equal(metaphor.visualEvent?.metaphorVisual?.label, "THE GLOW THAT WON'T QUIT");
-  assert.equal(metaphor.visualEvent?.metaphorVisual?.emotionalBeat, "the culprit lights up literally");
-  assert.equal(metaphor.visualEvent?.metaphorVisual?.propType, "visual beat");
+  assert.equal(metaphor.visualEvent?.metaphorVisual, undefined);
   assert.equal(metaphor.visualEvent?.performanceCue, undefined);
+  assert.ok(!JSON.stringify(metaphor.visualEvent).includes("APPLIANCE"));
   assert.equal(primaryOverlayCount(metaphor.visualEvent ?? {}), 1);
 
   assert.equal(payoff.visualEvent?.type, "callback-card");
