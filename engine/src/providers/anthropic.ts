@@ -38,6 +38,21 @@ const PRICES: Record<string, Price> = {
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
 
+const SONNET_MODEL = "claude-sonnet-5";
+const LOW_EFFORT_MODEL = "claude-haiku-4-5";
+
+export function effectiveAnthropicModel(
+  configuredModel: string,
+  effort: CompletionRequest["effort"],
+): string {
+  // The service keeps provider routing capability-based. For token savings,
+  // low-risk agents mark their requests as low effort; those calls use Haiku
+  // even when the configured capability provider is Sonnet. Medium/high core
+  // creative calls remain on the configured model.
+  if (configuredModel === SONNET_MODEL && effort === "low") return LOW_EFFORT_MODEL;
+  return configuredModel;
+}
+
 export interface AnthropicProviderOptions {
   model: string;
   apiKey?: string;
@@ -73,6 +88,9 @@ export class AnthropicProvider implements ModelProvider {
     // receives a relaxed projection and the registry stays the strict validator
     // on write (RFC 0007). Stripped constraints survive as descriptions.
     const schema = relaxForStructuredOutput(req.outputSchema);
+    const effort = req.effort ?? this.defaultEffort;
+    const model = effectiveAnthropicModel(this.model, effort);
+    const providerRef = `anthropic/${model}`;
 
     let response;
     try {
@@ -83,18 +101,18 @@ export class AnthropicProvider implements ModelProvider {
       // finalMessage() returns the same accumulated Message shape create()
       // does, so nothing below this needs to know the request was streamed.
       const stream = this.client.messages.stream({
-        model: this.model,
+        model,
         max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
         thinking: { type: "adaptive" },
         output_config: {
-          effort: req.effort ?? this.defaultEffort,
+          effort,
           format: { type: "json_schema", schema },
         },
         messages: [{ role: "user", content: req.prompt }],
       } as Parameters<Anthropic["messages"]["stream"]>[0]);
       response = await stream.finalMessage();
     } catch (err) {
-      throw new ProviderError(`${this.id} request failed: ${String(err)}`);
+      throw new ProviderError(`${providerRef} request failed: ${String(err)}`);
     }
 
     const msg = response as Anthropic.Message & {
@@ -105,20 +123,20 @@ export class AnthropicProvider implements ModelProvider {
     // or partial, and indexing into it blindly is the classic crash here.
     if (msg.stop_reason === "refusal") {
       throw new ProviderRefusal(
-        `${this.id} declined the request`,
+        `${providerRef} declined the request`,
         msg.stop_details?.category ?? null,
       );
     }
     if (msg.stop_reason === "max_tokens") {
       throw new ProviderError(
-        `${this.id} hit max_tokens (${req.maxOutputTokens ?? this.defaultMaxTokens}); ` +
+        `${providerRef} hit max_tokens (${req.maxOutputTokens ?? this.defaultMaxTokens}); ` +
           `output is truncated`,
       );
     }
 
     const text = msg.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
     if (!text) {
-      throw new ProviderError(`${this.id} returned no text block`);
+      throw new ProviderError(`${providerRef} returned no text block`);
     }
 
     let value: unknown;
@@ -128,7 +146,7 @@ export class AnthropicProvider implements ModelProvider {
       // With native structured output this should be unreachable; if it fires,
       // the schema was rejected or the model fell back to prose.
       throw new ProviderError(
-        `${this.id} returned non-JSON despite structured output: ${text.slice(0, 300)}`,
+        `${providerRef} returned non-JSON despite structured output: ${text.slice(0, 300)}`,
       );
     }
 
@@ -137,11 +155,11 @@ export class AnthropicProvider implements ModelProvider {
       usage: {
         input_tokens: msg.usage.input_tokens,
         output_tokens: msg.usage.output_tokens,
-        cost_usd: estimateCost(this.model, msg.usage.input_tokens, msg.usage.output_tokens),
+        cost_usd: estimateCost(model, msg.usage.input_tokens, msg.usage.output_tokens),
         provider: "anthropic",
-        model: this.model,
+        model,
       },
-      providerRef: this.id,
+      providerRef,
     };
   }
 }
