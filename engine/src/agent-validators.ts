@@ -58,7 +58,7 @@ function wordCount(value: unknown): number {
 const HUMAN_MOMENT_PATTERN = /\b(?:i|i'm|im|i’ll|i'd|me|my|you|you're|youre|your|we|we're|were|wait|nope|ugh|okay|still|again|late|where|why|how|fine|hate|rude|keys?)\b|(?:n't|'m|'re|'ve|'ll|'d)/i;
 const HUMAN_MOMENT_MIN_RATIO = 0.45;
 
-const DEFINITIONAL_DIALOGUE_PATTERN = /\b(?:this means|the reason is|in other words|research shows|studies show|is called|it's called|it is called|by that|actually tested this|that is fascinating|that's fascinating|interesting)\b/i;
+const DEFINITIONAL_DIALOGUE_PATTERN = /\b(?:this means|the reason is|in other words|research shows|studies show|is called|it's called|it is called|by that,\s*(?:it's|it is)\s+called|actually tested this|that is fascinating|that's fascinating|interesting)\b/i;
 const TRAILING_ELLIPSIS_PATTERN = /\.\.\.\s*$/;
 
 // Mirrors cartoon_scene_compiler's assertTopicPropSemantics (engine/src/workers/
