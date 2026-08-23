@@ -53,11 +53,22 @@ export function effectiveAnthropicModel(
   return configuredModel;
 }
 
+function isHaikuModel(model: string): boolean {
+  return model.toLowerCase().includes("haiku");
+}
+
 export function supportsAdaptiveThinking(model: string): boolean {
   // Anthropic returns 400 for adaptive thinking on Haiku. Keep thinking on the
   // Sonnet/Opus family where it is supported, but omit the field entirely for
   // Haiku so cheap low-effort calls remain valid.
-  return !model.toLowerCase().includes("haiku");
+  return !isHaikuModel(model);
+}
+
+export function supportsOutputConfigEffort(model: string): boolean {
+  // Haiku also rejects output_config.effort. Keep the effort knob for models
+  // that support it, but do not send unsupported model-specific parameters to
+  // Haiku.
+  return !isHaikuModel(model);
 }
 
 export interface AnthropicProviderOptions {
@@ -98,6 +109,10 @@ export class AnthropicProvider implements ModelProvider {
     const effort = req.effort ?? this.defaultEffort;
     const model = effectiveAnthropicModel(this.model, effort);
     const providerRef = `anthropic/${model}`;
+    const outputConfig = {
+      ...(supportsOutputConfigEffort(model) ? { effort } : {}),
+      format: { type: "json_schema", schema },
+    };
 
     let response;
     try {
@@ -111,10 +126,7 @@ export class AnthropicProvider implements ModelProvider {
         model,
         max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
         ...(supportsAdaptiveThinking(model) ? { thinking: { type: "adaptive" } } : {}),
-        output_config: {
-          effort,
-          format: { type: "json_schema", schema },
-        },
+        output_config: outputConfig,
         messages: [{ role: "user", content: req.prompt }],
       } as Parameters<Anthropic["messages"]["stream"]>[0]);
       response = await stream.finalMessage();
