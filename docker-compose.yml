@@ -48,7 +48,7 @@ services:
     restart: "no"
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
     # The ollama/ollama image bakes in ENTRYPOINT ["/bin/ollama"], so
     # `command` alone is appended as args to that binary, not run as a
     # shell script -- it fails instantly with 'unknown command "/bin/sh"
@@ -76,8 +76,8 @@ services:
 
       # Local-only reasoning. There is no Anthropic/remote fallback.
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-llama3.1:8b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-qwen2.5:1.5b}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
 
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
