@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon hospital room scene plate">
+  <defs><linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ECFEFF"/><stop offset="1" stop-color="#E0F2FE"/></linearGradient><linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#CBD5E1"/><stop offset="1" stop-color="#94A3B8"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0F172A" flood-opacity=".14"/></filter></defs>
+  <rect width="1920" height="1080" fill="url(#wall)"/>
+  <path d="M0 700 C520 662 1320 662 1920 708 L1920 1080 L0 1080 Z" fill="url(#floor)"/>
+  <rect x="120" y="126" width="360" height="294" rx="28" fill="#BAE6FD" stroke="#FFFFFF" stroke-width="22" filter="url(#shadow)"/><rect x="288" y="126" width="16" height="294" fill="#FFFFFF"/><rect x="120" y="264" width="360" height="16" fill="#FFFFFF"/>
+  <g filter="url(#shadow)"><rect x="970" y="514" width="644" height="166" rx="34" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="12"/><rect x="940" y="650" width="706" height="82" rx="28" fill="#60A5FA"/><rect x="1014" y="440" width="200" height="94" rx="26" fill="#DBEAFE" stroke="#93C5FD" stroke-width="10"/></g>
+  <g filter="url(#shadow)"><rect x="610" y="236" width="220" height="330" rx="28" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="12"/><path d="M720 318 V486 M640 402 H800" stroke="#EF4444" stroke-width="42" stroke-linecap="round"/></g>
+  <g filter="url(#shadow)"><rect x="1420" y="250" width="156" height="290" rx="26" fill="#1E293B"/><rect x="1444" y="278" width="108" height="152" rx="16" fill="#22C55E"/><path d="M1460 354 H1538" stroke="#BBF7D0" stroke-width="12"/></g>
+  <ellipse cx="990" cy="908" rx="720" ry="70" fill="#0F172A" opacity=".10"/>
+</svg>
