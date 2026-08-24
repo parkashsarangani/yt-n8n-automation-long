@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <rect width="1920" height="1080" fill="#EEF2FF"/>
+  <rect y="720" width="1920" height="360" fill="#CBD5E1"/>
+  <path d="M640 120h640l190 820H450z" fill="#E0E7FF"/>
+  <path d="M760 180h400l90 630H670z" fill="#F8FAFC" opacity="0.85"/>
+  <rect x="170" y="155" width="320" height="610" rx="24" fill="#78350F"/>
+  <rect x="216" y="205" width="230" height="520" rx="16" fill="#92400E"/>
+  <circle cx="402" cy="470" r="18" fill="#FACC15"/>
+  <rect x="1430" y="155" width="320" height="610" rx="24" fill="#78350F"/>
+  <rect x="1476" y="205" width="230" height="520" rx="16" fill="#92400E"/>
+  <circle cx="1518" cy="470" r="18" fill="#FACC15"/>
+  <rect x="820" y="108" width="280" height="84" rx="36" fill="#FFFFFF" opacity="0.86"/>
+  <ellipse cx="960" cy="868" rx="430" ry="62" fill="#94A3B8" opacity="0.35"/>
+  <path d="M0 0h1920v1080H0z" fill="url(#v)" opacity="0.23"/>
+  <defs><radialGradient id="v" cx="50%" cy="45%" r="72%"><stop offset="52%" stop-color="#fff" stop-opacity="0"/><stop offset="100%" stop-color="#312E81" stop-opacity="0.32"/></radialGradient></defs>
+</svg>

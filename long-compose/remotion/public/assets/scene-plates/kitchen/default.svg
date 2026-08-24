@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <rect width="1920" height="1080" fill="#FFF7ED"/>
+  <rect y="720" width="1920" height="360" fill="#FED7AA"/>
+  <rect x="0" y="580" width="1920" height="180" fill="#FDBA74"/>
+  <rect x="140" y="190" width="410" height="350" rx="28" fill="#BAE6FD"/>
+  <rect x="172" y="222" width="346" height="286" rx="18" fill="#E0F2FE"/>
+  <rect x="340" y="222" width="12" height="286" fill="#FFFFFF" opacity="0.85"/>
+  <rect x="172" y="360" width="346" height="12" fill="#FFFFFF" opacity="0.85"/>
+  <rect x="720" y="340" width="520" height="235" rx="28" fill="#FDE68A"/>
+  <rect x="760" y="390" width="140" height="96" rx="18" fill="#FFFFFF" opacity="0.9"/>
+  <rect x="940" y="390" width="260" height="96" rx="18" fill="#FFFFFF" opacity="0.9"/>
+  <rect x="1330" y="280" width="300" height="300" rx="30" fill="#E2E8F0"/>
+  <rect x="1360" y="318" width="240" height="105" rx="18" fill="#94A3B8"/>
+  <circle cx="1402" cy="506" r="22" fill="#64748B"/>
+  <rect x="560" y="638" width="900" height="70" rx="28" fill="#92400E"/>
+  <rect x="690" y="686" width="58" height="215" rx="18" fill="#78350F"/>
+  <rect x="1270" y="686" width="58" height="215" rx="18" fill="#78350F"/>
+  <circle cx="1090" cy="624" r="38" fill="#FFFFFF" opacity="0.78"/>
+  <path d="M0 0h1920v1080H0z" fill="url(#v)" opacity="0.18"/>
+  <defs><radialGradient id="v" cx="48%" cy="44%" r="75%"><stop offset="58%" stop-color="#fff" stop-opacity="0"/><stop offset="100%" stop-color="#7C2D12" stop-opacity="0.28"/></radialGradient></defs>
+</svg>
