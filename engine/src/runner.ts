@@ -10,6 +10,7 @@ import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
 import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors } from "./agent-validators.ts";
+import { repairEnumValues } from "./schema-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
   ProviderError,
@@ -168,10 +169,8 @@ export class Runner {
 
     const inputs = await this.bindInputs(def, inputIds);
     const provider = this.deps.providers.forCapability(def.model.capability);
-    const outputSchema = wrapWithConfidence(
-      this.deps.registry.jsonSchema(def.produces, version),
-      def.confidence_dimensions ?? [],
-    );
+    const rawOutputSchema = this.deps.registry.jsonSchema(def.produces, version);
+    const outputSchema = wrapWithConfidence(rawOutputSchema, def.confidence_dimensions ?? []);
 
     const vars: Record<string, string> = {};
     for (const [name, artifact] of Object.entries(inputs)) {
@@ -229,7 +228,14 @@ export class Runner {
         continue;
       }
 
-      const { payload, confidence } = unwrap(value, def.name);
+      const { payload: rawPayload, confidence } = unwrap(value, def.name);
+      const { data: payload, repairs } = repairEnumValues(rawOutputSchema, rawPayload);
+      if (repairs.length > 0) {
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired ${repairs.length} enum value(s): ` +
+            repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
+        );
+      }
 
       try {
         this.deps.registry.validate(def.produces, version, payload);
