@@ -1,193 +1,122 @@
-/**
- * AnthropicProvider is the one file that talks to the real Anthropic SDK -
- * every other engine test exercises ModelProvider through FakeProvider
- * instead, so this file otherwise has zero coverage of its actual request
- * shape or response handling. These tests stub just the client's
- * messages.stream() surface (the real SDK isn't invoked, no network, no cost)
- * to verify the provider streams instead of calling create(), and that it
- * still reproduces the same success/refusal/truncation/non-JSON handling a
- * non-streaming response would have.
- */
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  AnthropicProvider,
-  effectiveAnthropicModel,
-  supportsAdaptiveThinking,
-  supportsOutputConfigEffort,
-} from "../src/providers/anthropic.ts";
-import { ProviderError, ProviderRefusal } from "../src/provider.ts";
+import { AnthropicProvider, effectiveAnthropicModel, supportsAdaptiveThinking, supportsOutputConfigEffort } from "../src/providers/anthropic.ts";
+import { OllamaProvider, defaultOllamaBaseUrl, selectOllamaModel } from "../src/providers/ollama.ts";
+import { ProviderError } from "../src/provider.ts";
 
-interface StreamCall {
-  body: Record<string, unknown>;
+const SCHEMA = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
+
+function okFetch(calls: Array<{ url: string; body: Record<string, unknown> }>): typeof fetch {
+  return async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+    return new Response(JSON.stringify({
+      model: "llama3.1:8b",
+      message: { role: "assistant", content: '{"ok":true}' },
+      done: true,
+      done_reason: "stop",
+      prompt_eval_count: 11,
+      eval_count: 7,
+      total_duration: 123,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
 }
 
-function stubClient(finalMessage: () => Promise<unknown>, calls: StreamCall[]) {
-  return {
-    messages: {
-      stream(body: Record<string, unknown>) {
-        calls.push({ body });
-        return { finalMessage };
-      },
-      // If the provider ever calls create() instead of stream(), fail loudly
-      // rather than silently succeeding against the wrong method.
-      create() {
-        throw new Error("AnthropicProvider must call messages.stream(), not messages.create()");
-      },
-    },
-  } as unknown as ConstructorParameters<typeof AnthropicProvider>[0]["client"];
-}
+test("OllamaProvider calls the local /api/chat structured-output endpoint", async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const provider = new OllamaProvider({
+    baseUrl: "http://ollama:11434",
+    model: "llama3.1:8b",
+    fetchImpl: okFetch(calls),
+    numCtx: 32768,
+  });
 
-const SCHEMA = { type: "object", properties: { ok: { type: "boolean" } } };
+  const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 99 });
 
-test("streams instead of using create(), and calls finalMessage() for the result", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "end_turn",
-      content: [{ type: "text", text: '{"ok":true}' }],
-      usage: { input_tokens: 10, output_tokens: 5 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
-
-  const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 32000 });
-
-  assert.equal(calls.length, 1, "expected exactly one messages.stream() call");
-  assert.equal(calls[0]!.body["model"], "claude-sonnet-5");
-  assert.equal(calls[0]!.body["max_tokens"], 32000);
-  assert.deepEqual(calls[0]!.body["thinking"], { type: "adaptive" });
-  assert.deepEqual((calls[0]!.body["output_config"] as { effort?: string }).effort, "high");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.url, "http://ollama:11434/api/chat");
+  assert.equal(calls[0]!.body["model"], "llama3.1:8b");
+  assert.equal(calls[0]!.body["stream"], false);
+  assert.deepEqual(calls[0]!.body["format"], SCHEMA);
+  assert.deepEqual((calls[0]!.body["options"] as Record<string, unknown>)["num_predict"], 99);
+  assert.deepEqual((calls[0]!.body["options"] as Record<string, unknown>)["num_ctx"], 32768);
   assert.deepEqual(result.value, { ok: true });
-  assert.equal(result.usage.input_tokens, 10);
-  assert.equal(result.usage.output_tokens, 5);
-  assert.equal(result.usage.model, "claude-sonnet-5");
-  assert.equal(result.providerRef, "anthropic/claude-sonnet-5");
+  assert.equal(result.usage.provider, "ollama");
+  assert.equal(result.usage.model, "llama3.1:8b");
+  assert.equal(result.usage.cost_usd, 0);
+  assert.equal(result.providerRef, "ollama/llama3.1:8b");
 });
 
-test("thinking: false omits the thinking field even on a model that supports it", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "end_turn",
-      content: [{ type: "text", text: '{"ok":true}' }],
-      usage: { input_tokens: 10, output_tokens: 5 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
+test("low effort can route to the configured fast local model", async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const provider = new OllamaProvider({
+    baseUrl: "http://ollama:11434",
+    model: "llama3.1:8b",
+    fastModel: "gemma3:4b",
+    fetchImpl: okFetch(calls),
+  });
 
-  await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 26000, thinking: false });
+  await provider.complete({ prompt: "cheap", outputSchema: SCHEMA, effort: "low" });
 
-  assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), true, "model itself still supports thinking");
-  assert.equal("thinking" in calls[0]!.body, false, "the per-request opt-out should still win");
+  assert.equal(calls[0]!.body["model"], "gemma3:4b");
 });
 
-test("low-effort Sonnet requests use Haiku without unsupported model-specific parameters", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "end_turn",
-      content: [{ type: "text", text: '{"ok":true}' }],
-      usage: { input_tokens: 100, output_tokens: 20 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
+test("AnthropicProvider compatibility shim still uses Ollama only", async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const originalBase = process.env["OLLAMA_BASE_URL"];
+  const originalModel = process.env["OLLAMA_MODEL"];
+  process.env["OLLAMA_BASE_URL"] = "http://ollama:11434";
+  process.env["OLLAMA_MODEL"] = "llama3.1:8b";
 
-  const result = await provider.complete({ prompt: "cheap", outputSchema: SCHEMA, effort: "low" });
+  try {
+    const provider = new AnthropicProvider({ model: "claude-sonnet-5", fetchImpl: okFetch(calls) });
+    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
 
-  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "low"), "claude-haiku-4-5");
-  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "medium"), "claude-sonnet-5");
-  assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), true);
-  assert.equal(supportsAdaptiveThinking("claude-haiku-4-5"), false);
-  assert.equal(supportsOutputConfigEffort("claude-sonnet-5"), true);
-  assert.equal(supportsOutputConfigEffort("claude-haiku-4-5"), false);
-  assert.equal(calls[0]!.body["model"], "claude-haiku-4-5");
-  assert.equal("thinking" in calls[0]!.body, false);
-  assert.equal("effort" in (calls[0]!.body["output_config"] as Record<string, unknown>), false);
-  assert.deepEqual(
-    (calls[0]!.body["output_config"] as { format?: { type?: string } }).format?.type,
-    "json_schema",
-  );
-  assert.equal(result.usage.model, "claude-haiku-4-5");
-  assert.equal(result.providerRef, "anthropic/claude-haiku-4-5");
+    assert.equal(calls[0]!.url, "http://ollama:11434/api/chat");
+    assert.equal(calls[0]!.body["model"], "llama3.1:8b");
+    assert.equal(result.providerRef, "ollama/llama3.1:8b");
+    assert.equal(result.usage.provider, "ollama");
+  } finally {
+    if (originalBase === undefined) delete process.env["OLLAMA_BASE_URL"];
+    else process.env["OLLAMA_BASE_URL"] = originalBase;
+    if (originalModel === undefined) delete process.env["OLLAMA_MODEL"];
+    else process.env["OLLAMA_MODEL"] = originalModel;
+  }
 });
 
-test("a refusal surfaces as ProviderRefusal, not a crash on empty content", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "refusal",
-      stop_details: { category: "policy" },
-      content: [],
-      usage: { input_tokens: 10, output_tokens: 0 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
+test("Anthropic routing helper names the selected Ollama model", () => {
+  assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), false);
+  assert.equal(supportsOutputConfigEffort("claude-sonnet-5"), false);
+  assert.equal(selectOllamaModel("medium", { OLLAMA_MODEL: "llama3.1:8b" }), "llama3.1:8b");
+  assert.equal(selectOllamaModel("low", { OLLAMA_MODEL: "llama3.1:8b", OLLAMA_FAST_MODEL: "gemma3:4b" }), "gemma3:4b");
+  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "medium"), selectOllamaModel("medium"));
+  assert.equal(defaultOllamaBaseUrl({}), "http://localhost:11434");
+});
 
+test("Ollama length and non-JSON failures are hard provider errors", async () => {
+  const lengthProvider = new OllamaProvider({
+    fetchImpl: async () => new Response(JSON.stringify({
+      model: "llama3.1:8b",
+      message: { role: "assistant", content: "{}" },
+      done: true,
+      done_reason: "length",
+    })),
+  });
   await assert.rejects(
-    () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderRefusal);
-      assert.equal(err.category, "policy");
-      return true;
-    },
+    () => lengthProvider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 12 }),
+    /hit max_tokens \(12\)/,
   );
-});
 
-test("hitting max_tokens is reported as truncation, naming the actual budget used", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "max_tokens",
-      content: [{ type: "text", text: "{" }],
-      usage: { input_tokens: 10, output_tokens: 32000 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
-
+  const proseProvider = new OllamaProvider({
+    fetchImpl: async () => new Response(JSON.stringify({
+      model: "llama3.1:8b",
+      message: { role: "assistant", content: "not json" },
+      done: true,
+      done_reason: "stop",
+    })),
+  });
   await assert.rejects(
-    () => provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 32000 }),
-    /hit max_tokens \(32000\)/,
-  );
-});
-
-test("non-JSON text despite structured output is a provider error, not a silent bad parse", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(
-    async () => ({
-      stop_reason: "end_turn",
-      content: [{ type: "text", text: "sorry, I cannot help with that" }],
-      usage: { input_tokens: 10, output_tokens: 8 },
-    }),
-    calls,
-  );
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
-
-  await assert.rejects(
-    () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
-    /returned non-JSON despite structured output/,
-  );
-});
-
-test("a stream failure (e.g. the SDK's own 10-minute non-streaming guard, or a network error) is wrapped as ProviderError", async () => {
-  const calls: StreamCall[] = [];
-  const client = stubClient(async () => {
-    throw new Error("Streaming is required for operations that may take longer than 10 minutes.");
-  }, calls);
-  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
-
-  await assert.rejects(
-    () => provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 32000 }),
-    (err: unknown) => {
-      assert.ok(err instanceof ProviderError);
-      assert.match(err.message, /request failed/);
-      return true;
-    },
+    () => proseProvider.complete({ prompt: "hi", outputSchema: SCHEMA }),
+    (err: unknown) => err instanceof ProviderError && /returned non-JSON/.test(err.message),
   );
 });
