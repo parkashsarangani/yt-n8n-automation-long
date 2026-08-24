@@ -23,7 +23,7 @@ export interface SceneCompositionProfile {
     horizonY: number;
     groundY: number;
     floorContactY: number;
-    defaultShot: "establishing" | "two-shot" | "counter-shot" | "close-up";
+    defaultShot: "establishing" | "wide" | "two-shot" | "counter-shot" | "close-up" | "table-shot";
     cameraBias: "left" | "center" | "right";
     depthZones: SceneDepthZone[];
     slots: {
