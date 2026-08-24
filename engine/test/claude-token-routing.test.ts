@@ -61,7 +61,11 @@ test("agent output budgets stay bounded", () => {
     // the matching prompt and schema changes.
     "dialogue_script_writer.json": 18000,
     "visual_planner.json": 10000,
-    "cartoon_visual_planner.json": 18000,
+    // Real doorway-effect runs on 20+ scene episodes hit the 18k ceiling
+    // after PR #97's heavier per-scene shot-direction schema: 3 of 4
+    // attempts truncated before finishing a 24-scene plan. Raised to give
+    // long episodes enough room to finish.
+    "cartoon_visual_planner.json": 26000,
     // Real doorway-effect runs hit the 12k ceiling after PR #87. Keep this
     // Sonnet-class creative synthesis step bounded, but restore enough output
     // headroom to avoid truncating valid creative_direction JSON.
