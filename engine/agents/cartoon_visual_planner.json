@@ -13,9 +13,8 @@
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 26000,
-    "effort": "medium",
-    "thinking": false
+    "effort": "medium"
   },
   "confidence_dimensions": ["concreteness", "variety", "visual_momentum", "speaker_readability", "creative_direction_fidelity"],
-  "retry": { "max_attempts": 4 }
+  "retry": { "max_attempts": 10 }
 }
