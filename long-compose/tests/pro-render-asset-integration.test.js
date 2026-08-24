@@ -42,6 +42,13 @@ test("production prop pack is vendored locally from permissive Iconify-compatibl
     "map",
     "bed",
     "car",
+    "kettle",
+    "food",
+    "shoes",
+    "window",
+    "door",
+    "tool",
+    "appliance",
   ];
 
   for (const name of required) {
@@ -53,8 +60,9 @@ test("production prop pack is vendored locally from permissive Iconify-compatibl
 
 test("asset registry resolves common foreground prop aliases", () => {
   assert.match(registry, /resolvePropAsset/);
-  for (const alias of ["charger", "keys", "laptop", "calendar", "clock", "mug", "document", "route-map", "bed", "vehicle"]) {
-    assert.ok(registry.includes(`${alias}:`) || registry.includes(`"${alias}":`), `${alias} alias should be mapped`);
+  for (const alias of ["charger", "keys", "laptop", "calendar", "clock", "mug", "document", "route-map", "bed", "vehicle", "kettle", "food", "shoes", "window", "door", "tool", "appliance", "device"]) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(registry, new RegExp(`(?:^|\\n)\\s*\"?${escaped}\"?:\\s*\"prop:`), `${alias} alias should be mapped`);
   }
 });
 
@@ -62,6 +70,7 @@ test("PropAsset renders local files only and has deterministic fallback", () => 
   assert.match(propAsset, /resolvePropAsset/);
   assert.match(propAsset, /staticFile\(asset\.source\.path\)/);
   assert.match(propAsset, /data-prop-asset=\{asset\.key\}/);
+  assert.match(propAsset, /FALLBACK_GLYPH_BY_TYPE/);
   assert.match(propAsset, /fallback-glyph/);
   assert.doesNotMatch(propAsset, /fetch\(|axios|https?:\/\//);
 });
