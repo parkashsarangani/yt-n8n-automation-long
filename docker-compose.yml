@@ -66,7 +66,7 @@ services:
       # Local-only reasoning. There is no Anthropic/remote fallback.
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-${OLLAMA_MODEL:-llama3.1:8b}}
+      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-llama3.1:8b}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
 
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
