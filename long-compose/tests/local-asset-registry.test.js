@@ -33,6 +33,19 @@ test("background renderer prefers approved local scene plates and falls back to 
   assert.match(background, /staticFile\(asset\.source\.path\)/);
 });
 
+test("set-piece renderer remains exhaustive and avoids local-plus-fallback double render", () => {
+  assert.match(background, /function SetPieceFallback/);
+  for (const kind of ["doorway", "window", "bed", "locker", "vehicle"]) {
+    assert.match(background, new RegExp(`case \"${kind}\"`), `${kind} should be handled by the exhaustive set-piece switch`);
+  }
+  assert.match(background, /default: return assertNever\(kind\)/);
+  assert.match(background, /asset \? <LocalSetPieceAsset asset=\{asset\} \/> : <SetPieceFallback/);
+  assert.doesNotMatch(background, /setPiece\.kind === \"window\" && <WindowSetPiece/);
+  assert.doesNotMatch(background, /setPiece\.kind === \"bed\" && <BedSetPiece/);
+  assert.doesNotMatch(background, /setPiece\.kind === \"locker\" && <LockerSetPiece/);
+  assert.doesNotMatch(background, /setPiece\.kind === \"vehicle\" && <VehicleSetPiece/);
+});
+
 test("scene plates cover common room-level locations", () => {
   for (const key of ["scene:office:default", "scene:kitchen:default", "scene:living-room:default", "scene:hallway:default"]) {
     assert.ok(manifest.assets.some((asset) => asset.key === key), `${key} should be registered`);
@@ -42,6 +55,9 @@ test("scene plates cover common room-level locations", () => {
 
 test("asset policy forbids network access during render", () => {
   assert.equal(manifest.policy.runtimeNetworkAccess, false);
-  assert.doesNotMatch(background, /fetch\(|axios|https?:\/\//);
+  for (const asset of manifest.assets.filter((entry) => entry.path)) {
+    assert.equal(/^https?:\/\//.test(asset.path), false, `${asset.key} must not render from a remote URL`);
+  }
+  assert.doesNotMatch(background, /fetch\(|axios/);
   assert.doesNotMatch(registry, /fetch\(|axios/);
 });
