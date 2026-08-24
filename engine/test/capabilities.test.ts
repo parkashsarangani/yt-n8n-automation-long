@@ -27,12 +27,6 @@ test("every credential a stage depends on can be set in the UI", () => {
 });
 
 test("the UI does not offer unexplained credentials", () => {
-  // Scheduling/configuration keys and legacy stock keys are intentionally not
-  // stage gates. The production cartoon graph uses FAL_KEY for thumbnail art,
-  // while the old keys remain saveable only so historical/manual deployments
-  // are not broken during migration. CARTOON_CAST_PATH is not listed here: it
-  // gates the "cast" stage (see capabilities.ts), so credentialKeysUsed()
-  // already accounts for it.
   const TUNING_NOT_GATING = [
     "ELEVENLABS_VOICE_ID",
     "MEASURE_EXCLUDE_IDS",
@@ -62,6 +56,14 @@ test("a stage is satisfied by any one complete group, not by a partial one", () 
     true,
   );
   assert.equal(credentialsSatisfied(publish, { YOUTUBE_ACCESS_TOKEN: "ya29." }), true);
+});
+
+test("local Ollama reasoning requires a base URL and has no remote fallback", () => {
+  const reasoning = STAGES.find((s) => s.id === "reasoning")!;
+  assert.equal(credentialsSatisfied(reasoning, {}), false);
+  assert.equal(credentialsSatisfied(reasoning, { OLLAMA_BASE_URL: "http://ollama:11434" }), true);
+  assert.match(reasoning.real, /ollama/);
+  assert.match(reasoning.consequence, /no remote fallback/);
 });
 
 test("blank and whitespace-only Fal keys do not enable cartoon artwork", () => {
@@ -102,7 +104,8 @@ test("a fully configured cartoon deployment reports every stage live", () => {
   const report = capabilityReport({
     allowPublish: true,
     env: {
-      ANTHROPIC_API_KEY: "sk-ant",
+      OLLAMA_BASE_URL: "http://ollama:11434",
+      OLLAMA_MODEL: "llama3.1:8b",
       ELEVENLABS_API_KEY: "el",
       FAL_KEY: "fal",
       COMPOSE_URL: "http://long-compose:4000",
@@ -113,6 +116,7 @@ test("a fully configured cartoon deployment reports every stage live", () => {
     },
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
+  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "ollama/llama3.1:8b");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {
@@ -171,6 +175,9 @@ test("the keys the cartoon pipeline actually needs are saveable end to end", asy
   const dir = await mkdtemp(path.join(tmpdir(), "vidgen-cred-"));
   const file = path.join(dir, ".env");
   const keys = [
+    "OLLAMA_BASE_URL",
+    "OLLAMA_MODEL",
+    "OLLAMA_NUM_CTX",
     "FAL_KEY",
     "CARTOON_CAST_PATH",
     "YOUTUBE_CLIENT_ID",
