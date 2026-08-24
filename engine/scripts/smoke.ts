@@ -1,12 +1,12 @@
 /**
  * Live smoke test: runs the skeleton graph against a real provider.
  *
- *   ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- "why Chile is so incredibly long"
+ *   OLLAMA_BASE_URL=http://localhost:11434 npm run smoke -- "why Chile is so incredibly long"
  *
  * The graph parks at the story approval gate unless the model reports
  * confidence >= 0.9. To approve and continue:
  *
- *   ANTHROPIC_API_KEY=sk-ant-... npm run smoke -- --approve <run_id>
+ *   OLLAMA_BASE_URL=http://localhost:11434 npm run smoke -- --approve <run_id>
  *
  * Each provider is real when its credential is present and a deterministic fake
  * otherwise, so a partial setup still runs end to end. See .env.example.
@@ -46,8 +46,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".vidgen-data");
 
 async function main() {
-  if (!process.env["ANTHROPIC_API_KEY"]) {
-    console.error("ANTHROPIC_API_KEY is not set — nothing to smoke test against.");
+  if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
+    console.error("OLLAMA_BASE_URL is not set — nothing to smoke test against.");
     process.exit(2);
   }
 

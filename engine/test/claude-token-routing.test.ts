@@ -87,3 +87,20 @@ test("engine provider layer no longer imports the Anthropic SDK", () => {
   assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
   assert.match(provider, /OllamaProvider/);
 });
+
+test("run-start preflight checks gate on the credential that is actually required", () => {
+  // PR #101 moved reasoning to Ollama-only, but these two hardcoded
+  // pre-flight checks in service.ts still gated on ANTHROPIC_API_KEY --
+  // a variable docker-compose.yml no longer sets at all -- so every
+  // startRun/startCartoonRun call failed unconditionally with
+  // "ANTHROPIC_API_KEY is not set" even though Ollama was fully
+  // configured and healthy. Neither call site had any test coverage, so
+  // 312 passing tests and a green CI both missed it; this run() alone
+  // isn't a substitute for a real startRun() test, but does force this
+  // specific regression to fail loudly if it recurs.
+  const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(service, /ANTHROPIC_API_KEY/);
+  const matches = service.match(/OLLAMA_BASE_URL.*is not set/g) ?? [];
+  assert.equal(matches.length, 2, "startRun and startCartoonRun should both gate on OLLAMA_BASE_URL");
+});
