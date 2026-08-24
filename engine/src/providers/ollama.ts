@@ -88,6 +88,48 @@ function temperatureFor(effort: CompletionRequest["effort"] | undefined): number
   return 0.25;
 }
 
+/**
+ * Ollama's streaming /api/chat sends one JSON object per line: a sequence of
+ * partial-content chunks, then a final line carrying done: true plus the
+ * full usage stats (total_duration, eval_count, ...). Concatenate the
+ * content fragments and keep the final line's metadata for the result.
+ */
+async function readOllamaStream(res: Response): Promise<OllamaChatResponse> {
+  const body = res.body;
+  if (!body) throw new ProviderError("ollama stream response had no body");
+
+  let content = "";
+  let final: OllamaChatResponse | null = null;
+  let buffer = "";
+  const decoder = new TextDecoder();
+  const reader = body.getReader();
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!line) continue;
+
+        const chunk = JSON.parse(line) as OllamaChatResponse;
+        if (chunk.error) throw new ProviderError(`ollama stream error: ${chunk.error}`);
+        if (chunk.message?.content) content += chunk.message.content;
+        if (chunk.done) final = chunk;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!final) throw new ProviderError("ollama stream ended without a final done chunk");
+  return { ...final, message: { ...final.message, content } };
+}
+
 function outputPrompt(prompt: string, schema: unknown): string {
   // Ollama's structured output format constrains the response, but its docs
   // also recommend grounding the model by including the schema in the prompt.
@@ -136,7 +178,16 @@ export class OllamaProvider implements ModelProvider {
           content: outputPrompt(req.prompt, schema),
         } satisfies OllamaMessage,
       ],
-      stream: false,
+      // Non-streaming (stream: false) makes Ollama buffer the entire
+      // generation server-side and send nothing -- not even response
+      // headers -- until it is fully done. Any node whose output takes
+      // longer than undici's ~300s default headersTimeout (routine for
+      // this pipeline's larger agents: dialogue_script_writer alone needs
+      // up to 18000 tokens) hits a generic "fetch failed" every time,
+      // indistinguishable from a real connectivity problem. Streaming
+      // sends headers and the first chunk almost immediately and keeps
+      // the connection actively flowing, avoiding that ceiling entirely.
+      stream: true,
       format: schema,
       options: {
         temperature: temperatureFor(effort),
@@ -152,11 +203,11 @@ export class OllamaProvider implements ModelProvider {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const text = await res.text();
       if (!res.ok) {
+        const text = await res.text();
         throw new ProviderError(`${providerRef} request failed (${res.status}): ${text.slice(0, 500)}`);
       }
-      response = JSON.parse(text) as OllamaChatResponse;
+      response = await readOllamaStream(res);
     } catch (err) {
       if (err instanceof ProviderError) throw err;
       throw new ProviderError(`${providerRef} request failed: ${String(err)}`);
