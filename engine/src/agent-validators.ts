@@ -257,12 +257,21 @@ function isDoorSetPieceScene(scene: PlanScene): boolean {
 }
 
 function isVisibleCrossingBeat(scene: PlanScene): boolean {
+  // Structured fields are the authoritative signal -- exactly what the prompt
+  // teaches the model to set for a crossing beat, and unambiguous.
+  const location = String(scene.background_location ?? "").toLowerCase();
+  const framing = String(scene.framing ?? "").toLowerCase();
+  const cameraMotion = String(scene.camera_motion ?? "").toLowerCase();
+  if (location === "hallway" || framing === "doorway-transition" || cameraMotion === "doorway-track") return true;
+
+  // Prose fallback for plans that describe the crossing without those exact
+  // enum values. Deliberately narrow: "door"/"room"/"open" alone are too
+  // common on unrelated objects (a fridge door, a car door, "living-room" as
+  // a location) and were misfiring as a false crossing beat on the very
+  // first scene, which broke the room-A/room-B ordering check below.
   const text = planText(scene);
-  return /\b(?:hallway|corridor|threshold)\b/.test(text)
-    || /\bdoorway-transition\b/.test(text)
-    || /\bdoorway-track\b/.test(text)
-    || /\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving|open|opens)\b.*\b(?:door|doorway|threshold|room|hallway|corridor)\b/.test(text)
-    || /\b(?:door|doorway|threshold|room|hallway|corridor)\b.*\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving|open|opens)\b/.test(text);
+  return /\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving)\b.*\b(?:doorway|threshold|hallway|corridor)\b/.test(text)
+    || /\b(?:doorway|threshold|hallway|corridor)\b.*\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving)\b/.test(text);
 }
 
 function isRoomALocation(scene: PlanScene): boolean {
