@@ -238,6 +238,62 @@ function countScenesWith(scenes: PlanScene[], predicate: (scene: PlanScene) => b
   return scenes.reduce((count, scene) => count + (predicate(scene) ? 1 : 0), 0);
 }
 
+function planText(scene: PlanScene): string {
+  return [
+    scene.background_location,
+    scene.background_variant,
+    scene.framing,
+    scene.camera_motion,
+    scene.visual_event,
+    scene.primary_prop,
+    scene.prop_state,
+    scene.prop_motion,
+    scene.foreground_action,
+  ].join(" ").toLowerCase();
+}
+
+function isDoorSetPieceScene(scene: PlanScene): boolean {
+  return /\b(?:door|doorway|hallway|corridor|threshold)\b/i.test(planText(scene));
+}
+
+function isVisibleCrossingBeat(scene: PlanScene): boolean {
+  const text = planText(scene);
+  return /\b(?:hallway|corridor|threshold)\b/.test(text)
+    || /\bdoorway-transition\b/.test(text)
+    || /\bdoorway-track\b/.test(text)
+    || /\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving|open|opens)\b.*\b(?:door|doorway|threshold|room|hallway|corridor)\b/.test(text)
+    || /\b(?:door|doorway|threshold|room|hallway|corridor)\b.*\b(?:cross|crosses|crossing|through|enter|enters|leave|leaves|leaving|open|opens)\b/.test(text);
+}
+
+function isRoomALocation(scene: PlanScene): boolean {
+  return /\b(?:living-room|bedroom|office|kitchen|generic-room|room)\b/i.test(scene.background_location ?? "") && !isVisibleCrossingBeat(scene);
+}
+
+function isRoomBLocation(scene: PlanScene, roomABeforeCrossing: string | undefined): boolean {
+  const location = String(scene.background_location ?? "").toLowerCase();
+  if (!/\b(?:kitchen|office|bedroom|living-room|street|cafe|library|shop|classroom|bathroom|generic-room)\b/.test(location)) return false;
+  if (!roomABeforeCrossing) return true;
+  return location !== roomABeforeCrossing;
+}
+
+function doorwayContinuityFailure(planned: PlanScene[]): string | null {
+  const crossingIndex = planned.findIndex(isVisibleCrossingBeat);
+  if (crossingIndex < 0) {
+    return "doorway/spatial episode lacks a visible crossing beat; include at least one scene with background_location=hallway, framing=doorway-transition, camera_motion=doorway-track, primary_prop=door, and foreground_action describing the character crossing/opening the doorway";
+  }
+
+  const beforeCrossing = planned.slice(0, crossingIndex);
+  const afterCrossing = planned.slice(crossingIndex + 1);
+  const roomABeforeCrossing = beforeCrossing.find(isRoomALocation)?.background_location?.toLowerCase();
+  const hasRoomA = Boolean(roomABeforeCrossing);
+  const hasRoomB = afterCrossing.some((scene) => isRoomBLocation(scene, roomABeforeCrossing));
+
+  if (!hasRoomA || !hasRoomB) {
+    return "doorway/spatial episode lacks ordered continuity: require a room A scene before the crossing beat and a different room B scene after it, for example living-room -> hallway/doorway-transition -> kitchen";
+  }
+  return null;
+}
+
 function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Artifact>): string[] {
   const contentScenes = inputScriptScenes(inputs).filter((scene) => !scene.is_outro).sort((a, b) => a.scene_index - b.scene_index);
   const planned = planScenes(payload).sort((a, b) => a.scene_index - b.scene_index);
@@ -264,12 +320,10 @@ function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Arti
   if (actionlessProps.length > Math.max(1, Math.floor(propScenes.length * 0.35))) failures.push(`too many central props lack physical foreground_action (${actionlessProps.length}/${propScenes.length}); props must be held, placed, opened, crossed, picked up, or looked at`);
 
   if (isDoorwayOrSpatialTopic(contentScenes)) {
-    const hallwayOrDoorScenes = planned.filter((scene) => /door|hallway|corridor/i.test(`${scene.background_location ?? ""} ${scene.primary_prop ?? ""}`));
-    if (hallwayOrDoorScenes.length > Math.ceil(planned.length * 0.35)) failures.push(`doorway/set-piece appears in ${hallwayOrDoorScenes.length}/${planned.length} scenes; it must appear only for crossing beats, not as a permanent background object`);
-    const hasRoomA = planned.some((scene) => /living-room|bedroom|office/i.test(scene.background_location ?? ""));
-    const hasCrossing = planned.some((scene) => /hallway|corridor/i.test(scene.background_location ?? ""));
-    const hasRoomB = planned.some((scene) => /kitchen|office|bedroom|street/i.test(scene.background_location ?? ""));
-    if (!hasRoomA || !hasCrossing || !hasRoomB) failures.push(`doorway/spatial episode lacks visible continuity beats; require room A, crossing/hallway, and room B`);
+    const doorSetPieceScenes = planned.filter(isDoorSetPieceScene);
+    if (doorSetPieceScenes.length > Math.ceil(planned.length * 0.35)) failures.push(`doorway/set-piece appears in ${doorSetPieceScenes.length}/${planned.length} scenes; it must appear only for crossing beats, not as a permanent background object`);
+    const continuityFailure = doorwayContinuityFailure(planned);
+    if (continuityFailure) failures.push(continuityFailure);
   }
 
   if (countScenesWith(planned, (scene) => /^none$/i.test(scene.ambient_motion ?? "")) > Math.floor(planned.length * 0.55)) failures.push(`ambient motion is missing from too many scenes; use subtle parallax, window light, monitor glow, dust, or clock-tick where appropriate`);
