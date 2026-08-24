@@ -150,17 +150,23 @@ function LocalSetPieceAsset({ asset }: { asset?: RegisteredAsset }) {
     return <Img src={staticFile(asset.source.path)} style={{ position: "absolute", left: 86, top: 70, width: asset.width ?? 420, height: asset.height ?? 620, objectFit: "contain" }} />;
 }
 
+function SetPieceFallback({ kind, frame, motion }: { kind: BackgroundSetPieceKind; frame: number; motion?: string }) {
+    switch (kind) {
+        case "doorway": return <DoorwaySetPiece frame={frame} />;
+        case "window": return <WindowSetPiece frame={frame} />;
+        case "bed": return <BedSetPiece />;
+        case "locker": return <LockerSetPiece frame={frame} motion={motion} />;
+        case "vehicle": return <VehicleSetPiece />;
+        default: return assertNever(kind);
+    }
+}
+
 function SetPieceOverlay({ setPiece, frame }: { setPiece?: BackgroundSetPiece; frame: number }) {
     if (!setPiece?.kind) return null;
     const asset = assetByKey(setPiece.assetKey) ?? resolveSetPieceAsset(setPiece.kind);
     return (
         <AbsoluteFill style={{ pointerEvents: "none" }}>
-            <LocalSetPieceAsset asset={asset} />
-            {!asset && setPiece.kind === "doorway" && <DoorwaySetPiece frame={frame} />}
-            {setPiece.kind === "window" && <WindowSetPiece frame={frame} />}
-            {setPiece.kind === "bed" && <BedSetPiece />}
-            {setPiece.kind === "locker" && <LockerSetPiece frame={frame} motion={setPiece.motion} />}
-            {setPiece.kind === "vehicle" && <VehicleSetPiece />}
+            {asset ? <LocalSetPieceAsset asset={asset} /> : <SetPieceFallback kind={setPiece.kind} frame={frame} motion={setPiece.motion} />}
         </AbsoluteFill>
     );
 }
