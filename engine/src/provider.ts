@@ -22,6 +22,13 @@ export interface CompletionRequest {
   outputSchema: Record<string, unknown>;
   maxOutputTokens?: number;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  /**
+   * Extended thinking, on by default where the provider supports it. Set to
+   * false for schema-constrained synthesis steps where thinking tokens
+   * compete with the actual structured output for the same max_tokens
+   * budget rather than improving it.
+   */
+  thinking?: boolean;
 }
 
 export interface CompletionResult {

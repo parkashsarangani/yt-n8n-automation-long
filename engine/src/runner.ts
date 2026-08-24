@@ -44,6 +44,7 @@ export interface AgentDef {
     capability: string;
     max_output_tokens?: number;
     effort?: "low" | "medium" | "high" | "xhigh" | "max";
+    thinking?: boolean;
   };
   confidence_dimensions?: string[];
   retry?: { max_attempts?: number };
@@ -197,6 +198,7 @@ export class Runner {
           outputSchema,
           ...(def.model.max_output_tokens ? { maxOutputTokens: def.model.max_output_tokens } : {}),
           ...(def.model.effort ? { effort: def.model.effort } : {}),
+          ...(def.model.thinking === false ? { thinking: false } : {}),
         });
         value = result.value;
         usage = result.usage;
