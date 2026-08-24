@@ -105,6 +105,13 @@ export const LOCAL_ASSET_REGISTRY: Record<string, RegisteredAsset> = {
     "prop:map:mdi": mdiProp("prop:map:mdi", "map", ["map", "route", "navigation"], "map-outline"),
     "prop:bed:mdi": mdiProp("prop:bed:mdi", "bed", ["bed", "sheets", "sleep"]),
     "prop:car:mdi": mdiProp("prop:car:mdi", "car", ["car", "vehicle", "commute"]),
+    "prop:kettle:mdi": mdiProp("prop:kettle:mdi", "kettle", ["kettle", "boil", "steam"]),
+    "prop:food:mdi": mdiProp("prop:food:mdi", "food", ["food", "meal", "plate"]),
+    "prop:shoes:mdi": mdiProp("prop:shoes:mdi", "shoes", ["shoe", "shoes", "sneaker"], "shoe-sneaker"),
+    "prop:window:mdi": mdiProp("prop:window:mdi", "window", ["window", "light", "room"], "window-open"),
+    "prop:door:mdi": mdiProp("prop:door:mdi", "door", ["door", "doorway", "open"], "door-open"),
+    "prop:tool:mdi": mdiProp("prop:tool:mdi", "tool", ["tool", "tools", "repair"], "tools"),
+    "prop:appliance:mdi": mdiProp("prop:appliance:mdi", "appliance", ["appliance", "device", "machine"], "washing-machine"),
 
     "character:reaction-open-peeps": {
         key: "character:reaction-open-peeps",
@@ -198,6 +205,17 @@ const PROP_ASSET_BY_TYPE: Record<string, string> = {
     sheets: "prop:bed:mdi",
     car: "prop:car:mdi",
     vehicle: "prop:car:mdi",
+    kettle: "prop:kettle:mdi",
+    food: "prop:food:mdi",
+    shoes: "prop:shoes:mdi",
+    shoe: "prop:shoes:mdi",
+    window: "prop:window:mdi",
+    door: "prop:door:mdi",
+    doorway: "prop:door:mdi",
+    tool: "prop:tool:mdi",
+    tools: "prop:tool:mdi",
+    appliance: "prop:appliance:mdi",
+    device: "prop:appliance:mdi",
 };
 
 export function assetByKey(key?: string | null): RegisteredAsset | undefined {
