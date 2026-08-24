@@ -14,7 +14,6 @@
     "youtube-auth": "node --import tsx ../scripts/youtube-token.ts --auth"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "pg": "^8.13.0",
