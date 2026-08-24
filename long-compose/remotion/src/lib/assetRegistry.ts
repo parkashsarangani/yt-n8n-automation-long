@@ -13,6 +13,7 @@ export interface AssetSource {
     path?: string;
     component?: string;
     license: AssetLicense;
+    sourceUrl?: string;
 }
 
 export interface RegisteredAsset {
@@ -23,6 +24,7 @@ export interface RegisteredAsset {
     width?: number;
     height?: number;
     compositeMode?: "replace-background" | "overlay";
+    status?: "starter-local" | "placeholder-local" | "placeholder-empty" | "component-contract" | "vendored-third-party";
 }
 
 export interface BackgroundLookup {
@@ -34,6 +36,14 @@ const CC0: AssetLicense = { name: "CC0-1.0", attributionRequired: false, url: "h
 const MIT: AssetLicense = { name: "MIT", attributionRequired: false };
 const APACHE_2: AssetLicense = { name: "Apache-2.0", attributionRequired: false };
 
+const mdi = (name: string): AssetSource => ({
+    kind: "local-svg",
+    library: "iconify",
+    path: `assets/props/iconify/${name}.svg`,
+    license: APACHE_2,
+    sourceUrl: `https://github.com/Templarian/MaterialDesign/blob/master/svg/${name}.svg`,
+});
+
 const scenePlate = (location: string, tags: string[]): RegisteredAsset => ({
     key: `scene:${location}:default`,
     role: "scenePlate",
@@ -41,7 +51,19 @@ const scenePlate = (location: string, tags: string[]): RegisteredAsset => ({
     width: 1920,
     height: 1080,
     compositeMode: "replace-background",
+    status: "starter-local",
     source: { kind: "local-svg", library: "scene-pack", path: `assets/scene-plates/${location}/default.svg`, license: CC0 },
+});
+
+const mdiProp = (key: string, filename: string, tags: string[], sourceName = filename): RegisteredAsset => ({
+    key,
+    role: "prop",
+    tags: [...tags, "mdi", "iconify", "vendored", "object"],
+    width: 256,
+    height: 256,
+    compositeMode: "overlay",
+    status: "vendored-third-party",
+    source: { ...mdi(filename), sourceUrl: `https://github.com/Templarian/MaterialDesign/blob/master/svg/${sourceName}.svg` },
 });
 
 export const LOCAL_ASSET_REGISTRY: Record<string, RegisteredAsset> = {
@@ -69,34 +91,48 @@ export const LOCAL_ASSET_REGISTRY: Record<string, RegisteredAsset> = {
         width: 420,
         height: 620,
         compositeMode: "overlay",
+        status: "starter-local",
         source: { kind: "local-svg", library: "scene-pack", path: "assets/set-pieces/doorway.svg", license: CC0 },
     },
-    "prop:phone-charger:iconify": {
-        key: "prop:phone-charger:iconify",
-        role: "prop",
-        tags: ["phone", "charger", "cable", "object"],
-        width: 256,
-        height: 256,
-        compositeMode: "overlay",
-        source: { kind: "local-svg", library: "iconify", path: "assets/props/iconify/phone-charger.svg", license: APACHE_2 },
-    },
+
+    "prop:phone-charger:mdi": mdiProp("prop:phone-charger:mdi", "phone-charger", ["phone", "charger", "cellphone", "cable"], "cellphone-charging"),
+    "prop:keys:mdi": mdiProp("prop:keys:mdi", "keys", ["key", "keys", "lock"], "key-variant"),
+    "prop:laptop:mdi": mdiProp("prop:laptop:mdi", "laptop", ["computer", "screen", "work"]),
+    "prop:calendar:mdi": mdiProp("prop:calendar:mdi", "calendar", ["date", "schedule", "time"]),
+    "prop:clock:mdi": mdiProp("prop:clock:mdi", "clock", ["clock", "alarm", "time"], "clock-outline"),
+    "prop:coffee:mdi": mdiProp("prop:coffee:mdi", "coffee", ["coffee", "mug", "drink"]),
+    "prop:document:mdi": mdiProp("prop:document:mdi", "document", ["document", "paper", "letter", "bill", "file"], "file-document-outline"),
+    "prop:map:mdi": mdiProp("prop:map:mdi", "map", ["map", "route", "navigation"], "map-outline"),
+    "prop:bed:mdi": mdiProp("prop:bed:mdi", "bed", ["bed", "sheets", "sleep"]),
+    "prop:car:mdi": mdiProp("prop:car:mdi", "car", ["car", "vehicle", "commute"]),
+    "prop:kettle:mdi": mdiProp("prop:kettle:mdi", "kettle", ["kettle", "boil", "steam"]),
+    "prop:food:mdi": mdiProp("prop:food:mdi", "food", ["food", "meal", "plate"]),
+    "prop:shoes:mdi": mdiProp("prop:shoes:mdi", "shoes", ["shoe", "shoes", "sneaker"], "shoe-sneaker"),
+    "prop:window:mdi": mdiProp("prop:window:mdi", "window", ["window", "light", "room"], "window-open"),
+    "prop:door:mdi": mdiProp("prop:door:mdi", "door", ["door", "doorway", "open"], "door-open"),
+    "prop:tool:mdi": mdiProp("prop:tool:mdi", "tool", ["tool", "tools", "repair"], "tools"),
+    "prop:appliance:mdi": mdiProp("prop:appliance:mdi", "appliance", ["appliance", "device", "machine"], "washing-machine"),
+
     "character:reaction-open-peeps": {
         key: "character:reaction-open-peeps",
         role: "characterPart",
         tags: ["reaction", "face", "person", "open-peeps"],
         source: { kind: "local-svg", library: "open-peeps", path: "assets/characters/open-peeps/reaction-head.svg", license: CC0 },
+        status: "placeholder-local",
     },
     "motion:reaction-pop:remotion-bits": {
         key: "motion:reaction-pop:remotion-bits",
         role: "motionPreset",
         tags: ["reaction-pop", "particle", "motion"],
         source: { kind: "remotion-component", library: "remotion-bits", component: "reaction-pop", license: MIT },
+        status: "component-contract",
     },
     "motion:attention-pulse:lottie": {
         key: "motion:attention-pulse:lottie",
         role: "motionPreset",
         tags: ["pulse", "attention", "lottie"],
         source: { kind: "local-lottie", library: "lottie", path: "assets/motion/lottie/attention-pulse.json", license: MIT },
+        status: "placeholder-empty",
     },
 };
 
@@ -145,6 +181,43 @@ const SET_PIECE_BY_KIND: Record<string, string> = {
     doorway: "setpiece:doorway:local",
 };
 
+const PROP_ASSET_BY_TYPE: Record<string, string> = {
+    phone: "prop:phone-charger:mdi",
+    cellphone: "prop:phone-charger:mdi",
+    charger: "prop:phone-charger:mdi",
+    "phone-charger": "prop:phone-charger:mdi",
+    keys: "prop:keys:mdi",
+    key: "prop:keys:mdi",
+    laptop: "prop:laptop:mdi",
+    computer: "prop:laptop:mdi",
+    calendar: "prop:calendar:mdi",
+    clock: "prop:clock:mdi",
+    "alarm clock": "prop:clock:mdi",
+    coffee: "prop:coffee:mdi",
+    mug: "prop:coffee:mdi",
+    document: "prop:document:mdi",
+    letter: "prop:document:mdi",
+    bill: "prop:document:mdi",
+    file: "prop:document:mdi",
+    "route-map": "prop:map:mdi",
+    map: "prop:map:mdi",
+    bed: "prop:bed:mdi",
+    sheets: "prop:bed:mdi",
+    car: "prop:car:mdi",
+    vehicle: "prop:car:mdi",
+    kettle: "prop:kettle:mdi",
+    food: "prop:food:mdi",
+    shoes: "prop:shoes:mdi",
+    shoe: "prop:shoes:mdi",
+    window: "prop:window:mdi",
+    door: "prop:door:mdi",
+    doorway: "prop:door:mdi",
+    tool: "prop:tool:mdi",
+    tools: "prop:tool:mdi",
+    appliance: "prop:appliance:mdi",
+    device: "prop:appliance:mdi",
+};
+
 export function assetByKey(key?: string | null): RegisteredAsset | undefined {
     if (!key) return undefined;
     return LOCAL_ASSET_REGISTRY[key];
@@ -165,15 +238,23 @@ export function resolveSetPieceAsset(kind?: string): RegisteredAsset | undefined
     return asset?.role === "setPiece" ? asset : undefined;
 }
 
+export function resolvePropAsset(propType?: string): RegisteredAsset | undefined {
+    const normalized = String(propType ?? "").toLowerCase().trim();
+    const key = PROP_ASSET_BY_TYPE[normalized];
+    const asset = assetByKey(key);
+    return asset?.role === "prop" ? asset : undefined;
+}
+
 export function renderableLocalAsset(asset?: RegisteredAsset): asset is RegisteredAsset & { source: AssetSource & { path: string } } {
     return Boolean(asset?.source.path && (asset.source.kind === "local-svg" || asset.source.kind === "local-lottie"));
 }
 
-export function assetLicenseSummary(): Array<{ key: string; library: AssetLibrary; license: string; local: boolean }> {
+export function assetLicenseSummary(): Array<{ key: string; library: AssetLibrary; license: string; local: boolean; status?: RegisteredAsset["status"] }> {
     return Object.values(LOCAL_ASSET_REGISTRY).map((asset) => ({
         key: asset.key,
         library: asset.source.library,
         license: asset.source.license.name,
         local: Boolean(asset.source.path),
+        status: asset.status,
     }));
 }

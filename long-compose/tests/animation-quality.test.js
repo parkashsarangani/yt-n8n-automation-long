@@ -64,9 +64,6 @@ test("panic performance is character-local and never continuous whole-frame shak
 test("conversation direction respects semantic gaze before auto eye contact", () => {
   assert.match(sceneSource, /character\.gazeTarget === "auto"/);
   assert.match(sceneSource, /actorId = character\.actorId \?\? character\.animationKey/);
-  // Two characters given the same explicit actorId/animationKey must not
-  // silently collide into the same animation phase seed (regression test for
-  // the fixed "duplicate actorId reintroduces lockstep" bug).
   assert.match(sceneSource, /seenActorIds\.has\(actorId\)/);
 });
 
@@ -83,7 +80,7 @@ test("active speaker treatment gives every emphasis mode a distinct rendering pa
   assert.match(sceneSource, /case "caption-anchor"/);
   assert.match(sceneSource, /speakerEmphasis === "listener-dim"/);
   assert.match(sceneSource, /useMemo/);
-  assert.match(sceneSource, /withConversationDirection\(characters, speakerEmphasis\)/);
+  assert.match(sceneSource, /withConversationDirection\(stagedCharacters, speakerEmphasis\)/);
 });
 
 test("cartoon backgrounds expose deterministic ambient motion", () => {
@@ -115,9 +112,8 @@ test("cartoon visual events render deterministic overlays", () => {
   }
   assert.match(sceneSource, /VisualEventOverlay/);
   assert.match(sceneSource, /audience-silhouette/);
-  // Non-card effects still render distinct visual treatment, not text.
-  assert.match(sceneSource, /rgba\(255,70,70,0\.38\)/);
-  assert.match(sceneSource, /rgba\(37,99,235,0\.50\)/);
+  assert.match(sceneSource, /visualStyle\.palette\.accent/);
+  assert.match(sceneSource, /visualStyle\.palette\.accent2/);
 });
 
 test("production rigs have distinct silhouettes and coherent palettes", () => {
