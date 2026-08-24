@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon classroom scene plate">
+  <defs><linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E0F2FE"/><stop offset="1" stop-color="#D1FAE5"/></linearGradient><linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EAB308"/><stop offset="1" stop-color="#A16207"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#0F172A" flood-opacity=".16"/></filter></defs>
+  <rect width="1920" height="1080" fill="url(#wall)"/>
+  <path d="M0 688 C520 650 1300 650 1920 705 L1920 1080 L0 1080 Z" fill="url(#floor)"/>
+  <rect x="176" y="116" width="1060" height="390" rx="24" fill="#14532D" stroke="#F8FAFC" stroke-width="18" filter="url(#shadow)"/>
+  <path d="M238 244 H630 M238 322 H880 M238 400 H706" stroke="#BBF7D0" stroke-width="18" stroke-linecap="round" opacity=".7"/>
+  <rect x="1390" y="140" width="284" height="420" rx="30" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="12" filter="url(#shadow)"/>
+  <path d="M1430 238 H1630 M1430 304 H1580 M1430 370 H1642" stroke="#94A3B8" stroke-width="14" stroke-linecap="round"/>
+  <g filter="url(#shadow)"><rect x="520" y="626" width="360" height="90" rx="24" fill="#92400E"/><rect x="560" y="712" width="26" height="164" fill="#78350F"/><rect x="812" y="712" width="26" height="164" fill="#78350F"/></g>
+  <g filter="url(#shadow)"><rect x="1020" y="626" width="360" height="90" rx="24" fill="#92400E"/><rect x="1060" y="712" width="26" height="164" fill="#78350F"/><rect x="1312" y="712" width="26" height="164" fill="#78350F"/></g>
+  <ellipse cx="960" cy="900" rx="760" ry="70" fill="#0F172A" opacity=".10"/>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon library scene plate">
+  <defs><linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FEF3C7"/><stop offset="1" stop-color="#FDE68A"/></linearGradient><linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B45309"/><stop offset="1" stop-color="#78350F"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#451A03" flood-opacity=".18"/></filter></defs>
+  <rect width="1920" height="1080" fill="url(#wall)"/>
+  <path d="M0 692 C520 655 1320 655 1920 706 L1920 1080 L0 1080 Z" fill="url(#floor)"/>
+  <g filter="url(#shadow)"><rect x="124" y="148" width="460" height="534" rx="26" fill="#7C2D12"/><rect x="166" y="204" width="86" height="410" rx="12" fill="#F97316"/><rect x="276" y="204" width="86" height="410" rx="12" fill="#22C55E"/><rect x="386" y="204" width="86" height="410" rx="12" fill="#3B82F6"/></g>
+  <g filter="url(#shadow)"><rect x="1338" y="148" width="460" height="534" rx="26" fill="#7C2D12"/><rect x="1380" y="204" width="86" height="410" rx="12" fill="#A855F7"/><rect x="1490" y="204" width="86" height="410" rx="12" fill="#EF4444"/><rect x="1600" y="204" width="86" height="410" rx="12" fill="#14B8A6"/></g>
+  <g filter="url(#shadow)"><rect x="700" y="628" width="520" height="112" rx="32" fill="#92400E"/><rect x="760" y="742" width="32" height="150" rx="12" fill="#78350F"/><rect x="1128" y="742" width="32" height="150" rx="12" fill="#78350F"/><rect x="850" y="584" width="220" height="56" rx="18" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="8"/></g>
+  <ellipse cx="960" cy="920" rx="740" ry="70" fill="#451A03" opacity=".10"/>
+</svg>

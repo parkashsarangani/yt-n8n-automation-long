@@ -1,10 +1,11 @@
 {
-  "version": 1,
+  "version": 2,
   "policy": {
     "runtimeNetworkAccess": false,
     "renderContract": "All referenced assets must resolve to files under long-compose/remotion/public/assets or to internal Remotion components. External APIs are allowed only during offline asset acquisition, never during render.",
     "fallback": "If a registry asset is missing, renderer falls back to the existing JSX/generated background path.",
-    "status": "PR93 establishes the local registry contract and starter placeholder assets. It does not yet import real Iconify, Open Peeps, or LottieFiles assets; those must be acquired offline and vendored later."
+    "qualityTarget": "Prefer complete scene plates for story locations; layer characters, captions, and small props on top.",
+    "status": "The registry supports scene-pack, Iconify, Open Peeps, Lottie, and Remotion Bits source families, with 16 curated scene-plate locations. Current SVG/JSON files are local starter/placeholder assets; none are real imported third-party assets yet, and each must be replaced by an offline-vendored asset before being treated as production art."
   },
   "sources": [
     {
@@ -43,6 +44,18 @@
     { "key": "scene:kitchen:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/kitchen/default.svg", "license": "CC0-1.0", "status": "starter-local" },
     { "key": "scene:living-room:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/living-room/default.svg", "license": "CC0-1.0", "status": "starter-local" },
     { "key": "scene:hallway:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/hallway/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:bedroom:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/bedroom/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:classroom:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/classroom/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:cafe:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/cafe/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:street:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/street/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:park:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/park/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:car-interior:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/car-interior/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:hospital-room:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/hospital-room/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:airport:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/airport/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:shop:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/shop/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:bathroom:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/bathroom/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:library:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/library/default.svg", "license": "CC0-1.0", "status": "starter-local" },
+    { "key": "scene:studio:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/studio/default.svg", "license": "CC0-1.0", "status": "starter-local" },
     { "key": "setpiece:doorway:local", "role": "setPiece", "library": "scene-pack", "path": "assets/set-pieces/doorway.svg", "license": "CC0-1.0", "status": "starter-local" },
     { "key": "prop:phone-charger:iconify", "role": "prop", "library": "iconify", "path": "assets/props/iconify/phone-charger.svg", "license": "Apache-2.0", "status": "placeholder-local" },
     { "key": "character:reaction-open-peeps", "role": "characterPart", "library": "open-peeps", "path": "assets/characters/open-peeps/reaction-head.svg", "license": "CC0-1.0", "status": "placeholder-local" },

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon street scene plate">
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#BAE6FD"/><stop offset="1" stop-color="#E0F2FE"/></linearGradient><linearGradient id="road" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#475569"/><stop offset="1" stop-color="#1E293B"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0F172A" flood-opacity=".18"/></filter></defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1570" cy="142" r="78" fill="#FDE68A" opacity=".86"/>
+  <rect x="88" y="270" width="360" height="410" rx="22" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="10" filter="url(#shadow)"/>
+  <rect x="572" y="218" width="356" height="472" rx="24" fill="#DBEAFE" stroke="#93C5FD" stroke-width="10" filter="url(#shadow)"/>
+  <rect x="1064" y="290" width="430" height="392" rx="24" fill="#FED7AA" stroke="#FDBA74" stroke-width="10" filter="url(#shadow)"/>
+  <g fill="#38BDF8" opacity=".55"><rect x="144" y="336" width="72" height="70" rx="8"/><rect x="268" y="336" width="72" height="70" rx="8"/><rect x="640" y="292" width="82" height="72" rx="8"/><rect x="778" y="292" width="82" height="72" rx="8"/><rect x="1160" y="356" width="82" height="72" rx="8"/><rect x="1304" y="356" width="82" height="72" rx="8"/></g>
+  <path d="M0 640 C460 612 1360 612 1920 648 L1920 1080 L0 1080 Z" fill="#CBD5E1"/>
+  <path d="M0 760 C480 700 1380 706 1920 770 L1920 1080 L0 1080 Z" fill="url(#road)"/>
+  <path d="M180 890 H520 M720 900 H1060 M1260 900 H1600" stroke="#F8FAFC" stroke-width="22" stroke-linecap="round" opacity=".78"/>
+  <g filter="url(#shadow)"><rect x="126" y="604" width="220" height="106" rx="30" fill="#22C55E"/><circle cx="176" cy="726" r="34" fill="#14532D"/><circle cx="292" cy="726" r="34" fill="#14532D"/></g>
+</svg>
