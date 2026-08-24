@@ -165,6 +165,48 @@ test("visual planner gate rejects a room A that only appears after the crossing 
   assert.match(errors.join("\n"), /lacks ordered continuity/);
 });
 
+test("visual planner gate does not mistake an unrelated object door for the crossing beat", () => {
+  // Real production failure: scene 0's foreground_action described "the open
+  // fridge door" (a kitchen prop, not a room crossing). The old crossing-beat
+  // regex matched "open ... door" generically and misidentified scene 0 as
+  // the crossing beat, leaving no room before it and failing continuity even
+  // though the real hallway/doorway-transition/doorway-track crossing at
+  // scene 7 -- with a proper room A before it and room B after -- was fine.
+  const scenes = Array.from({ length: 13 }, (_, index) => {
+    if (index === 0) {
+      return visualScene(index, {
+        background_location: "kitchen",
+        framing: "establishing",
+        camera_motion: "push-in",
+        primary_prop: "appliance",
+        foreground_action: "Host grips the open fridge door, looks down at both empty hands",
+        ambient_motion: "subtle-parallax",
+      });
+    }
+    if (index === 6) {
+      return visualScene(index, {
+        background_location: "hallway",
+        framing: "doorway-transition",
+        camera_motion: "doorway-track",
+        primary_prop: "door",
+        foreground_action: "Host crosses through the doorway into the living-room",
+        ambient_motion: "doorway-cross",
+      });
+    }
+    return visualScene(index, {
+      background_location: index < 6 ? "kitchen" : "living-room",
+      framing: ["two-shot", "prop-insert", "reaction-closeup", "over-shoulder", "payoff-hold"][index % 5],
+      camera_motion: ["static", "push-in", "prop-focus", "reaction-push"][index % 4],
+      primary_prop: "charger",
+      foreground_action: "Host handles the charger",
+      ambient_motion: index % 2 === 0 ? "subtle-parallax" : "window-light",
+    });
+  });
+
+  const errors = agentSemanticValidationErrors(VISUAL_DEF, { scenes }, scriptInput(13, true));
+  assert.deepEqual(errors, []);
+});
+
 test("visual planner gate accepts a directed multi-location plan", () => {
   const scenes = Array.from({ length: 13 }, (_, index) => {
     const location = index < 3 ? "living-room" : index < 5 ? "hallway" : index < 10 ? "kitchen" : "office";
