@@ -20,6 +20,9 @@ export type RunStatus =
   | "running"
   | "retry"
   | "schema_invalid"
+  /** Schema-valid but failed a semantic quality gate on the final retry attempt;
+   *  accepted anyway so the run completes instead of blocking indefinitely. */
+  | "accepted_below_quality_bar"
   | "provider_error"
   | "provider_refusal"
   | "failed";
