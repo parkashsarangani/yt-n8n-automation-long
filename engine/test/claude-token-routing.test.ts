@@ -15,7 +15,7 @@ function agent(file: string): AgentDef {
   return JSON.parse(readFileSync(new URL(`../agents/${file}`, import.meta.url), "utf8")) as AgentDef;
 }
 
-test("low-risk agents request low-effort fast reasoning", () => {
+test("low-risk agents still request low-effort fast reasoning", () => {
   const lowRisk = [
     "discovery.json",
     "seo_optimizer.json",
@@ -27,11 +27,11 @@ test("low-risk agents request low-effort fast reasoning", () => {
   for (const file of lowRisk) {
     const def = agent(file);
     assert.equal(def.model.capability, "reasoning_fast", `${def.name} should use the fast capability`);
-    assert.equal(def.model.effort, "low", `${def.name} should be eligible for Haiku downgrade`);
+    assert.equal(def.model.effort, "low", `${def.name} should be eligible for the local fast model`);
   }
 });
 
-test("core creative cartoon agents do not request low-effort model downgrades", () => {
+test("core creative cartoon agents do not request low-effort local routing", () => {
   const protectedAgents = [
     "story_architect.json",
     "script_writer.json",
@@ -43,7 +43,7 @@ test("core creative cartoon agents do not request low-effort model downgrades", 
 
   for (const file of protectedAgents) {
     const def = agent(file);
-    assert.notEqual(def.model.effort, "low", `${def.name} should stay on Sonnet-class routing`);
+    assert.notEqual(def.model.effort, "low", `${def.name} should stay on the main local reasoning model`);
   }
 });
 
@@ -56,19 +56,9 @@ test("agent output budgets stay bounded", () => {
     "channel_strategist.json": 3000,
     "story_architect.json": 5000,
     "script_writer.json": 10000,
-    // PR #96 added duplicate/spatial dialogue gates and shot-rhythm/camera
-    // gates that need more scene-level fields per output; raised alongside
-    // the matching prompt and schema changes.
     "dialogue_script_writer.json": 18000,
     "visual_planner.json": 10000,
-    // Real doorway-effect runs on 20+ scene episodes hit the 18k ceiling
-    // after PR #97's heavier per-scene shot-direction schema: 3 of 4
-    // attempts truncated before finishing a 24-scene plan. Raised to give
-    // long episodes enough room to finish.
     "cartoon_visual_planner.json": 26000,
-    // Real doorway-effect runs hit the 12k ceiling after PR #87. Keep this
-    // Sonnet-class creative synthesis step bounded, but restore enough output
-    // headroom to avoid truncating valid creative_direction JSON.
     "cartoon_creative_director.json": 24000,
   };
 
@@ -87,4 +77,13 @@ test("prompt input compression is wired into the runner", () => {
 
   assert.match(runner, /promptInputView\(def\.name, name, artifact\.payload\)/);
   assert.doesNotMatch(runner, /JSON\.stringify\(artifact\.payload, null, 2\)/);
+});
+
+test("engine provider layer no longer imports the Anthropic SDK", () => {
+  const provider = readFileSync(new URL("../src/providers/anthropic.ts", import.meta.url), "utf8");
+  const pkg = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+
+  assert.doesNotMatch(provider, /@anthropic-ai\/sdk/);
+  assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
+  assert.match(provider, /OllamaProvider/);
 });

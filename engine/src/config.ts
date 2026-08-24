@@ -22,13 +22,37 @@ export interface CredentialSpec {
 
 export const CREDENTIALS: CredentialSpec[] = [
   {
-    key: "ANTHROPIC_API_KEY",
-    label: "Anthropic API key",
-    secret: true,
+    key: "OLLAMA_BASE_URL",
+    label: "Ollama base URL",
+    secret: false,
     required: true,
-    placeholder: "sk-ant-…",
-    help: "console.anthropic.com → API keys",
-    fallback: "required — the reasoning agents cannot run without it",
+    placeholder: "http://ollama:11434",
+    help: "Local Ollama HTTP API. Docker compose sets this to the bundled ollama service; local dev can use http://localhost:11434.",
+    fallback: "required — reasoning agents fail fast with no remote fallback",
+  },
+  {
+    key: "OLLAMA_MODEL",
+    label: "Ollama reasoning model",
+    secret: false,
+    placeholder: "llama3.1:8b",
+    help: "Model used for high/medium reasoning. Compose pulls this automatically on startup.",
+    fallback: "llama3.1:8b is used",
+  },
+  {
+    key: "OLLAMA_FAST_MODEL",
+    label: "Ollama fast model",
+    secret: false,
+    placeholder: "llama3.1:8b",
+    help: "Optional model for low-effort agents. Leave blank to use OLLAMA_MODEL for every reasoning call.",
+    fallback: "same model as OLLAMA_MODEL",
+  },
+  {
+    key: "OLLAMA_NUM_CTX",
+    label: "Ollama context window",
+    secret: false,
+    placeholder: "32768",
+    help: "Optional options.num_ctx passed to Ollama. Increase only if the host has enough RAM for long prompts and large structured outputs.",
+    fallback: "Ollama model default context is used",
   },
   {
     key: "ELEVENLABS_API_KEY",
@@ -114,10 +138,6 @@ export const CREDENTIALS: CredentialSpec[] = [
     help: "your own render service — docker compose up -d --build",
     fallback: "a fake renderer produces placeholder bytes",
   },
-  // --- YouTube -------------------------------------------------------------
-  // The OAuth trio is the durable path: refresh tokens do not expire, so the
-  // engine mints access tokens itself. The bare access token below is the
-  // one-hour stopgap kept for a quick manual test.
   {
     key: "YOUTUBE_CLIENT_ID",
     label: "YouTube OAuth client ID",
