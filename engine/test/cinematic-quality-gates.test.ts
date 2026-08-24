@@ -143,6 +143,28 @@ test("visual planner gate accepts crossing expressed through shot direction", ()
   assert.deepEqual(errors, []);
 });
 
+test("visual planner gate rejects a room A that only appears after the crossing beat", () => {
+  // The crossing beat is the very first scene, so there is no room A before it.
+  // An "office" scene appearing later (after the crossing) must not count as
+  // satisfying room A -- continuity requires ordering, not just presence anywhere.
+  const scenes = Array.from({ length: 13 }, (_, index) => {
+    const location = index === 0 ? "living-room" : index < 9 ? "kitchen" : "office";
+    const framing = index === 0 ? "doorway-transition" : ["two-shot", "prop-insert", "reaction-closeup", "over-shoulder", "payoff-hold"][index % 5];
+    const camera = index === 0 ? "doorway-track" : ["static", "push-in", "prop-focus", "reaction-push"][index % 4];
+    return visualScene(index, {
+      background_location: location,
+      framing,
+      camera_motion: camera,
+      primary_prop: index === 0 ? "door" : "charger",
+      foreground_action: index === 0 ? "Host crosses through the doorway into the kitchen" : "Host handles the charger",
+      ambient_motion: index === 0 ? "doorway-cross" : index % 2 === 0 ? "subtle-parallax" : "window-light",
+    });
+  });
+
+  const errors = agentSemanticValidationErrors(VISUAL_DEF, { scenes }, scriptInput(13, true));
+  assert.match(errors.join("\n"), /lacks ordered continuity/);
+});
+
 test("visual planner gate accepts a directed multi-location plan", () => {
   const scenes = Array.from({ length: 13 }, (_, index) => {
     const location = index < 3 ? "living-room" : index < 5 ? "hallway" : index < 10 ? "kitchen" : "office";

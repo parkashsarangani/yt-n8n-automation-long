@@ -285,7 +285,7 @@ function doorwayContinuityFailure(planned: PlanScene[]): string | null {
   const beforeCrossing = planned.slice(0, crossingIndex);
   const afterCrossing = planned.slice(crossingIndex + 1);
   const roomABeforeCrossing = beforeCrossing.find(isRoomALocation)?.background_location?.toLowerCase();
-  const hasRoomA = Boolean(roomABeforeCrossing) || planned.some(isRoomALocation);
+  const hasRoomA = Boolean(roomABeforeCrossing);
   const hasRoomB = afterCrossing.some((scene) => isRoomBLocation(scene, roomABeforeCrossing));
 
   if (!hasRoomA || !hasRoomB) {
