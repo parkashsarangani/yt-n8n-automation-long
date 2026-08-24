@@ -23,7 +23,7 @@ export const STAGES: StageSpec[] = [
     label: "Story, dialogue, visual direction and thumbnail planning",
     requires: [["OLLAMA_BASE_URL"]],
     optional: ["OLLAMA_MODEL", "OLLAMA_FAST_MODEL", "OLLAMA_NUM_CTX"],
-    real: "ollama/${OLLAMA_MODEL:-qwen2.5:1.5b}",
+    real: "ollama/${OLLAMA_MODEL:-llama3.1:8b}",
     fallback: "unavailable",
     consequence: "runs fail at the first reasoning node if the local Ollama service/model is unavailable — there is no remote fallback",
   },
@@ -135,7 +135,7 @@ export function capabilityReport(opts: {
     return {
       id: spec.id,
       label: spec.label,
-      provider: real ? spec.real.replace("${OLLAMA_MODEL:-qwen2.5:1.5b}", env["OLLAMA_MODEL"]?.trim() || "qwen2.5:1.5b") : spec.fallback,
+      provider: real ? spec.real.replace("${OLLAMA_MODEL:-llama3.1:8b}", env["OLLAMA_MODEL"]?.trim() || "llama3.1:8b") : spec.fallback,
       real,
       consequence: spec.consequence,
       missing: hasCreds ? [] : nearestMissing(spec, env),
