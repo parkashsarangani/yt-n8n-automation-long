@@ -63,9 +63,13 @@ test("agent output budgets stay bounded", () => {
     "visual_planner.json": 10000,
     // Real doorway-effect runs on 20+ scene episodes hit the 18k ceiling
     // after PR #97's heavier per-scene shot-direction schema: 3 of 4
-    // attempts truncated before finishing a 24-scene plan. Raised to give
-    // long episodes enough room to finish.
-    "cartoon_visual_planner.json": 26000,
+    // attempts truncated before finishing a 24-scene plan. Raised to 26k
+    // (PR #98), but production usage_json on the same 24-scene episode
+    // showed clean completions landing at 24196-24301 output tokens --
+    // right at the 26k edge, so some retries still truncated. Raised
+    // further to give real margin above the observed peak instead of
+    // sitting on the boundary.
+    "cartoon_visual_planner.json": 34000,
     // Real doorway-effect runs hit the 12k ceiling after PR #87. Keep this
     // Sonnet-class creative synthesis step bounded, but restore enough output
     // headroom to avoid truncating valid creative_direction JSON.
