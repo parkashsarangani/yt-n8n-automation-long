@@ -31,6 +31,44 @@ export interface PropAssetProps {
     zIndex?: number;
 }
 
+export const FALLBACK_GLYPH_BY_TYPE: Record<string, string> = {
+    phone: "▯",
+    cellphone: "▯",
+    charger: "ϟ",
+    "phone-charger": "ϟ",
+    clock: "◷",
+    "alarm clock": "◷",
+    keys: "⚿",
+    key: "⚿",
+    "route-map": "⌁",
+    map: "⌁",
+    calendar: "▦",
+    door: "▭",
+    doorway: "▭",
+    coffee: "☕",
+    mug: "☕",
+    shoes: "⌯",
+    shoe: "⌯",
+    laptop: "▰",
+    computer: "▰",
+    bed: "▱",
+    sheets: "▱",
+    window: "▢",
+    kettle: "♨",
+    food: "◒",
+    document: "▤",
+    file: "▤",
+    bill: "▧",
+    letter: "✉",
+    locker: "▥",
+    cabinet: "▥",
+    vehicle: "◖",
+    car: "◖",
+    tool: "◆",
+    appliance: "◉",
+    device: "◎",
+};
+
 function motionTransform(motion: string, frame: number): { x: number; y: number; scale: number; opacity: number } {
     const normalized = motion.toLowerCase();
     const pulse = 0.5 + Math.sin(frame / 6) * 0.5;
@@ -45,33 +83,40 @@ function motionTransform(motion: string, frame: number): { x: number; y: number;
 function assetSize(type?: string): { width: number; height: number } {
     switch (String(type ?? "").toLowerCase()) {
         case "laptop":
+        case "computer":
         case "route-map":
         case "map":
             return { width: 260, height: 188 };
         case "document":
         case "letter":
         case "bill":
+        case "file":
             return { width: 178, height: 210 };
         case "phone":
+        case "cellphone":
         case "charger":
         case "phone-charger":
             return { width: 156, height: 220 };
         case "car":
         case "vehicle":
+        case "shoes":
+        case "shoe":
             return { width: 260, height: 170 };
+        case "door":
+        case "window":
+        case "locker":
+        case "cabinet":
+        case "appliance":
+        case "device":
+            return { width: 190, height: 230 };
         default:
             return { width: 190, height: 190 };
     }
 }
 
 function fallbackGlyph(type?: string): string {
-    switch (String(type ?? "").toLowerCase()) {
-        case "window": return "▢";
-        case "tool": return "◆";
-        case "appliance":
-        case "device": return "◉";
-        default: return "●";
-    }
+    const normalized = String(type ?? "").toLowerCase().trim();
+    return FALLBACK_GLYPH_BY_TYPE[normalized] ?? "◌";
 }
 
 export function PropAsset({ prop, x, y, scale, rotate = "0deg", palette, lineWeight, shadow, zIndex = 7 }: PropAssetProps) {
