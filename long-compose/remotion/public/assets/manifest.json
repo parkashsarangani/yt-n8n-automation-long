@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "policy": {
+    "runtimeNetworkAccess": false,
+    "renderContract": "All referenced assets must resolve to files under long-compose/remotion/public/assets or to internal Remotion components. External APIs are allowed only during offline asset acquisition, never during render.",
+    "fallback": "If a registry asset is missing, renderer falls back to the existing JSX/generated background path."
+  },
+  "sources": [
+    {
+      "library": "scene-pack",
+      "purpose": "Complete local background scene plates and set pieces.",
+      "runtime": "local-svg",
+      "license": "CC0-1.0 or internally-authored equivalent"
+    },
+    {
+      "library": "iconify",
+      "purpose": "Small object and prop icons, vendored as SVG files.",
+      "runtime": "local-svg",
+      "license": "Per-icon-set; allowlist only Apache-2.0, MIT, CC0, or similarly permissive sets."
+    },
+    {
+      "library": "open-peeps",
+      "purpose": "Character parts and expression components, vendored as SVG files.",
+      "runtime": "local-svg",
+      "license": "CC0-1.0"
+    },
+    {
+      "library": "lottie",
+      "purpose": "Reusable motion/effect clips, vendored as JSON.",
+      "runtime": "local-lottie",
+      "license": "Allowlisted local files only."
+    },
+    {
+      "library": "remotion-bits",
+      "purpose": "Internal Remotion motion primitives and effects.",
+      "runtime": "remotion-component",
+      "license": "MIT"
+    }
+  ],
+  "assets": [
+    { "key": "scene:office:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/office/default.svg", "license": "CC0-1.0" },
+    { "key": "scene:kitchen:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/kitchen/default.svg", "license": "CC0-1.0" },
+    { "key": "scene:living-room:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/living-room/default.svg", "license": "CC0-1.0" },
+    { "key": "scene:hallway:default", "role": "scenePlate", "library": "scene-pack", "path": "assets/scene-plates/hallway/default.svg", "license": "CC0-1.0" },
+    { "key": "setpiece:doorway:local", "role": "setPiece", "library": "scene-pack", "path": "assets/set-pieces/doorway.svg", "license": "CC0-1.0" },
+    { "key": "prop:phone-charger:iconify", "role": "prop", "library": "iconify", "path": "assets/props/iconify/phone-charger.svg", "license": "Apache-2.0" },
+    { "key": "character:reaction-open-peeps", "role": "characterPart", "library": "open-peeps", "path": "assets/characters/open-peeps/reaction-head.svg", "license": "CC0-1.0" },
+    { "key": "motion:reaction-pop:remotion-bits", "role": "motionPreset", "library": "remotion-bits", "component": "reaction-pop", "license": "MIT" },
+    { "key": "motion:attention-pulse:lottie", "role": "motionPreset", "library": "lottie", "path": "assets/motion/lottie/attention-pulse.json", "license": "MIT" }
+  ]
+}
