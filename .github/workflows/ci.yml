@@ -20,8 +20,8 @@ jobs:
           set -e
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "default services: $services"
-          [ "$services" = "engine long-compose postgres " ] || {
-            echo "ERROR: expected exactly 'engine long-compose postgres' by default"
+          [ "$services" = "engine long-compose ollama ollama-model-pull postgres " ] || {
+            echo "ERROR: expected exactly 'engine long-compose ollama ollama-model-pull postgres' by default"
             exit 1
           }
 
