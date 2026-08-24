@@ -124,7 +124,7 @@ function GenericDressing({ frame }: { frame: number }) {
 export function SceneDressing({ background, frame }: SceneDressingProps) {
   const location = norm(background?.location);
   return (
-    <AbsoluteFill pointerEvents="none" data-art-direction="scene-dressing" style={{ zIndex: 2 }}>
+    <AbsoluteFill data-art-direction="scene-dressing" style={{ zIndex: 2, pointerEvents: "none" }}>
       {location === "kitchen" && <KitchenDressing frame={frame} />}
       {location === "living-room" && <LivingRoomDressing frame={frame} />}
       {location === "office" && <OfficeDressing frame={frame} />}
