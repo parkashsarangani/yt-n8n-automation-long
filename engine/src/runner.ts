@@ -290,6 +290,12 @@ export class Runner {
           started_at: startedAt,
           startedMs,
           error: semanticErrors.join("; "),
+          // Semantic gate rejections only ever recorded the error message,
+          // never the payload that triggered it -- undiagnosable after the
+          // fact without re-running (real cost) or guessing. The schema
+          // path above doesn't need this: SchemaValidationError already
+          // names the offending path/value per error.
+          detail: JSON.stringify(payload).slice(0, 50_000),
         });
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} failed semantic validation: ${semanticErrors.join("; ")}`,
