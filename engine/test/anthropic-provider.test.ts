@@ -67,6 +67,24 @@ test("streams instead of using create(), and calls finalMessage() for the result
   assert.equal(result.providerRef, "anthropic/claude-sonnet-5");
 });
 
+test("thinking: false omits the thinking field even on a model that supports it", async () => {
+  const calls: StreamCall[] = [];
+  const client = stubClient(
+    async () => ({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: '{"ok":true}' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+    calls,
+  );
+  const provider = new AnthropicProvider({ model: "claude-sonnet-5", client });
+
+  await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 26000, thinking: false });
+
+  assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), true, "model itself still supports thinking");
+  assert.equal("thinking" in calls[0]!.body, false, "the per-request opt-out should still win");
+});
+
 test("low-effort Sonnet requests use Haiku without unsupported model-specific parameters", async () => {
   const calls: StreamCall[] = [];
   const client = stubClient(

@@ -125,7 +125,7 @@ export class AnthropicProvider implements ModelProvider {
       const stream = this.client.messages.stream({
         model,
         max_tokens: req.maxOutputTokens ?? this.defaultMaxTokens,
-        ...(supportsAdaptiveThinking(model) ? { thinking: { type: "adaptive" } } : {}),
+        ...(supportsAdaptiveThinking(model) && req.thinking !== false ? { thinking: { type: "adaptive" } } : {}),
         output_config: outputConfig,
         messages: [{ role: "user", content: req.prompt }],
       } as Parameters<Anthropic["messages"]["stream"]>[0]);
