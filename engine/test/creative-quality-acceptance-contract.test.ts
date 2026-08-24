@@ -70,7 +70,7 @@ test("agent prompts are upgraded for authored output rather than generic renderi
   assert.match(dialoguePrompt, /no exact repeated caption lines/i);
   assert.match(dialoguePrompt, /payoff/i);
   assert.match(creativePrompt, /callback architecture/i);
-  assert.match(creativePrompt, /performance direction/i);
+  assert.match(creativePrompt, /performance notes/i);
   assert.match(visualPrompt, /shot recipe/i);
   assert.match(visualPrompt, /room A/i);
   assert.match(visualPrompt, /prop placement/i);
