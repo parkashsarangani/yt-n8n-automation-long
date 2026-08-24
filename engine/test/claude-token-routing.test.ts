@@ -59,7 +59,10 @@ test("agent output budgets stay bounded", () => {
     "dialogue_script_writer.json": 16000,
     "visual_planner.json": 10000,
     "cartoon_visual_planner.json": 16000,
-    "cartoon_creative_director.json": 12000,
+    // Real doorway-effect runs hit the 12k ceiling after PR #87. Keep this
+    // Sonnet-class creative synthesis step bounded, but restore enough output
+    // headroom to avoid truncating valid creative_direction JSON.
+    "cartoon_creative_director.json": 24000,
   };
 
   for (const [file, ceiling] of Object.entries(ceilings)) {
