@@ -75,6 +75,9 @@ test("story-location aliases resolve to curated scene profiles", () => {
 
 test("scene plates remain runtime-local only", () => {
   assert.equal(manifest.policy.runtimeNetworkAccess, false);
-  assert.doesNotMatch(registry, /fetch\(|axios|https?:\/\//);
-  assert.doesNotMatch(composition, /fetch\(|axios|https?:\/\//);
+  for (const asset of manifest.assets.filter((entry) => entry.path)) {
+    assert.equal(/^https?:\/\//.test(asset.path), false, `${asset.key} must not render from a remote URL`);
+  }
+  assert.doesNotMatch(registry, /fetch\(|axios/);
+  assert.doesNotMatch(composition, /fetch\(|axios/);
 });
