@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame } from "remotion";
 import { assetByKey, renderableLocalAsset, resolveScenePlate, resolveSetPieceAsset, type RegisteredAsset } from "../lib/assetRegistry";
 import { EnvironmentTone, getEnvironmentEffect } from "../lib/environment";
+import { SceneDressing } from "./SceneDressing";
 
 export interface BackgroundLayers {
     back?: boolean;
@@ -231,6 +232,7 @@ export const Background = ({ background, panX = 0 }: BackgroundProps) => {
     return (
         <AbsoluteFill style={{ overflow: "hidden" }}>
             <ScenePlate asset={scenePlate} />
+            <SceneDressing background={background} frame={frame} />
             {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}
             <SetPieceOverlay setPiece={setPiece} frame={frame} />
             <AmbientOverlay ambient={ambient} frame={frame} />
