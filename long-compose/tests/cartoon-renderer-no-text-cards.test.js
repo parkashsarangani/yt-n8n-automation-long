@@ -39,8 +39,8 @@ test("cartoon renderer draws every prompt-valid prop textlessly instead of dropp
 
   for (const type of VALID_PROP_TYPES) {
     const escaped = type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const hasAssetAlias = new RegExp(`${escaped}:\s*\"prop:`).test(registrySource) || new RegExp(`\"${escaped}\":\s*\"prop:`).test(registrySource);
-    const hasFallbackGlyph = new RegExp(`${escaped}:\s*\"`).test(propSource) || new RegExp(`\"${escaped}\":\s*\"`).test(propSource);
+    const hasAssetAlias = new RegExp(`${escaped}:\\s*\"prop:`).test(registrySource) || new RegExp(`\"${escaped}\":\\s*\"prop:`).test(registrySource);
+    const hasFallbackGlyph = new RegExp(`${escaped}:\\s*\"`).test(propSource) || new RegExp(`\"${escaped}\":\\s*\"`).test(propSource);
     assert.ok(hasAssetAlias || hasFallbackGlyph, `missing a drawn asset/fallback shape for prop type "${type}"`);
   }
 });
