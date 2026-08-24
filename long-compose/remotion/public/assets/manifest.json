@@ -5,7 +5,7 @@
     "renderContract": "All referenced assets must resolve to files under long-compose/remotion/public/assets or to internal Remotion components. External APIs are allowed only during offline asset acquisition, never during render.",
     "fallback": "If a registry asset is missing, renderer falls back to the existing JSX/generated background path.",
     "qualityTarget": "Prefer complete scene plates for story locations; layer characters, captions, and small props on top.",
-    "status": "PR93 establishes the local registry contract and starter placeholder assets; PR94 expands scene-plate coverage to 16 curated locations. None of the iconify/open-peeps/lottie examples are real imported third-party assets yet; those must be acquired offline and vendored later."
+    "status": "The registry supports scene-pack, Iconify, Open Peeps, Lottie, and Remotion Bits source families, with 16 curated scene-plate locations. Current SVG/JSON files are local starter/placeholder assets; none are real imported third-party assets yet, and each must be replaced by an offline-vendored asset before being treated as production art."
   },
   "sources": [
     {
