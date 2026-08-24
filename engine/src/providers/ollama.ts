@@ -15,7 +15,7 @@ import {
   type ProviderCapabilities,
 } from "../provider.ts";
 
-export const DEFAULT_OLLAMA_MODEL = "qwen2.5:1.5b";
+export const DEFAULT_OLLAMA_MODEL = "llama3.1:8b";
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 
 interface OllamaMessage {
@@ -39,7 +39,7 @@ interface OllamaChatResponse {
 }
 
 export interface OllamaProviderOptions {
-  /** Defaults to OLLAMA_MODEL, then qwen2.5:1.5b. */
+  /** Defaults to OLLAMA_MODEL, then llama3.1:8b. */
   model?: string;
   /** Defaults to OLLAMA_FAST_MODEL, then OLLAMA_MODEL, then model. */
   fastModel?: string;
