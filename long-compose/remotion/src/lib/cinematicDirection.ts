@@ -35,6 +35,16 @@ export type PhysicalPropPlacement =
     | "background-set-piece"
     | "ui-badge";
 
+export type ActingPreset =
+    | "neutral-hold"
+    | "notices-prop"
+    | "deadpan-side-eye"
+    | "double-take"
+    | "small-defeat"
+    | "reluctant-acceptance"
+    | "walk-cross"
+    | "payoff-freeze";
+
 export interface CinematicSceneSpec {
     shotRecipe?: CinematicShotRecipe | string;
     transition?: CinematicTransition | string;
@@ -44,6 +54,7 @@ export interface CinematicSceneSpec {
     sceneRole?: "setup" | "crossing" | "room-a" | "room-b" | "return" | "payoff" | "mechanism" | string;
     continuityGroup?: string;
     sfxCue?: "none" | "soft-hit" | "room-change" | "prop" | "reaction" | "payoff" | string;
+    actingPreset?: ActingPreset | string;
     qualityTags?: string[];
 }
 
@@ -91,6 +102,29 @@ export function normalizedShotRecipe(value?: string): CinematicShotRecipe {
         case "two-shot":
         default: return "two-shot";
     }
+}
+
+export function actingPresetFor(cinematic: CinematicSceneSpec | undefined): ActingPreset {
+    const requested = normalized(cinematic?.actingPreset);
+    switch (requested) {
+        case "notices-prop":
+        case "deadpan-side-eye":
+        case "double-take":
+        case "small-defeat":
+        case "reluctant-acceptance":
+        case "walk-cross":
+        case "payoff-freeze":
+        case "neutral-hold":
+            return requested;
+    }
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const role = normalized(cinematic?.sceneRole);
+    if (recipe === "crossing-transition" || role === "crossing") return "walk-cross";
+    if (recipe === "reaction-closeup") return "double-take";
+    if (recipe === "prop-insert") return "notices-prop";
+    if (recipe === "payoff-hold" || role === "payoff") return "payoff-freeze";
+    if (role === "return") return "reluctant-acceptance";
+    return "neutral-hold";
 }
 
 export function cinematicCameraStyle(cinematic: CinematicSceneSpec | undefined, frame: number, durationInFrames: number): CSSProperties {
@@ -161,6 +195,16 @@ export function cinematicTransitionStyle(cinematic: CinematicSceneSpec | undefin
 
 export function cinematicOverlayStyle(cinematic: CinematicSceneSpec | undefined): CSSProperties | null {
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const cue = normalized(cinematic?.sfxCue);
+    if (cue === "room-change") {
+        return { background: "linear-gradient(90deg, rgba(255,255,255,0.00), rgba(255,255,255,0.20), rgba(56,189,248,0.10), rgba(255,255,255,0.00))", opacity: 0.50 };
+    }
+    if (cue === "reaction") {
+        return { background: "radial-gradient(circle at 50% 42%, rgba(250,204,21,0.18) 0 18%, transparent 42%)", opacity: 0.44 };
+    }
+    if (cue === "prop") {
+        return { background: "radial-gradient(circle at 72% 66%, rgba(255,255,255,0.22), transparent 30%)", opacity: 0.42 };
+    }
     switch (recipe) {
         case "payoff-hold":
             return { background: "radial-gradient(circle at 50% 62%, transparent 0 46%, rgba(15,23,42,0.10) 82%)", opacity: 0.58 };
@@ -212,11 +256,41 @@ export function shouldRenderPropAsBadge(prop: ForegroundPropLike | undefined, pl
 
 export function cinematicCharacterLayerStyle(cinematic: CinematicSceneSpec | undefined): CSSProperties {
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
-    switch (recipe) {
-        case "establishing": return { transformOrigin: "50% 80%" };
-        case "prop-insert": return { transformOrigin: "64% 82%" };
-        case "reaction-closeup": return { transformOrigin: "50% 74%" };
-        case "crossing-transition": return { transformOrigin: "45% 80%" };
-        default: return { transformOrigin: "50% 78%" };
+    const preset = actingPresetFor(cinematic);
+    const base: CSSProperties = (() => {
+        switch (recipe) {
+            case "establishing": return { transformOrigin: "50% 80%" };
+            case "prop-insert": return { transformOrigin: "64% 82%" };
+            case "reaction-closeup": return { transformOrigin: "50% 74%" };
+            case "crossing-transition": return { transformOrigin: "45% 80%" };
+            default: return { transformOrigin: "50% 78%" };
+        }
+    })();
+    return { ...base, filter: preset === "payoff-freeze" ? "drop-shadow(0 10px 18px rgba(15,23,42,0.14))" : base.filter };
+}
+
+export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | undefined, frame: number): string {
+    const preset = actingPresetFor(cinematic);
+    const beat = Math.sin(frame / 5.8);
+    const slow = Math.sin(frame / 18);
+    switch (preset) {
+        case "walk-cross": {
+            const entry = easeInOutCubic(Math.min(frame, 22) / 22);
+            return `translateX(${(-58 + entry * 58).toFixed(2)}px) translateY(${(Math.abs(beat) * -5).toFixed(2)}px)`;
+        }
+        case "double-take":
+            return `translateX(${(frame < 8 ? -4 + frame : slow * 2).toFixed(2)}px) rotate(${(slow * 0.35).toFixed(2)}deg)`;
+        case "notices-prop":
+            return `translateY(${(Math.min(frame, 12) / 12 * -7).toFixed(2)}px)`;
+        case "small-defeat":
+            return `translateY(${(Math.min(frame, 18) / 18 * 6).toFixed(2)}px) rotate(${(slow * -0.25).toFixed(2)}deg)`;
+        case "reluctant-acceptance":
+            return `translateY(${(Math.sin(frame / 24) * 2).toFixed(2)}px) rotate(${(Math.sin(frame / 30) * 0.22).toFixed(2)}deg)`;
+        case "payoff-freeze":
+            return `translateY(${(Math.sin(frame / 46) * 1.2).toFixed(2)}px)`;
+        case "deadpan-side-eye":
+        case "neutral-hold":
+        default:
+            return "";
     }
 }
