@@ -38,7 +38,7 @@ jobs:
           # Unset secrets arrive as empty strings, which the engine treats as
           # "not configured". FAL_KEY is required for production cartoon
           # thumbnails and is asserted again after deployment below.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
           FAL_KEY: ${{ secrets.FAL_KEY }}

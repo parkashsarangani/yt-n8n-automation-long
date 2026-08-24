@@ -27,11 +27,11 @@ test("low-risk agents still request low-effort fast reasoning", () => {
   for (const file of lowRisk) {
     const def = agent(file);
     assert.equal(def.model.capability, "reasoning_fast", `${def.name} should use the fast capability`);
-    assert.equal(def.model.effort, "low", `${def.name} should be eligible for the local fast model`);
+    assert.equal(def.model.effort, "low", `${def.name} should be eligible for the fast/cheap reasoning tier`);
   }
 });
 
-test("core creative cartoon agents do not request low-effort local routing", () => {
+test("core creative cartoon agents do not request low-effort routing", () => {
   const protectedAgents = [
     "story_architect.json",
     "script_writer.json",
@@ -43,7 +43,7 @@ test("core creative cartoon agents do not request low-effort local routing", () 
 
   for (const file of protectedAgents) {
     const def = agent(file);
-    assert.notEqual(def.model.effort, "low", `${def.name} should stay on the main local reasoning model`);
+    assert.notEqual(def.model.effort, "low", `${def.name} should stay on the main reasoning tier`);
   }
 });
 
@@ -79,28 +79,27 @@ test("prompt input compression is wired into the runner", () => {
   assert.doesNotMatch(runner, /JSON\.stringify\(artifact\.payload, null, 2\)/);
 });
 
-test("engine provider layer no longer imports the Anthropic SDK", () => {
-  const provider = readFileSync(new URL("../src/providers/anthropic.ts", import.meta.url), "utf8");
+test("engine no longer imports the Anthropic SDK or the old compat shim", () => {
   const pkg = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+  const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
 
-  assert.doesNotMatch(provider, /@anthropic-ai\/sdk/);
   assert.doesNotMatch(pkg, /@anthropic-ai\/sdk/);
-  assert.match(provider, /OllamaProvider/);
+  assert.doesNotMatch(service, /providers\/anthropic\.ts/);
+  assert.match(service, /providers\/openai\.ts/);
 });
 
 test("run-start preflight checks gate on the credential that is actually required", () => {
-  // PR #101 moved reasoning to Ollama-only, but these two hardcoded
-  // pre-flight checks in service.ts still gated on ANTHROPIC_API_KEY --
-  // a variable docker-compose.yml no longer sets at all -- so every
-  // startRun/startCartoonRun call failed unconditionally with
-  // "ANTHROPIC_API_KEY is not set" even though Ollama was fully
-  // configured and healthy. Neither call site had any test coverage, so
-  // 312 passing tests and a green CI both missed it; this run() alone
-  // isn't a substitute for a real startRun() test, but does force this
-  // specific regression to fail loudly if it recurs.
+  // PR #101 moved reasoning to Ollama-only, but two hardcoded pre-flight
+  // checks in service.ts kept gating on ANTHROPIC_API_KEY, which
+  // docker-compose.yml no longer set at all -- every startRun/
+  // startCartoonRun call failed unconditionally even with Ollama fully
+  // configured. Neither call site had test coverage at the time. Reasoning
+  // has since moved to OpenAI; keep the same regression class covered
+  // against whatever credential is actually required now.
   const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(service, /ANTHROPIC_API_KEY/);
-  const matches = service.match(/OLLAMA_BASE_URL.*is not set/g) ?? [];
-  assert.equal(matches.length, 2, "startRun and startCartoonRun should both gate on OLLAMA_BASE_URL");
+  assert.doesNotMatch(service, /OLLAMA_BASE_URL/);
+  const matches = service.match(/OPENAI_API_KEY.*is not set/g) ?? [];
+  assert.equal(matches.length, 2, "startRun and startCartoonRun should both gate on OPENAI_API_KEY");
 });
