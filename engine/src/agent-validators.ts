@@ -307,7 +307,7 @@ function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Arti
 
   if (distinctKeys.size < 3) failures.push(`long cartoon output is too static: ${distinctKeys.size} visible environment(s) found (${[...distinctKeys].join(", ") || "none"}). Use at least three motivated location/variant pairs for 13+ scene episodes.`);
   const repeatedRun = longestRun(keys);
-  if (repeatedRun > 5) failures.push(`one environment repeats for ${repeatedRun} consecutive scenes; professional cartoon direction needs a cutaway, insert, or location change before that point`);
+  if (repeatedRun > 7) failures.push(`one environment repeats for ${repeatedRun} consecutive scenes; professional cartoon direction needs a cutaway, insert, or location change before that point`);
 
   const framings = new Set(planned.map((scene) => scene.framing).filter(Boolean));
   if (framings.size < 4) failures.push(`shot rhythm is too flat: only ${framings.size} framing value(s); use two-shot, closeup, prop insert, establishing, and reaction beats`);

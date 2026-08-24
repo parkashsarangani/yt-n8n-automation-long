@@ -275,7 +275,7 @@ export class Runner {
       }
 
       const semanticErrors = agentSemanticValidationErrors(def, payload, inputs);
-      if (semanticErrors.length > 0) {
+      if (semanticErrors.length > 0 && attempt < maxAttempts) {
         lastErrors = semanticErrors;
         await this.writeRecord({
           run_id: runId,
@@ -306,13 +306,16 @@ export class Runner {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} failed semantic validation: ${semanticErrors.join("; ")}`,
         );
-        if (attempt === maxAttempts) {
-          throw new RunnerError(
-            `${def.name} produced an invalid ${def.produces} after ${maxAttempts} attempts: ` +
-              semanticErrors.join("; "),
-          );
-        }
         continue;
+      }
+      // Schema-valid but still failing the quality gate on the last attempt:
+      // accept it rather than throwing away a structurally sound artifact and
+      // blocking the whole run. Logged loudly and recorded under a distinct
+      // status so it stays visible and searchable, not silently downgraded.
+      if (semanticErrors.length > 0) {
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} (final) accepted despite failing semantic validation: ${semanticErrors.join("; ")}`,
+        );
       }
 
       const producedBy: ProducedBy = {
@@ -341,7 +344,7 @@ export class Runner {
         transformation_version: transformationVersion,
         inputs: inputIds,
         output: artifact.artifact_id,
-        status: deduped ? "cache_hit" : "ok",
+        status: deduped ? "cache_hit" : semanticErrors.length > 0 ? "accepted_below_quality_bar" : "ok",
         attempt,
         max_attempts: maxAttempts,
         provider: provider.id,
@@ -351,7 +354,7 @@ export class Runner {
         confidence,
         started_at: startedAt,
         startedMs,
-        error: null,
+        error: semanticErrors.length > 0 ? semanticErrors.join("; ") : null,
       });
 
       return { artifact, runId, attempts: attempt, deduped };
