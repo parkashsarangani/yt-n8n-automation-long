@@ -54,7 +54,7 @@ test("production prop pack is vendored locally from permissive Iconify-compatibl
 test("asset registry resolves common foreground prop aliases", () => {
   assert.match(registry, /resolvePropAsset/);
   for (const alias of ["charger", "keys", "laptop", "calendar", "clock", "mug", "document", "route-map", "bed", "vehicle"]) {
-    assert.match(registry, new RegExp(`${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`), `${alias} alias should be mapped`);
+    assert.ok(registry.includes(`${alias}:`) || registry.includes(`"${alias}":`), `${alias} alias should be mapped`);
   }
 });
 
