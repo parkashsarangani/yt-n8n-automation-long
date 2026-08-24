@@ -11,7 +11,7 @@
   "prompt": "cartoon_creative_director@3",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 12000,
+    "max_output_tokens": 24000,
     "effort": "medium"
   },
   "confidence_dimensions": ["character_voice", "blocking_specificity", "metaphor_specificity", "callback_strength", "renderability", "rhythm_variety"],
