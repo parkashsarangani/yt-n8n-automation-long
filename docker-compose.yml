@@ -25,6 +25,35 @@ services:
       timeout: 3s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # One-shot model bootstrap. It is intentionally part of compose so a fresh
+  # server does not start the engine before the local reasoning model exists.
+  ollama-model-pull:
+    image: ollama/ollama:latest
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+    command: ["/bin/sh", "-lc", "ollama pull \"$OLLAMA_MODEL\""]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   engine:
     build: ./engine
     restart: unless-stopped
@@ -34,7 +63,12 @@ services:
       DATABASE_URL: postgres://vidgen:${POSTGRES_PASSWORD:-vidgen_dev}@postgres:5432/vidgen
       COMPOSE_URL: http://long-compose:4000
 
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Local-only reasoning. There is no Anthropic/remote fallback.
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-${OLLAMA_MODEL:-llama3.1:8b}}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
+
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
@@ -62,6 +96,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-model-pull:
+        condition: service_completed_successfully
       long-compose:
         condition: service_healthy
 
@@ -117,6 +155,7 @@ services:
 
 volumes:
   pg_data:
+  ollama_data:
   vidgen_data:
   long_outputs:
   long_data:
