@@ -11,7 +11,14 @@ concurrency:
 jobs:
   validate:
     name: Build and test
-    runs-on: self-hosted
+    # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
+    # images against fakes, it needs no production secrets or state. Keeping
+    # it off the self-hosted runner stops every PR push from competing with
+    # the live production engine (and, once Ollama lands, a loaded local
+    # model) for RAM/CPU on that box. deploy.yml stays self-hosted -- it
+    # deploys onto this exact host and a hosted runner cannot reach its
+    # Docker daemon.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
