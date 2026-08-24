@@ -212,8 +212,8 @@ function ensureForegroundProp(compiled: Record<string, unknown>, scene: Creative
   visualEvent.foregroundProp = {
     ...existing,
     type: existing.type ?? propType,
-    state: existing.state ?? clean(scene.foreground_prop.state, 80) || "present",
-    motion: existing.motion ?? clean(scene.foreground_prop.motion, 40) || "settle",
+    state: existing.state ?? (clean(scene.foreground_prop.state, 80) || "present"),
+    motion: existing.motion ?? (clean(scene.foreground_prop.motion, 40) || "settle"),
     anchor: placement,
     placement,
     renderMode: "physical",
@@ -241,8 +241,8 @@ function sanitizeSetPieceForeground(compiled: Record<string, unknown>, scene: Cr
 function shotRecipeFor(scene: CreativeScene, index: number, total: number, setPiece: SetPieceSpec | null, role: SceneRole): ShotRecipe {
   const prop = foregroundPropKind(scene);
   const text = sceneText(scene);
-  if (index === 0) return "establishing";
   if (role === "crossing" || setPiece?.kind === "doorway") return "crossing-transition";
+  if (index === 0) return "establishing";
   if (scene.callback_role === "payoff" || role === "payoff") return "payoff-hold";
   if (scene.callback_role === "escalation") return "callback-reveal";
   if (prop && prop !== "none" && !SET_PIECE_PROPS.has(prop) && (/\b(?:prop|object|grab|shows|points|practical|attempt|payoff|callback|central)\b/.test(text) || index % 5 === 2)) return "prop-insert";

@@ -99,6 +99,7 @@ test("ordinary props become physical cinematic foreground objects", () => {
   };
 
   const [staged] = applyRendererStaging(entries, creative);
+  assert.ok(staged);
   const compiled = JSON.parse(staged.template_data) as Record<string, any>;
   assert.equal(compiled.visualEvent.foregroundProp.type, "charger");
   assert.equal(compiled.visualEvent.foregroundProp.renderMode, "physical");

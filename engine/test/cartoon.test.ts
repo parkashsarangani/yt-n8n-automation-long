@@ -170,7 +170,7 @@ test("cartoon_visual_planner produces a schema-valid template_category=cartoon p
   const payload = out.artifact.payload as typeof CARTOON_PLAN_PAYLOAD;
 
   assert.equal(out.artifact.schema_id, "visual_plan");
-  assert.equal(out.artifact.schema_version, "1.7.0");
+  assert.equal(out.artifact.schema_version, "1.8.0");
   const knownIds = new Set(CAST_ROSTER.characters.map((c) => c.character_id));
   for (const scene of payload.scenes) {
     assert.equal(scene.template_category, "cartoon");

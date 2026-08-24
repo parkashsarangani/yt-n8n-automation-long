@@ -42,9 +42,10 @@ test("quality gates cover dialogue duplication and visual stasis", () => {
   for (const token of [
     "duplicateDialogueFailures",
     "nearly repeats",
-    "repeated openings",
+    "opening phrase",
     "too static",
-    "framing/camera",
+    "shot rhythm is too flat",
+    "camera direction is too flat",
     "doorway",
   ]) {
     assert.match(validator, new RegExp(token));

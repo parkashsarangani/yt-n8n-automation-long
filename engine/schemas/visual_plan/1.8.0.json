@@ -1,0 +1,69 @@
+{
+  "schema_id": "visual_plan",
+  "version": "1.8.0",
+  "status": "draft",
+  "description": "Cartoon shot-direction contract with deterministic direction primitives, foreground prop staging, ambient background motion, and active-speaker readability. Adds establishing/prop-insert framing and reaction-push/prop-focus/doorway-track/payoff-hold camera motion so the planner can satisfy the shot-rhythm variety gate. The deterministic cartoon scene compiler owns Remotion props and older visual_plan versions remain readable for resume compatibility.",
+  "produced_by": ["cartoon_visual_planner"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CartoonVisualPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["scenes"],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "template_category",
+            "background_location",
+            "background_variant",
+            "background_tone",
+            "framing",
+            "camera_motion",
+            "listener_actor_id",
+            "speaker_emotion",
+            "speaker_gesture",
+            "speaker_gaze_target",
+            "listener_emotion",
+            "listener_gesture",
+            "listener_gaze_target",
+            "visual_event",
+            "ambient_motion",
+            "speaker_emphasis",
+            "cutaway_label"
+          ],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "template_category": { "type": "string", "enum": ["cartoon"] },
+            "background_location": { "type": "string", "enum": ["airplane-cabin", "airport-gate", "bedroom", "cafe", "classroom", "engineering-lab", "generic-room", "hospital-room", "kitchen", "living-room", "office", "park", "school-hallway", "street"] },
+            "background_variant": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "background_tone": { "type": "string", "enum": ["neutral", "scary", "happy", "dramatic", "cold", "warm"] },
+            "framing": { "type": "string", "enum": ["establishing", "two-shot", "speaker-closeup", "listener-closeup", "prop-insert"] },
+            "camera_motion": { "type": "string", "enum": ["static", "push-in", "pull-out", "pan-left", "pan-right", "reaction-push", "prop-focus", "doorway-track", "payoff-hold"] },
+            "listener_actor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 40 },
+            "speaker_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "speaker_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "speaker_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "listener_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
+            "listener_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
+            "listener_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] },
+            "visual_event": { "type": "string", "enum": ["none", "alarm-pulse", "screen-change", "audience-silhouette", "metaphor-cutaway", "prop-tremble", "thought-bubble", "reaction-pop", "callback-card"] },
+            "ambient_motion": { "type": "string", "enum": ["none", "subtle-parallax", "window-light", "monitor-glow", "chart-wiggle", "clock-tick", "rain-window", "dust-float"] },
+            "speaker_emphasis": { "type": "string", "enum": ["none", "scale-pop", "rim-glow", "listener-dim", "caption-anchor"] },
+            "cutaway_label": { "type": "string", "maxLength": 80 },
+            "primary_prop": { "type": "string", "maxLength": 40, "description": "Optional visible foreground object/interface in this scene, or none. The compiler can also derive this from script point metadata." },
+            "prop_state": { "type": "string", "maxLength": 60, "description": "Optional visible state of the foreground object, such as phone-unlocked, lock-screen-glow, notification-badge, face-down, across-room, kettle-replacement, open, closed, or none." },
+            "prop_motion": { "type": "string", "enum": ["none", "pulse", "glow", "tremble", "slide-away", "thumb-hover", "open", "close", "bounce"] },
+            "foreground_action": { "type": "string", "maxLength": 120, "description": "Optional visible foreground-object action. The compiler can also derive this from script point metadata." }
+          }
+        }
+      }
+    }
+  }
+}

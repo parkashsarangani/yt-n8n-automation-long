@@ -201,7 +201,7 @@ test("creative taste gates accept strong direction and apply blocking to render 
   assert.equal(compiled.creativeTasteGate?.version, "12");
   assert.equal(compiled.creativeTasteGate?.powerShift, "Buddy takes control by turning the object over");
   assert.equal(speaker?.x, 690);
-  assert.equal(compiled.visualEvent?.foregroundProp?.anchor, "hand");
+  assert.equal(compiled.visualEvent?.foregroundProp?.anchor, "hand-held");
 });
 
 test("creative taste gate rejects missing callback escalation", async () => {

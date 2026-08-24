@@ -6,8 +6,8 @@ const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/8.md", im
 const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", import.meta.url), "utf8");
 
 test("dialogue writer uses v8 naturalness prompt", () => {
-  assert.match(agent, /"version":\s*"8"/);
-  assert.match(agent, /"prompt":\s*"dialogue_script_writer@8"/);
+  assert.match(agent, /"version":\s*"9"/);
+  assert.match(agent, /"prompt":\s*"dialogue_script_writer@9"/);
 });
 
 test("v8 prompt blocks the unnatural patterns seen in the doorway render", () => {
