@@ -21,10 +21,11 @@ export const STAGES: StageSpec[] = [
   {
     id: "reasoning",
     label: "Story, dialogue, visual direction and thumbnail planning",
-    requires: [["ANTHROPIC_API_KEY"]],
-    real: "anthropic/claude-sonnet-5",
+    requires: [["OLLAMA_BASE_URL"]],
+    optional: ["OLLAMA_MODEL", "OLLAMA_FAST_MODEL", "OLLAMA_NUM_CTX"],
+    real: "ollama/${OLLAMA_MODEL:-llama3.1:8b}",
     fallback: "unavailable",
-    consequence: "runs fail at the first reasoning node — there is no offline fallback for creative planning",
+    consequence: "runs fail at the first reasoning node if the local Ollama service/model is unavailable — there is no remote fallback",
   },
   {
     id: "speech",
@@ -134,7 +135,7 @@ export function capabilityReport(opts: {
     return {
       id: spec.id,
       label: spec.label,
-      provider: real ? spec.real : spec.fallback,
+      provider: real ? spec.real.replace("${OLLAMA_MODEL:-llama3.1:8b}", env["OLLAMA_MODEL"]?.trim() || "llama3.1:8b") : spec.fallback,
       real,
       consequence: spec.consequence,
       missing: hasCreds ? [] : nearestMissing(spec, env),
