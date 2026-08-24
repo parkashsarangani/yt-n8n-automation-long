@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import { AbsoluteFill, Img, staticFile, useCurrentFrame } from "remotion";
+import { assetByKey, renderableLocalAsset, resolveScenePlate, resolveSetPieceAsset, type RegisteredAsset } from "../lib/assetRegistry";
 import { EnvironmentTone, getEnvironmentEffect } from "../lib/environment";
 
 export interface BackgroundLayers {
@@ -17,6 +19,12 @@ export interface BackgroundSetPiece {
     kind?: BackgroundSetPieceKind;
     motion?: "still" | "cross" | "glow" | "settle";
     emphasis?: "low" | "medium" | "high";
+    assetKey?: string;
+}
+
+export interface BackgroundScenePlate {
+    assetKey?: string;
+    enabled?: boolean;
 }
 
 export interface BackgroundSpec {
@@ -24,6 +32,7 @@ export interface BackgroundSpec {
     variant?: string;
     tone?: EnvironmentTone;
     ambientMotion?: AmbientMotion;
+    scenePlate?: BackgroundScenePlate;
     setPiece?: BackgroundSetPiece;
     /** Backwards-compatible flag from compiler v14 doorway staging. Prefer `setPiece.kind = "doorway"`. */
     doorwaySetPiece?: boolean;
@@ -47,31 +56,29 @@ interface AmbientFrameMath {
     rain: number;
 }
 
-// Layers move at different fractions of the camera pan — distant layers
-// shift less than near ones, the standard cheap-parallax trick.
 const PARALLAX = { back: 0.2, middle: 0.55, front: 1.0 };
-
-// Every background layer is drawn at viewBox="0 0 1920 1080" — exactly the
-// output frame, no hand-authored margin. A pan would reveal a hard edge at
-// that native size, so the safety margin lives here instead: each layer is
-// scaled up slightly and only then panned, which is more robust than relying
-// on generated art to leave an exact overscan border. At OVERSCAN=1.15 a
-// 1920-wide layer becomes ~2208px, giving ~144px of pan budget per side —
-// keep camera.panFrom/panTo within roughly ±120px to stay inside it.
 const OVERSCAN = 1.15;
 
-const panWrapperStyle = (offsetX: number, offsetY = 0): React.CSSProperties => ({
+const panWrapperStyle = (offsetX: number, offsetY = 0): CSSProperties => ({
     position: "absolute",
     inset: 0,
     transform: `translate(${offsetX}px, ${offsetY}px)`,
 });
 
-const overscanImgStyle: React.CSSProperties = {
+const overscanImgStyle: CSSProperties = {
     position: "absolute",
     inset: 0,
     width: "100%",
     height: "100%",
     transform: `scale(${OVERSCAN})`,
+};
+
+const scenePlateStyle: CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
 };
 
 function assertNever(value: never): never {
@@ -94,6 +101,18 @@ function ambientOffset(layer: keyof BackgroundLayers, ambient: AmbientMotion, ba
         case "doorway-cross": return { x: slow * 5, y: slower * 1.2 };
         default: return assertNever(ambient);
     }
+}
+
+function scenePlateFor(background: BackgroundSpec): RegisteredAsset | undefined {
+    if (background.scenePlate?.enabled === false) return undefined;
+    const explicit = assetByKey(background.scenePlate?.assetKey);
+    if (explicit?.role === "scenePlate") return explicit;
+    return resolveScenePlate({ location: background.location, variant: background.variant });
+}
+
+function ScenePlate({ asset }: { asset?: RegisteredAsset }) {
+    if (!renderableLocalAsset(asset) || asset.role !== "scenePlate") return null;
+    return <Img src={staticFile(asset.source.path)} style={scenePlateStyle} />;
 }
 
 function DoorwaySetPiece({ frame }: { frame: number }) {
@@ -126,16 +145,24 @@ function VehicleSetPiece() {
     return <div style={{ position: "absolute", left: 106, bottom: 82, width: 420, height: 168 }}><div style={{ position: "absolute", left: 34, top: 48, width: 350, height: 86, borderRadius: "34px 34px 18px 18px", background: "rgba(56,189,248,0.88)", boxShadow: "0 18px 42px rgba(15,23,42,0.18)" }} /><div style={{ position: "absolute", left: 126, top: 10, width: 170, height: 58, borderRadius: "24px 24px 0 0", background: "rgba(147,197,253,0.92)", border: "8px solid rgba(30,58,138,0.62)" }} /><div style={{ position: "absolute", left: 72, top: 114, width: 66, height: 66, borderRadius: 66, background: "#1E293B", border: "8px solid #475569" }} /><div style={{ position: "absolute", right: 72, top: 114, width: 66, height: 66, borderRadius: 66, background: "#1E293B", border: "8px solid #475569" }} /></div>;
 }
 
+function LocalSetPieceAsset({ asset }: { asset?: RegisteredAsset }) {
+    if (!renderableLocalAsset(asset) || asset.source.kind !== "local-svg") return null;
+    return <Img src={staticFile(asset.source.path)} style={{ position: "absolute", left: 86, top: 70, width: asset.width ?? 420, height: asset.height ?? 620, objectFit: "contain" }} />;
+}
+
 function SetPieceOverlay({ setPiece, frame }: { setPiece?: BackgroundSetPiece; frame: number }) {
     if (!setPiece?.kind) return null;
-    switch (setPiece.kind) {
-        case "doorway": return <AbsoluteFill style={{ pointerEvents: "none" }}><DoorwaySetPiece frame={frame} /></AbsoluteFill>;
-        case "window": return <AbsoluteFill style={{ pointerEvents: "none" }}><WindowSetPiece frame={frame} /></AbsoluteFill>;
-        case "bed": return <AbsoluteFill style={{ pointerEvents: "none" }}><BedSetPiece /></AbsoluteFill>;
-        case "locker": return <AbsoluteFill style={{ pointerEvents: "none" }}><LockerSetPiece frame={frame} motion={setPiece.motion} /></AbsoluteFill>;
-        case "vehicle": return <AbsoluteFill style={{ pointerEvents: "none" }}><VehicleSetPiece /></AbsoluteFill>;
-        default: return assertNever(setPiece.kind);
-    }
+    const asset = assetByKey(setPiece.assetKey) ?? resolveSetPieceAsset(setPiece.kind);
+    return (
+        <AbsoluteFill style={{ pointerEvents: "none" }}>
+            <LocalSetPieceAsset asset={asset} />
+            {!asset && setPiece.kind === "doorway" && <DoorwaySetPiece frame={frame} />}
+            {setPiece.kind === "window" && <WindowSetPiece frame={frame} />}
+            {setPiece.kind === "bed" && <BedSetPiece />}
+            {setPiece.kind === "locker" && <LockerSetPiece frame={frame} motion={setPiece.motion} />}
+            {setPiece.kind === "vehicle" && <VehicleSetPiece />}
+        </AbsoluteFill>
+    );
 }
 
 function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: number }) {
@@ -161,20 +188,32 @@ function AmbientOverlay({ ambient, frame }: { ambient: AmbientMotion; frame: num
     }
 }
 
-export const Background: React.FC<BackgroundProps> = ({ background, panX = 0 }) => {
+function BackgroundLayersView({ background, panX, ambientBase, ambient }: { background: BackgroundSpec; panX: number; ambientBase: AmbientFrameMath; ambient: AmbientMotion }) {
+    if (!background.location || !background.variant) return null;
+    const src = (layer: keyof BackgroundLayers) => staticFile(`backgrounds/${background.location}/${background.variant}/${layer}.svg`);
+    const layerStyleFor = (layer: keyof BackgroundLayers) => {
+        const offset = ambientOffset(layer, ambient, ambientBase);
+        return panWrapperStyle(panX * PARALLAX[layer] + offset.x, offset.y);
+    };
+    return (
+        <>
+            {background.layers?.back && <div style={layerStyleFor("back")}><Img src={src("back")} style={overscanImgStyle} /></div>}
+            {background.layers?.middle && <div style={layerStyleFor("middle")}><Img src={src("middle")} style={overscanImgStyle} /></div>}
+            {background.layers?.front && <div style={layerStyleFor("front")}><Img src={src("front")} style={overscanImgStyle} /></div>}
+        </>
+    );
+}
+
+export const Background = ({ background, panX = 0 }: BackgroundProps) => {
     const frame = useCurrentFrame();
-    if (background?.flat) {
-        return <AbsoluteFill style={{ backgroundColor: background.flat }} />;
-    }
-
+    if (background?.flat) return <AbsoluteFill style={{ backgroundColor: background.flat }} />;
     if (!background?.location || !background?.variant) return null;
-
-    const src = (layer: keyof BackgroundLayers) =>
-        staticFile(`backgrounds/${background.location}/${background.variant}/${layer}.svg`);
 
     const effect = getEnvironmentEffect(background.tone);
     const ambient = background.ambientMotion ?? "none";
     const setPiece = background.setPiece ?? (background.doorwaySetPiece ? { kind: "doorway" as const, motion: "cross" as const } : undefined);
+    const scenePlate = scenePlateFor(background);
+    const replaceLayers = scenePlate?.compositeMode === "replace-background";
     const ambientBase: AmbientFrameMath = {
         slow: Math.sin(frame / 95),
         slower: Math.cos(frame / 131),
@@ -182,44 +221,16 @@ export const Background: React.FC<BackgroundProps> = ({ background, panX = 0 }) 
         tick: frame % 30 < 3,
         rain: (frame % 18) / 18,
     };
-    const layerStyleFor = (layer: keyof BackgroundLayers) => {
-        const offset = ambientOffset(layer, ambient, ambientBase);
-        return panWrapperStyle(panX * PARALLAX[layer] + offset.x, offset.y);
-    };
 
     return (
         <AbsoluteFill style={{ overflow: "hidden" }}>
-            {background.layers?.back && (
-                <div style={layerStyleFor("back")}>
-                    <Img src={src("back")} style={overscanImgStyle} />
-                </div>
-            )}
-            {background.layers?.middle && (
-                <div style={layerStyleFor("middle")}>
-                    <Img src={src("middle")} style={overscanImgStyle} />
-                </div>
-            )}
-            {background.layers?.front && (
-                <div style={layerStyleFor("front")}>
-                    <Img src={src("front")} style={overscanImgStyle} />
-                </div>
-            )}
-
+            <ScenePlate asset={scenePlate} />
+            {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}
             <SetPieceOverlay setPiece={setPiece} frame={frame} />
             <AmbientOverlay ambient={ambient} frame={frame} />
-
-            {effect.fog > 0 && (
-                <AbsoluteFill
-                    style={{
-                        background: "radial-gradient(ellipse at 50% 65%, rgba(255,255,255,0.7), transparent 70%)",
-                        opacity: effect.fog,
-                    }}
-                />
-            )}
+            {effect.fog > 0 && <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 65%, rgba(255,255,255,0.7), transparent 70%)", opacity: effect.fog }} />}
             {effect.tint !== "rgba(0,0,0,0)" && <AbsoluteFill style={{ background: effect.tint }} />}
-            {effect.vignette > 0 && (
-                <AbsoluteFill style={{ boxShadow: `inset 0 0 260px rgba(0,0,0,${effect.vignette})` }} />
-            )}
+            {effect.vignette > 0 && <AbsoluteFill style={{ boxShadow: `inset 0 0 260px rgba(0,0,0,${effect.vignette})` }} />}
         </AbsoluteFill>
     );
 };
