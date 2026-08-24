@@ -49,7 +49,18 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-    command: ["/bin/sh", "-lc", "ollama pull \"$OLLAMA_MODEL\""]
+    # The ollama/ollama image bakes in ENTRYPOINT ["/bin/ollama"], so
+    # `command` alone is appended as args to that binary, not run as a
+    # shell script -- it fails instantly with 'unknown command "/bin/sh"
+    # for "ollama"'. Override the entrypoint itself to actually get a
+    # shell. $$ (not $) escapes the substitution so Compose passes a
+    # literal $OLLAMA_MODEL through to the container's own shell, which
+    # resolves it from the environment: block above at runtime -- a bare
+    # $OLLAMA_MODEL here is interpolated by Compose itself at parse time
+    # using the host shell's environment, which doesn't have it set, so it
+    # silently became "" pulling nothing.
+    entrypoint: ["/bin/sh", "-lc"]
+    command: ["ollama pull \"$$OLLAMA_MODEL\""]
     depends_on:
       ollama:
         condition: service_healthy
