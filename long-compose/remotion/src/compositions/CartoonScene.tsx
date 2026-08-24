@@ -1,7 +1,7 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
-import { Character, CharacterEmphasis, CharacterProps } from "../components/Character";
 import { Background, BackgroundSpec } from "../components/Background";
+import { Character, CharacterEmphasis, CharacterProps } from "../components/Character";
 import { PropAsset } from "../components/PropAsset";
 import { getScheme, Mood } from "../lib/colors";
 import { composeCharactersForScene, foregroundMaskForScene } from "../lib/sceneComposition";
@@ -120,11 +120,16 @@ function assertNever(value: never): never {
 function characterEmphasisFor(value: SpeakerEmphasis): CharacterEmphasis {
     switch (value) {
         case "none":
-        case "listener-dim": return "none";
-        case "scale-pop": return "scale-pop";
-        case "rim-glow": return "rim-glow";
-        case "caption-anchor": return "caption-anchor";
-        default: return assertNever(value);
+        case "listener-dim":
+            return "none";
+        case "scale-pop":
+            return "scale-pop";
+        case "rim-glow":
+            return "rim-glow";
+        case "caption-anchor":
+            return "caption-anchor";
+        default:
+            return assertNever(value);
     }
 }
 
@@ -205,41 +210,46 @@ function propShadow(style: ResolvedVisualStyle): string {
     }
 }
 
-function characterLayerTransform(shotType: CartoonShotType): string {
+function propAnchor(anchor?: string): { x: number; y: number; rotate: string } {
+    switch (anchor) {
+        case "background": return { x: 1150, y: 250, rotate: "0deg" };
+        case "hand": return { x: 970, y: 500, rotate: "-8deg" };
+        case "table": return { x: 920, y: 590, rotate: "2deg" };
+        case "left": return { x: 110, y: 555, rotate: "-5deg" };
+        case "right": return { x: 1050, y: 555, rotate: "5deg" };
+        case "center":
+        case "foreground": return { x: 820, y: 560, rotate: "0deg" };
+        default: return { x: 1040, y: 565, rotate: "3deg" };
+    }
+}
+
+function shotOffset(shotType: CartoonShotType): { x: number; y: number; scale: number } {
     switch (shotType) {
-        case "wide": return "translateY(10px) scale(0.96)";
-        case "medium": return "translateY(0px) scale(1)";
-        case "close-up": return "translate(-54px, 42px) scale(1.10)";
-        case "prop-close-up": return "translate(-140px, 74px) scale(0.93)";
-        case "doorway-transition": return "translate(-70px, 20px) scale(1.02)";
-        case "counter-shot": return "translate(-88px, 44px) scale(1.06)";
-        case "table-shot": return "translate(-40px, 58px) scale(1.04)";
+        case "wide": return { x: 0, y: 0, scale: 0.82 };
+        case "medium": return { x: 0, y: 0, scale: 1 };
+        case "close-up": return { x: -40, y: 22, scale: 1.08 };
+        case "prop-close-up": return { x: -250, y: -70, scale: 1.42 };
+        case "doorway-transition": return { x: -85, y: -16, scale: 1.05 };
+        case "counter-shot": return { x: -105, y: -42, scale: 1.18 };
+        case "table-shot": return { x: -70, y: -58, scale: 1.12 };
         default: return assertNever(shotType);
     }
 }
 
-function propAnchor(anchor?: string): { x: number; y: number; rotate: string } {
-    switch (anchor) {
-        case "hand": return { x: 1000, y: 500, rotate: "-8deg" };
-        case "table": return { x: 900, y: 610, rotate: "3deg" };
-        case "left": return { x: 96, y: 560, rotate: "-7deg" };
-        case "right": return { x: 1070, y: 560, rotate: "6deg" };
-        case "background": return { x: 1160, y: 270, rotate: "0deg" };
-        case "center": return { x: 760, y: 550, rotate: "0deg" };
-        case "foreground": return { x: 820, y: 610, rotate: "-2deg" };
-        default: return { x: 1040, y: 570, rotate: "4deg" };
-    }
+function propTransform(shotType: CartoonShotType, scale: number, rotate = "0deg"): string {
+    const shot = shotOffset(shotType);
+    return `rotate(${rotate}) scale(${scale * shot.scale})`;
 }
 
-function shotPropOffset(shotType: CartoonShotType): { x: number; y: number; scale: number } {
+function characterLayerTransform(shotType: CartoonShotType): string {
     switch (shotType) {
-        case "wide": return { x: 0, y: 8, scale: 0.82 };
-        case "medium": return { x: 0, y: 0, scale: 1 };
-        case "close-up": return { x: -42, y: 12, scale: 1.04 };
-        case "prop-close-up": return { x: -190, y: -75, scale: 1.36 };
-        case "doorway-transition": return { x: -78, y: -8, scale: 1.03 };
-        case "counter-shot": return { x: -96, y: -38, scale: 1.12 };
-        case "table-shot": return { x: -70, y: -54, scale: 1.12 };
+        case "wide": return "scale(0.96) translateY(6px)";
+        case "medium": return "scale(1)";
+        case "close-up": return "scale(1.08) translateY(10px)";
+        case "prop-close-up": return "scale(0.92) translateY(18px)";
+        case "doorway-transition": return "scale(1.02) translateY(4px)";
+        case "counter-shot": return "scale(1.04) translateY(8px)";
+        case "table-shot": return "scale(1.02) translateY(10px)";
         default: return assertNever(shotType);
     }
 }
@@ -247,7 +257,8 @@ function shotPropOffset(shotType: CartoonShotType): { x: number; y: number; scal
 function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: ForegroundPropSpec; visualStyle: ResolvedVisualStyle; shotType: CartoonShotType }) {
     if (!prop?.type || prop.type === "none") return null;
     const anchor = propAnchor(prop.anchor);
-    const shot = shotPropOffset(shotType);
+    const shot = shotOffset(shotType);
+    const transform = propTransform(shotType, visualStyle.propScale, anchor.rotate);
     return (
         <PropAsset
             prop={prop}
@@ -258,6 +269,7 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: Foregro
             palette={visualStyle.palette}
             lineWeight={visualStyle.lineWeight}
             shadow={propShadow(visualStyle)}
+            zIndex={7}
         />
     );
 }
@@ -265,7 +277,8 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: Foregro
 function NonCardEventEffect({ event, visualStyle }: { event?: VisualEventSpec; visualStyle: ResolvedVisualStyle }) {
     const frame = useCurrentFrame();
     const pulse = 0.5 + Math.sin(frame / 8) * 0.5;
-    switch (event?.type ?? "none") {
+    const type: VisualEventType = event?.type ?? "none";
+    switch (type) {
         case "none": return null;
         case "alarm-pulse":
             return <AbsoluteFill style={{ pointerEvents: "none", background: `radial-gradient(circle at 78% 28%, ${visualStyle.palette.accent}55, transparent ${24 + pulse * 12}%)`, zIndex: 6 }} />;
@@ -276,14 +289,14 @@ function NonCardEventEffect({ event, visualStyle }: { event?: VisualEventSpec; v
         case "metaphor-cutaway":
             return <AbsoluteFill style={{ pointerEvents: "none", background: `radial-gradient(circle at 50% 45%, ${visualStyle.palette.surface}66, transparent 38%)`, opacity: 0.54, zIndex: 6 }} />;
         case "thought-bubble":
-            return <AbsoluteFill style={{ pointerEvents: "none", background: `radial-gradient(circle at 70% 24%, rgba(255,255,255,0.72) 0 28px, transparent 30px), radial-gradient(circle at 63% 30%, rgba(255,255,255,0.46) 0 16px, transparent 18px)`, opacity: 0.75, zIndex: 6 }} />;
+            return <AbsoluteFill style={{ pointerEvents: "none", background: "radial-gradient(circle at 70% 24%, rgba(255,255,255,0.72) 0 28px, transparent 30px), radial-gradient(circle at 63% 30%, rgba(255,255,255,0.46) 0 16px, transparent 18px)", opacity: 0.75, zIndex: 6 }} />;
         case "reaction-pop":
             return <AbsoluteFill style={{ pointerEvents: "none", background: `radial-gradient(circle at 50% 40%, ${visualStyle.palette.accent}55 0 4px, transparent 5px), radial-gradient(circle at 58% 34%, ${visualStyle.palette.accent2}55 0 5px, transparent 6px)`, transform: `scale(${1 + pulse * 0.02})`, zIndex: 6 }} />;
         case "prop-tremble":
         case "callback-card":
             return null;
         default:
-            return assertNever(event.type);
+            return assertNever(type);
     }
 }
 
@@ -345,8 +358,9 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
 
     const stagedCharacters = useMemo(
         () => composeCharactersForScene(characters, background, shotType),
-        [characters, background?.location, shotType],
+        [characters, background, shotType],
     );
+
     const directedCharacters = useMemo(
         () => withConversationDirection(stagedCharacters, speakerEmphasis),
         [stagedCharacters, speakerEmphasis],
