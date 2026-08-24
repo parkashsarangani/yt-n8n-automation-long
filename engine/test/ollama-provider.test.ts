@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { AnthropicProvider, effectiveAnthropicModel, supportsAdaptiveThinking, supportsOutputConfigEffort } from "../src/providers/anthropic.ts";
 import { OllamaProvider, defaultOllamaBaseUrl, selectOllamaModel } from "../src/providers/ollama.ts";
 import { ProviderError } from "../src/provider.ts";
 
@@ -74,35 +73,9 @@ test("low effort can route to the configured fast local model", async () => {
   assert.equal(calls[0]!.body["model"], "gemma3:4b");
 });
 
-test("AnthropicProvider compatibility shim still uses Ollama only", async () => {
-  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
-  const originalBase = process.env["OLLAMA_BASE_URL"];
-  const originalModel = process.env["OLLAMA_MODEL"];
-  process.env["OLLAMA_BASE_URL"] = "http://ollama:11434";
-  process.env["OLLAMA_MODEL"] = "llama3.1:8b";
-
-  try {
-    const provider = new AnthropicProvider({ model: "claude-sonnet-5", fetchImpl: okFetch(calls) });
-    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
-
-    assert.equal(calls[0]!.url, "http://ollama:11434/api/chat");
-    assert.equal(calls[0]!.body["model"], "llama3.1:8b");
-    assert.equal(result.providerRef, "ollama/llama3.1:8b");
-    assert.equal(result.usage.provider, "ollama");
-  } finally {
-    if (originalBase === undefined) delete process.env["OLLAMA_BASE_URL"];
-    else process.env["OLLAMA_BASE_URL"] = originalBase;
-    if (originalModel === undefined) delete process.env["OLLAMA_MODEL"];
-    else process.env["OLLAMA_MODEL"] = originalModel;
-  }
-});
-
-test("Anthropic routing helper names the selected Ollama model", () => {
-  assert.equal(supportsAdaptiveThinking("claude-sonnet-5"), false);
-  assert.equal(supportsOutputConfigEffort("claude-sonnet-5"), false);
+test("Ollama routing helper names the selected model", () => {
   assert.equal(selectOllamaModel("medium", { OLLAMA_MODEL: "llama3.1:8b" }), "llama3.1:8b");
   assert.equal(selectOllamaModel("low", { OLLAMA_MODEL: "llama3.1:8b", OLLAMA_FAST_MODEL: "gemma3:4b" }), "gemma3:4b");
-  assert.equal(effectiveAnthropicModel("claude-sonnet-5", "medium"), selectOllamaModel("medium"));
   assert.equal(defaultOllamaBaseUrl({}), "http://localhost:11434");
 });
 

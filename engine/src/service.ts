@@ -27,7 +27,7 @@ import {
   type PublishTarget,
   type SpeechProvider,
 } from "./provider.ts";
-import { AnthropicProvider } from "./providers/anthropic.ts";
+import { OpenAIProvider } from "./providers/openai.ts";
 import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
 import { StockImageProvider } from "./providers/stock.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
@@ -263,12 +263,13 @@ export class VidGenService {
     validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
     validateGraph(this.cartoonGraph, { registry: this.registry, transformations: this.transformations });
 
-    // reasoning_high runs on claude-sonnet-5, not opus - a deliberate,
-    // permanent cost decision. It's a capability, not a vendor/model
-    // (RFC 0004), so no agent config had to change to make this switch.
+    // reasoning_high runs on gpt-5.6-luna, not a bigger tier - a deliberate,
+    // revisitable cost decision (Luna: $0.20/$1.20 per M tokens vs. Terra's
+    // $2/$12). It's a capability, not a vendor/model (RFC 0004), so no
+    // agent config had to change to make this switch.
     const providers = new ProviderRouter({
-      reasoning_high: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
-      reasoning_fast: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
+      reasoning_high: new OpenAIProvider({ effort: "medium" }),
+      reasoning_fast: new OpenAIProvider({ effort: "medium" }),
     });
 
     const runner = new Runner({
@@ -483,8 +484,8 @@ export class VidGenService {
   async startRun(brief: string, durationSec = 540): Promise<string> {
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
-    if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
-      throw new Error("OLLAMA_BASE_URL is not set — the reasoning agents cannot run");
+    if (!process.env["OPENAI_API_KEY"]?.trim()) {
+      throw new Error("OPENAI_API_KEY is not set — the reasoning agents cannot run");
     }
 
     const runId = `run_${randomUUID()}`;
@@ -605,8 +606,8 @@ export class VidGenService {
   async startCartoonRun(brief: string, castRoster: unknown, durationSec = 540): Promise<string> {
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
-    if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
-      throw new Error("OLLAMA_BASE_URL is not set — the reasoning agents cannot run");
+    if (!process.env["OPENAI_API_KEY"]?.trim()) {
+      throw new Error("OPENAI_API_KEY is not set — the reasoning agents cannot run");
     }
 
     const runId = `run_${randomUUID()}`;

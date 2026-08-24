@@ -1,12 +1,12 @@
 /**
  * Live smoke test: runs the skeleton graph against a real provider.
  *
- *   OLLAMA_BASE_URL=http://localhost:11434 npm run smoke -- "why Chile is so incredibly long"
+ *   OPENAI_API_KEY=sk-... npm run smoke -- "why Chile is so incredibly long"
  *
  * The graph parks at the story approval gate unless the model reports
  * confidence >= 0.9. To approve and continue:
  *
- *   OLLAMA_BASE_URL=http://localhost:11434 npm run smoke -- --approve <run_id>
+ *   OPENAI_API_KEY=sk-... npm run smoke -- --approve <run_id>
  *
  * Each provider is real when its credential is present and a deterministic fake
  * otherwise, so a partial setup still runs end to end. See .env.example.
@@ -24,7 +24,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
 import { JsonlRunLog, rollup } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
-import { AnthropicProvider } from "../src/providers/anthropic.ts";
+import { OpenAIProvider } from "../src/providers/openai.ts";
 import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
@@ -46,8 +46,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".vidgen-data");
 
 async function main() {
-  if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
-    console.error("OLLAMA_BASE_URL is not set — nothing to smoke test against.");
+  if (!process.env["OPENAI_API_KEY"]?.trim()) {
+    console.error("OPENAI_API_KEY is not set — nothing to smoke test against.");
     process.exit(2);
   }
 
@@ -85,7 +85,7 @@ async function main() {
     : new FakePublishTarget({ id: "dry-run" });
 
   console.log("providers:");
-  console.log(`  reasoning  anthropic (claude-sonnet-5 / claude-sonnet-5)`);
+  console.log(`  reasoning  openai (gpt-5.6-luna / gpt-5.6-luna)`);
   console.log(`  speech     ${speech.id}`);
   console.log(`  images     ${images.id}`);
   console.log(`  renderer   ${renderer.id}`);
@@ -124,8 +124,8 @@ async function main() {
   // The only place a concrete model id appears (RFC 0004). Mirrors
   // service.ts's reasoning_high mapping - keep both in sync.
   const providers = new ProviderRouter({
-    reasoning_high: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
-    reasoning_fast: new AnthropicProvider({ model: "claude-sonnet-5", effort: "medium" }),
+    reasoning_high: new OpenAIProvider({ effort: "medium" }),
+    reasoning_fast: new OpenAIProvider({ effort: "medium" }),
   });
 
   const runner = new Runner({

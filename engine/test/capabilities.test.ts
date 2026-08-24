@@ -58,12 +58,12 @@ test("a stage is satisfied by any one complete group, not by a partial one", () 
   assert.equal(credentialsSatisfied(publish, { YOUTUBE_ACCESS_TOKEN: "ya29." }), true);
 });
 
-test("local Ollama reasoning requires a base URL and has no remote fallback", () => {
+test("OpenAI reasoning requires an API key and has no offline fallback", () => {
   const reasoning = STAGES.find((s) => s.id === "reasoning")!;
   assert.equal(credentialsSatisfied(reasoning, {}), false);
-  assert.equal(credentialsSatisfied(reasoning, { OLLAMA_BASE_URL: "http://ollama:11434" }), true);
-  assert.match(reasoning.real, /ollama/);
-  assert.match(reasoning.consequence, /no remote fallback/);
+  assert.equal(credentialsSatisfied(reasoning, { OPENAI_API_KEY: "sk-test" }), true);
+  assert.match(reasoning.real, /openai/);
+  assert.match(reasoning.consequence, /no offline fallback/);
 });
 
 test("blank and whitespace-only Fal keys do not enable cartoon artwork", () => {
@@ -104,8 +104,8 @@ test("a fully configured cartoon deployment reports every stage live", () => {
   const report = capabilityReport({
     allowPublish: true,
     env: {
-      OLLAMA_BASE_URL: "http://ollama:11434",
-      OLLAMA_MODEL: "llama3.1:8b",
+      OPENAI_API_KEY: "sk-test",
+      OPENAI_MODEL: "gpt-5.6-luna",
       ELEVENLABS_API_KEY: "el",
       FAL_KEY: "fal",
       COMPOSE_URL: "http://long-compose:4000",
@@ -116,7 +116,7 @@ test("a fully configured cartoon deployment reports every stage live", () => {
     },
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
-  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "ollama/llama3.1:8b");
+  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "openai/gpt-5.6-luna");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {
@@ -175,9 +175,8 @@ test("the keys the cartoon pipeline actually needs are saveable end to end", asy
   const dir = await mkdtemp(path.join(tmpdir(), "vidgen-cred-"));
   const file = path.join(dir, ".env");
   const keys = [
-    "OLLAMA_BASE_URL",
-    "OLLAMA_MODEL",
-    "OLLAMA_NUM_CTX",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
     "FAL_KEY",
     "CARTOON_CAST_PATH",
     "YOUTUBE_CLIENT_ID",

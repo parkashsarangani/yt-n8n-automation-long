@@ -25,46 +25,6 @@ services:
       timeout: 3s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:11434:11434"
-    environment:
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
-
-  # One-shot model bootstrap. It is intentionally part of compose so a fresh
-  # server does not start the engine before the local reasoning model exists.
-  ollama-model-pull:
-    image: ollama/ollama:latest
-    restart: "no"
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-    # The ollama/ollama image bakes in ENTRYPOINT ["/bin/ollama"], so
-    # `command` alone is appended as args to that binary, not run as a
-    # shell script -- it fails instantly with 'unknown command "/bin/sh"
-    # for "ollama"'. Override the entrypoint itself to actually get a
-    # shell. $$ (not $) escapes the substitution so Compose passes a
-    # literal $OLLAMA_MODEL through to the container's own shell, which
-    # resolves it from the environment: block above at runtime -- a bare
-    # $OLLAMA_MODEL here is interpolated by Compose itself at parse time
-    # using the host shell's environment, which doesn't have it set, so it
-    # silently became "" pulling nothing.
-    entrypoint: ["/bin/sh", "-lc"]
-    command: ["ollama pull \"$$OLLAMA_MODEL\""]
-    depends_on:
-      ollama:
-        condition: service_healthy
-
   engine:
     build: ./engine
     restart: unless-stopped
@@ -74,11 +34,8 @@ services:
       DATABASE_URL: postgres://vidgen:${POSTGRES_PASSWORD:-vidgen_dev}@postgres:5432/vidgen
       COMPOSE_URL: http://long-compose:4000
 
-      # Local-only reasoning. There is no Anthropic/remote fallback.
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
-      OLLAMA_FAST_MODEL: ${OLLAMA_FAST_MODEL:-llama3.1:8b}
-      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
 
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
@@ -107,10 +64,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
-      ollama-model-pull:
-        condition: service_completed_successfully
       long-compose:
         condition: service_healthy
 
@@ -166,7 +119,6 @@ services:
 
 volumes:
   pg_data:
-  ollama_data:
   vidgen_data:
   long_outputs:
   long_data:

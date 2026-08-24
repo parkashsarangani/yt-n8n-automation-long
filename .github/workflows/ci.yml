@@ -14,10 +14,9 @@ jobs:
     # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
     # images against fakes, it needs no production secrets or state. Keeping
     # it off the self-hosted runner stops every PR push from competing with
-    # the live production engine (and, once Ollama lands, a loaded local
-    # model) for RAM/CPU on that box. deploy.yml stays self-hosted -- it
-    # deploys onto this exact host and a hosted runner cannot reach its
-    # Docker daemon.
+    # the live production engine for RAM/CPU on that box. deploy.yml stays
+    # self-hosted -- it deploys onto this exact host and a hosted runner
+    # cannot reach its Docker daemon.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +26,8 @@ jobs:
           set -e
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "default services: $services"
-          [ "$services" = "engine long-compose ollama ollama-model-pull postgres " ] || {
-            echo "ERROR: expected exactly 'engine long-compose ollama ollama-model-pull postgres' by default"
+          [ "$services" = "engine long-compose postgres " ] || {
+            echo "ERROR: expected exactly 'engine long-compose postgres' by default"
             exit 1
           }
 
