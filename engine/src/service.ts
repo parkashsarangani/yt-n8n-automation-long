@@ -483,8 +483,8 @@ export class VidGenService {
   async startRun(brief: string, durationSec = 540): Promise<string> {
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
-    if (!process.env["ANTHROPIC_API_KEY"]?.trim()) {
-      throw new Error("ANTHROPIC_API_KEY is not set — the reasoning agents cannot run");
+    if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
+      throw new Error("OLLAMA_BASE_URL is not set — the reasoning agents cannot run");
     }
 
     const runId = `run_${randomUUID()}`;
@@ -605,8 +605,8 @@ export class VidGenService {
   async startCartoonRun(brief: string, castRoster: unknown, durationSec = 540): Promise<string> {
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
-    if (!process.env["ANTHROPIC_API_KEY"]?.trim()) {
-      throw new Error("ANTHROPIC_API_KEY is not set — the reasoning agents cannot run");
+    if (!process.env["OLLAMA_BASE_URL"]?.trim()) {
+      throw new Error("OLLAMA_BASE_URL is not set — the reasoning agents cannot run");
     }
 
     const runId = `run_${randomUUID()}`;
