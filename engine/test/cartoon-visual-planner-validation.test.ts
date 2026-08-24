@@ -68,7 +68,15 @@ function planScene(index: number, location: string, variant: string) {
     background_location: location,
     background_variant: variant,
     background_tone: "neutral",
-    framing: index % 5 === 2 ? "speaker-closeup" : "two-shot",
+    framing: index === 0
+      ? "establishing"
+      : index % 4 === 1
+        ? "speaker-closeup"
+        : index % 4 === 2
+          ? "listener-closeup"
+          : index % 4 === 3
+            ? "prop-insert"
+            : "two-shot",
     camera_motion: index % 4 === 2 ? "push-in" : "static",
     listener_actor_id: index % 2 === 0 ? "buddy" : "host",
     speaker_emotion: index % 2 === 0 ? "surprised" : "neutral",
@@ -131,7 +139,7 @@ test("cartoon_visual_planner retries before storing a long one-room visual plan"
   assert.equal(out.attempts, 2);
   assert.equal(h.provider.calls.length, 2);
   assert.match(h.provider.calls[1]!.prompt, /too static/);
-  assert.match(h.provider.calls[1]!.prompt, /at least two distinct visible environments/);
+  assert.match(h.provider.calls[1]!.prompt, /at least three motivated location\/variant pairs/);
 
   const payload = out.artifact.payload as { scenes: Array<{ background_location: string; background_variant: string }> };
   const keys = new Set(payload.scenes.map((scene) => `${scene.background_location}/${scene.background_variant}`));
@@ -139,5 +147,5 @@ test("cartoon_visual_planner retries before storing a long one-room visual plan"
 
   const records = await h.runLog.all();
   assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
-  assert.match(records[0]!.error ?? "", /all content scenes use living-room\/day/);
+  assert.match(records[0]!.error ?? "", /1 visible environment\(s\) found \(living-room\/day\)/);
 });

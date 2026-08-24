@@ -34,7 +34,7 @@ test("dialogue writer rejects repeated incantation lines", () => {
     "The charger stayed behind.",
   ]);
 
-  assert.match(errors.join("\n"), /repeats "phone charger" three times/);
+  assert.match(errors.join("\n"), /repeats "phone charger" consecutively/);
 });
 
 test("dialogue writer rejects textbook and unresolved filler phrasing", () => {

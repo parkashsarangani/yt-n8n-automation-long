@@ -5,6 +5,17 @@ import { Character, CharacterEmphasis, CharacterProps } from "../components/Char
 import { PropAsset } from "../components/PropAsset";
 import { getScheme, Mood } from "../lib/colors";
 import { composeCharactersForScene, foregroundMaskForScene } from "../lib/sceneComposition";
+import {
+    cinematicCameraStyle,
+    cinematicCharacterLayerStyle,
+    cinematicOverlayStyle,
+    cinematicTransitionStyle,
+    normalizedShotRecipe,
+    propPlacementFor,
+    shouldRenderPropAsBadge,
+    type CinematicSceneSpec,
+    type PhysicalPropPlacement,
+} from "../lib/cinematicDirection";
 
 export interface CartoonCameraProps {
     type?: "static" | "zoom" | "pan";
@@ -41,8 +52,10 @@ export interface CartoonVisualStyle {
 export interface ForegroundPropSpec {
     type?: string;
     state?: string;
-    motion?: "none" | "pulse" | "glow" | "tremble" | "slide-away" | "thumb-hover" | "open" | "close" | "bounce" | string;
-    anchor?: "hand" | "table" | "foreground" | "background" | "left" | "right" | "center" | string;
+    motion?: "none" | "pulse" | "glow" | "tremble" | "slide-away" | "thumb-hover" | "open" | "close" | "bounce" | "settle" | string;
+    anchor?: "hand" | "table" | "foreground" | "background" | "left" | "right" | "center" | "counter" | "floor" | "wall" | string;
+    placement?: PhysicalPropPlacement | string;
+    renderMode?: "physical" | "badge" | string;
     label?: string;
 }
 
@@ -92,6 +105,7 @@ export interface CartoonSceneProps {
     speakerEmphasis?: SpeakerEmphasis;
     shotType?: CartoonShotType;
     visualStyle?: CartoonVisualStyle | CartoonVisualStyleName;
+    cinematic?: CinematicSceneSpec;
 }
 
 interface ResolvedVisualStyle {
@@ -210,28 +224,28 @@ function propShadow(style: ResolvedVisualStyle): string {
     }
 }
 
-function propAnchor(anchor?: string): { x: number; y: number; rotate: string } {
-    switch (anchor) {
-        case "background": return { x: 1150, y: 250, rotate: "0deg" };
-        case "hand": return { x: 970, y: 500, rotate: "-8deg" };
-        case "table": return { x: 920, y: 590, rotate: "2deg" };
-        case "left": return { x: 110, y: 555, rotate: "-5deg" };
-        case "right": return { x: 1050, y: 555, rotate: "5deg" };
-        case "center":
-        case "foreground": return { x: 820, y: 560, rotate: "0deg" };
-        default: return { x: 1040, y: 565, rotate: "3deg" };
+function propAnchor(placement: PhysicalPropPlacement, background?: BackgroundSpec): { x: number; y: number; rotate: string } {
+    const location = String(background?.location ?? "").toLowerCase();
+    switch (placement) {
+        case "hand-held": return { x: 805, y: 468, rotate: "-9deg" };
+        case "on-table": return { x: 880, y: location === "office" ? 565 : 592, rotate: "2deg" };
+        case "on-counter": return { x: 880, y: 575, rotate: "1deg" };
+        case "floor": return { x: 870, y: 642, rotate: "0deg" };
+        case "wall-mounted": return { x: 1040, y: 280, rotate: "0deg" };
+        case "background-set-piece": return { x: 1080, y: 340, rotate: "0deg" };
+        case "ui-badge": return { x: 930, y: 510, rotate: "0deg" };
     }
 }
 
 function shotOffset(shotType: CartoonShotType): { x: number; y: number; scale: number } {
     switch (shotType) {
-        case "wide": return { x: 0, y: 0, scale: 0.82 };
+        case "wide": return { x: -18, y: 8, scale: 0.74 };
         case "medium": return { x: 0, y: 0, scale: 1 };
-        case "close-up": return { x: -40, y: 22, scale: 1.08 };
-        case "prop-close-up": return { x: -250, y: -70, scale: 1.42 };
-        case "doorway-transition": return { x: -85, y: -16, scale: 1.05 };
-        case "counter-shot": return { x: -105, y: -42, scale: 1.18 };
-        case "table-shot": return { x: -70, y: -58, scale: 1.12 };
+        case "close-up": return { x: -54, y: 18, scale: 1.06 };
+        case "prop-close-up": return { x: -260, y: -76, scale: 1.36 };
+        case "doorway-transition": return { x: -92, y: -12, scale: 1.02 };
+        case "counter-shot": return { x: -112, y: -38, scale: 1.14 };
+        case "table-shot": return { x: -84, y: -52, scale: 1.10 };
         default: return assertNever(shotType);
     }
 }
@@ -243,25 +257,28 @@ function propTransform(shotType: CartoonShotType, scale: number, rotate = "0deg"
 
 function characterLayerTransform(shotType: CartoonShotType): string {
     switch (shotType) {
-        case "wide": return "scale(0.96) translateY(6px)";
+        case "wide": return "scale(0.94) translateY(10px)";
         case "medium": return "scale(1)";
         case "close-up": return "scale(1.08) translateY(10px)";
-        case "prop-close-up": return "scale(0.92) translateY(18px)";
-        case "doorway-transition": return "scale(1.02) translateY(4px)";
-        case "counter-shot": return "scale(1.04) translateY(8px)";
+        case "prop-close-up": return "scale(0.90) translateY(20px)";
+        case "doorway-transition": return "scale(1.00) translateY(8px)";
+        case "counter-shot": return "scale(1.03) translateY(8px)";
         case "table-shot": return "scale(1.02) translateY(10px)";
         default: return assertNever(shotType);
     }
 }
 
-function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: ForegroundPropSpec; visualStyle: ResolvedVisualStyle; shotType: CartoonShotType }) {
+function ForegroundPropOverlay({ prop, visualStyle, shotType, background, cinematic }: { prop?: ForegroundPropSpec; visualStyle: ResolvedVisualStyle; shotType: CartoonShotType; background?: BackgroundSpec; cinematic?: CinematicSceneSpec }) {
     if (!prop?.type || prop.type === "none") return null;
-    const anchor = propAnchor(prop.anchor);
+    const placement = propPlacementFor(background, prop, cinematic);
+    const anchor = propAnchor(placement, background);
     const shot = shotOffset(shotType);
+    const badge = shouldRenderPropAsBadge(prop, placement, cinematic);
+    const directedProp: ForegroundPropSpec = { ...prop, placement, renderMode: badge ? "badge" : "physical" };
     const transform = propTransform(shotType, visualStyle.propScale, anchor.rotate);
     return (
         <PropAsset
-            prop={prop}
+            prop={directedProp}
             x={anchor.x + shot.x}
             y={anchor.y + shot.y}
             scale={visualStyle.propScale * shot.scale}
@@ -269,7 +286,7 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType }: { prop?: Foregro
             palette={visualStyle.palette}
             lineWeight={visualStyle.lineWeight}
             shadow={propShadow(visualStyle)}
-            zIndex={7}
+            zIndex={placement === "wall-mounted" || placement === "background-set-piece" ? 4 : 7}
         />
     );
 }
@@ -300,8 +317,8 @@ function NonCardEventEffect({ event, visualStyle }: { event?: VisualEventSpec; v
     }
 }
 
-function VisualEventOverlay({ event, visualStyle, shotType }: { event?: VisualEventSpec; visualStyle: ResolvedVisualStyle; shotType: CartoonShotType }) {
-    return <><NonCardEventEffect event={event} visualStyle={visualStyle} /><ForegroundPropOverlay prop={event?.foregroundProp} visualStyle={visualStyle} shotType={shotType} /></>;
+function VisualEventOverlay({ event, visualStyle, shotType, background, cinematic }: { event?: VisualEventSpec; visualStyle: ResolvedVisualStyle; shotType: CartoonShotType; background?: BackgroundSpec; cinematic?: CinematicSceneSpec }) {
+    return <><NonCardEventEffect event={event} visualStyle={visualStyle} /><ForegroundPropOverlay prop={event?.foregroundProp} visualStyle={visualStyle} shotType={shotType} background={background} cinematic={cinematic} /></>;
 }
 
 function lightingOverlay(style: ResolvedVisualStyle): CSSProperties | null {
@@ -334,12 +351,22 @@ function ForegroundSceneMask({ background, visualStyle }: { background?: Backgro
     return <div style={{ position: "absolute", pointerEvents: "none", zIndex: 6, ...style }} />;
 }
 
+function CinematicAccent({ cinematic }: { cinematic?: CinematicSceneSpec }) {
+    const style = cinematicOverlayStyle(cinematic);
+    if (!style) return null;
+    return <AbsoluteFill style={{ pointerEvents: "none", zIndex: 9, ...style }} />;
+}
+
 function StyleFrame({ visualStyle, children }: { visualStyle: ResolvedVisualStyle; children: ReactNode }) {
     const lighting = lightingOverlay(visualStyle);
     return <>{children}{visualStyle.depth !== "flat" && <AbsoluteFill style={{ pointerEvents: "none", background: visualStyle.depth === "stage-depth" ? "radial-gradient(ellipse at 50% 95%, rgba(15,23,42,0.22), transparent 42%)" : "linear-gradient(180deg, transparent 62%, rgba(15,23,42,0.10))", zIndex: 4 }} />}{lighting && <AbsoluteFill style={{ pointerEvents: "none", ...lighting, opacity: 0.78, zIndex: 8 }} />}{visualStyle.shadow === "deep-stage" && <AbsoluteFill style={{ pointerEvents: "none", boxShadow: "inset 0 0 180px rgba(15,23,42,0.18)", zIndex: 9 }} />}</>;
 }
 
-export const CartoonScene = ({ background, mood = "neutral", characters, camera, visualEvent, speakerEmphasis = "scale-pop", shotType = "medium", visualStyle }: CartoonSceneProps) => {
+function combineTransforms(...transforms: Array<string | undefined>): string {
+    return transforms.filter(Boolean).join(" ");
+}
+
+export const CartoonScene = ({ background, mood = "neutral", characters, camera, visualEvent, speakerEmphasis = "scale-pop", shotType = "medium", visualStyle, cinematic }: CartoonSceneProps) => {
     const frame = useCurrentFrame();
     const { durationInFrames } = useVideoConfig();
     const scheme = getScheme(mood);
@@ -366,17 +393,25 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         [stagedCharacters, speakerEmphasis],
     );
 
+    const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
+    const cinematicTransition = cinematicTransitionStyle(cinematic, frame);
+    const characterLayer = cinematicCharacterLayerStyle(cinematic);
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+
     return (
-        <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }}>
-            <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 50%" }}>
-                <StyleFrame visualStyle={style}>
-                    <Background background={background} panX={panX} />
-                    <VisualEventOverlay event={visualEvent} visualStyle={style} shotType={shotType} />
-                    <AbsoluteFill style={{ transform: `translateX(${panX}px) ${characterLayerTransform(shotType)}`, transformOrigin: "50% 78%", zIndex: 5 }}>
-                        {directedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
-                    </AbsoluteFill>
-                    <ForegroundSceneMask background={background} visualStyle={style} />
-                </StyleFrame>
+        <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }} data-shot-recipe={recipe}>
+            <AbsoluteFill style={cinematicTransition}>
+                <AbsoluteFill style={{ ...cinematicCamera, transform: combineTransforms(cinematicCamera.transform as string | undefined, `scale(${zoom})`), transformOrigin: cinematicCamera.transformOrigin ?? "50% 50%" }}>
+                    <StyleFrame visualStyle={style}>
+                        <Background background={background} panX={panX} />
+                        <VisualEventOverlay event={visualEvent} visualStyle={style} shotType={shotType} background={background} cinematic={cinematic} />
+                        <AbsoluteFill style={{ transform: `translateX(${panX}px) ${characterLayerTransform(shotType)}`, ...characterLayer, zIndex: 5 }}>
+                            {directedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
+                        </AbsoluteFill>
+                        <ForegroundSceneMask background={background} visualStyle={style} />
+                        <CinematicAccent cinematic={cinematic} />
+                    </StyleFrame>
+                </AbsoluteFill>
             </AbsoluteFill>
         </AbsoluteFill>
     );

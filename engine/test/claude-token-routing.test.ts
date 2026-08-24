@@ -56,9 +56,12 @@ test("agent output budgets stay bounded", () => {
     "channel_strategist.json": 3000,
     "story_architect.json": 5000,
     "script_writer.json": 10000,
-    "dialogue_script_writer.json": 16000,
+    // PR #96 added duplicate/spatial dialogue gates and shot-rhythm/camera
+    // gates that need more scene-level fields per output; raised alongside
+    // the matching prompt and schema changes.
+    "dialogue_script_writer.json": 18000,
     "visual_planner.json": 10000,
-    "cartoon_visual_planner.json": 16000,
+    "cartoon_visual_planner.json": 18000,
     // Real doorway-effect runs hit the 12k ceiling after PR #87. Keep this
     // Sonnet-class creative synthesis step bounded, but restore enough output
     // headroom to avoid truncating valid creative_direction JSON.

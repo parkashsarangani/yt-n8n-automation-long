@@ -69,7 +69,7 @@ test("asset registry resolves common foreground prop aliases", () => {
 test("PropAsset renders local files only and has deterministic fallback", () => {
   assert.match(propAsset, /resolvePropAsset/);
   assert.match(propAsset, /staticFile\(asset\.source\.path\)/);
-  assert.match(propAsset, /data-prop-asset=\{asset\.key\}/);
+  assert.match(propAsset, /data-prop-asset=\{asset\?\.key/);
   assert.match(propAsset, /FALLBACK_GLYPH_BY_TYPE/);
   assert.match(propAsset, /fallback-glyph/);
   assert.doesNotMatch(propAsset, /fetch\(|axios|https?:\/\//);
