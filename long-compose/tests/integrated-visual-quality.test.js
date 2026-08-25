@@ -34,6 +34,15 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   assert.match(scene, /insert \? 1\.85 : 0\.64/);
 });
 
+test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
+  // Reaction: readable chest-up subject without the old 1.34x forehead crop.
+  assert.match(scene, /x: 690, y: 224, scale: baseScale \* 1\.12/);
+  assert.match(scene, /-560 : 1740, y: 310, scale: baseScale \* 0\.78/);
+  // OTS: listener becomes a near-camera edge mass instead of a second full-body actor.
+  assert.match(scene, /x: 760, y: 276, scale: baseScale \* 0\.98/);
+  assert.match(scene, /-480 : 1500, y: 128, scale: baseScale \* 1\.72/);
+});
+
 test("central charger is a physical self-authored object, not the MDI icon card", () => {
   assert.match(registry, /prop:phone-charger:physical/);
   assert.doesNotMatch(registry, /prop:phone-charger:mdi/);
