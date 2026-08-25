@@ -257,8 +257,8 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                     : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
-                    ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }
-                    : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };
+                    ? { ...character, x: 420, y: 320, scale: baseScale * 1.05, gazeTarget: "right" }
+                    : { ...character, x: index < activeIndex ? -520 : 1680, y: 340, scale: baseScale * 0.72, dimmed: true };
             case "over-shoulder":
                 return active
                     ? { ...character, x: 760, y: 300, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }
@@ -295,15 +295,18 @@ function HandHeldPropOverlay({
     const hand = actorRigPoint(holder, side, true);
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const insert = recipe === "prop-insert";
+    const propX = hand.x - (insert ? 82 : 54);
+    const propY = hand.y - (insert ? 126 : 102);
+    const propScale = insert ? 1.35 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
             <PropAsset
                 prop={directedProp}
-                x={insert ? 1030 : hand.x - 54}
-                y={insert ? 250 : hand.y - 102}
-                scale={(insert ? 1.85 : 0.64) * visualStyle.propScale}
-                rotate={insert ? "-4deg" : (side === "right" ? "-10deg" : "10deg")}
+                x={propX}
+                y={propY}
+                scale={propScale * visualStyle.propScale}
+                rotate={insert ? (side === "right" ? "-6deg" : "6deg") : (side === "right" ? "-10deg" : "10deg")}
                 palette={visualStyle.palette}
                 lineWeight={visualStyle.lineWeight}
                 shadow={propShadow(visualStyle)}

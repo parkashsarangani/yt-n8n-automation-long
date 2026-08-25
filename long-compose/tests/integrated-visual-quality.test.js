@@ -32,7 +32,7 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
     assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
   }
-  assert.match(scene, /insert \? 1\.85 : 0\.64/);
+  assert.match(scene, /const propScale = insert \? 1\.35 : 0\.64/);
 });
 
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
@@ -42,6 +42,13 @@ test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", (
   // OTS: near-camera listener is pushed down so legs leave frame and shoulder/head own the edge.
   assert.match(scene, /x: 760, y: 300, scale: baseScale \* 0\.98/);
   assert.match(scene, /-440 : 1500, y: 450, scale: baseScale \* 1\.55/);
+});
+
+test("prop inserts remain physically palm-anchored instead of floating at fixed screen coordinates", () => {
+  assert.match(scene, /const propX = hand\.x - \(insert \? 82 : 54\)/);
+  assert.match(scene, /const propY = hand\.y - \(insert \? 126 : 102\)/);
+  assert.doesNotMatch(scene, /x=\{insert \? 1030/);
+  assert.doesNotMatch(scene, /y=\{insert \? 250/);
 });
 
 test("central charger is a physical self-authored object, not the MDI icon card", () => {
