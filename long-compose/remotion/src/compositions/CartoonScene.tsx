@@ -195,15 +195,12 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
-
 function propHolder(characters: CharacterProps[]): CharacterProps | undefined {
     return characters.find((character) => character.isSpeaking) ?? characters[0];
 }
 
 function actorRigPoint(character: CharacterProps, side: "left" | "right", raised: boolean): { x: number; y: number } {
     const scale = Number.isFinite(character.scale) ? character.scale! : 1;
-    // Layered pilot rigs are 500x700 and scale from bottom-centre. These points
-    // are the palm centres in the up/down arm SVGs, transformed into scene space.
     const rigX = side === "right" ? (raised ? 382 : 349) : (raised ? 118 : 151);
     const rigY = raised ? 222 : 535;
     return {
@@ -213,8 +210,6 @@ function actorRigPoint(character: CharacterProps, side: "left" | "right", raised
 }
 
 function handHeldSide(character: CharacterProps): "left" | "right" {
-    // In a two-shot, use the hand facing the conversation/prop focus. This keeps
-    // the object between actors instead of outside the frame.
     return character.x < 720 ? "right" : "left";
 }
 
@@ -244,6 +239,46 @@ function withPhysicalInteraction(
     });
 }
 
+function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: CinematicSceneSpec): CharacterProps[] {
+    if (!characters.length) return characters;
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    let activeIndex = characters.findIndex((character) => character.isSpeaking);
+    if (activeIndex < 0) activeIndex = 0;
+
+    return characters.map((character, index) => {
+        const active = index === activeIndex;
+        const baseScale = Number.isFinite(character.scale) ? character.scale! : 1;
+        switch (recipe) {
+            case "establishing":
+                return { ...character, y: character.y + 58, scale: baseScale * 0.80 };
+            case "reaction-closeup":
+                return active
+                    ? { ...character, x: 710, y: 138, scale: baseScale * 1.34, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -250 : 1370, y: 252, scale: baseScale * 1.08, dimmed: true };
+            case "prop-insert":
+                return active
+                    ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }
+                    : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };
+            case "over-shoulder":
+                return active
+                    ? { ...character, x: 710, y: 205, scale: baseScale * 1.02, gazeTarget: activeIndex === 0 ? "right" : "left" }
+                    : { ...character, x: index < activeIndex ? -130 : 1290, y: 238, scale: baseScale * 1.30, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };
+            case "payoff-hold":
+                return active
+                    ? { ...character, x: 700, y: 142, scale: baseScale * 1.22, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -220 : 1360, y: 280, scale: baseScale * 0.80, dimmed: true };
+            case "callback-reveal":
+                return active
+                    ? { ...character, x: 680, y: 170, scale: baseScale * 1.14, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -180 : 1340, y: 270, scale: baseScale * 0.84, dimmed: true };
+            case "crossing-transition":
+            case "two-shot":
+            default:
+                return character;
+        }
+    });
+}
+
 function HandHeldPropOverlay({
     prop, characters, visualStyle, cinematic,
 }: {
@@ -265,9 +300,9 @@ function HandHeldPropOverlay({
         <div data-physical-interaction="actor-anchored-prop">
             <PropAsset
                 prop={directedProp}
-                x={insert ? 1000 : hand.x - 54}
-                y={insert ? 342 : hand.y - 102}
-                scale={(insert ? 1.22 : 0.64) * visualStyle.propScale}
+                x={insert ? 1030 : hand.x - 54}
+                y={insert ? 250 : hand.y - 102}
+                scale={(insert ? 1.85 : 0.64) * visualStyle.propScale}
                 rotate={insert ? "-4deg" : (side === "right" ? "-10deg" : "10deg")}
                 palette={visualStyle.palette}
                 lineWeight={visualStyle.lineWeight}
@@ -361,7 +396,6 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType, background, cinema
     if (placement === "hand-held") return null;
     const badge = shouldRenderPropAsBadge(prop, placement, cinematic);
     const directedProp: ForegroundPropSpec = { ...prop, placement, renderMode: badge ? "badge" : "physical" };
-    const transform = propTransform(shotType, visualStyle.propScale, anchor.rotate);
     return (
         <PropAsset
             prop={directedProp}
@@ -474,9 +508,14 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         [characters, background, shotType],
     );
 
+    const recipeBlockedCharacters = useMemo(
+        () => withCinematicRecipeBlocking(stagedCharacters, cinematic),
+        [stagedCharacters, cinematic],
+    );
+
     const directedCharacters = useMemo(
-        () => withConversationDirection(stagedCharacters, speakerEmphasis),
-        [stagedCharacters, speakerEmphasis],
+        () => withConversationDirection(recipeBlockedCharacters, speakerEmphasis),
+        [recipeBlockedCharacters, speakerEmphasis],
     );
     const performedCharacters = useMemo(
         () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
@@ -487,8 +526,6 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const cinematicTransition = cinematicTransitionStyle(cinematic, frame);
     const characterLayer = cinematicCharacterLayerStyle(cinematic);
     const actingStage = cinematicActingStageTransform(cinematic, frame, durationInFrames);
-    // Acting belongs to an actor, not to the whole stage. Moving the entire cast
-    // together made walk-cross/double-take/defeat beats read like camera motion.
     const actingActor = performedCharacters.find((character) => character.isSpeaking) ?? performedCharacters[0];
     const actingActorKey = actingActor?.actorId ?? actingActor?.animationKey ?? actingActor?.characterId;
     const heldPropActor = propHolder(performedCharacters);
