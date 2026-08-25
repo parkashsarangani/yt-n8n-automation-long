@@ -1,4 +1,4 @@
-iteration=4
+iteration=5
 source=fast-visual-preview
-requested=2026-08-25T16:05:30+00:00
-notes=verify hallway perspective-depth redesign with unchanged characters and prop logic
+requested=2026-08-25T16:10:00+00:00
+notes=verify refined doorway foreground set-piece after corridor perspective upgrade
