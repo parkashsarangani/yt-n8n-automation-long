@@ -9,9 +9,6 @@
  *
  * Usage:
  *   node preview-bridge.mjs <manifest.json> <output-dir>
- *
- * Manifest:
- *   [{"scene_index":5,"props":{...},"frames":[8,58,108]}]
  */
 import { bundle } from "@remotion/bundler";
 import { renderStill, selectComposition } from "@remotion/renderer";
@@ -33,12 +30,16 @@ if (!Array.isArray(manifest) || manifest.length === 0) {
     throw new Error("preview manifest must be a non-empty array");
 }
 
+function slug(value) {
+    return String(value ?? "scene").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "scene";
+}
+
 mkdirSync(outputDir, { recursive: true });
 const bundleDir = path.join(os.tmpdir(), `vidgen-remotion-preview-${process.pid}`);
 rmSync(bundleDir, { recursive: true, force: true });
 
 async function main() {
-    console.log(`[preview] bundling Remotion once for ${manifest.length} scenes`);
+    console.log(`[preview] bundling Remotion once for ${manifest.length} matrix rows`);
     const serveUrl = await bundle({
         entryPoint: path.resolve(__dirname, "./src/index.ts"),
         outDir: bundleDir,
@@ -49,8 +50,10 @@ async function main() {
 
     for (const row of manifest) {
         const sceneIndex = Number(row.scene_index);
+        const order = String(Number(row.preview_order) || 0).padStart(2, "0");
+        const previewId = slug(row.preview_id || row.recipe || `scene-${sceneIndex}`);
         const inputProps = row.props ?? {};
-        const requestedFrames = Array.isArray(row.frames) && row.frames.length ? row.frames : [8, 58, 108];
+        const requestedFrames = Array.isArray(row.frames) && row.frames.length ? row.frames : [18, 90];
         const composition = await selectComposition({
             serveUrl,
             id: "CartoonScene",
@@ -63,8 +66,8 @@ async function main() {
 
         for (const requested of requestedFrames) {
             const frame = Math.max(0, Math.min(composition.durationInFrames - 1, Number(requested) || 0));
-            const output = path.join(outputDir, `scene-${sceneIndex}-frame-${frame}.png`);
-            console.log(`[preview] scene ${sceneIndex}, frame ${frame} -> ${output}`);
+            const output = path.join(outputDir, `${order}-${previewId}-scene-${sceneIndex}-frame-${frame}.png`);
+            console.log(`[preview] ${previewId} (${row.synthetic ? "synthetic" : "persisted"}) scene ${sceneIndex}, frame ${frame} -> ${output}`);
             await renderStill({
                 composition,
                 serveUrl,
