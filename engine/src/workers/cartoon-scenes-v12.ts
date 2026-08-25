@@ -132,8 +132,19 @@ function assertCallbackArc(creative: CreativeDirection): void {
   if (escalationScene !== null && payoffScene !== null && escalationScene >= payoffScene) {
     throw new Error("cartoon_creative_director@2 callback gate failed: callback escalation must appear before payoff");
   }
+  // Only enforce a specific label when the scene actually uses a metaphor
+  // overlay. metaphor.type="none" is a deliberate, encouraged choice in the
+  // active creative_direction prompt ("use metaphor only when it adds a real
+  // visual beat") -- a payoff carried entirely through concrete foreground_prop
+  // action and performance_note (a physical/behavioral closure, not a lesson
+  // restatement) doesn't need a callback-card to be a real payoff.
   const payoffCreativeScene = scenes.find((scene) => scene.callback_role === "payoff");
-  if (payoffCreativeScene && payoffCreativeScene.metaphor.type !== "callback-card" && isGenericLabel(payoffCreativeScene.metaphor.label)) {
+  if (
+    payoffCreativeScene &&
+    payoffCreativeScene.metaphor.type !== "none" &&
+    payoffCreativeScene.metaphor.type !== "callback-card" &&
+    isGenericLabel(payoffCreativeScene.metaphor.label)
+  ) {
     throw new Error("cartoon_creative_director@2 callback gate failed: payoff needs a specific callback card or payoff label");
   }
 }

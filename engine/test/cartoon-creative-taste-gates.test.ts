@@ -224,6 +224,28 @@ test("creative taste gate rejects generic metaphor labels", async () => {
   );
 });
 
+test("creative taste gate accepts a payoff carried by physical action with no metaphor", async () => {
+  // Real production payoff scene: metaphor.type="none", label="" -- a
+  // deliberate choice per the active creative_direction prompt ("use
+  // metaphor only when it adds a real visual beat"), with the payoff carried
+  // entirely through foreground_prop.action and performance_note instead.
+  // The old callback gate required every payoff to have a callback-card or a
+  // non-generic metaphor label, which an empty/none metaphor can never
+  // satisfy -- rejecting exactly the kind of physical/behavioral closure the
+  // prompt itself recommends over a metaphor overlay.
+  const creative = cloneCreative();
+  creative.scenes[5]!.metaphor = { type: "none", label: "", emotional_beat: "" };
+  // Keep the fixture's required "at least two specific metaphor/callback
+  // beats for 6+ scene episodes" count intact by moving the second one onto
+  // a non-payoff scene -- this test is about the payoff specifically not
+  // needing one, not about the episode-wide metaphor count.
+  creative.scenes[4]!.metaphor = { type: "reaction-pop", label: "THE HABIT WINS AGAIN", emotional_beat: "the hand moves before the mind agrees" };
+
+  const out = await compile(creative);
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, 6);
+});
+
 test("creative taste gate rejects flat rhythm and blocking", async () => {
   const creative = cloneCreative();
   for (const scene of creative.scenes) {
