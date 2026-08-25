@@ -232,8 +232,9 @@ export const Background = ({ background, panX = 0 }: BackgroundProps) => {
     return (
         <AbsoluteFill style={{ overflow: "hidden" }}>
             <ScenePlate asset={scenePlate} />
-            <SceneDressing background={background} frame={frame} />
             {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}
+            {/* Layered back plates are opaque; dressing must render after them to stay visible. */}
+            <SceneDressing background={background} frame={frame} />
             <SetPieceOverlay setPiece={setPiece} frame={frame} />
             <AmbientOverlay ambient={ambient} frame={frame} />
             {effect.fog > 0 && <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 65%, rgba(255,255,255,0.7), transparent 70%)", opacity: effect.fog }} />}
