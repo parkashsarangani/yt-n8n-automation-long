@@ -17,13 +17,21 @@ test("production bridge forwards all cinematic direction into Remotion", () => {
 });
 
 test("acting presets and carried props materially affect rendered pixels", () => {
-  assert.match(scene, /cinematicActingStageTransform\(cinematic, frame\)/);
+  assert.match(scene, /cinematicActingStageTransform\(cinematic, frame, durationInFrames\)/);
   assert.match(scene, /data-physical-interaction="actor-anchored-prop"/);
   assert.match(scene, /actorRigPoint/);
   assert.match(scene, /withPhysicalInteraction/);
   assert.match(direction, /travel \* 480/);
   assert.match(scene, /data-acting-actor/);
   assert.match(scene, /data-held-prop-follows-actor=\"true\"/);
+});
+
+test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
+  assert.match(scene, /withCinematicRecipeBlocking/);
+  for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
+    assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
+  }
+  assert.match(scene, /insert \? 1\.85 : 0\.64/);
 });
 
 test("central charger is a physical self-authored object, not the MDI icon card", () => {
