@@ -1,0 +1,4 @@
+iteration=1
+source=fast-visual-preview
+requested=2026-08-25T15:52:30+00:00
+notes=render 9 persisted-scene PNG samples for visual QA after scene-dressing stacking fix
