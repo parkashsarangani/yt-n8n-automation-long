@@ -33,17 +33,19 @@ jobs:
           ffmpeg -version | head -1
           ffprobe -version | head -1
 
-      - name: Test long-compose
+      - name: Install long-compose and Remotion dependencies
         working-directory: long-compose
         run: |
           npm install --no-audit --no-fund
-          npm test
+          npm ci --prefix remotion
+
+      - name: Test long-compose including real Remotion renders
+        working-directory: long-compose
+        run: npm test
 
       - name: Type-check Remotion renderer
         working-directory: long-compose/remotion
-        run: |
-          npm ci
-          npx tsc --noEmit --jsx react-jsx --moduleResolution node --module esnext --target es2020 src/index.ts
+        run: npx tsc --noEmit --jsx react-jsx --moduleResolution node --module esnext --target es2020 src/index.ts
 
       - name: Test engine
         working-directory: engine
