@@ -108,20 +108,45 @@ def cartoon_scenes(asset_scenes: dict[int, dict[str, Any]]) -> list[dict[str, An
     ]
 
 
-def seed_scene(cartoons: list[dict[str, Any]]) -> dict[str, Any]:
-    """Choose a real two-character/prop scene as the controlled matrix base."""
-    prop_insert = next((scene for scene in cartoons if recipe_for(scene) == "prop-insert"), None)
-    if prop_insert is not None:
-        return prop_insert
-    two_actor = next(
-        (
-            scene for scene in cartoons
-            if len(parse_template(scene).get("characters") or []) >= 2
-            and (parse_template(scene).get("visualEvent") or {}).get("foregroundProp")
-        ),
-        None,
-    )
-    return two_actor or cartoons[0]
+def foreground_prop(scene: dict[str, Any]) -> dict[str, Any] | None:
+    event = parse_template(scene).get("visualEvent") or {}
+    prop = event.get("foregroundProp") if isinstance(event, dict) else None
+    return prop if isinstance(prop, dict) and str(prop.get("type") or "none") != "none" else None
+
+
+def two_actor_seed(cartoons: list[dict[str, Any]]) -> dict[str, Any]:
+    """Prefer a normal-room two-character scene for relational shot grammar."""
+    candidates = [scene for scene in cartoons if len(parse_template(scene).get("characters") or []) >= 2]
+    if not candidates:
+        return cartoons[0]
+
+    def score(scene: dict[str, Any]) -> tuple[int, int, int]:
+        data = parse_template(scene)
+        location = str((data.get("background") or {}).get("location") or "")
+        ordinary_room = location in {"living-room", "office", "kitchen", "bedroom", "cafe"}
+        no_prop = foreground_prop(scene) is None
+        not_transition = recipe_for(scene) != "crossing-transition"
+        return (int(ordinary_room), int(no_prop), int(not_transition))
+
+    return max(candidates, key=score)
+
+
+def prop_seed(cartoons: list[dict[str, Any]]) -> dict[str, Any]:
+    exact = next((scene for scene in cartoons if recipe_for(scene) == "prop-insert"), None)
+    if exact is not None:
+        return exact
+    physical = next((scene for scene in cartoons if foreground_prop(scene) is not None), None)
+    return physical or cartoons[0]
+
+
+def seed_for_recipe(cartoons: list[dict[str, Any]], recipe: str) -> dict[str, Any]:
+    # Establishing/reaction/OTS are relational shots: a one-actor seed would
+    # make an over-shoulder preview structurally incapable of showing a shoulder.
+    if recipe in {"establishing", "reaction-closeup", "over-shoulder"}:
+        return two_actor_seed(cartoons)
+    if recipe == "prop-insert":
+        return prop_seed(cartoons)
+    return two_actor_seed(cartoons)
 
 
 def with_recipe(props: dict[str, Any], recipe: str) -> dict[str, Any]:
@@ -167,12 +192,11 @@ def recipe_matrix_rows(asset_scenes: dict[int, dict[str, Any]]) -> list[dict[str
     cartoons = cartoon_scenes(asset_scenes)
     if not cartoons:
         raise RuntimeError("persisted benchmark has no cartoon scenes")
-    seed = seed_scene(cartoons)
     rows: list[dict[str, Any]] = []
 
     for order, wanted in enumerate(RECIPES, start=1):
         exact = next((scene for scene in cartoons if recipe_for(scene) == wanted), None)
-        source = exact or seed
+        source = exact or seed_for_recipe(cartoons, wanted)
         source_idx = int(source["scene_index"])
         source_recipe = recipe_for(source)
         base_props = cartoon_props(parse_template(source))
