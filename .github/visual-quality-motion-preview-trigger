@@ -1,4 +1,4 @@
-iteration=1
-source=fast-motion-preview
-requested=2026-08-25T18:20:00+00:00
-notes=inspect reaction timing prop tracking actor crossing and payoff settling
+iteration=2
+source=actor-local-facial-performance
+requested=2026-08-25T19:12:00+00:00
+notes=verify facial acting across reaction prop crossing and payoff motion
