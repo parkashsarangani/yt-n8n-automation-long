@@ -1,4 +1,4 @@
-iteration=12
+iteration=13
 source=fast-visual-preview
-requested=2026-08-25T17:49:00+00:00
-notes=verify waist-up reaction crop and shoulder-only OTS foreground depth
+requested=2026-08-25T18:00:00+00:00
+notes=verify authored layered environments replace generic scene plates when layers exist
