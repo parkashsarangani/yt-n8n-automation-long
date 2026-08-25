@@ -25,11 +25,13 @@ test("registered local assets resolve to vendored files, not runtime URLs", () =
   }
 });
 
-test("background renderer prefers approved local scene plates and falls back to generated layers", () => {
+test("background renderer prioritizes authored layers and uses replacement plates only as fallback", () => {
   assert.match(background, /resolveScenePlate/);
   assert.match(background, /scenePlateFor\(background\)/);
-  assert.match(background, /replaceLayers/);
-  assert.match(background, /!replaceLayers && <BackgroundLayersView/);
+  assert.match(background, /const hasAuthoredLayers = Boolean\(background\.layers\?\.back \|\| background\.layers\?\.middle \|\| background\.layers\?\.front\)/);
+  assert.match(background, /const useReplacementPlate = scenePlate\?\.compositeMode === "replace-background" && !hasAuthoredLayers/);
+  assert.match(background, /\{useReplacementPlate && <ScenePlate asset=\{scenePlate\} \/>\}/);
+  assert.match(background, /\{!useReplacementPlate && <BackgroundLayersView/);
   assert.match(background, /staticFile\(asset\.source\.path\)/);
 });
 
