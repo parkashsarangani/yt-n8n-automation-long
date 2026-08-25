@@ -1,4 +1,4 @@
-name: Apply physical prop insert patch
+name: Apply cinematic performance patch
 
 on:
   push:
@@ -25,58 +25,91 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          payload=$(printf '{"state":"pending","context":"physical-prop-insert-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d "$payload"
+          payload=$(printf '{"state":"pending","context":"cinematic-performance-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" -d "$payload"
 
-      - name: Anchor prop inserts to the actor palm
+      - name: Apply actor-local facial performance
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           scene = Path('long-compose/remotion/src/compositions/CartoonScene.tsx')
           text = scene.read_text()
-          old_block = '''            case "prop-insert":\n                return active\n                    ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }\n                    : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };'''
-          new_block = '''            case "prop-insert":\n                return active\n                    ? { ...character, x: 420, y: 320, scale: baseScale * 1.05, gazeTarget: "right" }\n                    : { ...character, x: index < activeIndex ? -520 : 1680, y: 340, scale: baseScale * 0.72, dimmed: true };'''
-          assert old_block in text, 'prop-insert character blocking drifted'
-          text = text.replace(old_block, new_block, 1)
+          marker = 'function propHolder(characters: CharacterProps[]): CharacterProps | undefined {\n'
+          assert marker in text, 'propHolder marker drifted'
+          helper = r'''function withCinematicActingPerformance(
+    characters: CharacterProps[],
+    prop: ForegroundPropSpec | undefined,
+    background: BackgroundSpec | undefined,
+    cinematic: CinematicSceneSpec | undefined,
+): CharacterProps[] {
+    if (!characters.length) return characters;
+    const preset = actingPresetFor(cinematic);
+    let activeIndex = characters.findIndex((character) => character.isSpeaking);
+    if (activeIndex < 0) activeIndex = 0;
+    const physicalHold = Boolean(
+        prop?.type && prop.type !== "none" && propPlacementFor(background, prop, cinematic) === "hand-held",
+    );
 
-          old_vars = '''    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);\n    const insert = recipe === "prop-insert";\n    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };'''
-          new_vars = '''    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);\n    const insert = recipe === "prop-insert";\n    const propX = hand.x - (insert ? 82 : 54);\n    const propY = hand.y - (insert ? 126 : 102);\n    const propScale = insert ? 1.35 : 0.64;\n    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };'''
-          assert old_vars in text, 'prop overlay variables drifted'
-          text = text.replace(old_vars, new_vars, 1)
+    return characters.map((character, index) => {
+        if (index !== activeIndex) return character;
+        const gestureWhenFree = (gesture: CharacterProps["gesture"]): CharacterProps["gesture"] =>
+            physicalHold ? character.gesture : gesture;
+        switch (preset) {
+            case "double-take":
+                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "camera", gesture: gestureWhenFree("surprised") };
+            case "notices-prop":
+                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "down" };
+            case "deadpan-side-eye":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "away", gesture: gestureWhenFree("idle") };
+            case "small-defeat":
+                return { ...character, emotion: "sad", expression: "normal", gazeTarget: "down", gesture: gestureWhenFree("facepalm") };
+            case "reluctant-acceptance":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "down", gesture: gestureWhenFree("shrug") };
+            case "payoff-freeze":
+                return { ...character, emotion: "happy", expression: "normal", gazeTarget: "camera", gesture: gestureWhenFree("hands-open") };
+            case "walk-cross":
+            case "neutral-hold":
+            default:
+                return character;
+        }
+    });
+}
 
-          replacements = {
-              'x={insert ? 1030 : hand.x - 54}': 'x={propX}',
-              'y={insert ? 250 : hand.y - 102}': 'y={propY}',
-              'scale={(insert ? 1.85 : 0.64) * visualStyle.propScale}': 'scale={propScale * visualStyle.propScale}',
-              'rotate={insert ? "-4deg" : (side === "right" ? "-10deg" : "10deg")}': 'rotate={insert ? (side === "right" ? "-6deg" : "6deg") : (side === "right" ? "-10deg" : "10deg")}',
-          }
-          for old, new in replacements.items():
-              assert old in text, f'prop overlay target drifted: {old}'
-              text = text.replace(old, new, 1)
+'''
+          text = text.replace(marker, helper + marker, 1)
+
+          old = '''    const performedCharacters = useMemo(
+        () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );'''
+          new = '''    const physicallyDirectedCharacters = useMemo(
+        () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );
+    const performedCharacters = useMemo(
+        () => withCinematicActingPerformance(physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );'''
+          assert old in text, 'performed character pipeline drifted'
+          text = text.replace(old, new, 1)
           scene.write_text(text)
 
           test = Path('long-compose/tests/integrated-visual-quality.test.js')
           t = test.read_text()
-          t = t.replace('  assert.match(scene, /insert \\? 1\\.85 : 0\\.64/);', '  assert.match(scene, /const propScale = insert \\? 1\\.35 : 0\\.64/);')
-          marker = 'test("central charger is a physical self-authored object, not the MDI icon card", () => {'
-          assert marker in t, 'prop asset test anchor drifted'
-          addition = '''test("prop inserts remain physically palm-anchored instead of floating at fixed screen coordinates", () => {\n  assert.match(scene, /const propX = hand\\.x - \\(insert \\? 82 : 54\\)/);\n  assert.match(scene, /const propY = hand\\.y - \\(insert \\? 126 : 102\\)/);\n  assert.doesNotMatch(scene, /x=\\{insert \\? 1030/);\n  assert.doesNotMatch(scene, /y=\\{insert \\? 250/);\n});\n\n'''
-          if 'prop inserts remain physically palm-anchored' not in t:
-              t = t.replace(marker, addition + marker, 1)
+          anchor = 'test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {'
+          assert anchor in t, 'test anchor drifted'
+          addition = '''test("acting presets drive actor-local facial performance as well as stage motion", () => {\n  assert.match(scene, /withCinematicActingPerformance/);\n  assert.match(scene, /case "double-take"[\\s\\S]*emotion: "surprised"[\\s\\S]*expression: "surprised"/);\n  assert.match(scene, /case "deadpan-side-eye"[\\s\\S]*emotion: "skeptical"[\\s\\S]*gazeTarget: "away"/);\n  assert.match(scene, /case "small-defeat"[\\s\\S]*emotion: "sad"/);\n  assert.match(scene, /case "payoff-freeze"[\\s\\S]*emotion: "happy"[\\s\\S]*gazeTarget: "camera"/);\n  assert.match(scene, /physicalHold \\? character\\.gesture : gesture/);\n});\n\n'''
+          if 'acting presets drive actor-local facial performance' not in t:
+              t = t.replace(anchor, addition + anchor, 1)
           test.write_text(t)
           PY
 
       - name: Verify patch shape
         run: |
-          grep -Fq 'x: 420, y: 320, scale: baseScale * 1.05' long-compose/remotion/src/compositions/CartoonScene.tsx
-          grep -Fq 'const propX = hand.x - (insert ? 82 : 54)' long-compose/remotion/src/compositions/CartoonScene.tsx
-          grep -Fq 'const propScale = insert ? 1.35 : 0.64' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'function withCinematicActingPerformance' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'emotion: "surprised", expression: "surprised"' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'withCinematicActingPerformance(physicallyDirectedCharacters' long-compose/remotion/src/compositions/CartoonScene.tsx
           git diff --check
 
       - name: Commit patch
@@ -84,7 +117,7 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add long-compose/remotion/src/compositions/CartoonScene.tsx long-compose/tests/integrated-visual-quality.test.js
-          git commit -m 'fix: keep prop inserts physically attached to the actor' || exit 0
+          git commit -m 'feat: make cinematic acting presets drive facial performance' || exit 0
           git push origin HEAD:feat/integrated-visual-quality-9
 
       - name: Publish final patch status
@@ -93,15 +126,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          case "$JOB_STATUS" in
-            success) state=success ;;
-            failure) state=failure ;;
-            *) state=error ;;
-          esac
-          payload=$(printf '{"state":"%s","context":"physical-prop-insert-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -d "$payload" || true
+          case "$JOB_STATUS" in success) state=success ;; failure) state=failure ;; *) state=error ;; esac
+          payload=$(printf '{"state":"%s","context":"cinematic-performance-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" -d "$payload" || true
