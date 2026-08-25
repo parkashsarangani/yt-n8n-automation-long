@@ -42,6 +42,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/amos-vq-output"
           docker run -d --name amos-vq-benchmark \
             --cpus=4 \
+            -e COMPOSE_CONCURRENCY=2 \
             -p 127.0.0.1:4011:4000 \
             -v "$RUNNER_TEMP/amos-vq-output:/app/outputs" \
             amos-visual-quality-benchmark:${GITHUB_SHA}
