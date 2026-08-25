@@ -85,7 +85,7 @@ function motionTransform(motion: string, frame: number): { x: number; y: number;
 
 function assetSize(type?: string, placement?: PhysicalPropPlacement): { width: number; height: number } {
     const normalized = String(type ?? "").toLowerCase();
-    const placementScale = placement === "hand-held" ? 0.78 : placement === "wall-mounted" ? 0.92 : placement === "floor" ? 1.1 : 1;
+    const placementScale = placement === "hand-held" ? 1.05 : placement === "wall-mounted" ? 0.92 : placement === "floor" ? 1.1 : 1;
     const base = (() => {
         switch (normalized) {
             case "laptop":
