@@ -1,4 +1,4 @@
-name: Apply environment layer policy patch
+name: Apply physical prop insert patch
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          payload=$(printf '{"state":"pending","context":"environment-layer-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          payload=$(printf '{"state":"pending","context":"physical-prop-insert-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
           curl -fsS -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -33,51 +33,58 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -d "$payload"
 
-      - name: Prefer authored layered environments over replacement plates
+      - name: Anchor prop inserts to the actor palm
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          bg = Path('long-compose/remotion/src/components/Background.tsx')
-          text = bg.read_text()
-          old = '''    const scenePlate = scenePlateFor(background);\n    const replaceLayers = scenePlate?.compositeMode === "replace-background";'''
-          new = '''    const scenePlate = scenePlateFor(background);\n    const hasAuthoredLayers = Boolean(background.layers?.back || background.layers?.middle || background.layers?.front);\n    const useReplacementPlate = scenePlate?.compositeMode === "replace-background" && !hasAuthoredLayers;\n    const useOverlayPlate = scenePlate?.compositeMode === "overlay";'''
-          assert old in text, 'background replacement policy drifted'
-          text = text.replace(old, new, 1)
+          scene = Path('long-compose/remotion/src/compositions/CartoonScene.tsx')
+          text = scene.read_text()
+          old_block = '''            case "prop-insert":\n                return active\n                    ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }\n                    : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };'''
+          new_block = '''            case "prop-insert":\n                return active\n                    ? { ...character, x: 420, y: 320, scale: baseScale * 1.05, gazeTarget: "right" }\n                    : { ...character, x: index < activeIndex ? -520 : 1680, y: 340, scale: baseScale * 0.72, dimmed: true };'''
+          assert old_block in text, 'prop-insert character blocking drifted'
+          text = text.replace(old_block, new_block, 1)
 
-          old_render = '''            <ScenePlate asset={scenePlate} />\n            {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}\n            {/* Layered back plates are opaque; dressing must render after them to stay visible. */}'''
-          new_render = '''            {useReplacementPlate && <ScenePlate asset={scenePlate} />}\n            {!useReplacementPlate && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}\n            {useOverlayPlate && <ScenePlate asset={scenePlate} />}\n            {/* Authored layers are the primary environment when available; dressing stays above opaque back plates. */}'''
-          assert old_render in text, 'background render stack drifted'
-          text = text.replace(old_render, new_render, 1)
-          bg.write_text(text)
+          old_vars = '''    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);\n    const insert = recipe === "prop-insert";\n    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };'''
+          new_vars = '''    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);\n    const insert = recipe === "prop-insert";\n    const propX = hand.x - (insert ? 82 : 54);\n    const propY = hand.y - (insert ? 126 : 102);\n    const propScale = insert ? 1.35 : 0.64;\n    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };'''
+          assert old_vars in text, 'prop overlay variables drifted'
+          text = text.replace(old_vars, new_vars, 1)
+
+          replacements = {
+              'x={insert ? 1030 : hand.x - 54}': 'x={propX}',
+              'y={insert ? 250 : hand.y - 102}': 'y={propY}',
+              'scale={(insert ? 1.85 : 0.64) * visualStyle.propScale}': 'scale={propScale * visualStyle.propScale}',
+              'rotate={insert ? "-4deg" : (side === "right" ? "-10deg" : "10deg")}': 'rotate={insert ? (side === "right" ? "-6deg" : "6deg") : (side === "right" ? "-10deg" : "10deg")}',
+          }
+          for old, new in replacements.items():
+              assert old in text, f'prop overlay target drifted: {old}'
+              text = text.replace(old, new, 1)
+          scene.write_text(text)
 
           test = Path('long-compose/tests/integrated-visual-quality.test.js')
           t = test.read_text()
-          declaration = 'const dressing = fs.readFileSync(path.join(root, "remotion/src/components/SceneDressing.tsx"), "utf8");\n'
-          assert declaration in t, 'test declarations drifted'
-          if 'const backgroundRenderer =' not in t:
-              t = t.replace(declaration, declaration + 'const backgroundRenderer = fs.readFileSync(path.join(root, "remotion/src/components/Background.tsx"), "utf8");\n', 1)
-          marker = 'test("formerly generic environments now have location-specific dressing", () => {'
-          assert marker in t, 'environment test anchor drifted'
-          addition = '''test("authored layered environments outrank generic replacement scene plates", () => {\n  assert.match(backgroundRenderer, /hasAuthoredLayers/);\n  assert.match(backgroundRenderer, /useReplacementPlate = scenePlate\\?\\.compositeMode === "replace-background" && !hasAuthoredLayers/);\n  assert.match(backgroundRenderer, /!useReplacementPlate && <BackgroundLayersView/);\n  assert.match(backgroundRenderer, /useOverlayPlate && <ScenePlate/);\n});\n\n'''
-          if 'authored layered environments outrank generic replacement scene plates' not in t:
+          t = t.replace('  assert.match(scene, /insert \\? 1\\.85 : 0\\.64/);', '  assert.match(scene, /const propScale = insert \\? 1\\.35 : 0\\.64/);')
+          marker = 'test("central charger is a physical self-authored object, not the MDI icon card", () => {'
+          assert marker in t, 'prop asset test anchor drifted'
+          addition = '''test("prop inserts remain physically palm-anchored instead of floating at fixed screen coordinates", () => {\n  assert.match(scene, /const propX = hand\\.x - \\(insert \\? 82 : 54\\)/);\n  assert.match(scene, /const propY = hand\\.y - \\(insert \\? 126 : 102\\)/);\n  assert.doesNotMatch(scene, /x=\\{insert \\? 1030/);\n  assert.doesNotMatch(scene, /y=\\{insert \\? 250/);\n});\n\n'''
+          if 'prop inserts remain physically palm-anchored' not in t:
               t = t.replace(marker, addition + marker, 1)
           test.write_text(t)
           PY
 
       - name: Verify patch shape
         run: |
-          grep -Fq 'const hasAuthoredLayers = Boolean' long-compose/remotion/src/components/Background.tsx
-          grep -Fq 'const useReplacementPlate = scenePlate?.compositeMode === "replace-background" && !hasAuthoredLayers' long-compose/remotion/src/components/Background.tsx
-          grep -Fq '!useReplacementPlate && <BackgroundLayersView' long-compose/remotion/src/components/Background.tsx
+          grep -Fq 'x: 420, y: 320, scale: baseScale * 1.05' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'const propX = hand.x - (insert ? 82 : 54)' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'const propScale = insert ? 1.35 : 0.64' long-compose/remotion/src/compositions/CartoonScene.tsx
           git diff --check
 
       - name: Commit patch
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add long-compose/remotion/src/components/Background.tsx long-compose/tests/integrated-visual-quality.test.js
-          git commit -m 'fix: prefer authored layered environments over scene plates' || exit 0
+          git add long-compose/remotion/src/compositions/CartoonScene.tsx long-compose/tests/integrated-visual-quality.test.js
+          git commit -m 'fix: keep prop inserts physically attached to the actor' || exit 0
           git push origin HEAD:feat/integrated-visual-quality-9
 
       - name: Publish final patch status
@@ -91,7 +98,7 @@ jobs:
             failure) state=failure ;;
             *) state=error ;;
           esac
-          payload=$(printf '{"state":"%s","context":"environment-layer-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          payload=$(printf '{"state":"%s","context":"physical-prop-insert-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
           curl -fsS -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
