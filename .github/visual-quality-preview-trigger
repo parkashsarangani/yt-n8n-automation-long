@@ -1,4 +1,4 @@
-iteration=2
+iteration=3
 source=fast-visual-preview
-requested=2026-08-25T15:56:00+00:00
-notes=verify hand-held prop palm alignment after pose-specific visual offset fix
+requested=2026-08-25T16:02:30+00:00
+notes=verify larger hand-held prop readability after palm alignment fix
