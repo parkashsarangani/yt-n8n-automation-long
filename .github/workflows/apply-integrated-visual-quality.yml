@@ -26,6 +26,13 @@ jobs:
       - name: Verify transformation
         run: git diff --check
 
+      - name: Install ffmpeg for render contracts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+
       - name: Test long-compose
         working-directory: long-compose
         run: |
