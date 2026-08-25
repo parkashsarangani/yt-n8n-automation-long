@@ -4,7 +4,7 @@ import { mouthAtTime, MouthCue } from "../animation/lipsync";
 const RIG_WIDTH = 500;
 const RIG_HEIGHT = 700;
 
-export type ArmPose = "up" | "down";
+export type ArmPose = "up" | "down" | "present" | "point" | "carry";
 export type Expression = "normal" | "angry" | "surprised";
 const VALID_EXPRESSIONS = new Set<Expression>(["normal", "angry", "surprised"]);
 export type SemanticEmotion =
@@ -67,8 +67,8 @@ const EMOTION: Record<SemanticEmotion, {
     amused:     { brow: "normal",    eye: 0.78, headTilt: -2.0, bodyLean: -0.3, gazeY: -1, listenerMotion: 0.55 },
     skeptical:  { brow: "angry",     eye: 0.72, headTilt: 2.8,  bodyLean: 0.7,  gazeY: -1, listenerMotion: 0.25 },
     confused:   { brow: "surprised", eye: 0.92, headTilt: 3.2,  bodyLean: 0.2,  gazeY: 0,  listenerMotion: 0.50 },
-    concerned:  { brow: "normal",    eye: 0.88, headTilt: -1.8, bodyLean: -0.6, gazeY: 1,  listenerMotion: 0.35 },
-    sad:        { brow: "normal",    eye: 0.72, headTilt: 2.0,  bodyLean: 0.9,  gazeY: 2,  listenerMotion: 0.20 },
+    concerned:  { brow: "normal",    eye: 0.88, headTilt: -1.8, bodyLean: -0.6, gazeY: 1, listenerMotion: 0.35 },
+    sad:        { brow: "normal",    eye: 0.72, headTilt: 2.0,  bodyLean: 0.9,  gazeY: 2, listenerMotion: 0.20 },
     angry:      { brow: "angry",     eye: 0.82, headTilt: -1.2, bodyLean: -1.0, gazeY: 0,  listenerMotion: 0.55 },
     surprised:  { brow: "surprised", eye: 1.14, headTilt: -2.2, bodyLean: -1.1, gazeY: -1, listenerMotion: 0.85 },
     scared:     { brow: "surprised", eye: 1.20, headTilt: -3.0, bodyLean: 1.6,  gazeY: -1, listenerMotion: 0.95 },
@@ -79,16 +79,16 @@ const EMOTION: Record<SemanticEmotion, {
 const GESTURE: Record<Gesture, {
     left: ArmPose; right: ArmPose; bodyRotate: number; bodyY: number; scale: number; headExtra: number;
 }> = {
-    idle:          { left: "down", right: "down", bodyRotate: 0.0,  bodyY: 0,   scale: 1.000, headExtra: 0 },
-    explain:       { left: "down", right: "up",   bodyRotate: -0.8, bodyY: -2,  scale: 1.003, headExtra: -0.6 },
-    "point-left": { left: "up",   right: "down", bodyRotate: 0.8,  bodyY: -1,  scale: 1.002, headExtra: 0.8 },
-    "point-right":{ left: "down", right: "up",   bodyRotate: -0.8, bodyY: -1,  scale: 1.002, headExtra: -0.8 },
-    shrug:         { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -5,  scale: 1.004, headExtra: 1.4 },
-    "hands-open": { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -3,  scale: 1.006, headExtra: -0.8 },
-    surprised:     { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -7,  scale: 1.015, headExtra: -1.2 },
-    thinking:      { left: "down", right: "up",   bodyRotate: 1.0,  bodyY: 0,   scale: 1.000, headExtra: 2.0 },
-    facepalm:      { left: "down", right: "up",   bodyRotate: -1.0, bodyY: 1,   scale: 0.998, headExtra: -3.0 },
-    celebrate:     { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -10, scale: 1.020, headExtra: -1.5 },
+    idle:          { left: "down",    right: "down",    bodyRotate: 0.0,  bodyY: 0,   scale: 1.000, headExtra: 0 },
+    explain:       { left: "down",    right: "present", bodyRotate: -0.8, bodyY: -2,  scale: 1.003, headExtra: -0.6 },
+    "point-left": { left: "point",   right: "down",    bodyRotate: 0.8,  bodyY: -1,  scale: 1.002, headExtra: 0.8 },
+    "point-right":{ left: "down",    right: "point",   bodyRotate: -0.8, bodyY: -1,  scale: 1.002, headExtra: -0.8 },
+    shrug:         { left: "present", right: "present", bodyRotate: 0.0,  bodyY: -5,  scale: 1.004, headExtra: 1.4 },
+    "hands-open": { left: "present", right: "present", bodyRotate: 0.0,  bodyY: -3,  scale: 1.006, headExtra: -0.8 },
+    surprised:     { left: "up",      right: "up",      bodyRotate: 0.0,  bodyY: -7,  scale: 1.015, headExtra: -1.2 },
+    thinking:      { left: "down",    right: "present", bodyRotate: 1.0,  bodyY: 0,   scale: 1.000, headExtra: 2.0 },
+    facepalm:      { left: "down",    right: "up",      bodyRotate: -1.0, bodyY: 1,   scale: 0.998, headExtra: -3.0 },
+    celebrate:     { left: "up",      right: "up",      bodyRotate: 0.0,  bodyY: -10, scale: 1.020, headExtra: -1.5 },
 };
 
 function gazeFor(target: GazeTarget | undefined, x: number): { x: number; y: number } | null {
