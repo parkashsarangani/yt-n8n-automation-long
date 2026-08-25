@@ -1,4 +1,4 @@
-iteration=5
+iteration=6
 source=fast-visual-preview
-requested=2026-08-25T16:10:00+00:00
-notes=verify refined doorway foreground set-piece after corridor perspective upgrade
+requested=2026-08-25T16:24:00+00:00
+notes=verify actor-local shot-spanning crossing motion with held prop following active actor
