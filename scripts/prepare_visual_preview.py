@@ -135,10 +135,8 @@ def main() -> None:
         })
 
     OUT.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-    print(
-        f"visual preview manifest: {OUT}, run={run_id}, "
-        f"scenes={[f'{row['scene_index']}:{row['recipe']}' for row in rows]}"
-    )
+    labels = [f"{row['scene_index']}:{row['recipe']}" for row in rows]
+    print(f"visual preview manifest: {OUT}, run={run_id}, scenes={labels}")
 
 
 if __name__ == "__main__":
