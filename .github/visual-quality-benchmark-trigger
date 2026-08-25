@@ -1,4 +1,4 @@
-iteration=3
+iteration=4
 source=integrated-visual-quality-overhaul
-requested=2026-08-25T14:07:20+00:00
-notes=first render after fixing the stale animation-quality test, the illegal SVG comment double-hyphen, and the non-atomic bundle-publish race that was intermittently corrupting concurrent scene renders
+requested=2026-08-25T14:58:52+00:00
+notes=fast validation pass (scenes 5/17/25 only) confirming COMPOSE_CONCURRENCY=2 resolves the Chrome Target-closed crashes seen on iteration 3, before committing to another full-episode render
