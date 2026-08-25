@@ -51,11 +51,11 @@ jobs:
         env:
           BENCHMARK_RUN_PREFIX: run_385203f1
           BENCHMARK_ENGINE_API: http://127.0.0.1:4321/api
-          VISUAL_PREVIEW_SCENE_INDICES: "5,17,25"
+          VISUAL_PREVIEW_RECIPES: "establishing,reaction-closeup,prop-insert,over-shoulder,crossing-transition,payoff-hold"
           VISUAL_PREVIEW_MANIFEST: visual-preview-manifest.json
         run: python3 scripts/prepare_visual_preview.py
 
-      - name: Render nine visual QA stills
+      - name: Render cinematic recipe QA stills
         run: |
           set -euo pipefail
           rm -rf visual-preview
@@ -66,14 +66,17 @@ jobs:
             --entrypoint node \
             amos-visual-preview:${GITHUB_SHA} \
             remotion/preview-bridge.mjs /tmp/visual-preview-manifest.json /preview
-          test "$(find visual-preview -maxdepth 1 -name '*.png' | wc -l)" -eq 9
+          expected=$(jq 'length * 2' visual-preview-manifest.json)
+          actual=$(find visual-preview -maxdepth 1 -name '*.png' | wc -l)
+          test "$actual" -eq "$expected"
+          test "$expected" -eq 12
 
       - name: Build contact sheet
         run: |
           set -euo pipefail
           ffmpeg -y -hide_banner -loglevel error \
             -framerate 1 -pattern_type glob -i 'visual-preview/*.png' \
-            -vf "scale=640:360,tile=3x3:padding=8:margin=8" \
+            -vf "scale=640:360,tile=3x4:padding=8:margin=8" \
             -frames:v 1 visual-preview-contact-sheet.png
           test -s visual-preview-contact-sheet.png
 
