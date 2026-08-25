@@ -9,10 +9,11 @@ const propAsset = readFileSync(join(root, "remotion/src/components/PropAsset.tsx
 const registry = readFileSync(join(root, "remotion/src/lib/assetRegistry.ts"), "utf8");
 const manifest = JSON.parse(readFileSync(join(root, "remotion/public/assets/manifest.json"), "utf8"));
 
-test("CartoonScene consumes scene composition before rendering characters", () => {
+test("CartoonScene consumes scene composition and cinematic blocking before conversation direction", () => {
   assert.match(cartoonScene, /composeCharactersForScene/);
   assert.match(cartoonScene, /const stagedCharacters = useMemo/);
-  assert.match(cartoonScene, /withConversationDirection\(stagedCharacters, speakerEmphasis\)/);
+  assert.match(cartoonScene, /withCinematicRecipeBlocking\(stagedCharacters, cinematic\)/);
+  assert.match(cartoonScene, /withConversationDirection\(recipeBlockedCharacters, speakerEmphasis\)/);
   assert.match(cartoonScene, /foregroundMaskForScene/);
 });
 
