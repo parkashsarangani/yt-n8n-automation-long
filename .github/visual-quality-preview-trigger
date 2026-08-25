@@ -1,4 +1,4 @@
-iteration=9
+iteration=10
 source=fast-visual-preview
-requested=2026-08-25T17:24:00+00:00
-notes=render controlled six-recipe matrix after planner-authority compiler fix
+requested=2026-08-25T17:32:00+00:00
+notes=validate relational shot recipes with real two-character persisted seed
