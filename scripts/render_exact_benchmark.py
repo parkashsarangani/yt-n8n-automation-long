@@ -27,6 +27,11 @@ COMPOSE = os.environ.get("BENCHMARK_COMPOSE_URL", "http://127.0.0.1:4011").rstri
 RUN_PREFIX = os.environ.get("BENCHMARK_RUN_PREFIX", "run_385203f1")
 OUT = Path(os.environ.get("BENCHMARK_OUTPUT", "benchmark-output.mp4"))
 META = Path(os.environ.get("BENCHMARK_METADATA", "benchmark-metadata.json"))
+# Fast-loop mode: render only a specific comma-separated set of scene indices
+# instead of the full episode, for quick visual iteration between full-episode
+# checkpoints. Unset (the default) renders everything, exactly as before.
+SCENE_INDICES = os.environ.get("BENCHMARK_SCENE_INDICES", "").strip()
+SCENE_INDEX_SET = {int(i) for i in SCENE_INDICES.split(",") if i.strip()} if SCENE_INDICES else None
 
 
 def http_json(url: str, method: str = "GET", body: Any | None = None, host_local: bool = False) -> Any:
@@ -134,6 +139,10 @@ def main() -> None:
     cast_art = artifact(cast_id)
 
     script_scenes = sorted(script["payload"]["scenes"], key=lambda s: int(s["scene_index"]))
+    if SCENE_INDEX_SET is not None:
+        script_scenes = [s for s in script_scenes if int(s["scene_index"]) in SCENE_INDEX_SET]
+        if not script_scenes:
+            raise RuntimeError(f"BENCHMARK_SCENE_INDICES={SCENE_INDICES!r} matched no scenes in this episode")
     clips = {int(c["scene_index"]): c for c in voice["payload"]["clips"]}
     asset_scenes = {int(a["scene_index"]): a for a in assets["payload"]["scenes"]}
     cast = {str(c["character_id"]): c for c in cast_art["payload"]["characters"]}
