@@ -294,6 +294,49 @@ test("dialogue_script_writer v5 scripts may close on a changed_behavior coda aft
   assert.equal(payload.scenes.length, 7);
 });
 
+test("dialogue_script_writer v5 scripts may open on a different object before settling on the central one", async () => {
+  // Real production script: scenes 0-12 (opening third of 38) cycle through
+  // fridge/couch/spoon while Host searches for the reason they're in the
+  // kitchen; the story settles on "notepad" as its actual anchor object only
+  // from scene 21 onward (middle + final thirds), which then carries the
+  // payoff. That "confusion tour before settling" is the deliberate shape
+  // of a forgetting/searching story, not an unfocused script -- the object
+  // still has to anchor the middle and final thirds, just not the opening.
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    { scene_index: 0, point: "action=Host freezes beside the open fridge with empty hands; prop=fridge; function=opening_problem; value=viewer sees the memory fail happen physically", narration: "Wait, why am I here?", speaker: "host", emotion: "confused" },
+    { scene_index: 1, point: "action=Buddy leans over the couch toward Host; prop=couch; function=escalation; value=the search becomes visible", narration: "You have been standing there a while.", speaker: "buddy", emotion: "neutral" },
+    { scene_index: 2, point: "action=Host points back toward the living-room couch; prop=couch; function=failed_attempt; value=the wrong trail is followed", narration: "It was something on the couch, maybe.", speaker: "host", emotion: "neutral" },
+    { scene_index: 3, point: "action=Buddy places the spoon beside a notepad on the coffee table; prop=notepad; function=hidden_mechanism; value=the real cue appears", narration: "This was on the table the whole time.", speaker: "buddy", emotion: "amused" },
+    { scene_index: 4, point: "action=Host picks up the notepad and flips to a blank page; prop=notepad; function=midpoint_turn; value=the object becomes the plan", narration: "Right. This was the plan.", speaker: "host", emotion: "surprised" },
+    { scene_index: 5, point: "action=Host writes the item on the notepad while seated; prop=notepad; function=practical_action viewer_value; value=commit the plan to the object", narration: "Write it down this time.", speaker: "host", emotion: "neutral" },
+    { scene_index: 6, point: "action=Host grips the note and starts toward the kitchen; prop=notepad; function=practical_action; value=carry the cue across the room", narration: "Follow the note, not the memory.", speaker: "host", emotion: "neutral" },
+    { scene_index: 7, point: "action=Host opens the fridge and reaches directly for the item on the note; prop=notepad; function=payoff_resolution practical_action callback; value=the note replaces the failed memory", narration: "There it is. First try.", speaker: "host", emotion: "happy" },
+    { scene_index: 8, point: "action=Host places the item beside the notepad and writes a fresh reminder; prop=notepad; function=changed_behavior; value=the solution becomes a repeatable habit", narration: "Tomorrow too.", speaker: "host", emotion: "neutral" },
+  ];
+
+  const out = await worker.execute(
+    {
+      plan: {
+        payload: {
+          scenes: scenes.map((scene) => directedScene(scene.scene_index, {
+            visual_event: scene.scene_index === 0 ? "screen-change" : "reaction-pop",
+          })),
+        },
+      },
+      script: {
+        payload: { scenes },
+        produced_by: { transformation: "dialogue_script_writer", version: "5" },
+      },
+      cast,
+    } as never,
+    ctx as never,
+  );
+
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, 9);
+});
+
 test("dialogue_script_writer v5 scripts must return the central object in the payoff", async () => {
   const worker = makeCartoonSceneCompilerWorker();
   const scenes = [

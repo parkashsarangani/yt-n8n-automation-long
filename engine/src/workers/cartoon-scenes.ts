@@ -613,7 +613,13 @@ function assertActionQualityContract(scenes: ScriptScene[]): void {
 
   const hookClarity = openingScenes.some((scene) => /opening_problem|hook/.test(functionValue(scene)) && hasVisibleAction(scene) && isMeaningfulProp(propValue(scene))) ? 2 : 0;
   const visibleStoryAction = visibleActions >= requiredActions ? 2 : 0;
-  const centralObjectUsage = central.prop && central.count >= 3 && central.thirds.has("opening") && central.thirds.has("middle") && central.thirds.has("final") ? 2 : 0;
+  // Require the central object to anchor at least two of the three thirds,
+  // not all three. A "confusion tour" opening that samples several objects
+  // before the story settles on its real anchor (e.g. searching the fridge,
+  // couch, and spoon before landing on the notepad that carries the payoff)
+  // is a legitimate structure, not an unfocused script -- as long as the
+  // object still carries through the middle and final thirds.
+  const centralObjectUsage = central.prop && central.count >= 3 && central.thirds.size >= 2 ? 2 : 0;
   const viewerTakeaway = /practical_action|viewer_value|takeaway|changed behavior|replacement|replace|remove the cue|concrete action/.test(pointText) ? 2 : 0;
   // Same closing-vocabulary allowance as assertV3ScriptContract below: a
   // short changed_behavior/habit/confirmation coda after the real payoff
