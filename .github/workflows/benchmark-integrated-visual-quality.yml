@@ -4,31 +4,23 @@ on:
   push:
     branches:
       - feat/integrated-visual-quality-9
+    paths:
+      - .github/visual-quality-benchmark-trigger
 
 concurrency:
   group: visual-quality-benchmark
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   exact-benchmark:
     runs-on: self-hosted
     timeout-minutes: 75
     steps:
-      - name: Checkout feature branch
+      - name: Checkout benchmark commit
         uses: actions/checkout@v4
         with:
-          ref: feat/integrated-visual-quality-9
+          ref: ${{ github.sha }}
           clean: true
-
-      # Before the one-shot verifier commits the transformed source, benchmark
-      # the exact same working tree that it is testing. After that commit this
-      # file is absent and the source is already transformed.
-      - name: Apply visual overhaul when still staged
-        run: |
-          if [ -f scripts/apply_visual_quality_overhaul.py ]; then
-            python3 scripts/apply_visual_quality_overhaul.py
-          fi
-          git diff --check
 
       - name: Confirm production benchmark source is reachable
         run: |
