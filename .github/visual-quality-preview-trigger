@@ -1,4 +1,4 @@
-iteration=1
+iteration=2
 source=fast-visual-preview
-requested=2026-08-25T15:52:30+00:00
-notes=render 9 persisted-scene PNG samples for visual QA after scene-dressing stacking fix
+requested=2026-08-25T15:56:00+00:00
+notes=verify hand-held prop palm alignment after pose-specific visual offset fix
