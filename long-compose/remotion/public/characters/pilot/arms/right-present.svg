@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700"><path d="M330 372 Q362 348 389 353 Q411 356 420 371 Q417 390 397 397 Q369 397 338 400 Q316 399 302 389 Z" fill="#DFAE8C" stroke="#17212B" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="420" cy="373" rx="25" ry="20" fill="#DFAE8C" stroke="#17212B" stroke-width="8"/><path d="M430 362 l22 -4 M432 370 l25 1 M429 379 l21 6" fill="none" stroke="#17212B" stroke-width="6" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
+  <defs>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2C3A1"/>
+      <stop offset="1" stop-color="#D69D79"/>
+    </linearGradient>
+  </defs>
+  <path d="M330 372 Q356 351 382 350 Q400 349 413 359 Q421 366 422 376 Q420 388 409 394 Q386 402 359 401 Q332 401 313 391 Q305 386 302 379 Z" fill="url(#skin)" stroke="#17212B" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M405 360 Q415 353 424 359 Q429 363 428 369 L449 365 Q457 364 459 370 Q460 376 452 379 L433 381 L452 385 Q459 387 457 393 Q455 399 447 397 L428 393 Q424 401 415 402 Q404 402 399 394 Q395 387 397 376 Q399 367 405 360 Z" fill="url(#skin)" stroke="#17212B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M414 367 Q419 379 414 390" fill="none" stroke="#C98968" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+  <path d="M340 370 Q362 360 382 362" fill="none" stroke="#F7D0B2" stroke-width="5" stroke-linecap="round" opacity="0.35"/>
+</svg>
