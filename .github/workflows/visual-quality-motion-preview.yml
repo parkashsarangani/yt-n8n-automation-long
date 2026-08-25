@@ -1,0 +1,119 @@
+name: Visual quality motion preview
+
+on:
+  push:
+    branches:
+      - feat/integrated-visual-quality-9
+    paths:
+      - .github/visual-quality-motion-preview-trigger
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: visual-quality-motion-preview
+  cancel-in-progress: true
+
+jobs:
+  motion-preview:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: Checkout motion preview commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+
+      - name: Publish motion preview run identity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload=$(printf '{"state":"pending","context":"visual-quality-motion-preview","description":"motion preview run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload"
+
+      - name: Confirm production benchmark source is reachable
+        run: |
+          set -euo pipefail
+          curl -sf -H 'Host: localhost' http://127.0.0.1:4321/api/runs >/dev/null
+
+      - name: Build isolated motion preview image
+        run: docker build -t amos-motion-preview:${GITHUB_SHA} long-compose
+
+      - name: Prepare persisted cinematic recipe props
+        env:
+          BENCHMARK_RUN_PREFIX: run_385203f1
+          BENCHMARK_ENGINE_API: http://127.0.0.1:4321/api
+          VISUAL_PREVIEW_RECIPES: "establishing,reaction-closeup,prop-insert,over-shoulder,crossing-transition,payoff-hold"
+          VISUAL_PREVIEW_MANIFEST: visual-motion-preview-manifest.json
+        run: python3 scripts/prepare_visual_preview.py
+
+      - name: Render short motion QA clips
+        run: |
+          set -euo pipefail
+          rm -rf visual-motion-preview
+          mkdir -p visual-motion-preview
+          docker run --rm --cpus=4 \
+            -v "$PWD/visual-motion-preview-manifest.json:/tmp/visual-motion-preview-manifest.json:ro" \
+            -v "$PWD/visual-motion-preview:/motion" \
+            --entrypoint node \
+            amos-motion-preview:${GITHUB_SHA} \
+            remotion/motion-preview-bridge.mjs \
+            /tmp/visual-motion-preview-manifest.json \
+            /motion \
+            reaction-closeup,prop-insert,crossing-transition,payoff-hold
+          test "$(find visual-motion-preview -maxdepth 1 -name '*.mp4' | wc -l)" -eq 4
+
+      - name: Build 12-frame motion sheets
+        run: |
+          set -euo pipefail
+          for clip in visual-motion-preview/*.mp4; do
+            sheet="${clip%.mp4}-sheet.png"
+            ffmpeg -y -hide_banner -loglevel error \
+              -i "$clip" \
+              -vf "fps=4,scale=480:270,tile=4x3:padding=4:margin=4" \
+              -frames:v 1 "$sheet"
+            test -s "$sheet"
+          done
+          test "$(find visual-motion-preview -maxdepth 1 -name '*-sheet.png' | wc -l)" -eq 4
+
+      - name: Upload motion preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-quality-motion-preview
+          path: |
+            visual-motion-preview/*.mp4
+            visual-motion-preview/*-sheet.png
+            visual-motion-preview-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Cleanup motion preview image
+        if: always()
+        run: docker image rm amos-motion-preview:${GITHUB_SHA} >/dev/null 2>&1 || true
+
+      - name: Publish final motion preview status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure) state=failure ;;
+            *) state=error ;;
+          esac
+          payload=$(printf '{"state":"%s","context":"visual-quality-motion-preview","description":"motion preview run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload" || true
