@@ -27,6 +27,15 @@ test("acting presets and carried props materially affect rendered pixels", () =>
   assert.match(scene, /data-held-prop-follows-actor=\"true\"/);
 });
 
+test("acting presets drive actor-local facial performance as well as stage motion", () => {
+  assert.match(scene, /withCinematicActingPerformance/);
+  assert.match(scene, /case "double-take"[\s\S]*emotion: "surprised"[\s\S]*expression: "surprised"/);
+  assert.match(scene, /case "deadpan-side-eye"[\s\S]*emotion: "skeptical"[\s\S]*gazeTarget: "away"/);
+  assert.match(scene, /case "small-defeat"[\s\S]*emotion: "sad"/);
+  assert.match(scene, /case "payoff-freeze"[\s\S]*emotion: "happy"[\s\S]*gazeTarget: "camera"/);
+  assert.match(scene, /physicalHold \? character\.gesture : gesture/);
+});
+
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
   assert.match(scene, /withCinematicRecipeBlocking/);
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
