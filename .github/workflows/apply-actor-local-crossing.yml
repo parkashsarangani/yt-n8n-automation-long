@@ -1,4 +1,4 @@
-name: Apply cinematic shot blocking patch
+name: Apply environment layer policy patch
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          payload=$(printf '{"state":"pending","context":"cinematic-shot-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          payload=$(printf '{"state":"pending","context":"environment-layer-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
           curl -fsS -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -33,37 +33,51 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -d "$payload"
 
-      - name: Tune reaction crop and OTS foreground depth
+      - name: Prefer authored layered environments over replacement plates
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          scene = Path('long-compose/remotion/src/compositions/CartoonScene.tsx')
-          text = scene.read_text()
-          replacements = {
-              '? { ...character, x: 690, y: 224, scale: baseScale * 1.12, gazeTarget: "camera" }': '? { ...character, x: 690, y: 500, scale: baseScale * 1.48, gazeTarget: "camera" }',
-              '? { ...character, x: 760, y: 276, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }': '? { ...character, x: 760, y: 300, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }',
-              ': { ...character, x: index < activeIndex ? -480 : 1500, y: 128, scale: baseScale * 1.72, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };': ': { ...character, x: index < activeIndex ? -440 : 1500, y: 450, scale: baseScale * 1.55, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };',
-          }
-          for old, new in replacements.items():
-              count = text.count(old)
-              assert count == 1, f'expected one shot-blocking target, got {count}: {old}'
-              text = text.replace(old, new, 1)
-          scene.write_text(text)
+          bg = Path('long-compose/remotion/src/components/Background.tsx')
+          text = bg.read_text()
+          old = '''    const scenePlate = scenePlateFor(background);\n    const replaceLayers = scenePlate?.compositeMode === "replace-background";'''
+          new = '''    const scenePlate = scenePlateFor(background);\n    const hasAuthoredLayers = Boolean(background.layers?.back || background.layers?.middle || background.layers?.front);\n    const useReplacementPlate = scenePlate?.compositeMode === "replace-background" && !hasAuthoredLayers;\n    const useOverlayPlate = scenePlate?.compositeMode === "overlay";'''
+          assert old in text, 'background replacement policy drifted'
+          text = text.replace(old, new, 1)
+
+          old_render = '''            <ScenePlate asset={scenePlate} />\n            {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}\n            {/* Layered back plates are opaque; dressing must render after them to stay visible. */}'''
+          new_render = '''            {useReplacementPlate && <ScenePlate asset={scenePlate} />}\n            {!useReplacementPlate && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}\n            {useOverlayPlate && <ScenePlate asset={scenePlate} />}\n            {/* Authored layers are the primary environment when available; dressing stays above opaque back plates. */}'''
+          assert old_render in text, 'background render stack drifted'
+          text = text.replace(old_render, new_render, 1)
+          bg.write_text(text)
+
+          test = Path('long-compose/tests/integrated-visual-quality.test.js')
+          t = test.read_text()
+          declaration = 'const dressing = fs.readFileSync(path.join(root, "remotion/src/components/SceneDressing.tsx"), "utf8");\n'
+          assert declaration in t, 'test declarations drifted'
+          if 'const backgroundRenderer =' not in t:
+              t = t.replace(declaration, declaration + 'const backgroundRenderer = fs.readFileSync(path.join(root, "remotion/src/components/Background.tsx"), "utf8");\n', 1)
+          marker = 'test("formerly generic environments now have location-specific dressing", () => {'
+          assert marker in t, 'environment test anchor drifted'
+          addition = '''test("authored layered environments outrank generic replacement scene plates", () => {\n  assert.match(backgroundRenderer, /hasAuthoredLayers/);\n  assert.match(backgroundRenderer, /useReplacementPlate = scenePlate\\?\\.compositeMode === "replace-background" && !hasAuthoredLayers/);\n  assert.match(backgroundRenderer, /!useReplacementPlate && <BackgroundLayersView/);\n  assert.match(backgroundRenderer, /useOverlayPlate && <ScenePlate/);\n});\n\n'''
+          if 'authored layered environments outrank generic replacement scene plates' not in t:
+              t = t.replace(marker, addition + marker, 1)
+          test.write_text(t)
           PY
 
       - name: Verify patch shape
         run: |
-          grep -Fq 'x: 690, y: 500, scale: baseScale * 1.48' long-compose/remotion/src/compositions/CartoonScene.tsx
-          grep -Fq 'x: index < activeIndex ? -440 : 1500, y: 450, scale: baseScale * 1.55' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'const hasAuthoredLayers = Boolean' long-compose/remotion/src/components/Background.tsx
+          grep -Fq 'const useReplacementPlate = scenePlate?.compositeMode === "replace-background" && !hasAuthoredLayers' long-compose/remotion/src/components/Background.tsx
+          grep -Fq '!useReplacementPlate && <BackgroundLayersView' long-compose/remotion/src/components/Background.tsx
           git diff --check
 
       - name: Commit patch
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add long-compose/remotion/src/compositions/CartoonScene.tsx
-          git commit -m 'feat: crop reaction and OTS shots for cinematic depth' || exit 0
+          git add long-compose/remotion/src/components/Background.tsx long-compose/tests/integrated-visual-quality.test.js
+          git commit -m 'fix: prefer authored layered environments over scene plates' || exit 0
           git push origin HEAD:feat/integrated-visual-quality-9
 
       - name: Publish final patch status
@@ -77,7 +91,7 @@ jobs:
             failure) state=failure ;;
             *) state=error ;;
           esac
-          payload=$(printf '{"state":"%s","context":"cinematic-shot-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          payload=$(printf '{"state":"%s","context":"environment-layer-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
           curl -fsS -X POST \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
