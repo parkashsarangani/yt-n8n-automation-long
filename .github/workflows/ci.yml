@@ -45,9 +45,19 @@ jobs:
 
       - name: Test long-compose
         run: |
+          set -o pipefail
           docker run --rm \
             --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} test
+            long-compose:pr-${{ github.event.pull_request.number }} test 2>&1 | tee long-compose-test.log
+
+      - name: Upload long-compose test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-compose-test-diagnostics
+          path: long-compose-test.log
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Cleanup
         if: always()
