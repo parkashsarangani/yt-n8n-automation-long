@@ -33,106 +33,38 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
             -d "$payload"
 
-      - name: Apply cinematic shot blocking patch
+      - name: Tune reaction and over-shoulder blocking
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           scene = Path('long-compose/remotion/src/compositions/CartoonScene.tsx')
           text = scene.read_text()
-
-          marker = 'function HandHeldPropOverlay({\n'
-          assert marker in text, 'hand-held overlay marker drifted'
-          helper = r'''function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: CinematicSceneSpec): CharacterProps[] {
-    if (!characters.length) return characters;
-    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
-    let activeIndex = characters.findIndex((character) => character.isSpeaking);
-    if (activeIndex < 0) activeIndex = 0;
-
-    return characters.map((character, index) => {
-        const active = index === activeIndex;
-        const baseScale = Number.isFinite(character.scale) ? character.scale! : 1;
-        switch (recipe) {
-            case "establishing":
-                return { ...character, y: character.y + 58, scale: baseScale * 0.80 };
-            case "reaction-closeup":
-                return active
-                    ? { ...character, x: 710, y: 138, scale: baseScale * 1.34, gazeTarget: "camera" }
-                    : { ...character, x: index < activeIndex ? -250 : 1370, y: 252, scale: baseScale * 1.08, dimmed: true };
-            case "prop-insert":
-                return active
-                    ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }
-                    : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };
-            case "over-shoulder":
-                return active
-                    ? { ...character, x: 710, y: 205, scale: baseScale * 1.02, gazeTarget: activeIndex === 0 ? "right" : "left" }
-                    : { ...character, x: index < activeIndex ? -130 : 1290, y: 238, scale: baseScale * 1.30, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };
-            case "payoff-hold":
-                return active
-                    ? { ...character, x: 700, y: 142, scale: baseScale * 1.22, gazeTarget: "camera" }
-                    : { ...character, x: index < activeIndex ? -220 : 1360, y: 280, scale: baseScale * 0.80, dimmed: true };
-            case "callback-reveal":
-                return active
-                    ? { ...character, x: 680, y: 170, scale: baseScale * 1.14, gazeTarget: "camera" }
-                    : { ...character, x: index < activeIndex ? -180 : 1340, y: 270, scale: baseScale * 0.84, dimmed: true };
-            case "crossing-transition":
-            case "two-shot":
-            default:
-                return character;
-        }
-    });
-}
-
-'''
-          text = text.replace(marker, helper + marker, 1)
-
-          old = '''    const directedCharacters = useMemo(
-        () => withConversationDirection(stagedCharacters, speakerEmphasis),
-        [stagedCharacters, speakerEmphasis],
-    );'''
-          new = '''    const recipeBlockedCharacters = useMemo(
-        () => withCinematicRecipeBlocking(stagedCharacters, cinematic),
-        [stagedCharacters, cinematic],
-    );
-
-    const directedCharacters = useMemo(
-        () => withConversationDirection(recipeBlockedCharacters, speakerEmphasis),
-        [recipeBlockedCharacters, speakerEmphasis],
-    );'''
-          assert old in text, 'conversation staging block drifted'
-          text = text.replace(old, new, 1)
-
           replacements = {
-              'x={insert ? 1000 : hand.x - 54}': 'x={insert ? 1030 : hand.x - 54}',
-              'y={insert ? 342 : hand.y - 102}': 'y={insert ? 250 : hand.y - 102}',
-              'scale={(insert ? 1.22 : 0.64) * visualStyle.propScale}': 'scale={(insert ? 1.85 : 0.64) * visualStyle.propScale}',
+              '? { ...character, x: 710, y: 138, scale: baseScale * 1.34, gazeTarget: "camera" }': '? { ...character, x: 690, y: 224, scale: baseScale * 1.12, gazeTarget: "camera" }',
+              ': { ...character, x: index < activeIndex ? -250 : 1370, y: 252, scale: baseScale * 1.08, dimmed: true };': ': { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };',
+              '? { ...character, x: 710, y: 205, scale: baseScale * 1.02, gazeTarget: activeIndex === 0 ? "right" : "left" }': '? { ...character, x: 760, y: 276, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }',
+              ': { ...character, x: index < activeIndex ? -130 : 1290, y: 238, scale: baseScale * 1.30, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };': ': { ...character, x: index < activeIndex ? -480 : 1500, y: 128, scale: baseScale * 1.72, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };',
           }
           for old, new in replacements.items():
-              assert old in text, f'prop insert shape drifted: {old}'
+              count = text.count(old)
+              assert count == 1, f'expected one shot-blocking target, got {count}: {old}'
               text = text.replace(old, new, 1)
           scene.write_text(text)
-
-          test = Path('long-compose/tests/integrated-visual-quality.test.js')
-          t = test.read_text()
-          anchor = 'test("central charger is a physical self-authored object, not the MDI icon card", () => {'
-          assert anchor in t, 'integrated quality test anchor drifted'
-          addition = '''test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {\n  assert.match(scene, /withCinematicRecipeBlocking/);\n  for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {\n    assert.match(scene, new RegExp(`case "${recipe}"`));\n  }\n  assert.match(scene, /insert \\? 1\\.85 : 0\\.64/);\n});\n\n'''
-          t = t.replace(anchor, addition + anchor, 1)
-          test.write_text(t)
           PY
 
       - name: Verify patch shape
         run: |
-          grep -q 'withCinematicRecipeBlocking' long-compose/remotion/src/compositions/CartoonScene.tsx
-          grep -Fq 'insert ? 1.85 : 0.64' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'x: 690, y: 224, scale: baseScale * 1.12' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'x: index < activeIndex ? -480 : 1500, y: 128, scale: baseScale * 1.72' long-compose/remotion/src/compositions/CartoonScene.tsx
           git diff --check
 
       - name: Commit patch
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add long-compose/remotion/src/compositions/CartoonScene.tsx long-compose/tests/integrated-visual-quality.test.js
-          git commit -m 'feat: make cinematic recipes visually distinct' || exit 0
+          git add long-compose/remotion/src/compositions/CartoonScene.tsx
+          git commit -m 'feat: tune reaction and over-shoulder blocking' || exit 0
           git push origin HEAD:feat/integrated-visual-quality-9
 
       - name: Publish final patch status
