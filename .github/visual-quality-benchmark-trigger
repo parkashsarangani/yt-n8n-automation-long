@@ -1,4 +1,4 @@
-iteration=5
+iteration=6
 source=integrated-visual-quality-overhaul
-requested=2026-08-25T15:22:00+00:00
-notes=concurrency-1 diagnostic pass on scenes 5/17/25 with full compositor log capture to isolate whether the remaining Command failed is resource contention or a deterministic scene/render defect
+requested=2026-08-25T15:28:00+00:00
+notes=repeat concurrency-1 fast diagnostic on scenes 5/17/25 with commit-status observability so the run id, exact failure, artifacts, and compositor logs can be inspected from this session
