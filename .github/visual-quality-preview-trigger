@@ -1,4 +1,4 @@
-iteration=16
-source=fast-visual-preview
-requested=2026-08-25T18:17:00+00:00
-notes=verify palm-anchored prop insert composition removes floating-object hard gate
+iteration=17
+source=actor-local-facial-performance
+requested=2026-08-25T19:11:00+00:00
+notes=verify facial emotion gaze gesture and prop-hold integration
