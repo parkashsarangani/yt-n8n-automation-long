@@ -1,3 +1,4 @@
-iteration=2
+iteration=3
 source=integrated-visual-quality-overhaul
-requested=2026-08-25T13:28:00+02:00
+requested=2026-08-25T14:07:20+00:00
+notes=first render after fixing the stale animation-quality test, the illegal SVG comment double-hyphen, and the non-atomic bundle-publish race that was intermittently corrupting concurrent scene renders
