@@ -1,0 +1,102 @@
+name: Benchmark integrated visual quality
+
+on:
+  push:
+    branches:
+      - feat/integrated-visual-quality-9
+
+concurrency:
+  group: visual-quality-benchmark
+  cancel-in-progress: true
+
+jobs:
+  exact-benchmark:
+    runs-on: self-hosted
+    timeout-minutes: 75
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/integrated-visual-quality-9
+          clean: true
+
+      # Before the one-shot verifier commits the transformed source, benchmark
+      # the exact same working tree that it is testing. After that commit this
+      # file is absent and the source is already transformed.
+      - name: Apply visual overhaul when still staged
+        run: |
+          if [ -f scripts/apply_visual_quality_overhaul.py ]; then
+            python3 scripts/apply_visual_quality_overhaul.py
+          fi
+          git diff --check
+
+      - name: Confirm production benchmark source is reachable
+        run: |
+          set -euo pipefail
+          curl -sf -H 'Host: localhost' http://127.0.0.1:4321/api/runs >/dev/null
+          engine=$(docker ps --filter publish=4321 --format '{{.ID}}' | head -1)
+          test -n "$engine"
+          echo "production engine available as $engine"
+
+      - name: Build isolated branch compositor
+        run: |
+          set -euo pipefail
+          docker build -t amos-visual-quality-benchmark:${GITHUB_SHA} long-compose
+
+      - name: Start isolated compositor
+        run: |
+          set -euo pipefail
+          docker rm -f amos-vq-benchmark >/dev/null 2>&1 || true
+          mkdir -p "$RUNNER_TEMP/amos-vq-output"
+          docker run -d --name amos-vq-benchmark \
+            --cpus=4 \
+            -p 127.0.0.1:4011:4000 \
+            -v "$RUNNER_TEMP/amos-vq-output:/app/outputs" \
+            amos-visual-quality-benchmark:${GITHUB_SHA}
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4011/topic-history >/dev/null; then
+              echo "isolated compositor ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs amos-vq-benchmark
+          exit 1
+
+      - name: Render exact persisted episode
+        env:
+          BENCHMARK_RUN_PREFIX: run_385203f1
+          BENCHMARK_ENGINE_API: http://127.0.0.1:4321/api
+          BENCHMARK_COMPOSE_URL: http://127.0.0.1:4011
+          BENCHMARK_OUTPUT: benchmark-output.mp4
+          BENCHMARK_METADATA: benchmark-metadata.json
+        run: python3 scripts/render_exact_benchmark.py
+
+      - name: Verify benchmark media
+        run: |
+          set -euo pipefail
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height,r_frame_rate -of json benchmark-output.mp4 | tee benchmark-ffprobe.json
+          ffmpeg -hide_banner -i benchmark-output.mp4 -filter_complex ebur128=peak=true -f null - 2> benchmark-loudness.txt || true
+          tail -40 benchmark-loudness.txt
+
+      - name: Upload exact benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-visual-quality-exact-benchmark
+          path: |
+            benchmark-output.mp4
+            benchmark-metadata.json
+            benchmark-ffprobe.json
+            benchmark-loudness.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Isolated compositor logs
+        if: always()
+        run: docker logs --tail=120 amos-vq-benchmark || true
+
+      - name: Cleanup isolated compositor
+        if: always()
+        run: |
+          docker rm -f amos-vq-benchmark >/dev/null 2>&1 || true
+          docker image rm amos-visual-quality-benchmark:${GITHUB_SHA} >/dev/null 2>&1 || true
