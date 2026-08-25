@@ -195,6 +195,45 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
+function withCinematicActingPerformance(
+    characters: CharacterProps[],
+    prop: ForegroundPropSpec | undefined,
+    background: BackgroundSpec | undefined,
+    cinematic: CinematicSceneSpec | undefined,
+): CharacterProps[] {
+    if (!characters.length) return characters;
+    const preset = actingPresetFor(cinematic);
+    let activeIndex = characters.findIndex((character) => character.isSpeaking);
+    if (activeIndex < 0) activeIndex = 0;
+    const physicalHold = Boolean(
+        prop?.type && prop.type !== "none" && propPlacementFor(background, prop, cinematic) === "hand-held",
+    );
+
+    return characters.map((character, index) => {
+        if (index !== activeIndex) return character;
+        const gestureWhenFree = (gesture: CharacterProps["gesture"]): CharacterProps["gesture"] =>
+            physicalHold ? character.gesture : gesture;
+        switch (preset) {
+            case "double-take":
+                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "camera", gesture: gestureWhenFree("surprised") };
+            case "notices-prop":
+                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "down" };
+            case "deadpan-side-eye":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "away", gesture: gestureWhenFree("idle") };
+            case "small-defeat":
+                return { ...character, emotion: "sad", expression: "normal", gazeTarget: "down", gesture: gestureWhenFree("facepalm") };
+            case "reluctant-acceptance":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "down", gesture: gestureWhenFree("shrug") };
+            case "payoff-freeze":
+                return { ...character, emotion: "happy", expression: "normal", gazeTarget: "camera", gesture: gestureWhenFree("hands-open") };
+            case "walk-cross":
+            case "neutral-hold":
+            default:
+                return character;
+        }
+    });
+}
+
 function propHolder(characters: CharacterProps[]): CharacterProps | undefined {
     return characters.find((character) => character.isSpeaking) ?? characters[0];
 }
@@ -520,9 +559,13 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         () => withConversationDirection(recipeBlockedCharacters, speakerEmphasis),
         [recipeBlockedCharacters, speakerEmphasis],
     );
-    const performedCharacters = useMemo(
+    const physicallyDirectedCharacters = useMemo(
         () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
         [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );
+    const performedCharacters = useMemo(
+        () => withCinematicActingPerformance(physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic],
     );
 
     const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
