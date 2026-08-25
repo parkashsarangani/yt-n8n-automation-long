@@ -21,7 +21,15 @@ function scene(scene_index: number, narration: string, point = "action=Host reac
 function errorsFor(lines: string[]): string[] {
   return agentSemanticValidationErrors(
     DEF,
-    { scenes: lines.map((line, index) => scene(index, line)) },
+    {
+      scenes: lines.map((line, index) => scene(
+        index,
+        line,
+        index === lines.length - 1
+          ? "action=Host repeats the cue and grabs the charger; prop=charger; function=payoff_resolution; value=the opening problem resolves"
+          : undefined,
+      )),
+    },
     {},
   );
 }

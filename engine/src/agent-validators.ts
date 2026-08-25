@@ -4,6 +4,14 @@ import type { Artifact } from "./artifact.ts";
 const LONG_CARTOON_PLAN_SCENES = 13;
 const SHORT_DIALOGUE_WORD_LIMIT = 10;
 const HUMAN_MOMENT_MIN_RATIO = 0.45;
+// Must match cartoon-scenes.ts's WORDS_PER_SECOND/LONG_SCRIPT_SECONDS --
+// duplicated here so the final-scene-payoff/midpoint checks can run at the
+// writer stage (with retry-and-feedback) instead of only at the downstream
+// compiler worker stage (no retry: a script that reaches the compiler with a
+// dangling non-payoff ending blocks the run permanently, since resuming just
+// re-validates the same stored script against the same deterministic check).
+const WORDS_PER_SECOND = 2.6;
+const LONG_SCRIPT_SECONDS = 75;
 
 interface ScriptScene {
   scene_index: number;
@@ -216,6 +224,31 @@ function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
   if (isDoorwayOrSpatialTopic(contentScenes)) {
     const doorwayPropScenes = contentScenes.filter((scene) => propValue(scene) === "door" && !/\b(?:cross|through|walk|enter|leave|open|doorway)\b/i.test(scene.point ?? ""));
     if (doorwayPropScenes.length > 0) errors.push(`${def.name}@${def.version ?? "1"} doorway prop gate failed: scenes ${doorwayPropScenes.map((s) => s.scene_index).join(", ")} use door as a central prop without crossing/opening action. Use the remembered object instead, and keep the door as a scene transition/set-piece.`);
+  }
+
+  // Mirrors cartoon-scenes.ts's assertV3ScriptContract, run here (writer
+  // stage, with retry-and-feedback) instead of only at the compiler worker
+  // stage. A script whose final scene doesn't actually resolve -- e.g. it
+  // ends mid-explanation on a "transition" beat instead of a payoff -- used
+  // to pass this gate, get stored, and only fail later at the compiler,
+  // which has no retry and blocks the run permanently on a script that
+  // can't be regenerated without a fresh run.
+  if (Number(def.version ?? "1") >= 3) {
+    const estimatedDurationSec = contentScenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0) / WORDS_PER_SECOND;
+    const pointLines = contentScenes.map((scene) => (scene.point ?? "").toLowerCase());
+    const finalPoint = pointLines[pointLines.length - 1] ?? "";
+
+    if (!/(payoff|resolve|resolution|return|opening|final|lands|closes|changed_behavior|habit|confirm)/.test(finalPoint)) {
+      errors.push(`${def.name}@${def.version ?? "1"} contract violated: final scene point must mark a payoff/resolution of the opening situation`);
+    } else if (estimatedDurationSec >= LONG_SCRIPT_SECONDS) {
+      if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal)/.test(point))) {
+        errors.push(`${def.name}@${def.version ?? "1"} contract violated: long scripts must include a midpoint turn/reframe point`);
+      }
+      const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun)/.test(point)).length;
+      if (engagementCount < 2) {
+        errors.push(`${def.name}@${def.version ?? "1"} contract violated: long scripts must include at least two engagement beats in scene points`);
+      }
+    }
   }
 
   return errors;
