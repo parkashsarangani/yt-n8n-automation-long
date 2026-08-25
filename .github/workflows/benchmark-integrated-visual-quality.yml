@@ -63,6 +63,12 @@ jobs:
           BENCHMARK_COMPOSE_URL: http://127.0.0.1:4011
           BENCHMARK_OUTPUT: benchmark-output.mp4
           BENCHMARK_METADATA: benchmark-metadata.json
+          # TEMPORARY: fast-loop validation of the COMPOSE_CONCURRENCY=2 fix
+          # against the exact scenes (17, 25) that crashed the last two full
+          # runs, plus 5 for a third data point, before committing another
+          # ~40min full-episode render. Remove this line to go back to a full
+          # render once the fix is confirmed stable.
+          BENCHMARK_SCENE_INDICES: "5,17,25"
         run: python3 scripts/render_exact_benchmark.py
 
       - name: Verify benchmark media
