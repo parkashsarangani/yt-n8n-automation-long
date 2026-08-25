@@ -42,7 +42,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/amos-vq-output"
           docker run -d --name amos-vq-benchmark \
             --cpus=4 \
-            -e COMPOSE_CONCURRENCY=2 \
+            -e COMPOSE_CONCURRENCY=1 \
             -p 127.0.0.1:4011:4000 \
             -v "$RUNNER_TEMP/amos-vq-output:/app/outputs" \
             amos-visual-quality-benchmark:${GITHUB_SHA}
@@ -92,7 +92,19 @@ jobs:
 
       - name: Isolated compositor logs
         if: always()
-        run: docker logs --tail=120 amos-vq-benchmark || true
+        run: |
+          docker logs amos-vq-benchmark > compositor-full.log 2>&1 || true
+          echo "--- last 400 lines (full log uploaded as an artifact) ---"
+          tail -n 400 compositor-full.log || true
+
+      - name: Upload compositor logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-visual-quality-compositor-log
+          path: compositor-full.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Cleanup isolated compositor
         if: always()
