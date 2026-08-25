@@ -21,7 +21,9 @@ test("acting presets and carried props materially affect rendered pixels", () =>
   assert.match(scene, /data-physical-interaction="actor-anchored-prop"/);
   assert.match(scene, /actorRigPoint/);
   assert.match(scene, /withPhysicalInteraction/);
-  assert.match(direction, /-220 \+ entry \* 220/);
+  assert.match(direction, /travel \* 480/);
+  assert.match(scene, /data-acting-actor/);
+  assert.match(scene, /data-held-prop-follows-actor=\"true\"/);
 });
 
 test("central charger is a physical self-authored object, not the MDI icon card", () => {

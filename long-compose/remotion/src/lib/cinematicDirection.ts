@@ -269,14 +269,18 @@ export function cinematicCharacterLayerStyle(cinematic: CinematicSceneSpec | und
     return { ...base, filter: preset === "payoff-freeze" ? "drop-shadow(0 10px 18px rgba(15,23,42,0.14))" : base.filter };
 }
 
-export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | undefined, frame: number): string {
+export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | undefined, frame: number, durationInFrames = 120): string {
     const preset = actingPresetFor(cinematic);
     const beat = Math.sin(frame / 5.8);
     const slow = Math.sin(frame / 18);
     switch (preset) {
         case "walk-cross": {
-            const entry = easeInOutCubic(Math.min(frame, 22) / 22);
-            return `translateX(${(-220 + entry * 220).toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;
+            // Crossing is a shot-level blocking action, not a 0.7s entrance flourish.
+            // Keep the actor travelling through the frame so early/mid/late states
+            // are compositionally distinct and the move reads as physical staging.
+            const travel = easeInOutCubic(clamp(frame / Math.max(1, durationInFrames - 1), 0, 1));
+            const x = 90 - travel * 480;
+            return `translateX(${x.toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;
         }
         case "double-take":
             return `translateX(${(frame < 8 ? -16 + frame * 2 : slow * 4).toFixed(2)}px) rotate(${(frame < 8 ? -1.8 + frame * 0.28 : slow * 0.55).toFixed(2)}deg)`;

@@ -486,7 +486,13 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
     const cinematicTransition = cinematicTransitionStyle(cinematic, frame);
     const characterLayer = cinematicCharacterLayerStyle(cinematic);
-    const actingStage = cinematicActingStageTransform(cinematic, frame);
+    const actingStage = cinematicActingStageTransform(cinematic, frame, durationInFrames);
+    // Acting belongs to an actor, not to the whole stage. Moving the entire cast
+    // together made walk-cross/double-take/defeat beats read like camera motion.
+    const actingActor = performedCharacters.find((character) => character.isSpeaking) ?? performedCharacters[0];
+    const actingActorKey = actingActor?.actorId ?? actingActor?.animationKey ?? actingActor?.characterId;
+    const heldPropActor = propHolder(performedCharacters);
+    const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
 
     return (
@@ -496,9 +502,19 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                     <StyleFrame visualStyle={style}>
                         <Background background={background} panX={panX} />
                         <VisualEventOverlay event={visualEvent} visualStyle={style} shotType={shotType} background={background} cinematic={cinematic} />
-                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType), actingStage), ...characterLayer, zIndex: 5 }}>
-                            {performedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
-                            <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />
+                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType)), ...characterLayer, zIndex: 5 }}>
+                            {performedCharacters.map((c, i) => {
+                                const key = c.actorId ?? c.animationKey ?? `${c.characterId}-${i}`;
+                                const actorTransform = key === actingActorKey ? actingStage : undefined;
+                                return (
+                                    <AbsoluteFill key={key} data-acting-actor={key === actingActorKey ? "active" : "listener"} style={{ transform: actorTransform, pointerEvents: "none" }}>
+                                        <Character {...c} />
+                                    </AbsoluteFill>
+                                );
+                            })}
+                            <AbsoluteFill data-held-prop-follows-actor="true" style={{ transform: heldPropActorKey === actingActorKey ? actingStage : undefined, pointerEvents: "none" }}>
+                                <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />
+                            </AbsoluteFill>
                         </AbsoluteFill>
                         <ForegroundSceneMask background={background} visualStyle={style} />
                         <CinematicAccent cinematic={cinematic} />
