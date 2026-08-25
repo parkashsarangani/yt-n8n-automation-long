@@ -20,6 +20,13 @@ test("background renderer is art-directed beyond raw starter plates", () => {
   }
 });
 
+test("scene dressing is painted above opaque layered background plates", () => {
+  const layers = background.indexOf("<BackgroundLayersView background={background}");
+  const dressing = background.indexOf("<SceneDressing background={background} frame={frame}");
+  assert.ok(layers >= 0, "layered background renderer must be present");
+  assert.ok(dressing > layers, "scene dressing must render after opaque background layers so it remains visible");
+});
+
 test("cinematic direction includes acting presets and walk-cycle surface", () => {
   for (const token of [
     "ActingPreset",
