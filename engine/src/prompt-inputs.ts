@@ -19,6 +19,18 @@ const SHORT_LIMITS: CompactLimits = {
 };
 
 /**
+ * script/creativeDirection/visualPlan views must all cap scenes the same way
+ * (see the comment on the "script" case below) -- this was 24, which a real
+ * 38-scene long episode exceeded: cartoon_visual_planner never saw scenes
+ * 24-37 in its prompt, so it couldn't produce visual direction for them, and
+ * the compiler's naive fallback staging for the uncovered scenes then failed
+ * its own anti-repetition gate. Raised with headroom above what's actually
+ * been observed; token math has room (24 scenes was ~7k of a 26k output
+ * budget), so this was never a real capacity limit, just an unexamined cap.
+ */
+const MAX_LONG_EPISODE_SCENES = 48;
+
+/**
  * Build prompt-only views of upstream artifacts.
  *
  * Artifacts remain immutable and full-fidelity in storage. This function only
@@ -38,14 +50,14 @@ export function promptInputView(agentName: string, inputName: string, payload: u
     case "story":
       return storyView(payload);
     case "script":
-      // 24 matches creativeDirectionView/visualPlanView's cap below: script scenes
+      // MAX_LONG_EPISODE_SCENES matches creativeDirectionView/visualPlanView's cap below: script scenes
       // and creative_direction scenes are the same array, 1:1 by scene_index, and
       // assertCreativeSceneCoverage requires creative_direction to cover every
       // script scene regardless of what the model saw. A cap below the real scene
       // count silently blinds the model to a scene it must still produce output
       // for — usually the payoff, since it's last. 18 was below the standard
       // 19-scene long-episode fixture used throughout this project's tests.
-      return scriptView(payload, agentName === "seo_optimizer" ? 12 : 24);
+      return scriptView(payload, agentName === "seo_optimizer" ? 12 : MAX_LONG_EPISODE_SCENES);
     case "cast":
     case "cast_roster":
       return castView(payload);
@@ -138,7 +150,7 @@ function creativeDirectionView(value: unknown): unknown {
       pickObject(role, ["character_id", "comic_role", "voice_markers", "reaction_pattern"], SHORT_LIMITS),
     ),
     callback: compactPayload(obj.callback, SHORT_LIMITS),
-    scenes: asArray(obj.scenes).slice(0, 24).map((scene) => {
+    scenes: asArray(obj.scenes).slice(0, MAX_LONG_EPISODE_SCENES).map((scene) => {
       const s = asObject(scene);
       if (!s) return compactPayload(scene, SHORT_LIMITS);
       return pruneEmpty({
@@ -159,7 +171,7 @@ function visualPlanView(value: unknown): unknown {
   const obj = asObject(value);
   if (!obj) return compactPayload(value, DEFAULT_LIMITS);
   return pruneEmpty({
-    scenes: asArray(obj.scenes).slice(0, 24).map((scene) => {
+    scenes: asArray(obj.scenes).slice(0, MAX_LONG_EPISODE_SCENES).map((scene) => {
       const s = asObject(scene);
       if (!s) return compactPayload(scene, SHORT_LIMITS);
       return pickObject(s, [
