@@ -1,4 +1,4 @@
-iteration=4
+iteration=5
 source=integrated-visual-quality-overhaul
-requested=2026-08-25T14:58:52+00:00
-notes=fast validation pass (scenes 5/17/25 only) confirming COMPOSE_CONCURRENCY=2 resolves the Chrome Target-closed crashes seen on iteration 3, before committing to another full-episode render
+requested=2026-08-25T15:22:00+00:00
+notes=concurrency-1 diagnostic pass on scenes 5/17/25 with full compositor log capture to isolate whether the remaining Command failed is resource contention or a deterministic scene/render defect
