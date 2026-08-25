@@ -7,6 +7,10 @@ on:
     paths:
       - .github/visual-quality-benchmark-trigger
 
+permissions:
+  contents: read
+  statuses: write
+
 concurrency:
   group: visual-quality-benchmark
   cancel-in-progress: false
@@ -21,6 +25,16 @@ jobs:
         with:
           ref: ${{ github.sha }}
           clean: true
+
+      - name: Publish benchmark run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=pending \
+            -f context=visual-quality-benchmark \
+            -f description="benchmark run ${GITHUB_RUN_ID} started" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Confirm production benchmark source is reachable
         run: |
@@ -63,11 +77,9 @@ jobs:
           BENCHMARK_COMPOSE_URL: http://127.0.0.1:4011
           BENCHMARK_OUTPUT: benchmark-output.mp4
           BENCHMARK_METADATA: benchmark-metadata.json
-          # TEMPORARY: fast-loop validation of the COMPOSE_CONCURRENCY=2 fix
-          # against the exact scenes (17, 25) that crashed the last two full
-          # runs, plus 5 for a third data point, before committing another
-          # ~40min full-episode render. Remove this line to go back to a full
-          # render once the fix is confirmed stable.
+          # TEMPORARY: fast-loop validation against the exact scenes (17, 25)
+          # that crashed previous full runs, plus 5 for a third data point.
+          # Remove this line to go back to a full render once stable.
           BENCHMARK_SCENE_INDICES: "5,17,25"
         run: python3 scripts/render_exact_benchmark.py
 
@@ -111,3 +123,20 @@ jobs:
         run: |
           docker rm -f amos-vq-benchmark >/dev/null 2>&1 || true
           docker image rm amos-visual-quality-benchmark:${GITHUB_SHA} >/dev/null 2>&1 || true
+
+      - name: Publish final benchmark status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure) state=failure ;;
+            *) state=error ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context=visual-quality-benchmark \
+            -f description="benchmark run ${GITHUB_RUN_ID} ${JOB_STATUS}" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true
