@@ -15,7 +15,11 @@
   <ellipse cx="357" cy="218" rx="26" ry="38" fill="url(#skin)" stroke="#17212B" stroke-width="8"/>
   <path d="M143 206 Q129 219 144 233" fill="none" stroke="#B97C5F" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
   <path d="M357 206 Q371 219 356 233" fill="none" stroke="#B97C5F" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
-  <path d="M158 120 Q205 70 250 72 Q312 66 344 122 Q367 173 351 258 Q335 326 250 342 Q165 326 149 258 Q133 173 158 120 Z"
+  <!-- narrower angular host face: hexagonal jaw built from straight facets
+       (cheekbone -> jaw corner -> chin point), not the smooth all-curve oval
+       used for buddy, so the silhouette reads as a distinct face shape even
+       in a small/backlit frame, not just a recolored copy. -->
+  <path d="M158 120 Q205 72 250 72 Q295 72 344 122 L358 190 L351 258 L310 320 L250 342 L190 320 L149 258 L142 190 Z"
         fill="url(#skin)" stroke="#17212B" stroke-width="9" stroke-linejoin="round"/>
   <path d="M176 141 Q190 111 223 96" fill="none" stroke="#F7D0B2" stroke-width="13" stroke-linecap="round" opacity="0.40"/>
   <path d="M252 205 Q265 225 248 242" fill="none" stroke="#C98968" stroke-width="7" stroke-linecap="round"/>
