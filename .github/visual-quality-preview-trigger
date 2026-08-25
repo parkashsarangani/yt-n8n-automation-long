@@ -1,4 +1,4 @@
-iteration=10
+iteration=11
 source=fast-visual-preview
-requested=2026-08-25T17:32:00+00:00
-notes=validate relational shot recipes with real two-character persisted seed
+requested=2026-08-25T17:40:00+00:00
+notes=verify chest-up reaction isolation and cropped foreground OTS depth
