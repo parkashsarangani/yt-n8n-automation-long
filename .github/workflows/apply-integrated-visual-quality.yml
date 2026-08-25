@@ -1,0 +1,63 @@
+name: Apply integrated visual quality overhaul
+
+on:
+  push:
+    branches:
+      - feat/integrated-visual-quality-9
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/integrated-visual-quality-9
+          fetch-depth: 0
+
+      - name: Apply asserted source transformation
+        run: python3 scripts/apply_visual_quality_overhaul.py
+
+      - name: Verify transformation is idempotent enough to inspect
+        run: git diff --check
+
+      - name: Test long-compose
+        working-directory: long-compose
+        run: |
+          npm ci
+          npm test
+
+      - name: Type-check Remotion renderer
+        working-directory: long-compose/remotion
+        run: |
+          npm ci
+          npx tsc --noEmit --jsx react-jsx --moduleResolution node --module esnext --target es2020 src/index.ts
+
+      - name: Test engine
+        working-directory: engine
+        run: |
+          npm ci
+          npm test
+
+      - name: Remove one-shot transformation machinery
+        run: |
+          rm -f scripts/apply_visual_quality_overhaul.py
+          rm -f .github/workflows/apply-integrated-visual-quality.yml
+
+      - name: Commit integrated overhaul
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No changes produced" >&2
+            exit 1
+          fi
+          git commit -m "feat: integrated 9/10 visual quality overhaul"
+          git push origin HEAD:feat/integrated-visual-quality-9
