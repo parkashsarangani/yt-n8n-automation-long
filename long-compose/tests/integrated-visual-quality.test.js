@@ -35,12 +35,12 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
 });
 
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
-  // Reaction: readable chest-up subject without the old 1.34x forehead crop.
-  assert.match(scene, /x: 690, y: 224, scale: baseScale \* 1\.12/);
+  // Reaction: waist-up isolation, keeping the full face readable while the lower rig exits frame.
+  assert.match(scene, /x: 690, y: 500, scale: baseScale \* 1\.48/);
   assert.match(scene, /-560 : 1740, y: 310, scale: baseScale \* 0\.78/);
-  // OTS: listener becomes a near-camera edge mass instead of a second full-body actor.
-  assert.match(scene, /x: 760, y: 276, scale: baseScale \* 0\.98/);
-  assert.match(scene, /-480 : 1500, y: 128, scale: baseScale \* 1\.72/);
+  // OTS: near-camera listener is pushed down so legs leave frame and shoulder/head own the edge.
+  assert.match(scene, /x: 760, y: 300, scale: baseScale \* 0\.98/);
+  assert.match(scene, /-440 : 1500, y: 450, scale: baseScale \* 1\.55/);
 });
 
 test("central charger is a physical self-authored object, not the MDI icon card", () => {
