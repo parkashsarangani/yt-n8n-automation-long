@@ -56,6 +56,30 @@ test("script prompt views keep the payoff scene for a realistic-length long epis
   }
 });
 
+test("script prompt views keep every scene for a 38-scene episode, not just the first 24", () => {
+  // Real production episode: 38 scenes, payoff on scene 37. The old 24-scene
+  // cap silently blinded cartoon_visual_planner to scenes 24-37 -- it could
+  // not produce visual direction for them, so the compiler synthesized a
+  // naive repeated fallback for the uncovered tail and then rejected its own
+  // fallback as repetitive staging.
+  const script = {
+    scenes: Array.from({ length: 38 }, (_, i) => ({
+      scene_index: i,
+      speaker_id: i % 2 === 0 ? "host" : "buddy",
+      point: `beat ${i}`,
+      narration: i === 37 ? "Tomorrow too." : `narration line ${i}`,
+    })),
+    word_count: 38,
+  };
+
+  for (const agentName of ["cartoon_creative_director", "cartoon_visual_planner"]) {
+    const view = promptInputView(agentName, "script", script) as { scenes?: Array<{ scene_index: number }> };
+    assert.equal(view.scenes?.length, 38, `${agentName} should see all 38 scenes`);
+    assert.equal(view.scenes?.at(-1)?.scene_index, 37);
+    assert.match(text(view), /Tomorrow too/);
+  }
+});
+
 test("story prompt views preserve act structure but trim long prose", () => {
   const story = {
     topic: "Why you forget why you walked into a room",
