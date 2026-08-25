@@ -9,6 +9,7 @@ const scene = fs.readFileSync(path.join(root, "remotion/src/compositions/Cartoon
 const direction = fs.readFileSync(path.join(root, "remotion/src/lib/cinematicDirection.ts"), "utf8");
 const registry = fs.readFileSync(path.join(root, "remotion/src/lib/assetRegistry.ts"), "utf8");
 const dressing = fs.readFileSync(path.join(root, "remotion/src/components/SceneDressing.tsx"), "utf8");
+const backgroundRenderer = fs.readFileSync(path.join(root, "remotion/src/components/Background.tsx"), "utf8");
 
 test("production bridge forwards all cinematic direction into Remotion", () => {
   for (const token of ["shotType: d.shotType || d.framing", "visualStyle: d.visualStyle || d.visual_style", "cinematic: d.cinematic"]) {
@@ -54,6 +55,13 @@ test("long-form captions and sound design are production-routed", () => {
   assert.match(compose, /Inter Bold,50/);
   assert.match(compose, /template_data\?\.cinematic\?\.sfxCue/);
   assert.match(compose, /loudnorm=I=-14:TP=-1\.0:LRA=9/);
+});
+
+test("authored layered environments outrank generic replacement scene plates", () => {
+  assert.match(backgroundRenderer, /hasAuthoredLayers/);
+  assert.match(backgroundRenderer, /useReplacementPlate = scenePlate\?\.compositeMode === "replace-background" && !hasAuthoredLayers/);
+  assert.match(backgroundRenderer, /!useReplacementPlate && <BackgroundLayersView/);
+  assert.match(backgroundRenderer, /useOverlayPlate && <ScenePlate/);
 });
 
 test("formerly generic environments now have location-specific dressing", () => {
