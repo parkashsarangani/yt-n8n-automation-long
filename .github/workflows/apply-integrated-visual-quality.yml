@@ -23,13 +23,13 @@ jobs:
       - name: Apply asserted source transformation
         run: python3 scripts/apply_visual_quality_overhaul.py
 
-      - name: Verify transformation is idempotent enough to inspect
+      - name: Verify transformation
         run: git diff --check
 
       - name: Test long-compose
         working-directory: long-compose
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm test
 
       - name: Type-check Remotion renderer
