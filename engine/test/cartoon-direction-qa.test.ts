@@ -211,6 +211,89 @@ test("dialogue_script_writer v5 scripts must score at least 8\/10 for visible ac
   assert.equal(payload.scenes.length, 6);
 });
 
+test("dialogue_script_writer v5 scripts may close on a changed_behavior coda after the payoff scene", async () => {
+  // Real production script: the writer added a short confirmation/habit coda
+  // (function=payoff_confirmation, then function=changed_behavior) after the
+  // actual payoff_resolution scene. The final-scene contract check only
+  // recognized "payoff/resolve/resolution/..." and rejected this even though
+  // it is a stronger close than a bare resolution line, per this pipeline's
+  // own creative-direction guidance (behavioral closure over lesson summary).
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = [
+    {
+      scene_index: 0,
+      point: "action=Host freezes with phone already unlocked; prop=phone; function=opening_problem; value=viewer recognizes automatic checking",
+      narration: "Wait. I am holding my phone again.",
+      speaker: "host",
+      emotion: "surprised",
+    },
+    {
+      scene_index: 1,
+      point: "action=Buddy points at the phone in Host's hand; prop=phone; function=escalation engagement; value=the habit is visible, not abstract",
+      narration: "You did not even blink first.",
+      speaker: "buddy",
+      emotion: "neutral",
+    },
+    {
+      scene_index: 2,
+      point: "action=Host places the phone face down; prop=phone; function=failed_attempt joke; value=a small attempt becomes testable",
+      narration: "Fine. One minute. No checking.",
+      speaker: "host",
+      emotion: "neutral",
+    },
+    {
+      scene_index: 3,
+      point: "action=Phone lights up and Host's hand drifts back; prop=phone; function=midpoint_turn visual_gag; value=the cue pulls behavior before choice",
+      narration: "My thumb has apparently formed a union.",
+      speaker: "host",
+      emotion: "scared",
+    },
+    {
+      scene_index: 4,
+      point: "action=Host reaches, notices, and grabs the kettle instead; prop=phone; function=payoff_resolution practical_action callback; value=replaces the cue with changed behavior",
+      narration: "Kettle wins one.",
+      speaker: "host",
+      emotion: "happy",
+    },
+    {
+      scene_index: 5,
+      point: "action=Buddy watches Host fill the kettle instead; prop=kettle; function=payoff_confirmation; value=the goal is visibly completed",
+      narration: "Look at that.",
+      speaker: "buddy",
+      emotion: "amused",
+    },
+    {
+      scene_index: 6,
+      point: "action=Host sets a note by the phone as a reminder; prop=phone; function=changed_behavior; value=the solution becomes a repeatable habit",
+      narration: "Tomorrow too.",
+      speaker: "host",
+      emotion: "neutral",
+    },
+  ];
+
+  const out = await worker.execute(
+    {
+      plan: {
+        payload: {
+          scenes: scenes.map((scene) => directedScene(scene.scene_index, {
+            visual_event: scene.scene_index === 0 || scene.scene_index === 3 ? "screen-change" : "reaction-pop",
+            ambient_motion: scene.scene_index === 3 ? "monitor-glow" : "subtle-parallax",
+          })),
+        },
+      },
+      script: {
+        payload: { scenes },
+        produced_by: { transformation: "dialogue_script_writer", version: "5" },
+      },
+      cast,
+    } as never,
+    ctx as never,
+  );
+
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, 7);
+});
+
 test("dialogue_script_writer v5 scripts must return the central object in the payoff", async () => {
   const worker = makeCartoonSceneCompilerWorker();
   const scenes = [

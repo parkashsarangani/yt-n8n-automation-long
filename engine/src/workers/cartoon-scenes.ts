@@ -615,7 +615,10 @@ function assertActionQualityContract(scenes: ScriptScene[]): void {
   const visibleStoryAction = visibleActions >= requiredActions ? 2 : 0;
   const centralObjectUsage = central.prop && central.count >= 3 && central.thirds.has("opening") && central.thirds.has("middle") && central.thirds.has("final") ? 2 : 0;
   const viewerTakeaway = /practical_action|viewer_value|takeaway|changed behavior|replacement|replace|remove the cue|concrete action/.test(pointText) ? 2 : 0;
-  const payoffResolution = /payoff_resolution|payoff|resolution|resolve|return/.test(finalText) && hasVisibleAction(finalScene) ? 2 : 0;
+  // Same closing-vocabulary allowance as assertV3ScriptContract below: a
+  // short changed_behavior/habit/confirmation coda after the real payoff
+  // scene is a stronger close than a bare resolution line, not a failure.
+  const payoffResolution = /payoff_resolution|payoff|resolution|resolve|return|changed_behavior|habit|confirm/.test(finalText) && hasVisibleAction(finalScene) ? 2 : 0;
   const score = hookClarity + visibleStoryAction + centralObjectUsage + viewerTakeaway + payoffResolution;
   const failedHardDimensions: string[] = [];
   if (hookClarity === 0) failedHardDimensions.push("hook_clarity");
@@ -639,7 +642,11 @@ function assertV3ScriptContract(scenes: ScriptScene[]): void {
   const pointLines = ordered.map((scene) => (scene.point ?? "").toLowerCase());
   const finalPoint = pointLines[pointLines.length - 1] ?? "";
 
-  if (!/(payoff|resolve|resolution|return|opening|final|lands|closes)/.test(finalPoint)) {
+  // "changed_behavior"/"habit"/"confirm*" cover writers that close on a
+  // behavioral beat after the payoff scene (e.g. payoff_resolution -> a short
+  // confirmation/habit coda), which this pipeline's own creative-direction
+  // guidance treats as a stronger closer than a bare resolution line.
+  if (!/(payoff|resolve|resolution|return|opening|final|lands|closes|changed_behavior|habit|confirm)/.test(finalPoint)) {
     throw new Error("dialogue_script_writer@3 contract violated: final scene point must mark a payoff/resolution of the opening situation");
   }
 
