@@ -9,7 +9,7 @@
 import type { TransformationDef, WorkerDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
-import { makeCartoonSceneCompilerWorker as makeV14CartoonSceneCompilerWorker } from "./cartoon-scenes-v14.ts";
+import { makeCartoonSceneCompilerWorker as makeV15CartoonSceneCompilerWorker } from "./cartoon-scenes-v15.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -33,13 +33,12 @@ export { buildPrompt } from "./assets.ts";
 
 /**
  * Compatibility factory for focused unit tests that exercise the compiler
- * outside the production graph. The shipped graph still routes the full v14
- * worker, including creative_direction as a first-class dependency, taste
- * gates as hard production checks, renderer-facing performance signals, and
- * post-v13 doorway staging corrections.
+ * outside the production graph. The shipped graph routes the final v15 wrapper:
+ * v14 retains creative-direction/set-piece compatibility, while v15 restores
+ * validated visual-plan framing as the final renderer-facing authority.
  */
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
-  const worker = makeV14CartoonSceneCompilerWorker();
+  const worker = makeV15CartoonSceneCompilerWorker();
   return {
     ...worker,
     consumes: worker.consumes.filter((input) => input.as !== "creative_direction"),
@@ -63,7 +62,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
-    makeV14CartoonSceneCompilerWorker(),
+    makeV15CartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
