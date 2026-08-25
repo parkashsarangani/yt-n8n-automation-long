@@ -1,0 +1,70 @@
+name: Apply actor-local crossing patch
+
+on:
+  push:
+    branches:
+      - feat/integrated-visual-quality-9
+    paths:
+      - .github/actor-local-crossing-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/integrated-visual-quality-9
+          fetch-depth: 0
+
+      - name: Apply actor-local acting patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          direction = Path('long-compose/remotion/src/lib/cinematicDirection.ts')
+          text = direction.read_text()
+          old = 'export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | undefined, frame: number): string {'
+          new = 'export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | undefined, frame: number, durationInFrames = 120): string {'
+          assert old in text, 'cinematic acting signature drifted'
+          text = text.replace(old, new, 1)
+          old_walk = '''        case "walk-cross": {\n            const entry = easeInOutCubic(Math.min(frame, 22) / 22);\n            return `translateX(${(-220 + entry * 220).toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;\n        }'''
+          new_walk = '''        case "walk-cross": {\n            // Crossing is a shot-level blocking action, not a 0.7s entrance flourish.\n            // Keep the actor travelling through the frame so early/mid/late states\n            // are compositionally distinct and the move reads as physical staging.\n            const travel = easeInOutCubic(clamp(frame / Math.max(1, durationInFrames - 1), 0, 1));\n            const x = 90 - travel * 480;\n            return `translateX(${x.toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;\n        }'''
+          assert old_walk in text, 'walk-cross implementation drifted'
+          direction.write_text(text.replace(old_walk, new_walk, 1))
+
+          scene = Path('long-compose/remotion/src/compositions/CartoonScene.tsx')
+          text = scene.read_text()
+          old_stage = '    const actingStage = cinematicActingStageTransform(cinematic, frame);\n    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);'
+          new_stage = '''    const actingStage = cinematicActingStageTransform(cinematic, frame, durationInFrames);\n    // Acting belongs to an actor, not to the whole stage. Moving the entire cast\n    // together made walk-cross/double-take/defeat beats read like camera motion.\n    const actingActor = performedCharacters.find((character) => character.isSpeaking) ?? performedCharacters[0];\n    const actingActorKey = actingActor?.actorId ?? actingActor?.animationKey ?? actingActor?.characterId;\n    const heldPropActor = propHolder(performedCharacters);\n    const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;\n    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);'''
+          assert old_stage in text, 'acting stage declaration drifted'
+          text = text.replace(old_stage, new_stage, 1)
+
+          old_layer = '''                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType), actingStage), ...characterLayer, zIndex: 5 }}>\n                            {performedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}\n                            <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />\n                        </AbsoluteFill>'''
+          new_layer = '''                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType)), ...characterLayer, zIndex: 5 }}>\n                            {performedCharacters.map((c, i) => {\n                                const key = c.actorId ?? c.animationKey ?? `${c.characterId}-${i}`;\n                                const actorTransform = key === actingActorKey ? actingStage : undefined;\n                                return (\n                                    <AbsoluteFill key={key} data-acting-actor={key === actingActorKey ? "active" : "listener"} style={{ transform: actorTransform, pointerEvents: "none" }}>\n                                        <Character {...c} />\n                                    </AbsoluteFill>\n                                );\n                            })}\n                            <AbsoluteFill data-held-prop-follows-actor="true" style={{ transform: heldPropActorKey === actingActorKey ? actingStage : undefined, pointerEvents: "none" }}>\n                                <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />\n                            </AbsoluteFill>\n                        </AbsoluteFill>'''
+          assert old_layer in text, 'character layer rendering drifted'
+          scene.write_text(text.replace(old_layer, new_layer, 1))
+
+          test = Path('long-compose/tests/integrated-visual-quality.test.js')
+          t = test.read_text()
+          old_assert = '  assert.match(direction, /-220 \\+ entry \\* 220/);'
+          new_assert = '''  assert.match(direction, /travel \\* 480/);\n  assert.match(scene, /data-acting-actor/);\n  assert.match(scene, /data-held-prop-follows-actor=\\"true\\"/);'''
+          assert old_assert in t, 'integrated acting assertion drifted'
+          test.write_text(t.replace(old_assert, new_assert, 1))
+          PY
+
+      - name: Verify patch shape
+        run: |
+          grep -q 'data-acting-actor' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -q 'travel \* 480' long-compose/remotion/src/lib/cinematicDirection.ts
+          git diff --check
+
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add long-compose/remotion/src/compositions/CartoonScene.tsx long-compose/remotion/src/lib/cinematicDirection.ts long-compose/tests/integrated-visual-quality.test.js
+          git commit -m 'fix: make cinematic acting actor-local' || exit 0
+          git push origin HEAD:feat/integrated-visual-quality-9
