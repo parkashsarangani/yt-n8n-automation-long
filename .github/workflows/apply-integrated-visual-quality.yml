@@ -23,6 +23,25 @@ jobs:
       - name: Apply asserted source transformation
         run: python3 scripts/apply_visual_quality_overhaul.py
 
+      - name: Normalize Remotion composition typing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('long-compose/remotion/src/Root.tsx')
+          s = p.read_text()
+          names = [
+              'StatReveal', 'Comparison', 'KineticText', 'CaptionOverlay',
+              'SceneTransition', 'DataTimeline', 'DataRanking', 'DataBarChart',
+              'ListNumberedVertical', 'CartoonScene',
+          ]
+          for name in names:
+              old = f'component={{{name}}}'
+              new = f'component={{{name} as unknown as React.ComponentType<Record<string, unknown>>}}'
+              if old in s:
+                  s = s.replace(old, new)
+          p.write_text(s)
+          PY
+
       - name: Verify transformation
         run: git diff --check
 
