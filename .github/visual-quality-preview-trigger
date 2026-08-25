@@ -1,4 +1,4 @@
-iteration=11
+iteration=12
 source=fast-visual-preview
-requested=2026-08-25T17:40:00+00:00
-notes=verify chest-up reaction isolation and cropped foreground OTS depth
+requested=2026-08-25T17:49:00+00:00
+notes=verify waist-up reaction crop and shoulder-only OTS foreground depth
