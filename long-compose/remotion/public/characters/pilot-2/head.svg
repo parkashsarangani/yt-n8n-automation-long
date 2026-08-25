@@ -16,7 +16,7 @@
   <path d="M128 209 Q111 225 129 243" fill="none" stroke="#9F6049" stroke-width="4" stroke-linecap="round" opacity="0.72"/>
   <path d="M372 209 Q389 225 371 243" fill="none" stroke="#9F6049" stroke-width="4" stroke-linecap="round" opacity="0.72"/>
   <!-- rounder buddy face: fully curved outline, wider cheek radius than
-       host's angular hexagonal jaw, no straight facets -- reads as a softer
+       host's angular hexagonal jaw, no straight facets, reads as a softer
        silhouette even at a distance or in silhouette-only shots. -->
   <path d="M142 120 Q250 54 358 120 Q390 178 370 270 Q347 344 250 352 Q153 344 130 270 Q110 178 142 120 Z"
         fill="url(#skin)" stroke="#17212B" stroke-width="9" stroke-linejoin="round"/>
