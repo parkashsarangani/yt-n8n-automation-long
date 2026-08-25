@@ -45,7 +45,7 @@ jobs:
 
       - name: Type-check Remotion renderer
         working-directory: long-compose/remotion
-        run: npx tsc --noEmit --jsx react-jsx --moduleResolution node --module esnext --target es2020 src/index.ts
+        run: npx tsc --noEmit -p tsconfig.json
 
       - name: Test engine
         working-directory: engine
