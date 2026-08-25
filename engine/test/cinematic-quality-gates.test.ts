@@ -60,6 +60,28 @@ test("dialogue gate rejects adjacent object chants", () => {
   assert.match(errors.join("\n"), /repeats "charger" consecutively/);
 });
 
+test("dialogue gate catches a non-payoff ending at the writer stage, not just the compiler", () => {
+  // Real production failure: a 13-scene script's final scene read
+  // "function=transition; value=the next explanation begins from the
+  // immediate problem" -- a mid-story transition beat, not an ending. This
+  // used to only be caught by the compiler worker (cartoon-scenes.ts's
+  // assertV3ScriptContract), which has no retry, so the script got stored
+  // and then blocked the run permanently. Catching it here means the writer
+  // gets a real retry-with-feedback chance to actually finish the story.
+  const errors = agentSemanticValidationErrors(
+    DIALOGUE_DEF,
+    { scenes: [
+      scriptScene(0, "Wait, why am I so tired?", "action=Host yawns over cold coffee; prop=coffee; function=opening_problem; value=the tiredness is visible immediately"),
+      scriptScene(1, "You slept eight hours.", "action=Buddy circles the eight-hour total on the calendar; prop=calendar; function=compact_fact; value=the assumption gets challenged"),
+      scriptScene(2, "So the number was lying.", "action=Host drops the schedule card beside the coffee; prop=coffee; function=act_turn; value=the opening assumption breaks"),
+      scriptScene(3, "There is more to it.", "action=Buddy pulls open a curtain showing the dark morning outside; prop=window; function=transition; value=the next explanation begins from the immediate problem"),
+    ] },
+    {},
+  );
+
+  assert.match(errors.join("\n"), /final scene point must mark a payoff\/resolution/);
+});
+
 function visualScene(scene_index: number, overrides: Record<string, unknown> = {}) {
   return {
     scene_index,
