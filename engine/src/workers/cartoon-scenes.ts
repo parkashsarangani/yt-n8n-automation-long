@@ -36,12 +36,15 @@ interface CompiledEntry { scene_index: number; source: "template"; template_cate
 
 const BACKGROUNDS: Record<string, readonly string[]> = {
   "airplane-cabin": ["day"],
+  airport: ["day"],
   "airport-gate": ["day"],
+  bathroom: ["day"],
   bedroom: ["day", "night", "messy-day", "messy-night"], cafe: ["day"],
   classroom: ["empty", "normal", "exam"], "engineering-lab": ["day"], "generic-room": ["cool-day", "warm-day", "night"],
-  "hospital-room": ["day"], kitchen: ["day", "night"], "living-room": ["day", "night"],
-  office: ["day"], park: ["day", "evening"], "school-hallway": ["normal"],
-  street: ["day", "night", "rain-night"],
+  hallway: ["day"],
+  "hospital-room": ["day"], kitchen: ["day", "night"], library: ["day"], "living-room": ["day", "night"],
+  office: ["day"], park: ["day", "evening"], "school-hallway": ["normal"], shop: ["day"],
+  street: ["day", "night", "rain-night"], studio: ["day"],
 };
 const EMOTIONS = new Set(["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"]);
 const GESTURES = new Set(["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"]);

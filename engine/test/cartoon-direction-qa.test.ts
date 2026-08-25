@@ -66,6 +66,55 @@ test("cartoon compiler rejects more than four identical static scenes without a 
   );
 });
 
+test("compiler renders every background location the schema and prompt actually promise", async () => {
+  // Real production failure: cartoon_visual_planner correctly staged a
+  // background_location="hallway" crossing scene (schema-valid, and the
+  // prompt's own doorway recipe requires it), but the compiler's BACKGROUNDS
+  // lookup didn't have "hallway" as a key -- and five other locations the
+  // schema/prompt also document (airport, bathroom, library, shop, studio)
+  // were missing too. compileFromShallow silently fell back to a generic
+  // synthesized scene for each one, collapsing distinct scenes into an
+  // identical repeated key and triggering the repetitive-staging gate on
+  // scenes that were never actually static in the first place.
+  const worker = makeCartoonSceneCompilerWorker();
+  const locations = ["airport", "bathroom", "hallway", "library", "shop", "studio"];
+  const warnings: string[] = [];
+  const capturingCtx = { logger: { log() {}, warn: (msg: string) => warnings.push(msg), error() {} } };
+
+  const out = await worker.execute(
+    {
+      plan: {
+        payload: {
+          scenes: locations.map((location, scene_index) => directedScene(scene_index, {
+            background_location: location,
+            framing: ["establishing", "two-shot", "prop-insert", "reaction-closeup", "over-shoulder", "payoff-hold"][scene_index],
+            camera_motion: ["static", "push-in", "pan-left", "pull-out", "reaction-push", "prop-focus"][scene_index],
+            visual_event: scene_index === 0 ? "screen-change" : "none",
+          })),
+        },
+      },
+      script: {
+        payload: {
+          scenes: locations.map((_, scene_index) => ({
+            scene_index,
+            point: `beat-${scene_index}`,
+            narration: `Line ${scene_index} moves the scene.`,
+            speaker: scene_index % 2 === 0 ? "host" : "buddy",
+            emotion: "neutral",
+          })),
+        },
+        produced_by: { transformation: "dialogue_script_writer", version: "2" },
+      },
+      cast,
+    } as never,
+    capturingCtx as never,
+  );
+
+  assert.equal(warnings.filter((w) => w.includes("unknown background location")).length, 0, warnings.join("\n"));
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, locations.length);
+});
+
 test("dialogue_script_writer v3 scripts must mark final payoff or resolution", async () => {
   const worker = makeCartoonSceneCompilerWorker();
   await assert.rejects(
