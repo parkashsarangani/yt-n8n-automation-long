@@ -1,0 +1,112 @@
+name: Visual quality preview
+
+on:
+  push:
+    branches:
+      - feat/integrated-visual-quality-9
+    paths:
+      - .github/visual-quality-preview-trigger
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: visual-quality-preview
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout preview commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          clean: true
+
+      - name: Publish preview run identity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload=$(printf '{"state":"pending","context":"visual-quality-preview","description":"preview run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload"
+
+      - name: Confirm production benchmark source is reachable
+        run: |
+          set -euo pipefail
+          curl -sf -H 'Host: localhost' http://127.0.0.1:4321/api/runs >/dev/null
+
+      - name: Build isolated preview image
+        run: docker build -t amos-visual-preview:${GITHUB_SHA} long-compose
+
+      - name: Prepare exact persisted scene props
+        env:
+          BENCHMARK_RUN_PREFIX: run_385203f1
+          BENCHMARK_ENGINE_API: http://127.0.0.1:4321/api
+          VISUAL_PREVIEW_SCENE_INDICES: "5,17,25"
+          VISUAL_PREVIEW_MANIFEST: visual-preview-manifest.json
+        run: python3 scripts/prepare_visual_preview.py
+
+      - name: Render nine visual QA stills
+        run: |
+          set -euo pipefail
+          rm -rf visual-preview
+          mkdir -p visual-preview
+          docker run --rm --cpus=4 \
+            -v "$PWD/visual-preview-manifest.json:/tmp/visual-preview-manifest.json:ro" \
+            -v "$PWD/visual-preview:/preview" \
+            --entrypoint node \
+            amos-visual-preview:${GITHUB_SHA} \
+            remotion/preview-bridge.mjs /tmp/visual-preview-manifest.json /preview
+          test "$(find visual-preview -maxdepth 1 -name '*.png' | wc -l)" -eq 9
+
+      - name: Build contact sheet
+        run: |
+          set -euo pipefail
+          ffmpeg -y -hide_banner -loglevel error \
+            -framerate 1 -pattern_type glob -i 'visual-preview/*.png' \
+            -vf "scale=640:360,tile=3x3:padding=8:margin=8" \
+            -frames:v 1 visual-preview-contact-sheet.png
+          test -s visual-preview-contact-sheet.png
+
+      - name: Upload visual preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-quality-preview
+          path: |
+            visual-preview/*.png
+            visual-preview-contact-sheet.png
+            visual-preview-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Cleanup preview image
+        if: always()
+        run: docker image rm amos-visual-preview:${GITHUB_SHA} >/dev/null 2>&1 || true
+
+      - name: Publish final preview status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure) state=failure ;;
+            *) state=error ;;
+          esac
+          payload=$(printf '{"state":"%s","context":"visual-quality-preview","description":"preview run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload" || true
