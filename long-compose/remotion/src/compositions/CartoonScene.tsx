@@ -253,16 +253,16 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                 return { ...character, y: character.y + 58, scale: baseScale * 0.80 };
             case "reaction-closeup":
                 return active
-                    ? { ...character, x: 710, y: 138, scale: baseScale * 1.34, gazeTarget: "camera" }
-                    : { ...character, x: index < activeIndex ? -250 : 1370, y: 252, scale: baseScale * 1.08, dimmed: true };
+                    ? { ...character, x: 690, y: 224, scale: baseScale * 1.12, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
                     ? { ...character, x: 190, y: 300, scale: baseScale * 0.72, gazeTarget: "right" }
                     : { ...character, x: index < activeIndex ? -250 : 1390, y: 300, scale: baseScale * 0.68, dimmed: true };
             case "over-shoulder":
                 return active
-                    ? { ...character, x: 710, y: 205, scale: baseScale * 1.02, gazeTarget: activeIndex === 0 ? "right" : "left" }
-                    : { ...character, x: index < activeIndex ? -130 : 1290, y: 238, scale: baseScale * 1.30, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };
+                    ? { ...character, x: 760, y: 276, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }
+                    : { ...character, x: index < activeIndex ? -480 : 1500, y: 128, scale: baseScale * 1.72, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };
             case "payoff-hold":
                 return active
                     ? { ...character, x: 700, y: 142, scale: baseScale * 1.22, gazeTarget: "camera" }
