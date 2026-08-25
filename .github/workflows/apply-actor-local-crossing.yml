@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   patch:
@@ -18,6 +19,19 @@ jobs:
         with:
           ref: feat/integrated-visual-quality-9
           fetch-depth: 0
+
+      - name: Publish patch run identity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload=$(printf '{"state":"pending","context":"cinematic-shot-patch","description":"patch run %s started","target_url":"https://github.com/%s/actions/runs/%s"}' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload"
 
       - name: Apply cinematic shot blocking patch
         run: |
@@ -102,15 +116,7 @@ jobs:
           t = test.read_text()
           anchor = 'test("central charger is a physical self-authored object, not the MDI icon card", () => {'
           assert anchor in t, 'integrated quality test anchor drifted'
-          addition = r'''test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
-  assert.match(scene, /withCinematicRecipeBlocking/);
-  for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
-    assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
-  }
-  assert.match(scene, /insert \? 1\.85 : 0\.64/);
-});
-
-'''
+          addition = '''test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {\n  assert.match(scene, /withCinematicRecipeBlocking/);\n  for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {\n    assert.match(scene, new RegExp(`case "${recipe}"`));\n  }\n  assert.match(scene, /insert \\? 1\\.85 : 0\\.64/);\n});\n\n'''
           t = t.replace(anchor, addition + anchor, 1)
           test.write_text(t)
           PY
@@ -118,7 +124,7 @@ jobs:
       - name: Verify patch shape
         run: |
           grep -q 'withCinematicRecipeBlocking' long-compose/remotion/src/compositions/CartoonScene.tsx
-          grep -q 'insert ? 1.85 : 0.64' long-compose/remotion/src/compositions/CartoonScene.tsx
+          grep -Fq 'insert ? 1.85 : 0.64' long-compose/remotion/src/compositions/CartoonScene.tsx
           git diff --check
 
       - name: Commit patch
@@ -128,3 +134,22 @@ jobs:
           git add long-compose/remotion/src/compositions/CartoonScene.tsx long-compose/tests/integrated-visual-quality.test.js
           git commit -m 'feat: make cinematic recipes visually distinct' || exit 0
           git push origin HEAD:feat/integrated-visual-quality-9
+
+      - name: Publish final patch status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure) state=failure ;;
+            *) state=error ;;
+          esac
+          payload=$(printf '{"state":"%s","context":"cinematic-shot-patch","description":"patch run %s %s","target_url":"https://github.com/%s/actions/runs/%s"}' "$state" "$GITHUB_RUN_ID" "$JOB_STATUS" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -d "$payload" || true
