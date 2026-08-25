@@ -23,12 +23,17 @@ jobs:
       - name: Apply asserted source transformation
         run: python3 scripts/apply_visual_quality_overhaul.py
 
-      - name: Normalize Remotion composition typing
+      - name: Normalize generated source hygiene
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('long-compose/remotion/src/Root.tsx')
-          s = p.read_text()
+
+          prompt = Path('engine/prompts/cartoon_visual_planner/13.md')
+          if prompt.exists():
+              prompt.write_text(prompt.read_text().rstrip() + '\n')
+
+          root = Path('long-compose/remotion/src/Root.tsx')
+          s = root.read_text()
           names = [
               'StatReveal', 'Comparison', 'KineticText', 'CaptionOverlay',
               'SceneTransition', 'DataTimeline', 'DataRanking', 'DataBarChart',
@@ -39,7 +44,7 @@ jobs:
               new = f'component={{{name} as unknown as React.ComponentType<Record<string, unknown>>}}'
               if old in s:
                   s = s.replace(old, new)
-          p.write_text(s)
+          root.write_text(s)
           PY
 
       - name: Verify transformation
