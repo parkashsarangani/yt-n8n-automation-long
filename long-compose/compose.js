@@ -188,7 +188,7 @@ function run(cmdBuilder) {
 }
 
 // loudnorm computes a gain from the input's measured LUFS to the -16 LUFS
-// target - on true digital silence (e.g. the outro's generated silent
+// -14 LUFS target - on true digital silence (e.g. the outro's generated silent
 // track) or other near-silent audio, measured loudness is -infinity, and
 // the resulting gain is NaN, which crashes the AAC encoder entirely. Try
 // with loudnorm first (normal case); if it fails, retry the identical
@@ -739,7 +739,7 @@ async function buildStockVideoScene(stockVideoPath, audioPath, duration, outPath
 
   await runAudioMux((normalize) => {
     const opts = ["-map", "[processed]", "-map", "1:a", "-t", String(duration)];
-    if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+    if (normalize) opts.push("-af", "loudnorm=I=-14:TP=-1.0:LRA=9");
     opts.push(
       "-c:v", V_ENCODER,
       "-r", String(FPS),
@@ -853,7 +853,7 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
   // Mux with audio
   await runAudioMux((normalize) => {
     const opts = ["-map", "0:v", "-map", "1:a", "-t", String(duration)];
-    if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+    if (normalize) opts.push("-af", "loudnorm=I=-14:TP=-1.0:LRA=9");
     opts.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k");
     return ffmpeg()
       .input(sceneVideoPath)
@@ -1023,6 +1023,9 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         characters: d.characters || [],
         visualEvent: d.visualEvent,
         speakerEmphasis: d.speakerEmphasis,
+        shotType: d.shotType || d.framing,
+        visualStyle: d.visualStyle || d.visual_style,
+        cinematic: d.cinematic,
       }),
     },
   };
@@ -1106,7 +1109,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   await runAudioMux((normalize) => {
     if (!needsPadding) {
       const opts = ["-map", "0:v", "-map", "1:a", "-t", String(duration)];
-      if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+      if (normalize) opts.push("-af", "loudnorm=I=-14:TP=-1.0:LRA=9");
       opts.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k");
       return ffmpeg()
         .input(templateVideoPath)
@@ -1118,7 +1121,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
     const padDuration = Math.max(0, duration - templateDuration + 0.1).toFixed(3);
     const videoFilter = `[0:v]tpad=stop_mode=clone:stop_duration=${padDuration}[padded]`;
     const opts = ["-map", "[padded]", "-map", "1:a", "-t", String(duration)];
-    if (normalize) opts.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
+    if (normalize) opts.push("-af", "loudnorm=I=-14:TP=-1.0:LRA=9");
     opts.push(
       "-c:v", V_ENCODER,
       "-r", String(FPS),
@@ -1222,7 +1225,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,62,&H00FFFFFF,&H0000DFFF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,100,1
+Style: Caption,Inter Bold,50,&H00FFFFFF,&H0038D9FF,&H70000000,&H50000000,0,0,0,0,100,100,0,0,1,2,2,2,120,120,64,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -1231,7 +1234,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   let events = "";
   // Show phrases of ~6-10 words at a time, with the spoken word highlighted.
-  const WORDS_PER_PHRASE = 8;
+  const WORDS_PER_PHRASE = 6;
 
   scenes.forEach((scene, sceneIdx) => {
     if (isOutroScene(scene)) return;
@@ -1265,7 +1268,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     // the "already spoken" karaoke color to the active speaker's color, and
     // name them once at the start of the turn rather than on every phrase.
     const speakerName = typeof scene?.speaker_name === "string" ? scene.speaker_name.trim() : "";
-    const speakerColorTag = speakerName ? `{\\1c${hexToAssColor(scene.speaker_color)}}` : "";
+    const speakerColor = speakerName ? hexToAssColor(scene.speaker_color) : "";
 
     // Group words into phrases
     for (let phraseStart = 0; phraseStart < words.length; phraseStart += WORDS_PER_PHRASE) {
@@ -1278,9 +1281,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       // One dialogue line per phrase. All words visible for the entire duration.
       // Use ASS \kf (smooth karaoke fill) to progressively highlight each word
       // in the CaptionHL color as it's spoken.
-      let line = speakerColorTag;
+      let line = "";
       if (speakerName && phraseStart === 0) {
-        line += `${escapeAssText(speakerName.toUpperCase())}: `;
+        line += `{\\fs30\\b1\\1c${speakerColor}}${escapeAssText(speakerName.toUpperCase())}  {\\rCaption}`;
       }
       for (let w = 0; w < phrase.length; w++) {
         const word = phrase[w];
@@ -1399,7 +1402,7 @@ async function buildGaplessVoice(audioPaths, outPath) {
     await runAudioMux((normalize) => {
       const opts = ["-c:a", "aac", "-b:a", "192k", "-ar", "44100"];
       const c = ffmpeg().input(audioPaths[0]);
-      if (normalize) c.audioFilters("loudnorm=I=-16:TP=-1.5:LRA=11");
+      if (normalize) c.audioFilters("loudnorm=I=-14:TP=-1.0:LRA=9");
       return c.outputOptions(opts).output(outPath);
     });
     return outPath;
@@ -1412,7 +1415,7 @@ async function buildGaplessVoice(audioPaths, outPath) {
     const norm = audioPaths.map((_, i) => `[${i}:a]aformat=sample_rates=44100:channel_layouts=mono[a${i}]`).join(";");
     const ins = audioPaths.map((_, i) => `[a${i}]`).join("");
     const tail = normalize
-      ? `concat=n=${audioPaths.length}:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11[a]`
+      ? `concat=n=${audioPaths.length}:v=0:a=1,loudnorm=I=-14:TP=-1.0:LRA=9[a]`
       : `concat=n=${audioPaths.length}:v=0:a=1[a]`;
     return cmd
       .complexFilter([`${norm};${ins}${tail}`])
@@ -1639,10 +1642,32 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // building into it, then a gentle impact as it lands. This is the single
     // intentional audio beat that punctuates the climax without the noise.
     const sfxEvents = [];
+    const addSfx = (type, time, volume) => {
+      if (!sfxAvailable[type] || time == null || !Number.isFinite(time)) return;
+      // Avoid machine-gun duplicate cues on adjacent micro-scenes.
+      if (sfxEvents.some((event) => event.type === type && Math.abs(event.time - time) < 0.22)) return;
+      sfxEvents.push({ type, time: Math.max(0, time), volume });
+    };
+
+    scenes.forEach((scene, sceneIdx) => {
+      if (isOutroScene(scene)) return;
+      const cue = String(scene?.template_data?.cinematic?.sfxCue || "none").toLowerCase();
+      const at = offsets[sceneIdx];
+      if (at == null) return;
+      if (cue === "room-change") addSfx("whoosh", at, 0.10);
+      if (cue === "prop") addSfx("impact", at + 0.08, 0.075);
+      if (cue === "reaction" || cue === "soft-hit") addSfx("impact", at, 0.065);
+      if (cue === "payoff") {
+        addSfx("riser", at - 1.1, 0.12);
+        addSfx("impact", at, 0.14);
+      }
+    });
+
+    // Preserve a restrained payoff accent even when an older plan has no cue.
     const emphasisOffset = offsets[emphasisIdx];
-    if (emphasisIdx >= 1 && emphasisOffset != null) {
-      if (sfxAvailable.riser) sfxEvents.push({ type: "riser", time: Math.max(0, emphasisOffset - 1.3), volume: 0.18 });
-      if (sfxAvailable.impact) sfxEvents.push({ type: "impact", time: emphasisOffset, volume: 0.22 });
+    if (emphasisIdx >= 1 && emphasisOffset != null && !sfxEvents.some((event) => Math.abs(event.time - emphasisOffset) < 0.35)) {
+      addSfx("riser", emphasisOffset - 1.1, 0.10);
+      addSfx("impact", emphasisOffset, 0.13);
     }
 
     // Cartoon mouth cues are rendered into each per-scene Remotion clip from

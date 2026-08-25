@@ -276,12 +276,12 @@ export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | un
     switch (preset) {
         case "walk-cross": {
             const entry = easeInOutCubic(Math.min(frame, 22) / 22);
-            return `translateX(${(-58 + entry * 58).toFixed(2)}px) translateY(${(Math.abs(beat) * -5).toFixed(2)}px)`;
+            return `translateX(${(-220 + entry * 220).toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;
         }
         case "double-take":
-            return `translateX(${(frame < 8 ? -4 + frame : slow * 2).toFixed(2)}px) rotate(${(slow * 0.35).toFixed(2)}deg)`;
+            return `translateX(${(frame < 8 ? -16 + frame * 2 : slow * 4).toFixed(2)}px) rotate(${(frame < 8 ? -1.8 + frame * 0.28 : slow * 0.55).toFixed(2)}deg)`;
         case "notices-prop":
-            return `translateY(${(Math.min(frame, 12) / 12 * -7).toFixed(2)}px)`;
+            return `translateY(${(Math.min(frame, 12) / 12 * -12).toFixed(2)}px) scale(${(1 + Math.min(frame, 12) / 12 * 0.018).toFixed(3)})`;
         case "small-defeat":
             return `translateY(${(Math.min(frame, 18) / 18 * 6).toFixed(2)}px) rotate(${(slow * -0.25).toFixed(2)}deg)`;
         case "reluctant-acceptance":

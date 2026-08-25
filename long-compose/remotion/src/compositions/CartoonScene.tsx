@@ -8,6 +8,8 @@ import { composeCharactersForScene, foregroundMaskForScene } from "../lib/sceneC
 import {
     cinematicCameraStyle,
     cinematicCharacterLayerStyle,
+    cinematicActingStageTransform,
+    actingPresetFor,
     cinematicOverlayStyle,
     cinematicTransitionStyle,
     normalizedShotRecipe,
@@ -193,6 +195,89 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
+
+function propHolder(characters: CharacterProps[]): CharacterProps | undefined {
+    return characters.find((character) => character.isSpeaking) ?? characters[0];
+}
+
+function actorRigPoint(character: CharacterProps, side: "left" | "right", raised: boolean): { x: number; y: number } {
+    const scale = Number.isFinite(character.scale) ? character.scale! : 1;
+    // Layered pilot rigs are 500x700 and scale from bottom-centre. These points
+    // are the palm centres in the up/down arm SVGs, transformed into scene space.
+    const rigX = side === "right" ? (raised ? 382 : 349) : (raised ? 118 : 151);
+    const rigY = raised ? 222 : 535;
+    return {
+        x: character.x + 250 + (rigX - 250) * scale,
+        y: character.y + 700 + (rigY - 700) * scale,
+    };
+}
+
+function handHeldSide(character: CharacterProps): "left" | "right" {
+    // In a two-shot, use the hand facing the conversation/prop focus. This keeps
+    // the object between actors instead of outside the frame.
+    return character.x < 720 ? "right" : "left";
+}
+
+function withPhysicalInteraction(
+    characters: CharacterProps[],
+    prop: ForegroundPropSpec | undefined,
+    background: BackgroundSpec | undefined,
+    cinematic: CinematicSceneSpec | undefined,
+): CharacterProps[] {
+    if (!prop?.type || prop.type === "none") return characters;
+    if (propPlacementFor(background, prop, cinematic) !== "hand-held") return characters;
+    const holder = propHolder(characters);
+    if (!holder) return characters;
+    const holderKey = holder.actorId ?? holder.characterId;
+    const side = handHeldSide(holder);
+    const preset = actingPresetFor(cinematic);
+    return characters.map((character) => {
+        const key = character.actorId ?? character.characterId;
+        if (key !== holderKey) return character;
+        const directedGesture = side === "right" ? "explain" : "point-left";
+        return {
+            ...character,
+            gesture: directedGesture,
+            gazeTarget: preset === "notices-prop" || preset === "payoff-freeze" ? "down" : character.gazeTarget,
+            emphasis: character.emphasis === "none" ? "rim-glow" : character.emphasis,
+        };
+    });
+}
+
+function HandHeldPropOverlay({
+    prop, characters, visualStyle, cinematic,
+}: {
+    prop?: ForegroundPropSpec;
+    characters: CharacterProps[];
+    visualStyle: ResolvedVisualStyle;
+    cinematic?: CinematicSceneSpec;
+}) {
+    if (!prop?.type || prop.type === "none") return null;
+    if (propPlacementFor(undefined, prop, cinematic) !== "hand-held") return null;
+    const holder = propHolder(characters);
+    if (!holder) return null;
+    const side = handHeldSide(holder);
+    const hand = actorRigPoint(holder, side, true);
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const insert = recipe === "prop-insert";
+    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
+    return (
+        <div data-physical-interaction="actor-anchored-prop">
+            <PropAsset
+                prop={directedProp}
+                x={insert ? 1000 : hand.x - 54}
+                y={insert ? 342 : hand.y - 102}
+                scale={(insert ? 1.22 : 0.64) * visualStyle.propScale}
+                rotate={insert ? "-4deg" : (side === "right" ? "-10deg" : "10deg")}
+                palette={visualStyle.palette}
+                lineWeight={visualStyle.lineWeight}
+                shadow={propShadow(visualStyle)}
+                zIndex={8}
+            />
+        </div>
+    );
+}
+
 const STYLE_PRESETS: Record<CartoonVisualStyleName, ResolvedVisualStyle> = {
     "clean-flat": { name: "clean-flat", lineWeight: 6, shadow: "soft-offset", depth: "layered-parallax", lighting: "neutral", propScale: 1, palette: { outline: "#18212F", paper: "#F8FAFC", accent: "#2563EB", accent2: "#38BDF8", surface: "#E2E8F0", shadow: "rgba(15,23,42,0.24)" } },
     "warm-modern": { name: "warm-modern", lineWeight: 7, shadow: "soft-offset", depth: "stage-depth", lighting: "warm-window", propScale: 1.04, palette: { outline: "#1F2937", paper: "#FFF7ED", accent: "#F97316", accent2: "#38BDF8", surface: "#FDE68A", shadow: "rgba(90,55,20,0.24)" } },
@@ -273,6 +358,7 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType, background, cinema
     const placement = propPlacementFor(background, prop, cinematic);
     const anchor = propAnchor(placement, background);
     const shot = shotOffset(shotType);
+    if (placement === "hand-held") return null;
     const badge = shouldRenderPropAsBadge(prop, placement, cinematic);
     const directedProp: ForegroundPropSpec = { ...prop, placement, renderMode: badge ? "badge" : "physical" };
     const transform = propTransform(shotType, visualStyle.propScale, anchor.rotate);
@@ -392,10 +478,15 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         () => withConversationDirection(stagedCharacters, speakerEmphasis),
         [stagedCharacters, speakerEmphasis],
     );
+    const performedCharacters = useMemo(
+        () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );
 
     const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
     const cinematicTransition = cinematicTransitionStyle(cinematic, frame);
     const characterLayer = cinematicCharacterLayerStyle(cinematic);
+    const actingStage = cinematicActingStageTransform(cinematic, frame);
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
 
     return (
@@ -405,8 +496,9 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                     <StyleFrame visualStyle={style}>
                         <Background background={background} panX={panX} />
                         <VisualEventOverlay event={visualEvent} visualStyle={style} shotType={shotType} background={background} cinematic={cinematic} />
-                        <AbsoluteFill style={{ transform: `translateX(${panX}px) ${characterLayerTransform(shotType)}`, ...characterLayer, zIndex: 5 }}>
-                            {directedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
+                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType), actingStage), ...characterLayer, zIndex: 5 }}>
+                            {performedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
+                            <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />
                         </AbsoluteFill>
                         <ForegroundSceneMask background={background} visualStyle={style} />
                         <CinematicAccent cinematic={cinematic} />

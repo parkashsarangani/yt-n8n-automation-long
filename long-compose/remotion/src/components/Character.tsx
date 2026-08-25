@@ -193,7 +193,12 @@ export const Character: React.FC<CharacterProps> = ({
                     boxShadow: "0 0 24px rgba(255,221,76,0.44)",
                 }} />
             )}
-            <Img src={rig("body.svg")} style={layerStyle} />
+            <div style={{
+                position: "absolute", left: 126, bottom: 6, width: 248, height: 36,
+                borderRadius: "50%", background: "rgba(15,23,42,0.18)", filter: "blur(9px)",
+                transform: `scaleX(${0.92 + Math.abs(breathWave) * 0.04})`, transformOrigin: "center", zIndex: -1,
+            }} />
+            <Img src={rig("body.svg")} style={{ ...layerStyle, filter: "drop-shadow(0 10px 10px rgba(15,23,42,0.10))" }} />
             <ArmLayer rig={rig} side="left" target={targetLeft} />
             <ArmLayer rig={rig} side="right" target={targetRight} />
             <div style={{ ...layerStyle, transform: `rotate(${headAngle}deg)`, transformOrigin: "50% 40%" }}>
