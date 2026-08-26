@@ -52,7 +52,7 @@ export function makeScriptQualityReleaseWorker(): WorkerDef {
       { schema_id: "script_quality_report", range: "^1", as: "report" },
     ],
     produces: "script",
-    produces_version: "1.3.0",
+    produces_version: "1.4.0",
     async execute(inputs): Promise<WorkerOutput> {
       const result = assessScriptQuality(inputs["report"]?.payload);
       const evidence = assessDialogueEvidence(inputs["script"]?.payload);
