@@ -186,7 +186,7 @@
     },
     {
       "id": "qa",
-      "transformation": "qa",
+      "transformation": "retention_qa",
       "in": [
         "intent",
         "approve_script",
