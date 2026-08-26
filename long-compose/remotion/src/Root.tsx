@@ -16,6 +16,7 @@ import { ListNumberedVertical } from "./scenes/ListAnimations/ListNumberedVertic
 
 // Cartoon puppet scene - layered SVG characters, lip-synced via Rhubarb.
 import { CartoonScene } from "./compositions/CartoonScene";
+import { ExplanationScene } from "./compositions/ExplanationScene";
 
 const FPS = 30;
 const W = 1920;
@@ -43,6 +44,19 @@ export const RemotionRoot: React.FC = () => (
             defaultProps={{ items: [{ label: "A", value: 80 }], title: "Chart" }} />
         <Composition id="ListNumberedVertical" component={ListNumberedVertical as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ items: [{ text: "Key fact" }], title: "Key Facts" }} />
+
+        <Composition id="ExplanationScene" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
+            defaultProps={{
+                role: "diagram-build" as const,
+                title: "The mechanism",
+                keyText: "",
+                elements: ["Signal", "Compression", "Result"],
+                before: "",
+                after: "",
+                characterCutIn: "none" as const,
+                soundCue: "none",
+                characters: [],
+            }} />
 
         <Composition id="CartoonScene" component={CartoonScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{
