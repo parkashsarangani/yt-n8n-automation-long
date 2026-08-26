@@ -1,4 +1,4 @@
-iteration=23
-source=insert-separation-crossing-depth
-requested=2026-08-26T07:25:00+00:00
-notes=verify clean object insert and collision-safe depth crossing
+iteration=24
+source=insert-hand-alignment
+requested=2026-08-26T07:30:00+00:00
+notes=verify object sits beside presenting hand without face overlap
