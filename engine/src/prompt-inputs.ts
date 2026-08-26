@@ -110,6 +110,8 @@ function sceneView(scene: unknown): unknown {
     scene_index: obj.scene_index,
     act_index: obj.act_index,
     is_outro: obj.is_outro,
+    speaker: obj.speaker,
+    emotion: obj.emotion,
     speaker_id: obj.speaker_id,
     speaker_name: obj.speaker_name,
     character_id: obj.character_id,

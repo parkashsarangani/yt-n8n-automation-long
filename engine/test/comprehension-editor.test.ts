@@ -11,11 +11,13 @@ test("cartoon graph reviews comprehension before expensive production work", () 
   const byId = new Map<string, { id: string; in?: string[]; policy?: { auto_pass_if?: string } }>(
     graph.nodes.map((node: { id: string; in?: string[]; policy?: { auto_pass_if?: string } }) => [node.id, node]),
   );
-  assert.equal(graph.version, "5");
+  assert.equal(graph.version, "6");
   assert.deepEqual(byId.get("draft_script")?.in, ["approve_story", "cast_roster"]);
   assert.deepEqual(byId.get("comprehension_edit")?.in, ["approve_story", "draft_script", "cast_roster"]);
-  assert.deepEqual(byId.get("approve_script")?.in, ["comprehension_edit"]);
-  assert.equal(byId.get("approve_script")?.policy?.auto_pass_if, "confidence.overall >= 0.86");
+  assert.deepEqual(byId.get("retention_edit")?.in, ["approve_story", "comprehension_edit", "cast_roster"]);
+  assert.deepEqual(byId.get("quality_release")?.in, ["quality_revision", "quality_final"]);
+  assert.deepEqual(byId.get("approve_script")?.in, ["quality_release"]);
+  assert.equal(byId.get("approve_script")?.policy?.auto_pass_if, "always");
   for (const id of ["creative_direction", "visual_plan", "voice", "seo", "thumbnail_brief"]) {
     assert.ok(byId.get(id)?.in?.includes("approve_script"), id);
   }
@@ -52,6 +54,6 @@ test("comprehension editor enforces a reconstructable visual model and teach-bac
 });
 
 test("edited scripts retain the existing dialogue semantic retry gates", () => {
-  assert.match(validators, /def\.name === "dialogue_script_writer" \|\| def\.name === "comprehension_editor"/);
+  for (const name of ["dialogue_script_writer", "comprehension_editor", "retention_character_editor", "script_quality_reviser"]) assert.match(validators, new RegExp(name));
   assert.match(validators, /return validateDialogueScript\(payload, def\)/);
 });
