@@ -415,7 +415,15 @@ export class GraphExecutor {
         continue;
       }
       if (!r.output) continue;
-      if (r.status !== "ok" && r.status !== "cache_hit") continue;
+      // "accepted_below_quality_bar" is a terminal success too -- runNode()
+      // already treats it as ok:true and hands its artifact to sibling nodes
+      // live within the same drive() call (real production case: run_a1838b5d's
+      // creative_direction correctly built on a 36-scene script). Excluding it
+      // here made a *later* resume forget that artifact and fall back to an
+      // older "ok" record for the same node, while already-completed downstream
+      // nodes kept their real parentage -- a graph-consistency split that only
+      // showed up across a resume boundary.
+      if (r.status !== "ok" && r.status !== "cache_hit" && r.status !== "accepted_below_quality_bar") continue;
       if (!this.isCurrentCompletion(r, byId)) continue;
       out.set(r.node_id, r.output);
       retried.delete(r.node_id);
