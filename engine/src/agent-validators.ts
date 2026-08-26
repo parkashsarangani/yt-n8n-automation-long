@@ -342,40 +342,31 @@ function doorwayContinuityFailure(planned: PlanScene[]): string | null {
 }
 
 function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Artifact>): string[] {
+  // Product direction: storytelling and concept explanation over cinematic
+  // shot/environment variety. Dropped the environment-distinctness,
+  // environment-repeat-run, framing-variety, camera-motion-variety,
+  // doorway/set-piece proportion, and ambient-motion-coverage checks -- all
+  // purely visual-polish concerns that cost retry cycles without affecting
+  // whether the concept lands. Kept the one check that's actually
+  // comprehension-relevant: a central prop the episode leans on for its
+  // demonstration needs a real physical action, not just decorative
+  // presence, since that's how the visual model beat communicates anything.
   const contentScenes = inputScriptScenes(inputs).filter((scene) => !scene.is_outro).sort((a, b) => a.scene_index - b.scene_index);
   const planned = planScenes(payload).sort((a, b) => a.scene_index - b.scene_index);
   if (contentScenes.length < LONG_CARTOON_PLAN_SCENES) return [];
 
-  const planByIndex = new Map(planned.map((scene) => [scene.scene_index, scene]));
-  const keyedScenes = contentScenes.map((scene) => planByIndex.get(scene.scene_index));
-  const keys = keyedScenes.map(backgroundKey).filter(Boolean);
-  const distinctKeys = new Set(keys);
   const failures: string[] = [];
-
-  if (distinctKeys.size < 3) failures.push(`long cartoon output is too static: ${distinctKeys.size} visible environment(s) found (${[...distinctKeys].join(", ") || "none"}). Use at least three motivated location/variant pairs for 13+ scene episodes.`);
-  const repeatedRun = longestRun(keys);
-  if (repeatedRun > 7) failures.push(`one environment repeats for ${repeatedRun} consecutive scenes; professional cartoon direction needs a cutaway, insert, or location change before that point`);
-
-  const framings = new Set(planned.map((scene) => scene.framing).filter(Boolean));
-  if (framings.size < 4) failures.push(`shot rhythm is too flat: only ${framings.size} framing value(s); use two-shot, closeup, prop insert, establishing, and reaction beats`);
-
-  const cameraMotions = new Set(planned.map((scene) => scene.camera_motion).filter(Boolean));
-  if (cameraMotions.size < 2) failures.push(`camera direction is too flat: only ${cameraMotions.size} camera motion value(s); use motivated push/pull/pan/static mix`);
 
   const propScenes = planned.filter((scene) => normalizedProp(scene.primary_prop ?? "") && normalizedProp(scene.primary_prop ?? "") !== "none");
   const actionlessProps = propScenes.filter((scene) => !scene.foreground_action || /^\s*(none|present|visible)\s*$/i.test(scene.foreground_action));
   if (actionlessProps.length > Math.max(1, Math.floor(propScenes.length * 0.35))) failures.push(`too many central props lack physical foreground_action (${actionlessProps.length}/${propScenes.length}); props must be held, placed, opened, crossed, picked up, or looked at`);
 
   if (isDoorwayOrSpatialTopic(contentScenes)) {
-    const doorSetPieceScenes = planned.filter(isDoorSetPieceScene);
-    if (doorSetPieceScenes.length > Math.ceil(planned.length * 0.35)) failures.push(`doorway/set-piece appears in ${doorSetPieceScenes.length}/${planned.length} scenes; it must appear only for crossing beats, not as a permanent background object`);
     const continuityFailure = doorwayContinuityFailure(planned);
     if (continuityFailure) failures.push(continuityFailure);
   }
 
-  if (countScenesWith(planned, (scene) => /^none$/i.test(scene.ambient_motion ?? "")) > Math.floor(planned.length * 0.55)) failures.push(`ambient motion is missing from too many scenes; use subtle parallax, window light, monitor glow, dust, or clock-tick where appropriate`);
-
-  return failures.length === 0 ? [] : [`cartoon_visual_planner cinematic quality gate failed: ${failures.join("; ")}. Revise before scene compilation; do not let a static beginner layout render.`];
+  return failures.length === 0 ? [] : [`cartoon_visual_planner cinematic quality gate failed: ${failures.join("; ")}. Revise before scene compilation.`];
 }
 
 export function agentSemanticValidationErrors(

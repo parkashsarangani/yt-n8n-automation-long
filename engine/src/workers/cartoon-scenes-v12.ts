@@ -172,53 +172,42 @@ function assertMetaphorSpecificity(creative: CreativeDirection): void {
 }
 
 function assertRhythmVariety(creative: CreativeDirection): void {
+  // Product direction: storytelling and concept explanation over cinematic
+  // shot/rhythm variety. Blocked production run_a1838b5d (comprehension
+  // genre): scenes 11-14 were all correctly labeled scene_function=visual_model
+  // -- the script deliberately devotes several consecutive scenes to the
+  // demonstration that makes the idea concrete ("do not rush it" in
+  // dialogue_script_writer@10), and cartoon_creative_director correctly
+  // reflected that. The old triple-repeat/four-distinct requirements assume
+  // a fast-cutting entertainment pacing model and directly punish a script
+  // for lingering on the one beat where comprehension actually happens.
+  // Dropped those; kept the structural shape checks (opens on a hook, closes
+  // on a payoff) since those are genuine comprehension requirements, not
+  // visual ones.
   const scenes = contentCreativeScenes(creative);
   if (scenes.length === 0) return;
-  const functions = scenes.map((scene) => normalized(scene.scene_function));
-  const energy = scenes.map((scene) => normalized(scene.energy_beat));
-  if (hasTripleRepeat(functions)) {
-    throw new Error("cartoon_creative_director@2 rhythm gate failed: three consecutive scenes cannot share the same scene_function");
-  }
-  if (hasTripleRepeat(energy)) {
-    throw new Error("cartoon_creative_director@2 rhythm gate failed: three consecutive scenes cannot share the same energy_beat");
-  }
   const first = scenes[0]!;
   const last = scenes[scenes.length - 1]!;
   if (!/(?:hook|open|opening|problem|setup|seed)/.test(normalized(first.scene_function + " " + first.energy_beat + " " + first.callback_role))) {
     throw new Error("cartoon_creative_director@2 rhythm gate failed: first scene must function as a hook/opening problem/seed");
   }
-  if (!/(?:payoff|resolution|resolve|callback)/.test(normalized(last.scene_function + " " + last.energy_beat + " " + last.callback_role))) {
+  if (!/(?:payoff|resolution|resolve|callback|recap|confirm)/.test(normalized(last.scene_function + " " + last.energy_beat + " " + last.callback_role))) {
     throw new Error("cartoon_creative_director@2 rhythm gate failed: final scene must function as a payoff or resolution");
-  }
-  if (scenes.length >= 6 && uniqueCount(functions) < 4) {
-    throw new Error("cartoon_creative_director@2 rhythm gate failed: longer episodes need at least four distinct scene functions");
-  }
-  if (scenes.length >= 6 && uniqueCount(energy) < 4) {
-    throw new Error("cartoon_creative_director@2 rhythm gate failed: longer episodes need at least four distinct energy beats");
   }
 }
 
 function assertBlockingVariety(creative: CreativeDirection): void {
+  // Same product-direction change as assertRhythmVariety above: dropped the
+  // blocking-layout repetition/distinctness requirements (cinematic
+  // staging variety), kept the per-scene requirement that power_shift is an
+  // actual concrete sentence and not a generic placeholder -- that's a
+  // content-quality floor, not a visual-variety quota.
   const scenes = contentCreativeScenes(creative);
-  const blockingKeys = scenes.map((scene) => [
-    clean(scene.blocking.speaker_position, 40),
-    clean(scene.blocking.listener_position, 40),
-    clean(scene.blocking.prop_position, 40),
-  ].join("|"));
-  if (scenes.length >= 4 && hasTripleRepeat(blockingKeys)) {
-    throw new Error("cartoon_creative_director@2 blocking gate failed: three consecutive scenes cannot use the same blocking layout");
-  }
   const powerShifts = scenes.map((scene) => clean(scene.blocking.power_shift, 120));
   for (const [index, powerShift] of powerShifts.entries()) {
     if (!powerShift || isGenericExact(powerShift, GENERIC_POWER_VALUES)) {
       throw new Error(`cartoon_creative_director@2 blocking gate failed: scene ${scenes[index]!.scene_index} needs a concrete power_shift`);
     }
-  }
-  if (scenes.length >= 6 && uniqueCount(blockingKeys) < 3) {
-    throw new Error("cartoon_creative_director@2 blocking gate failed: longer episodes need at least three distinct blocking layouts");
-  }
-  if (scenes.length >= 6 && uniqueCount(powerShifts.map(normalized)) < 4) {
-    throw new Error("cartoon_creative_director@2 blocking gate failed: longer episodes need at least four distinct power shifts");
   }
 }
 

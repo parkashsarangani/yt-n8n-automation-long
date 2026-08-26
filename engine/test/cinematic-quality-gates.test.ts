@@ -116,20 +116,38 @@ function scriptInput(count: number, doorway = false): Record<string, Artifact> {
   } as unknown as Record<string, Artifact>;
 }
 
-test("visual planner gate rejects long static beginner layouts", () => {
+test("visual planner gate no longer rejects a static single-environment/single-shot layout", () => {
+  // Product direction: storytelling and concept explanation over cinematic
+  // environment/shot/camera variety. Dropped the environment-distinctness,
+  // environment-repeat-run, framing-variety, and camera-motion-variety
+  // checks -- a 13-scene demonstration that stays in one room with the same
+  // framing throughout is legitimate as long as the prop is actually used
+  // (foreground_action is real, not the placeholder "visible" this fixture
+  // used to rely on to trip the checks this test used to assert on).
+  const errors = agentSemanticValidationErrors(
+    VISUAL_DEF,
+    { scenes: Array.from({ length: 13 }, (_, index) => visualScene(index, { foreground_action: `Host holds the charger and does step ${index} of the demonstration` })) },
+    scriptInput(13),
+  );
+
+  assert.deepEqual(errors, []);
+});
+
+test("visual planner gate still rejects central props with no real physical action", () => {
   const errors = agentSemanticValidationErrors(
     VISUAL_DEF,
     { scenes: Array.from({ length: 13 }, (_, index) => visualScene(index)) },
     scriptInput(13),
   );
 
-  const message = errors.join("\n");
-  assert.match(message, /too static/);
-  assert.match(message, /shot rhythm is too flat/);
-  assert.match(message, /camera direction is too flat/);
+  assert.match(errors.join("\n"), /central props lack physical foreground_action/);
 });
 
-test("visual planner gate enforces doorway spatial continuity", () => {
+test("visual planner gate still enforces doorway spatial continuity ordering", () => {
+  // The door/set-piece screen-time proportion check was dropped (cinematic
+  // concern), but the ordering check stayed: a doorway/spatial story still
+  // needs a real room A before the crossing beat and a different room B
+  // after it for the "room changed" story point to actually track.
   const errors = agentSemanticValidationErrors(
     VISUAL_DEF,
     { scenes: Array.from({ length: 13 }, (_, index) => visualScene(index, {
@@ -143,7 +161,7 @@ test("visual planner gate enforces doorway spatial continuity", () => {
     scriptInput(13, true),
   );
 
-  assert.match(errors.join("\n"), /doorway\/set-piece appears/);
+  assert.match(errors.join("\n"), /doorway\/spatial episode lacks ordered continuity/);
 });
 
 test("visual planner gate accepts crossing expressed through shot direction", () => {

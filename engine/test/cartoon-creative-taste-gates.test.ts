@@ -246,21 +246,36 @@ test("creative taste gate accepts a payoff carried by physical action with no me
   assert.equal(payload.scenes.length, 6);
 });
 
-test("creative taste gate rejects flat rhythm and blocking", async () => {
+test("creative taste gate no longer rejects repeated scene_function/energy_beat or blocking layout", async () => {
+  // Product direction: storytelling and concept explanation over cinematic
+  // shot/rhythm variety. A script that deliberately lingers on one beat
+  // (e.g. a sustained visual-model demonstration) is legitimate, not flat.
   const creative = cloneCreative();
   for (const scene of creative.scenes) {
     scene.scene_function = "middle_explanation";
     scene.energy_beat = "same explanation";
-    scene.blocking = {
-      speaker_position: "left",
-      listener_position: "right",
-      prop_position: "table",
-      power_shift: "they talk",
-    };
+    scene.blocking = { ...scene.blocking, speaker_position: "left", listener_position: "right", prop_position: "table" };
   }
+  // The first/last scene shape check is still enforced -- keep those two
+  // scenes matching a hook/payoff shape so this test isolates the rhythm
+  // and blocking-variety relaxation, not the still-active structural check.
+  creative.scenes[0]!.scene_function = "hook";
+  creative.scenes[creative.scenes.length - 1]!.scene_function = "payoff_resolution";
+
+  const out = await compile(creative);
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, creative.scenes.length);
+});
+
+test("creative taste gate still rejects a generic power_shift", async () => {
+  // The per-scene "power_shift must be a real sentence" content-quality
+  // check stayed active even though the blocking-layout variety quota
+  // (three distinct layouts, no triple-repeat) was dropped.
+  const creative = cloneCreative();
+  creative.scenes[2]!.blocking = { ...creative.scenes[2]!.blocking, power_shift: "talks" };
 
   await assert.rejects(
     () => compile(creative),
-    /rhythm gate failed: three consecutive scenes cannot share the same scene_function/,
+    /blocking gate failed: scene 2 needs a concrete power_shift/,
   );
 });
