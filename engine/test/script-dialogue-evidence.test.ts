@@ -5,14 +5,14 @@ import { assessDialogueEvidence } from "../src/script-dialogue-evidence.ts";
 
 const strongScript = {
   scenes: [
-    { scene_index: 0, speaker: "host", narration: "Why did the wider road slow us down?", point: "action=Host points at a traffic jam; prop=toy-cars; function=hook; value=wider roads created an unexpected result" },
-    { scene_index: 1, speaker: "buddy", narration: "I think more lanes should clear it.", point: "action=Buddy adds an empty lane; prop=toy-cars; function=intuitive_answer; value=extra capacity appears to reduce congestion" },
-    { scene_index: 2, speaker: "host", narration: "Then why did more cars appear?", point: "action=Host points at arriving cars; prop=toy-cars; function=objection; value=the intuitive prediction conflicts with observation" },
-    { scene_index: 3, speaker: "buddy", narration: "Add space. Drivers switch routes.", point: "action=Buddy moves cars into the new lane; prop=toy-cars; function=visual_model; value=new capacity attracts previously hidden demand" },
-    { scene_index: 4, speaker: "host", narration: "So space changed people's choices.", point: "action=Host rearranges the same cars; prop=toy-cars; function=correction; value=capacity changes demand rather than only flow" },
-    { scene_index: 5, speaker: "buddy", narration: "And the empty lane fills again.", point: "action=Buddy fills the final gap; prop=toy-cars; function=implication; value=the congestion benefit can disappear" },
-    { scene_index: 6, speaker: "host", narration: "Then widening alone buys temporary relief.", point: "action=Host removes the spare lane marker; prop=toy-cars; function=takeaway practical_action; value=decisions should account for changed behavior" },
-    { scene_index: 7, speaker: "buddy", narration: "More room invited drivers, so traffic returned.", point: "action=Buddy replays the filled lanes; prop=toy-cars; function=recap confirms_understanding; value=the opening contradiction is now explainable" },
+    { scene_index: 0, speaker: "host", emotion: "surprised", narration: "Why did the wider road slow us down?", point: "action=Host points at a traffic jam; prop=toy-cars; function=hook; value=wider roads created an unexpected result" },
+    { scene_index: 1, speaker: "buddy", emotion: "happy", narration: "I think more lanes should clear it.", point: "action=Buddy adds an empty lane; prop=toy-cars; function=intuitive_answer; value=extra capacity appears to reduce congestion" },
+    { scene_index: 2, speaker: "host", emotion: "surprised", narration: "Then why did more cars appear?", point: "action=Host points at arriving cars; prop=toy-cars; function=objection; value=the intuitive prediction conflicts with observation" },
+    { scene_index: 3, speaker: "buddy", emotion: "neutral", narration: "Add space. Drivers switch routes.", point: "action=Buddy moves cars into the new lane; prop=toy-cars; function=visual_model; value=new capacity attracts previously hidden demand" },
+    { scene_index: 4, speaker: "host", emotion: "surprised", narration: "So space changed people's choices.", point: "action=Host rearranges the same cars; prop=toy-cars; function=correction; value=capacity changes demand rather than only flow" },
+    { scene_index: 5, speaker: "buddy", emotion: "neutral", narration: "And the empty lane fills again.", point: "action=Buddy fills the final gap; prop=toy-cars; function=implication; value=the congestion benefit can disappear" },
+    { scene_index: 6, speaker: "host", emotion: "sad", narration: "Then widening alone buys temporary relief.", point: "action=Host removes the spare lane marker; prop=toy-cars; function=takeaway practical_action; value=decisions should account for changed behavior" },
+    { scene_index: 7, speaker: "buddy", emotion: "happy", narration: "More room invited drivers, so traffic returned.", point: "action=Buddy replays the filled lanes; prop=toy-cars; function=recap confirms_understanding; value=the opening contradiction is now explainable" },
   ],
 };
 
@@ -20,7 +20,7 @@ test("strong two-character explanation exposes every required evidence signal", 
   const result = assessDialogueEvidence(strongScript);
   assert.equal(result.passed, true, result.failures.join("\n"));
   assert.equal(result.coverage, 1);
-  assert.equal(result.checks.length, 10);
+  assert.equal(result.checks.length, 13);
 });
 
 test("alternating narration with flattering metadata cannot fake dialogue quality", () => {
