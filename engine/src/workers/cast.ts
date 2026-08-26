@@ -17,7 +17,7 @@ export function makeCastLoaderWorker(): WorkerDef {
     version: "1",
     consumes: [],
     produces: "cast_roster",
-    produces_version: "1.1.0",
+    produces_version: "1.2.0",
 
     async execute(_inputs, ctx): Promise<WorkerOutput> {
       const configured = process.env["CARTOON_CAST_PATH"]?.trim();
