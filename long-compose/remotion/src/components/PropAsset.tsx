@@ -85,7 +85,7 @@ function motionTransform(motion: string, frame: number): { x: number; y: number;
 
 function assetSize(type?: string, placement?: PhysicalPropPlacement): { width: number; height: number } {
     const normalized = String(type ?? "").toLowerCase();
-    const placementScale = placement === "hand-held" ? 0.78 : placement === "wall-mounted" ? 0.92 : placement === "floor" ? 1.1 : 1;
+    const placementScale = placement === "hand-held" ? 1.05 : placement === "wall-mounted" ? 0.92 : placement === "floor" ? 1.1 : 1;
     const base = (() => {
         switch (normalized) {
             case "laptop":
@@ -136,6 +136,21 @@ function propObjectShadow(placement: PhysicalPropPlacement, shadow: string): CSS
     return { filter: `drop-shadow(0 16px 12px rgba(15,23,42,0.24))`, boxShadow: shadow === "none" ? undefined : "0 18px 26px rgba(15,23,42,0.10)" };
 }
 
+/**
+ * CartoonScene historically anchored hand-held props to the old raised-arm
+ * palm coordinates. The richer present/point rigs put the palm materially
+ * lower and farther outward, so the prop appeared beside the actor's ear.
+ * The overlay already communicates side via its rotation: -10deg = right
+ * hand, +10deg = left hand. Apply the visual delta from the legacy raised
+ * palm to the current present/point palm here, keeping all other placements
+ * unchanged. This is intentionally local to hand-held props and therefore
+ * cannot shift table/counter/wall assets.
+ */
+function handHeldPalmOffset(rotate: string): { x: number; y: number } {
+    const rightHand = String(rotate).trim().startsWith("-");
+    return rightHand ? { x: 38, y: 140 } : { x: -48, y: 132 };
+}
+
 function badgeShellStyle(width: number, height: number, palette: PropAssetPalette, lineWeight: number, shadow: string, glow: boolean): CSSProperties {
     return {
         width,
@@ -164,10 +179,11 @@ export function PropAsset({ prop, x, y, scale, rotate = "0deg", palette, lineWei
     const glow = /glow|notification|unlocked|late|urgent|open|on|running/.test(String(prop.state ?? "").toLowerCase()) || String(prop.motion ?? "").toLowerCase() === "glow";
     const transform = `translate(${motion.x}px, ${motion.y}px) rotate(${rotate}) scale(${scale * motion.scale})`;
     const placementStyle = physicalPlacementStyle(placement);
+    const palmOffset = placement === "hand-held" ? handHeldPalmOffset(rotate) : { x: 0, y: 0 };
     const base: CSSProperties = {
         position: "absolute",
-        left: x,
-        top: y,
+        left: x + palmOffset.x,
+        top: y + palmOffset.y,
         width,
         height,
         zIndex,
