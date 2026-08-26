@@ -28,8 +28,8 @@ test("registered local assets resolve to vendored files, not runtime URLs", () =
 test("background renderer prefers approved local scene plates and falls back to generated layers", () => {
   assert.match(background, /resolveScenePlate/);
   assert.match(background, /scenePlateFor\(background\)/);
-  assert.match(background, /replaceLayers/);
-  assert.match(background, /!replaceLayers && <BackgroundLayersView/);
+  assert.match(background, /useReplacementPlate/);
+  assert.match(background, /!useReplacementPlate && <BackgroundLayersView/);
   assert.match(background, /staticFile\(asset\.source\.path\)/);
 });
 
