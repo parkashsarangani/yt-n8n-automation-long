@@ -102,24 +102,15 @@ function planPayload(locations: EnvironmentTuple[]) {
   };
 }
 
-test("cartoon_visual_planner retries before storing a long one-room visual plan", async () => {
-  const h = await harness((_req, attempt) => {
-    if (attempt === 0) {
-      return {
-        payload: planPayload(Array.from({ length: 13 }, () => ["living-room", "day"] as EnvironmentTuple)),
-        confidence: { overall: 0.7 },
-      };
-    }
-    return {
-      payload: planPayload([
-        ["bedroom", "day"], ["bedroom", "day"], ["bedroom", "day"],
-        ["kitchen", "day"], ["kitchen", "day"], ["kitchen", "day"],
-        ["street", "day"], ["street", "day"], ["street", "day"],
-        ["office", "day"], ["office", "day"], ["office", "day"], ["office", "day"],
-      ]),
-      confidence: { overall: 0.9 },
-    };
-  });
+test("cartoon_visual_planner no longer rejects a long one-room visual plan", async () => {
+  // Product direction: storytelling and concept explanation over cinematic
+  // environment/shot variety. A 13-scene episode that legitimately stays in
+  // one room (e.g. because the demonstration doesn't need a location change)
+  // now stores on the first attempt instead of being forced to retry.
+  const h = await harness(() => ({
+    payload: planPayload(Array.from({ length: 13 }, () => ["living-room", "day"] as EnvironmentTuple)),
+    confidence: { overall: 0.9 },
+  }));
 
   const script = await h.store.put({
     schema_id: "script",
@@ -136,16 +127,9 @@ test("cartoon_visual_planner retries before storing a long one-room visual plan"
 
   const out = await h.runner.run(h.agents.get("cartoon_visual_planner")!, [script.artifact.artifact_id, cast.artifact.artifact_id]);
 
-  assert.equal(out.attempts, 2);
-  assert.equal(h.provider.calls.length, 2);
-  assert.match(h.provider.calls[1]!.prompt, /too static/);
-  assert.match(h.provider.calls[1]!.prompt, /at least three motivated location\/variant pairs/);
-
-  const payload = out.artifact.payload as { scenes: Array<{ background_location: string; background_variant: string }> };
-  const keys = new Set(payload.scenes.map((scene) => `${scene.background_location}/${scene.background_variant}`));
-  assert.deepEqual([...keys].sort(), ["bedroom/day", "kitchen/day", "office/day", "street/day"]);
+  assert.equal(out.attempts, 1);
+  assert.equal(h.provider.calls.length, 1);
 
   const records = await h.runLog.all();
-  assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);
-  assert.match(records[0]!.error ?? "", /1 visible environment\(s\) found \(living-room\/day\)/);
+  assert.deepEqual(records.map((record) => record.status), ["ok"]);
 });

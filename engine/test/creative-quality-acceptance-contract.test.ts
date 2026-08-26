@@ -43,14 +43,17 @@ test("acceptance contract maps to real enforcement files", { skip: doc === null 
   }
 });
 
-test("quality gates cover dialogue duplication and visual stasis", () => {
+test("quality gates cover dialogue duplication and doorway continuity", () => {
+  // "too static"/"shot rhythm is too flat"/"camera direction is too flat"
+  // (environment/framing/camera-motion variety) were deliberately dropped:
+  // product direction is storytelling and concept explanation over
+  // cinematic shot variety. Dialogue duplication and doorway spatial
+  // continuity remain genuine content-quality/coherence concerns, not
+  // visual-polish ones, and stayed enforced.
   for (const token of [
     "duplicateDialogueFailures",
     "nearly repeats",
     "opening phrase",
-    "too static",
-    "shot rhythm is too flat",
-    "camera direction is too flat",
     "doorway",
   ]) {
     assert.match(validator, new RegExp(token));

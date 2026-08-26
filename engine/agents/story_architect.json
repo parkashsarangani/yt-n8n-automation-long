@@ -1,13 +1,13 @@
 {
   "name": "story_architect",
   "kind": "agent",
-  "version": "5",
+  "version": "6",
   "consumes": [
     { "schema_id": "intent", "range": "^1", "as": "intent" },
     { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
   ],
   "produces": "story",
-  "prompt": "story_architect@5",
+  "prompt": "story_architect@6",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 5000
