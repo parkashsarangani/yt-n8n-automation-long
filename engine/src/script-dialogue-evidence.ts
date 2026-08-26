@@ -17,6 +17,7 @@ interface ScriptScene {
   scene_index?: number;
   speaker?: string;
   narration?: string;
+  emotion?: string;
   point?: string;
   is_outro?: boolean;
 }
@@ -240,6 +241,49 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
     recapIsFinal && nonSummaryTeachBack
       ? "the final turn applies or reconstructs the corrected idea"
       : "the final turn is not a substantive teach-back payoff",
+  );
+
+  const emotions = scenes.map((scene) => scene.emotion?.toLowerCase() ?? "");
+  const distinctEmotions = new Set(emotions.filter(Boolean));
+  const neutralRatio = emotions.length > 0 ? emotions.filter((emotion) => emotion === "neutral" || !emotion).length / emotions.length : 1;
+  add(
+    checks,
+    "playable_emotional_palette",
+    distinctEmotions.size >= 3 && neutralRatio <= 0.60,
+    `${distinctEmotions.size} distinct playable emotions; ${Math.round(neutralRatio * 100)}% neutral or unspecified`,
+    distinctEmotions.size,
+    3,
+  );
+
+  let emotionChanges = 0;
+  for (let index = 1; index < emotions.length; index++) {
+    if (emotions[index] && emotions[index - 1] && emotions[index] !== emotions[index - 1]) emotionChanges++;
+  }
+  const emotionalChangeRatio = emotions.length > 1 ? emotionChanges / (emotions.length - 1) : 0;
+  add(
+    checks,
+    "emotional_movement",
+    emotionalChangeRatio >= 0.30,
+    `delivery emotion changes on ${Math.round(emotionalChangeRatio * 100)}% of turn transitions`,
+    emotionalChangeRatio,
+    0.30,
+  );
+
+  const breakingIndexes = functions
+    .map((fn, index) => fn === "objection" || fn === "visual_model" ? index : -1)
+    .filter((index) => index >= 0);
+  const hasMismatchReaction = breakingIndexes.some((index) =>
+    emotions.slice(index, Math.min(emotions.length, index + 2)).some((emotion) =>
+      ["surprised", "angry", "scared", "sad"].includes(emotion)
+    )
+  );
+  add(
+    checks,
+    "model_break_reaction",
+    hasMismatchReaction,
+    hasMismatchReaction
+      ? "the prediction-breaking moment produces a playable emotional reaction"
+      : "the model breaks the prediction without a specific emotional reaction",
   );
 
   const passedCount = checks.filter((check) => check.passed).length;
