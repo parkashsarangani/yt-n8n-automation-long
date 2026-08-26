@@ -80,8 +80,6 @@ jobs:
           BENCHMARK_COMPOSE_URL: http://127.0.0.1:4011
           BENCHMARK_OUTPUT: benchmark-output.mp4
           BENCHMARK_METADATA: benchmark-metadata.json
-          # TEMPORARY fast loop. Remove this line for the mandatory full render.
-          BENCHMARK_SCENE_INDICES: "5,17,25"
         run: python3 scripts/render_exact_benchmark.py
 
       - name: Verify benchmark media
