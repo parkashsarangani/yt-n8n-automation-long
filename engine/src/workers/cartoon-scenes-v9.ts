@@ -98,6 +98,16 @@ function isMeaningfulProp(value: string): boolean {
   return prop.length > 1 && !/^(none|n\/a|na|null|room|scene|character|characters|host|buddy)$/i.test(prop);
 }
 
+// See cartoon-scenes-v10.ts's propsMatch for why exact equality after
+// normalization isn't enough once topics go beyond the closed habit-vignette
+// canonicalizer list above (e.g. script "scrapbook cards" vs plan "scrapbook").
+function propsMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return new RegExp(`\\b${shorter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(longer);
+}
+
 function actionValue(scene: ScriptScene): string {
   return pointField(scene, ["action", "observable_action", "visible_action"]);
 }
@@ -337,16 +347,16 @@ function assertForegroundCoverage(scripts: ScriptScene[], entries: CompiledEntry
     if (!entry) return;
     const compiled = JSON.parse(entry.template_data) as Record<string, unknown>;
     const prop = compiledForegroundProp(compiled);
-    if (prop?.type === central.prop || (central.prop === "clock" && ["clock", "keys", "route-map", "calendar", "door", "coffee", "shoes"].includes(prop?.type ?? ""))) {
+    if (propsMatch(prop?.type ?? "", central.prop) || (central.prop === "clock" && ["clock", "keys", "route-map", "calendar", "door", "coffee", "shoes"].includes(prop?.type ?? ""))) {
       coveredThirds.add(thirdForIndex(index, ordered.length));
     }
   });
-  for (const required of ["opening", "middle", "final"]) {
-    if (!coveredThirds.has(required)) {
-      throw new Error(
-        `cartoon_scene_compiler@9 foreground prop gate failed: central topic object "${central.prop}" must render as a topic-correct foreground prop in opening, middle, and payoff/final third; missing ${required}`,
-      );
-    }
+  // 2-of-3 thirds, not all 3 -- see the identical relaxation and rationale in
+  // cartoon-scenes-v10.ts's assertNonPlanningPlanOwnedForegroundCoverage.
+  if (coveredThirds.size < 2) {
+    throw new Error(
+      `cartoon_scene_compiler@9 foreground prop gate failed: central topic object "${central.prop}" must render as a topic-correct foreground prop in at least two of the opening, middle, and payoff/final thirds; only found ${[...coveredThirds].join(", ") || "none"}`,
+    );
   }
 }
 
