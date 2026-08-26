@@ -92,7 +92,7 @@
       "transformation": "cartoon_scene_compiler",
       "in": [
         "visual_plan",
-        "script",
+        "approve_script",
         "cast_roster",
         "creative_direction"
       ]
@@ -133,7 +133,7 @@
       "id": "render",
       "transformation": "cartoon_render",
       "in": [
-        "script",
+        "approve_script",
         "voice",
         "assets",
         "cast_roster"
