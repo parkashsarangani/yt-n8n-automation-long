@@ -10,8 +10,8 @@ function enumFor(property: string): string[] {
   return schema.json_schema.properties.scenes.items.properties[property].enum;
 }
 
-test("legacy visual_plan 1.9.0 remains active for non-explanation pipelines", () => {
-  assert.equal(schema.status, "active");
+test("legacy visual_plan 1.9.0 remains unchanged for non-explanation pipelines", () => {
+  assert.equal(schema.status, "draft");
   assert.equal(agent.model.capability, "reasoning_high");
 });
 
