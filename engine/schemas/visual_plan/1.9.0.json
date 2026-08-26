@@ -1,7 +1,7 @@
 {
   "schema_id": "visual_plan",
   "version": "1.9.0",
-  "status": "deprecated",
+  "status": "active",
   "description": "Cartoon shot-direction contract with doorway/spatial continuity support. Extends 1.8.0 by allowing hallway scene plates, doorway-transition/reaction-closeup/over-shoulder/payoff-hold framing, doorway-cross ambient motion, and the broader local scene catalog used by cartoon_visual_planner@12.",
   "produced_by": [
     "cartoon_visual_planner"
