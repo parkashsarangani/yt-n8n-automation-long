@@ -308,7 +308,7 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                     : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
-                    ? { ...character, x: -20, y: 520, scale: baseScale * 2.05, gazeTarget: "right" }
+                    ? { ...character, x: -80, y: 455, scale: baseScale * 1.78, gazeTarget: "right" }
                     : { ...character, x: index < activeIndex ? -700 : 1850, y: 390, scale: baseScale * 0.66, dimmed: true };
             case "over-shoulder":
                 return active
@@ -346,9 +346,9 @@ function HandHeldPropOverlay({
     const hand = actorRigPoint(holder, side, true);
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const insert = recipe === "prop-insert";
-    const propX = hand.x - (insert ? 120 : 54);
-    const propY = hand.y - (insert ? 160 : 102);
-    const propScale = insert ? 2.75 : 0.64;
+    const propX = insert ? 870 : hand.x - 54;
+    const propY = insert ? 245 : hand.y - 102;
+    const propScale = insert ? 1.90 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
@@ -590,8 +590,9 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const crossingProgress = interpolate(frame, [0, endFrame], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: cameraEasing });
+    const crossingDepth = Math.sin(crossingProgress * Math.PI);
     const crossingLeadTransform = recipe === "crossing-transition"
-        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin(frame / 5.8)) * -8).toFixed(2)}px)`
+        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(-58 * crossingDepth + Math.abs(Math.sin(frame / 5.8)) * -7).toFixed(2)}px) scale(${(1 - crossingDepth * 0.08).toFixed(3)})`
         : undefined;
 
     return (
@@ -607,7 +608,7 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                                 const crossingTransform = recipe === "crossing-transition"
                                     ? key === actingActorKey
                                         ? crossingLeadTransform
-                                        : `translateX(${(180 - crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin((frame + 9) / 5.8)) * -7).toFixed(2)}px)`
+                                        : `translateX(${(180 - crossingProgress * 540).toFixed(2)}px) translateY(${(42 * crossingDepth + Math.abs(Math.sin((frame + 9) / 5.8)) * -6).toFixed(2)}px) scale(${(1 + crossingDepth * 0.08).toFixed(3)})`
                                     : undefined;
                                 const actorTransform = crossingTransform ?? (key === actingActorKey ? actingStage : undefined);
                                 return (
