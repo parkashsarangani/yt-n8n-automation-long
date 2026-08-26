@@ -1,7 +1,7 @@
 {
   "schema_id": "visual_plan",
   "version": "2.0.0",
-  "status": "active",
+  "status": "draft",
   "description": "Explanation-first motion plan. Characters are limited identity/reaction anchors; diagrams, state changes, comparisons, kinetic emphasis, and recaps own the frame.",
   "produced_by": [
     "cartoon_visual_planner"
