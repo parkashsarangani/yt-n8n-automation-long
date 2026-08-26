@@ -108,7 +108,7 @@
     },
     {
       "id": "visual_plan",
-      "transformation": "cartoon_visual_planner",
+      "transformation": "explanation_visual_planner",
       "in": [
         "approve_script",
         "cast_roster"
