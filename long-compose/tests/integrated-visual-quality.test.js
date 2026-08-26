@@ -52,6 +52,12 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   assert.match(scene, /const propScale = insert \? 2\.35 : 0\.64/);
 });
 
+test("crossing recipes exchange actor positions instead of sliding the cast apart", () => {
+  assert.match(scene, /const crossingProgress = interpolate/);
+  assert.match(scene, /-180 \+ crossingProgress \* 540/);
+  assert.match(scene, /180 - crossingProgress \* 540/);
+});
+
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
   // Reaction: waist-up isolation, keeping the full face readable while the lower rig exits frame.
   assert.match(scene, /x: 690, y: 500, scale: baseScale \* 1\.48/);
