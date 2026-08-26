@@ -40,8 +40,8 @@ test("performance cues override generic recipe acting and prop inserts dominate 
   assert.match(scene, /event\?\.performanceCue\?\.type/);
   assert.match(scene, /cue === "side-eye" \|\| cue === "deadpan"/);
   assert.match(scene, /cue === "point-at-prop"/);
-  assert.match(scene, /x: 230, y: 170, scale: baseScale \* 1\.85/);
-  assert.match(scene, /const propScale = insert \? 2\.15 : 0\.64/);
+  assert.match(scene, /x: 250, y: 285, scale: baseScale \\* 1\\.62/);
+  assert.match(scene, /const propScale = insert \\? 2\\.35 : 0\\.64/);
 });
 
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
