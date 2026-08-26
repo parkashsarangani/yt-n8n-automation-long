@@ -1,26 +1,157 @@
 {
   "graph_id": "skeleton",
-  "version": "13",
+  "version": "14",
   "description": "Default unattended production graph for the cartoon-only channel. Loads the stable recurring cast from CARTOON_CAST_PATH, writes dialogue for that cast, creates structured creative direction for character voice, callback, blocking, metaphor, and foreground-prop intent, stages every line as SVG-puppet cartoon animation, generates matching cartoon thumbnail artwork, runs deterministic QA, and uploads privately for operator review.",
   "nodes": [
-    { "id": "intent", "type": "input", "schema_id": "intent" },
-    { "id": "performance", "type": "input", "schema_id": "performance_window" },
-    { "id": "cast_roster", "transformation": "cast_loader", "in": [] },
-    { "id": "insights", "transformation": "channel_strategist", "in": ["performance"] },
-    { "id": "story", "transformation": "story_architect", "in": ["intent", "insights"] },
-    { "id": "approve_story", "type": "human_gate", "in": ["story"], "policy": { "auto_pass_if": "always" } },
-    { "id": "script", "transformation": "dialogue_script_writer", "in": ["approve_story", "cast_roster"] },
-    { "id": "approve_script", "type": "human_gate", "in": ["script"], "policy": { "auto_pass_if": "always" } },
-    { "id": "creative_direction", "transformation": "cartoon_creative_director", "in": ["approve_script", "cast_roster"] },
-    { "id": "visual_plan", "transformation": "cartoon_visual_planner", "in": ["approve_script", "cast_roster", "creative_direction"] },
-    { "id": "assets", "transformation": "cartoon_scene_compiler", "in": ["visual_plan", "script", "cast_roster", "creative_direction"] },
-    { "id": "voice", "transformation": "dialogue_voice", "in": ["approve_script", "cast_roster"] },
-    { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
-    { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
-    { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "cartoon_render", "in": ["script", "voice", "assets", "cast_roster"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
-    { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
-    { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
+    {
+      "id": "intent",
+      "type": "input",
+      "schema_id": "intent"
+    },
+    {
+      "id": "performance",
+      "type": "input",
+      "schema_id": "performance_window"
+    },
+    {
+      "id": "cast_roster",
+      "transformation": "cast_loader",
+      "in": []
+    },
+    {
+      "id": "insights",
+      "transformation": "channel_strategist",
+      "in": [
+        "performance"
+      ]
+    },
+    {
+      "id": "story",
+      "transformation": "story_architect",
+      "in": [
+        "intent",
+        "insights"
+      ]
+    },
+    {
+      "id": "approve_story",
+      "type": "human_gate",
+      "in": [
+        "story"
+      ],
+      "policy": {
+        "auto_pass_if": "always"
+      }
+    },
+    {
+      "id": "script",
+      "transformation": "dialogue_script_writer",
+      "in": [
+        "approve_story",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "approve_script",
+      "type": "human_gate",
+      "in": [
+        "script"
+      ],
+      "policy": {
+        "auto_pass_if": "always"
+      }
+    },
+    {
+      "id": "visual_plan",
+      "transformation": "cartoon_visual_planner",
+      "in": [
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "assets",
+      "transformation": "cartoon_scene_compiler",
+      "in": [
+        "visual_plan",
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "voice",
+      "transformation": "dialogue_voice",
+      "in": [
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "seo",
+      "transformation": "seo_optimizer",
+      "in": [
+        "approve_story",
+        "approve_script"
+      ]
+    },
+    {
+      "id": "thumbnail_brief",
+      "transformation": "cartoon_thumbnail_designer",
+      "in": [
+        "approve_story",
+        "approve_script",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "thumbnail",
+      "transformation": "thumbnail",
+      "in": [
+        "thumbnail_brief"
+      ]
+    },
+    {
+      "id": "render",
+      "transformation": "cartoon_render",
+      "in": [
+        "script",
+        "voice",
+        "assets",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "qa",
+      "transformation": "qa",
+      "in": [
+        "intent",
+        "approve_script",
+        "assets",
+        "voice",
+        "render",
+        "thumbnail",
+        "seo"
+      ]
+    },
+    {
+      "id": "approve_publish",
+      "type": "human_gate",
+      "in": [
+        "qa"
+      ],
+      "policy": {
+        "auto_pass_if": "payload.verdict == \"pass\""
+      }
+    },
+    {
+      "id": "publish",
+      "transformation": "publish",
+      "in": [
+        "render",
+        "seo",
+        "thumbnail",
+        "approve_publish"
+      ]
+    }
   ]
 }
