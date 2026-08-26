@@ -36,12 +36,20 @@ test("acting presets drive actor-local facial performance as well as stage motio
   assert.match(scene, /physicalHold \? character\.gesture : gesture/);
 });
 
+test("performance cues override generic recipe acting and prop inserts dominate the frame", () => {
+  assert.match(scene, /event\?\.performanceCue\?\.type/);
+  assert.match(scene, /cue === "side-eye" \|\| cue === "deadpan"/);
+  assert.match(scene, /cue === "point-at-prop"/);
+  assert.match(scene, /x: 230, y: 170, scale: baseScale \* 1\.85/);
+  assert.match(scene, /const propScale = insert \? 2\.15 : 0\.64/);
+});
+
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
   assert.match(scene, /withCinematicRecipeBlocking/);
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
     assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
   }
-  assert.match(scene, /const propScale = insert \? 1\.35 : 0\.64/);
+  assert.match(scene, /const propScale = insert \\? 2\\.15 : 0\\.64/);
 });
 
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
