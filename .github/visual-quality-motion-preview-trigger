@@ -1,4 +1,4 @@
-iteration=6
-source=shot-language-final-chain
-requested=2026-08-26T07:15:00+00:00
-notes=verify tight prop insert, true crossing, and attached carried prop
+iteration=7
+source=shot-language-runtime-fix
+requested=2026-08-26T07:21:00+00:00
+notes=verify tight prop insert and true actor crossing after TDZ fix
