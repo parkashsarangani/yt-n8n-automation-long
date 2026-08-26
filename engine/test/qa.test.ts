@@ -67,7 +67,10 @@ const HEALTHY = {
       character_chemistry: 0.95,
       escalation: 0.95,
       payoff: 0.96,
-      non_template_feel: 0.94
+      non_template_feel: 0.94,
+      emotional_momentum: 0.95,
+      entertainment_value: 0.96,
+      surprise_freshness: 0.94
     },
     weakest_dimension: "non_template_feel",
     dropoff_risks: [],
