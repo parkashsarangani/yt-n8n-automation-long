@@ -45,9 +45,13 @@ function CharacterRail({ characters = [], mode = "none" }: Pick<ExplanationScene
   return (
     <div style={{ position: "absolute", right: 42, bottom: 24, width: mode === "both" ? 570 : 310, height: 420, overflow: "hidden", zIndex: 8 }}>
       {selected.map((character, index) => (
-        <div key={character.characterId || index} style={{ position: "absolute", left: index * 245, bottom: -250, transform: "scale(.74)", transformOrigin: "bottom left" }}>
-          <Character {...character} x={0} y={0} scale={1} />
-        </div>
+        <Character
+          key={character.characterId || index}
+          {...character}
+          x={index * 245}
+          y={8}
+          scale={0.58}
+        />
       ))}
     </div>
   );
