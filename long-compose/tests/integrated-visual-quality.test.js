@@ -41,7 +41,7 @@ test("performance cues override generic recipe acting and prop inserts dominate 
   assert.match(scene, /cue === "side-eye" \|\| cue === "deadpan"/);
   assert.match(scene, /cue === "point-at-prop"/);
   assert.match(scene, /x: -80, y: 455, scale: baseScale \* 1\.78/);
-  assert.match(scene, /const propScale = insert \? 1\.90 : 0\.64/);
+  assert.match(scene, /const propScale = insert \? 1\.65 : 0\.64/);
 });
 
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
@@ -49,7 +49,7 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
     assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
   }
-  assert.match(scene, /const propScale = insert \? 1\.90 : 0\.64/);
+  assert.match(scene, /const propScale = insert \? 1\.65 : 0\.64/);
 });
 
 test("crossing recipes exchange actor positions instead of sliding the cast apart", () => {
@@ -71,8 +71,8 @@ test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", (
 });
 
 test("prop inserts isolate the physical object away from the actor face", () => {
-  assert.match(scene, /const propX = insert \? 870 : hand\.x - 54/);
-  assert.match(scene, /const propY = insert \? 245 : hand\.y - 102/);
+  assert.match(scene, /const propX = insert \? 760 : hand\.x - 54/);
+  assert.match(scene, /const propY = insert \? 270 : hand\.y - 102/);
   assert.doesNotMatch(scene, /x=\{insert \? 1030/);
   assert.doesNotMatch(scene, /y=\{insert \? 250/);
 });
