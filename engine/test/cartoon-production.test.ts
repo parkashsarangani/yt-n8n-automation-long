@@ -55,10 +55,10 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "13");
+  assert.equal(graph.version, "14");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
-  assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "cartoon_visual_planner");
+  assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "explanation_visual_planner");
   assert.equal((byId.get("voice") as { transformation?: string })?.transformation, "dialogue_voice");
   assert.equal((byId.get("thumbnail_brief") as { transformation?: string })?.transformation, "cartoon_thumbnail_designer");
   assert.equal((byId.get("render") as { transformation?: string })?.transformation, "cartoon_render");
@@ -302,7 +302,15 @@ test("the shipped production graph runs unattended end to end with fake provider
   const VISUAL_PLAN = {
     scenes: [0, 1, 2].map((i) => ({
       scene_index: i,
-      template_category: "cartoon",
+      template_category: "explanation",
+      scene_role: i === 0 ? "character-hook" : i === 1 ? "object-state-change" : "recap",
+      explanation_title: i === 0 ? "The mystery" : i === 1 ? "The choice" : "The answer",
+      model_elements: i === 0 ? ["humming locker", "Host notices"] : ["closed locker", "open locker"],
+      state_before: i === 1 ? "closed and humming" : "",
+      state_after: i === 1 ? "open and louder" : "",
+      key_text: i === 2 ? "It was waiting" : "",
+      character_cut_in: i === 0 ? "both" : "none",
+      sound_cue: i === 1 ? "soft-hit" : "none",
       background_location: "school-hallway",
       background_variant: "normal",
       background_tone: "neutral",
@@ -400,7 +408,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
       [],
     );
-    for (const nodeId of ["story", "script", "creative_direction", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
+    for (const nodeId of ["story", "script", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
       assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
     }
     assert.notEqual(result.status, "blocked");

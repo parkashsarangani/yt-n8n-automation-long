@@ -49,7 +49,7 @@ interface Check {
 interface Intent { target_duration_sec?: number }
 interface Script { scenes?: Array<{ scene_index: number }>; word_count?: number }
 interface ScriptQualityReport { scores?: Record<string, number>; summary?: string }
-interface Assets { scenes?: Array<{ source?: string }>; degraded_count?: number }
+interface Assets { scenes?: Array<{ source?: string; template_category?: string; template_data?: string }>; degraded_count?: number }
 interface Voice { clips?: Array<{ duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
 interface Thumb { background?: string; text?: string }
@@ -67,7 +67,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: opts.name ?? "qa",
     kind: "worker",
-    version: opts.version ?? (enforceDialogueQuality ? "2" : "1"),
+    version: opts.version ?? (enforceDialogueQuality ? "3" : "1"),
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -135,6 +135,39 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
             measured: evidenceCheck.passed ? 1 : 0,
             threshold: 1,
           });
+        }
+      }
+
+      // --- explanation format owns the frame -----------------------------
+      if (enforceDialogueQuality) {
+        const explanationScenes = (assets.scenes ?? []).filter((scene) => scene.template_category === "explanation");
+        if (explanationScenes.length > 0) {
+        const decoded = explanationScenes.map((scene) => {
+          try { return scene.template_data ? JSON.parse(scene.template_data) as Record<string, unknown> : {}; }
+          catch { return {}; }
+        });
+        const performance = decoded.map((scene) =>
+          scene.rendererPerformance && typeof scene.rendererPerformance === "object"
+            ? scene.rendererPerformance as Record<string, unknown>
+            : {}
+        );
+        const modelScenes = performance.filter((item) => item.explanatoryModelVisible === true).length;
+        const characterScenes = performance.filter((item) => item.characterCutIn !== "none").length;
+        const changedScenes = performance.filter((item) => item.meaningfulStateChange === true).length;
+        const denominator = Math.max(1, explanationScenes.length);
+        const modelRatio = modelScenes / denominator;
+        const characterRatio = characterScenes / denominator;
+        const changeRatio = changedScenes / denominator;
+
+        checks.push(modelRatio >= 0.6
+          ? { id: "explanation_model_coverage", status: "pass", message: `${pct(modelRatio)} of scenes visibly teach the model`, measured: modelRatio, threshold: 0.6 }
+          : { id: "explanation_model_coverage", status: "fail", message: `only ${pct(modelRatio)} of scenes visibly teach the model`, measured: modelRatio, threshold: 0.6 });
+        checks.push(characterRatio <= 0.35
+          ? { id: "character_cut_in_restraint", status: "pass", message: `characters are visual cut-ins in ${pct(characterRatio)} of scenes`, measured: characterRatio, threshold: 0.35 }
+          : { id: "character_cut_in_restraint", status: "fail", message: `characters occupy ${pct(characterRatio)} of scenes; maximum is 35%`, measured: characterRatio, threshold: 0.35 });
+        checks.push(changeRatio >= 0.45
+          ? { id: "meaningful_state_change", status: "pass", message: `${pct(changeRatio)} of scenes show a causal/state change`, measured: changeRatio, threshold: 0.45 }
+          : { id: "meaningful_state_change", status: "fail", message: `only ${pct(changeRatio)} of scenes show a causal/state change`, measured: changeRatio, threshold: 0.45 });
         }
       }
 

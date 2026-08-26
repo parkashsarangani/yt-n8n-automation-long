@@ -1,7 +1,7 @@
 {
   "graph_id": "cartoon",
-  "version": "7",
-  "description": "Two-character comprehension pipeline with dedicated retention and emotional-entertainment editing, adversarial criticism, targeted revision, observable dialogue evidence, and deterministic release thresholds before voice or rendering cost.",
+  "version": "8",
+  "description": "Lean explanation-first dialogue pipeline: one strong draft, one retention/entertainment edit, one evidence-based critique/revision loop, deterministic motion-plan compilation, and output-grounded QA.",
   "nodes": [
     {
       "id": "intent",
@@ -52,29 +52,11 @@
       ]
     },
     {
-      "id": "comprehension_edit",
-      "transformation": "comprehension_editor",
-      "in": [
-        "approve_story",
-        "draft_script",
-        "cast_roster"
-      ]
-    },
-    {
-      "id": "retention_edit",
-      "transformation": "retention_character_editor",
-      "in": [
-        "approve_story",
-        "comprehension_edit",
-        "cast_roster"
-      ]
-    },
-    {
       "id": "entertainment_edit",
       "transformation": "emotional_entertainment_editor",
       "in": [
         "approve_story",
-        "retention_edit",
+        "draft_script",
         "cast_roster"
       ]
     },
@@ -125,20 +107,11 @@
       }
     },
     {
-      "id": "creative_direction",
-      "transformation": "cartoon_creative_director",
+      "id": "visual_plan",
+      "transformation": "explanation_visual_planner",
       "in": [
         "approve_script",
         "cast_roster"
-      ]
-    },
-    {
-      "id": "visual_plan",
-      "transformation": "cartoon_visual_planner",
-      "in": [
-        "approve_script",
-        "cast_roster",
-        "creative_direction"
       ]
     },
     {
@@ -147,8 +120,7 @@
       "in": [
         "visual_plan",
         "approve_script",
-        "cast_roster",
-        "creative_direction"
+        "cast_roster"
       ]
     },
     {

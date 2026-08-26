@@ -10,6 +10,7 @@ import type { TransformationDef, WorkerDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeCartoonSceneCompilerWorker as makeV15CartoonSceneCompilerWorker } from "./cartoon-scenes-v15.ts";
+import { makeCartoonSceneCompilerWorker as makeV16CartoonSceneCompilerWorker } from "./cartoon-scenes-v16.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -35,7 +36,7 @@ export { buildPrompt } from "./assets.ts";
 
 /**
  * Compatibility factory for focused unit tests that exercise the compiler
- * outside the production graph. The shipped graph still routes the final v15
+ * outside the production graph. The shipped graph still routes the explanation-first v16
  * worker, including creative_direction as a first-class dependency, taste
  * gates as hard production checks, renderer-facing performance signals, and
  * post-v13 doorway staging corrections.
@@ -66,7 +67,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
-    makeV15CartoonSceneCompilerWorker(),
+    makeV16CartoonSceneCompilerWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
