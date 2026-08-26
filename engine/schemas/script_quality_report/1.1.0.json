@@ -1,0 +1,168 @@
+{
+  "schema_id": "script_quality_report",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "Independent assessment of comprehension-led dialogue, including emotional momentum, entertainment value, and earned surprise. Deterministic workers apply release thresholds.",
+  "produced_by": [
+    "script_quality_critic"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ScriptQualityReport",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "verdict",
+      "scores",
+      "weakest_dimension",
+      "dropoff_risks",
+      "revision_priorities",
+      "summary"
+    ],
+    "properties": {
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "pass",
+          "revise"
+        ]
+      },
+      "scores": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "factual_fidelity",
+          "comprehension",
+          "hook_curiosity",
+          "dialogue_naturalness",
+          "character_chemistry",
+          "escalation",
+          "payoff",
+          "non_template_feel",
+          "emotional_momentum",
+          "entertainment_value",
+          "surprise_freshness"
+        ],
+        "properties": {
+          "factual_fidelity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "comprehension": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "hook_curiosity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "dialogue_naturalness": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "character_chemistry": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "escalation": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "payoff": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "non_template_feel": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "emotional_momentum": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "entertainment_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "surprise_freshness": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "weakest_dimension": {
+        "type": "string",
+        "enum": [
+          "factual_fidelity",
+          "comprehension",
+          "hook_curiosity",
+          "dialogue_naturalness",
+          "character_chemistry",
+          "escalation",
+          "payoff",
+          "non_template_feel",
+          "emotional_momentum",
+          "entertainment_value",
+          "surprise_freshness"
+        ]
+      },
+      "dropoff_risks": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "severity",
+            "reason"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 400
+            }
+          }
+        }
+      },
+      "revision_priorities": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 400
+        }
+      },
+      "summary": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 1200
+      }
+    }
+  }
+}
