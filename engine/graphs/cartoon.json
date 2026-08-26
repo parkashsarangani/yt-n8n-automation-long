@@ -190,6 +190,7 @@
       "in": [
         "intent",
         "approve_script",
+        "quality_final",
         "assets",
         "voice",
         "render",

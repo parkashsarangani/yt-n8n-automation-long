@@ -50,6 +50,23 @@ const HEALTHY = {
     })),
     word_count: 1500, // exactly 600s at 150wpm
   },
+  quality: {
+    verdict: "pass",
+    scores: {
+      factual_fidelity: 0.98,
+      comprehension: 0.96,
+      hook_curiosity: 0.96,
+      dialogue_naturalness: 0.95,
+      character_chemistry: 0.95,
+      escalation: 0.95,
+      payoff: 0.96,
+      non_template_feel: 0.94
+    },
+    weakest_dimension: "non_template_feel",
+    dropoff_risks: [],
+    revision_priorities: [],
+    summary: "The script clears the comprehension-led dialogue retention bar."
+  },
   assets: {
     scenes: Array.from({ length: 10 }, (_, i) => ({
       scene_index: i,
@@ -125,6 +142,7 @@ async function runQa(spoil: Spoil = {}, opts = {}) {
   const ids = [
     await put("intent", merged("intent"), "human"),
     await put("script", merged("script"), "script_writer"),
+    await put("script_quality_report", merged("quality"), "script_quality_critic"),
     await put("asset_manifest", merged("assets"), "asset_collector"),
     await put("voice", merged("voice"), "voice"),
     await put("rendered_video", merged("render"), "render"),
@@ -154,16 +172,16 @@ test("one placeholder scene warns but still ships", async () => {
   // away a finished ten-minute render over.
   const { payload } = await runQa({ assets: { degraded_count: 1 } });
 
-  assert.equal(check(payload, "images_resolved").status, "warn");
+  assert.equal(check(payload, "visual_assets_renderable").status, "warn");
   assert.equal(payload.verdict, "pass");
 });
 
 test("a video that is mostly placeholders fails", async () => {
   const { payload } = await runQa({ assets: { degraded_count: 8 } });
 
-  const c = check(payload, "images_resolved");
+  const c = check(payload, "visual_assets_renderable");
   assert.equal(c.status, "fail");
-  assert.match(c.message, /the stock lookup is failing/);
+  assert.match(c.message, /visual asset pipeline is failing/);
   assert.equal(payload.verdict, "fail");
 });
 
@@ -176,7 +194,7 @@ test("the placeholder threshold is a ratio, not a count", async () => {
     render: { scene_count: 4, duration_sec: 600 },
   };
   const { payload } = await runQa(short);
-  assert.equal(check(payload, "images_resolved").status, "fail");
+  assert.equal(check(payload, "visual_assets_renderable").status, "fail");
 });
 
 // -- narration and scenes ----------------------------------------------
@@ -308,4 +326,26 @@ test("every check explains itself well enough to act on at 7am", async () => {
     // A failure must name the numbers, not just assert that something is wrong.
     if (c.status === "fail") assert.match(c.message, /\d/, `${c.id} failure cites no figures`);
   }
+});
+
+test("final QA blocks a script that misses the dialogue-led product goal", async () => {
+  const { payload } = await runQa({
+    quality: {
+      scores: {
+        ...HEALTHY.quality.scores,
+        character_chemistry: 0.89,
+      },
+    },
+  });
+
+  const c = check(payload, "script_character_chemistry");
+  assert.equal(c.status, "fail");
+  assert.equal(c.measured, 0.89);
+  assert.equal(payload.verdict, "fail");
+});
+
+test("visual aesthetics are not represented as blocking quality scores", async () => {
+  const { payload } = await runQa({ thumbnail: { background: "gradient" } });
+  assert.equal(check(payload, "thumbnail_image").status, "warn");
+  assert.equal(payload.checks.some((c) => /cinematic|camera variety|environment variety/i.test(c.id)), false);
 });

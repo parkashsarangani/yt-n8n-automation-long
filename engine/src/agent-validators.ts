@@ -366,7 +366,7 @@ function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Arti
     if (continuityFailure) failures.push(continuityFailure);
   }
 
-  return failures.length === 0 ? [] : [`cartoon_visual_planner cinematic quality gate failed: ${failures.join("; ")}. Revise before scene compilation.`];
+  return failures.length === 0 ? [] : [`cartoon_visual_planner explanation-action gate failed: ${failures.join("; ")}. Revise only the physical demonstration or required spatial continuity before scene compilation.`];
 }
 
 export function agentSemanticValidationErrors(
