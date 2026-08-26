@@ -346,9 +346,9 @@ function HandHeldPropOverlay({
     const hand = actorRigPoint(holder, side, true);
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const insert = recipe === "prop-insert";
-    const propX = insert ? 870 : hand.x - 54;
-    const propY = insert ? 245 : hand.y - 102;
-    const propScale = insert ? 1.90 : 0.64;
+    const propX = insert ? 760 : hand.x - 54;
+    const propY = insert ? 270 : hand.y - 102;
+    const propScale = insert ? 1.65 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
