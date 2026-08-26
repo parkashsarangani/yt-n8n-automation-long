@@ -22,7 +22,7 @@ test("acting presets and carried props materially affect rendered pixels", () =>
   assert.match(scene, /data-physical-interaction="actor-anchored-prop"/);
   assert.match(scene, /actorRigPoint/);
   assert.match(scene, /withPhysicalInteraction/);
-  assert.match(direction, /travel \* 480/);
+  assert.match(direction, /travel \* 540/);
   assert.match(scene, /data-acting-actor/);
   assert.match(scene, /data-held-prop-follows-actor=\"true\"/);
 });
@@ -40,8 +40,8 @@ test("performance cues override generic recipe acting and prop inserts dominate 
   assert.match(scene, /event\?\.performanceCue\?\.type/);
   assert.match(scene, /cue === "side-eye" \|\| cue === "deadpan"/);
   assert.match(scene, /cue === "point-at-prop"/);
-  assert.match(scene, /x: -20, y: 520, scale: baseScale \\* 2\\.05/);
-  assert.match(scene, /const propScale = insert \\? 2\\.75 : 0\\.64/);
+  assert.match(scene, /x: -80, y: 455, scale: baseScale \* 1\.78/);
+  assert.match(scene, /const propScale = insert \? 1\.90 : 0\.64/);
 });
 
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
@@ -49,13 +49,16 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
     assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
   }
-  assert.match(scene, /const propScale = insert \\? 2\\.75 : 0\\.64/);
+  assert.match(scene, /const propScale = insert \? 1\.90 : 0\.64/);
 });
 
 test("crossing recipes exchange actor positions instead of sliding the cast apart", () => {
   assert.match(scene, /const crossingProgress = interpolate/);
   assert.match(scene, /-180 \+ crossingProgress \* 540/);
   assert.match(scene, /180 - crossingProgress \* 540/);
+  assert.match(scene, /const crossingDepth = Math\.sin\(crossingProgress \* Math\.PI\)/);
+  assert.match(scene, /-58 \* crossingDepth/);
+  assert.match(scene, /42 \* crossingDepth/);
 });
 
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
@@ -67,9 +70,9 @@ test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", (
   assert.match(scene, /-440 : 1500, y: 450, scale: baseScale \* 1\.55/);
 });
 
-test("prop inserts remain physically palm-anchored instead of floating at fixed screen coordinates", () => {
-  assert.match(scene, /const propX = hand\\.x - \\(insert \\? 120 : 54\\)/);
-  assert.match(scene, /const propY = hand\\.y - \\(insert \\? 160 : 102\\)/);
+test("prop inserts isolate the physical object away from the actor face", () => {
+  assert.match(scene, /const propX = insert \? 870 : hand\.x - 54/);
+  assert.match(scene, /const propY = insert \? 245 : hand\.y - 102/);
   assert.doesNotMatch(scene, /x=\{insert \? 1030/);
   assert.doesNotMatch(scene, /y=\{insert \? 250/);
 });
