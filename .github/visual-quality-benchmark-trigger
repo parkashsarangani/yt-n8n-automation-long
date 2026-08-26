@@ -1,4 +1,4 @@
-iteration=7
-source=integrated-visual-quality-overhaul
-requested=2026-08-25T15:40:00+00:00
-notes=fast render of scenes 5/17/25 at concurrency 1 after fixing hidden scene dressing; publishes run id/status through curl-based commit status for direct artifact and log inspection
+iteration=8
+source=mandatory-full-episode-benchmark
+requested=2026-08-26T07:35:00+00:00
+notes=render complete persisted run run_385203f1 from PR branch with no scene index filter; inspect MP4 before merge
