@@ -223,6 +223,7 @@ export class Runner {
           started_at: startedAt,
           startedMs,
           error: String(err),
+          retry_reason: "provider",
         });
         if (refusal || attempt === maxAttempts) throw err;
         continue;
@@ -261,6 +262,7 @@ export class Runner {
           started_at: startedAt,
           startedMs,
           error: err.errors.join("; "),
+          retry_reason: "schema",
         });
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} failed validation: ${err.errors.join("; ")}`,
@@ -296,6 +298,7 @@ export class Runner {
           started_at: startedAt,
           startedMs,
           error: semanticErrors.join("; "),
+          retry_reason: classifyRetryReason(semanticErrors),
           // Semantic gate rejections only ever recorded the error message,
           // never the payload that triggered it -- undiagnosable after the
           // fact without re-running (real cost) or guessing. The schema
@@ -355,6 +358,7 @@ export class Runner {
         started_at: startedAt,
         startedMs,
         error: semanticErrors.length > 0 ? semanticErrors.join("; ") : null,
+        retry_reason: semanticErrors.length > 0 ? classifyRetryReason(semanticErrors) : null,
       });
 
       return { artifact, runId, attempts: attempt, deduped };
@@ -484,4 +488,13 @@ function renderRetryBlock(errors: string[]): string {
     `\n\nFix exactly these problems and return the corrected result. ` +
     `Do not change anything else, and do not explain the fix.\n`
   );
+}
+
+
+function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_contract" | "visual_explanation" | "other_semantic" {
+  const text = errors.join(" ").toLowerCase();
+  if (/natural dialogue|robotic|duplicate dialogue|short lines|human moment|definition\/explainer/.test(text)) return "natural_dialogue";
+  if (/contract violated|payoff|resolution|midpoint|engagement beat|function order|teach-back/.test(text)) return "story_contract";
+  if (/visual|prop|doorway|crossing|foreground_action|physical demonstration/.test(text)) return "visual_explanation";
+  return "other_semantic";
 }
