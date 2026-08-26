@@ -252,8 +252,10 @@ function propHolder(characters: CharacterProps[]): CharacterProps | undefined {
 
 function actorRigPoint(character: CharacterProps, side: "left" | "right", raised: boolean): { x: number; y: number } {
     const scale = Number.isFinite(character.scale) ? character.scale! : 1;
-    const rigX = side === "right" ? (raised ? 382 : 349) : (raised ? 118 : 151);
-    const rigY = raised ? 222 : 535;
+    // Anchor to the authored present/point palm. PropAsset applies no legacy
+    // second offset, so hand and object remain in one coordinate system.
+    const rigX = side === "right" ? (raised ? 420 : 349) : (raised ? 70 : 151);
+    const rigY = raised ? (side === "right" ? 362 : 354) : 535;
     return {
         x: character.x + 250 + (rigX - 250) * scale,
         y: character.y + 700 + (rigY - 700) * scale,
