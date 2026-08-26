@@ -1,4 +1,4 @@
-iteration=19
-source=limb-performance-and-insert-reframe
-requested=2026-08-26T07:02:00+00:00
-notes=verify uncropped prop insert and actor-local limb motion
+iteration=20
+source=shot-language-insert-crossing
+requested=2026-08-26T07:08:00+00:00
+notes=verify tight prop insert crop and true actor crossing
