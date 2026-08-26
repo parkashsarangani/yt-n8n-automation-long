@@ -191,11 +191,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
+export function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
   const prop = foregroundPropKind(scene);
   const action = sceneText(scene);
   if (setPieceKindFromProp(prop)) return "background-set-piece";
+
+  // Explicit physical actions and surfaces outrank prop-type defaults. A charger
+  // "visible on the sofa cushion" is not hand-held merely because chargers can
+  // be carried; turning it into a held prop changes the story in rendered pixels.
   if (/\b(?:hold|holds|holding|grab|grabs|picked|picks|clutch|shows|hands?)\b/.test(action)) return "hand-held";
+  if (/\b(?:wall|mounted|hangs?|calendar|clock face|window frame)\b/.test(action)) return "wall-mounted";
+  if (/\b(?:floor|ground|dropped|shoes?|underfoot)\b/.test(action)) return "floor";
+  if (/\b(?:counter|worktop|kitchen island|checkout)\b/.test(action)) return "on-counter";
+  if (/\b(?:table|desk|sofa|couch|cushion|bed|shelf|nightstand|seat)\b/.test(action)) return "on-table";
+
   if (["clock", "calendar", "window", "door"].includes(prop)) return "wall-mounted";
   if (["shoes", "shoe", "vehicle", "car"].includes(prop)) return "floor";
   if (location === "kitchen" || location === "cafe" || location === "shop") return "on-counter";
