@@ -4,7 +4,7 @@
   "status": "active",
   "description": "Explanation-first motion plan. Characters are limited identity/reaction anchors; diagrams, state changes, comparisons, kinetic emphasis, and recaps own the frame.",
   "produced_by": [
-    "cartoon_visual_planner"
+    "explanation_visual_planner"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
