@@ -114,7 +114,9 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   return {
     ...v15,
     version: "17",
-    consumes: v15.consumes.filter((input) => input.as !== "creative_direction"),
+    consumes: v15.consumes
+      .filter((input) => input.as !== "creative_direction")
+      .map((input) => input.as === "plan" ? { ...input, range: "^2" } : input),
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const out = await v15.execute(inputs, ctx);
       const plans = planScenes(inputs as Record<string, { payload?: unknown } | undefined>);
