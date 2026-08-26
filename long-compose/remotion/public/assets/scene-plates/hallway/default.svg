@@ -1,16 +1,77 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
-  <rect width="1920" height="1080" fill="#EEF2FF"/>
-  <rect y="720" width="1920" height="360" fill="#CBD5E1"/>
-  <path d="M640 120h640l190 820H450z" fill="#E0E7FF"/>
-  <path d="M760 180h400l90 630H670z" fill="#F8FAFC" opacity="0.85"/>
-  <rect x="170" y="155" width="320" height="610" rx="24" fill="#78350F"/>
-  <rect x="216" y="205" width="230" height="520" rx="16" fill="#92400E"/>
-  <circle cx="402" cy="470" r="18" fill="#FACC15"/>
-  <rect x="1430" y="155" width="320" height="610" rx="24" fill="#78350F"/>
-  <rect x="1476" y="205" width="230" height="520" rx="16" fill="#92400E"/>
-  <circle cx="1518" cy="470" r="18" fill="#FACC15"/>
-  <rect x="820" y="108" width="280" height="84" rx="36" fill="#FFFFFF" opacity="0.86"/>
-  <ellipse cx="960" cy="868" rx="430" ry="62" fill="#94A3B8" opacity="0.35"/>
-  <path d="M0 0h1920v1080H0z" fill="url(#v)" opacity="0.23"/>
-  <defs><radialGradient id="v" cx="50%" cy="45%" r="72%"><stop offset="52%" stop-color="#fff" stop-opacity="0"/><stop offset="100%" stop-color="#312E81" stop-opacity="0.32"/></radialGradient></defs>
+  <defs>
+    <linearGradient id="ceiling" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#DCE8F7"/>
+    </linearGradient>
+    <linearGradient id="leftWall" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#BAC9DD"/>
+      <stop offset="1" stop-color="#E9F1FB"/>
+    </linearGradient>
+    <linearGradient id="rightWall" x1="1" y1="0" x2="0" y2="0">
+      <stop stop-color="#B8C6DA"/>
+      <stop offset="1" stop-color="#EAF2FB"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#DCE5F0"/>
+      <stop offset="1" stop-color="#9CAFC4"/>
+    </linearGradient>
+    <linearGradient id="door" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#6B3D2A"/>
+      <stop offset="0.55" stop-color="#955637"/>
+      <stop offset="1" stop-color="#5A3024"/>
+    </linearGradient>
+    <radialGradient id="centerGlow" cx="50%" cy="43%" r="48%">
+      <stop stop-color="#FFFFFF" stop-opacity="0.88"/>
+      <stop offset="1" stop-color="#C7DCF3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="50%" cy="47%" r="76%">
+      <stop offset="58%" stop-color="#172033" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#172033" stop-opacity="0.24"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Architectural shell: the corridor converges on a real vanishing point. -->
+  <rect width="1920" height="1080" fill="url(#ceiling)"/>
+  <path d="M0 0H650L790 610L570 1080H0Z" fill="url(#leftWall)"/>
+  <path d="M1920 0H1270L1130 610L1350 1080H1920Z" fill="url(#rightWall)"/>
+  <path d="M650 0H1270L1130 610H790Z" fill="#EEF5FD"/>
+  <path d="M790 610H1130L1560 1080H360Z" fill="url(#floor)"/>
+  <path d="M790 610H1130L1235 724H685Z" fill="#EAF1F8" opacity="0.72"/>
+
+  <!-- Perspective floor seams and baseboards. -->
+  <path d="M960 610L610 1080 M960 610L820 1080 M960 610L1100 1080 M960 610L1310 1080" stroke="#71869D" stroke-width="5" opacity="0.28"/>
+  <path d="M700 706H1220 M620 810H1300 M520 938H1400" stroke="#71869D" stroke-width="4" opacity="0.20"/>
+  <path d="M0 760L790 610" stroke="#8296AC" stroke-width="18" opacity="0.35"/>
+  <path d="M1920 760L1130 610" stroke="#8296AC" stroke-width="18" opacity="0.35"/>
+
+  <!-- Distant end doorway: small enough to sell depth. -->
+  <rect x="842" y="235" width="236" height="375" rx="18" fill="#506A83" opacity="0.92"/>
+  <rect x="876" y="276" width="168" height="334" rx="12" fill="#A9D5EA"/>
+  <rect x="895" y="297" width="130" height="292" rx="8" fill="#DDF3FF" opacity="0.76"/>
+  <circle cx="1018" cy="452" r="10" fill="#F6C64E"/>
+
+  <!-- Secondary doors sit on the walls instead of facing the camera flat-on. -->
+  <path d="M250 205L505 252L535 726L215 790Z" fill="url(#door)"/>
+  <path d="M298 258L454 286L474 682L270 721Z" fill="#A56A4C" opacity="0.78"/>
+  <circle cx="430" cy="492" r="13" fill="#F4C84A"/>
+  <path d="M1670 205L1415 252L1385 726L1705 790Z" fill="url(#door)"/>
+  <path d="M1622 258L1466 286L1446 682L1650 721Z" fill="#A56A4C" opacity="0.78"/>
+  <circle cx="1490" cy="492" r="13" fill="#F4C84A"/>
+
+  <!-- Repeating wall details recede toward the centre. -->
+  <rect x="575" y="242" width="94" height="250" rx="18" fill="#FFFFFF" opacity="0.34"/>
+  <rect x="1251" y="242" width="94" height="250" rx="18" fill="#FFFFFF" opacity="0.34"/>
+  <rect x="716" y="275" width="56" height="185" rx="14" fill="#FFFFFF" opacity="0.28"/>
+  <rect x="1148" y="275" width="56" height="185" rx="14" fill="#FFFFFF" opacity="0.28"/>
+
+  <!-- Ceiling light rhythm and soft central illumination. -->
+  <rect x="785" y="78" width="350" height="58" rx="28" fill="#FFFFFF" opacity="0.90"/>
+  <rect x="845" y="188" width="230" height="38" rx="20" fill="#FFFFFF" opacity="0.74"/>
+  <rect x="895" y="300" width="130" height="26" rx="14" fill="#FFFFFF" opacity="0.60"/>
+  <ellipse cx="960" cy="565" rx="520" ry="390" fill="url(#centerGlow)" opacity="0.64"/>
+
+  <!-- Grounding shadow where performers occupy the corridor. -->
+  <ellipse cx="960" cy="890" rx="430" ry="68" fill="#52677F" opacity="0.18"/>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
 </svg>
