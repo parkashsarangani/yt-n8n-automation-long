@@ -1,7 +1,7 @@
 {
   "schema_id": "script_quality_report",
   "version": "1.0.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "Independent pre-production assessment of a dialogue script. A deterministic worker, not the critic, applies the release thresholds.",
   "produced_by": [
     "script_quality_critic"
