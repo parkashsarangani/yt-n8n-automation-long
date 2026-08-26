@@ -40,8 +40,8 @@ test("performance cues override generic recipe acting and prop inserts dominate 
   assert.match(scene, /event\?\.performanceCue\?\.type/);
   assert.match(scene, /cue === "side-eye" \|\| cue === "deadpan"/);
   assert.match(scene, /cue === "point-at-prop"/);
-  assert.match(scene, /x: 250, y: 285, scale: baseScale \\* 1\\.62/);
-  assert.match(scene, /const propScale = insert \\? 2\\.35 : 0\\.64/);
+  assert.match(scene, /x: 250, y: 285, scale: baseScale \* 1\.62/);
+  assert.match(scene, /const propScale = insert \? 2\.35 : 0\.64/);
 });
 
 test("cinematic recipes produce dedicated blocking instead of generic two-shots", () => {
@@ -49,7 +49,7 @@ test("cinematic recipes produce dedicated blocking instead of generic two-shots"
   for (const recipe of ["reaction-closeup", "prop-insert", "over-shoulder", "payoff-hold"]) {
     assert.match(scene, new RegExp(`case \\"${recipe}\\"`));
   }
-  assert.match(scene, /const propScale = insert \\? 2\\.15 : 0\\.64/);
+  assert.match(scene, /const propScale = insert \? 2\.35 : 0\.64/);
 });
 
 test("reaction and over-shoulder recipes preserve deliberate depth hierarchy", () => {
