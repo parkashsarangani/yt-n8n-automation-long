@@ -185,7 +185,7 @@ test("scheduled cast loader survives the real producer allowlist/store boundary"
   try {
     const out = await runner.run(makeCastLoaderWorker(), []);
     assert.equal(out.artifact.schema_id, "cast_roster");
-    assert.equal(out.artifact.schema_version, "1.1.0");
+    assert.equal(out.artifact.schema_version, "1.2.0");
     assert.deepEqual(out.artifact.payload, CAST);
     assert.equal(out.artifact.produced_by.transformation, "cast_loader");
   } finally {
