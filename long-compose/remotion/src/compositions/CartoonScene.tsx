@@ -8,6 +8,8 @@ import { composeCharactersForScene, foregroundMaskForScene } from "../lib/sceneC
 import {
     cinematicCameraStyle,
     cinematicCharacterLayerStyle,
+    cinematicActingStageTransform,
+    actingPresetFor,
     cinematicOverlayStyle,
     cinematicTransitionStyle,
     normalizedShotRecipe,
@@ -193,6 +195,178 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
     });
 }
 
+function withCinematicActingPerformance(
+    characters: CharacterProps[],
+    event: VisualEventSpec | undefined,
+    background: BackgroundSpec | undefined,
+    cinematic: CinematicSceneSpec | undefined,
+): CharacterProps[] {
+    if (!characters.length) return characters;
+    const cue = String(event?.performanceCue?.type ?? "").toLowerCase();
+    const preset = cue === "double-take" ? "double-take"
+        : cue === "side-eye" || cue === "deadpan" ? "deadpan-side-eye"
+        : cue === "small-defeat" ? "small-defeat"
+        : cue === "reluctant-acceptance" ? "reluctant-acceptance"
+        : cue === "notice" || cue === "point-at-prop" ? "notices-prop"
+        : actingPresetFor(cinematic);
+    const prop = event?.foregroundProp;
+    let activeIndex = characters.findIndex((character) => character.isSpeaking);
+    if (activeIndex < 0) activeIndex = 0;
+    const physicalHold = Boolean(
+        prop?.type && prop.type !== "none" && propPlacementFor(background, prop, cinematic) === "hand-held",
+    );
+
+    return characters.map((character, index) => {
+        if (index !== activeIndex) {
+            if (cue === "side-eye" || cue === "deadpan") {
+                return { ...character, emotion: "skeptical", gazeTarget: index < activeIndex ? "right" : "left" };
+            }
+            return character;
+        }
+        const gestureWhenFree = (gesture: CharacterProps["gesture"]): CharacterProps["gesture"] =>
+            physicalHold ? character.gesture : gesture;
+        switch (preset) {
+            case "double-take":
+                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "camera", gesture: gestureWhenFree("surprised") };
+            case "notices-prop":
+                return { ...character, emotion: cue === "point-at-prop" ? "concerned" : "surprised", expression: cue === "point-at-prop" ? "normal" : "surprised", gazeTarget: physicalHold ? "down" : "right", gesture: gestureWhenFree(cue === "point-at-prop" ? "point-right" : "explain") };
+            case "deadpan-side-eye":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "away", gesture: gestureWhenFree("idle") };
+            case "small-defeat":
+                return { ...character, emotion: "sad", expression: "normal", gazeTarget: "down", gesture: gestureWhenFree("facepalm") };
+            case "reluctant-acceptance":
+                return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "down", gesture: gestureWhenFree("shrug") };
+            case "payoff-freeze":
+                return { ...character, emotion: "happy", expression: "normal", gazeTarget: "camera", gesture: gestureWhenFree("hands-open") };
+            case "walk-cross":
+            case "neutral-hold":
+            default:
+                return character;
+        }
+    });
+}
+
+function propHolder(characters: CharacterProps[]): CharacterProps | undefined {
+    return characters.find((character) => character.isSpeaking) ?? characters[0];
+}
+
+function actorRigPoint(character: CharacterProps, side: "left" | "right", raised: boolean): { x: number; y: number } {
+    const scale = Number.isFinite(character.scale) ? character.scale! : 1;
+    const rigX = side === "right" ? (raised ? 382 : 349) : (raised ? 118 : 151);
+    const rigY = raised ? 222 : 535;
+    return {
+        x: character.x + 250 + (rigX - 250) * scale,
+        y: character.y + 700 + (rigY - 700) * scale,
+    };
+}
+
+function handHeldSide(character: CharacterProps): "left" | "right" {
+    return character.x < 720 ? "right" : "left";
+}
+
+function withPhysicalInteraction(
+    characters: CharacterProps[],
+    prop: ForegroundPropSpec | undefined,
+    background: BackgroundSpec | undefined,
+    cinematic: CinematicSceneSpec | undefined,
+): CharacterProps[] {
+    if (!prop?.type || prop.type === "none") return characters;
+    if (propPlacementFor(background, prop, cinematic) !== "hand-held") return characters;
+    const holder = propHolder(characters);
+    if (!holder) return characters;
+    const holderKey = holder.actorId ?? holder.characterId;
+    const side = handHeldSide(holder);
+    const preset = actingPresetFor(cinematic);
+    return characters.map((character) => {
+        const key = character.actorId ?? character.characterId;
+        if (key !== holderKey) return character;
+        const directedGesture = side === "right" ? "explain" : "point-left";
+        return {
+            ...character,
+            gesture: directedGesture,
+            gazeTarget: preset === "notices-prop" || preset === "payoff-freeze" ? "down" : character.gazeTarget,
+            emphasis: character.emphasis === "none" ? "rim-glow" : character.emphasis,
+        };
+    });
+}
+
+function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: CinematicSceneSpec): CharacterProps[] {
+    if (!characters.length) return characters;
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    let activeIndex = characters.findIndex((character) => character.isSpeaking);
+    if (activeIndex < 0) activeIndex = 0;
+
+    return characters.map((character, index) => {
+        const active = index === activeIndex;
+        const baseScale = Number.isFinite(character.scale) ? character.scale! : 1;
+        switch (recipe) {
+            case "establishing":
+                return { ...character, y: character.y + 58, scale: baseScale * 0.80 };
+            case "reaction-closeup":
+                return active
+                    ? { ...character, x: 690, y: 500, scale: baseScale * 1.48, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
+            case "prop-insert":
+                return active
+                    ? { ...character, x: -80, y: 455, scale: baseScale * 1.78, gazeTarget: "right" }
+                    : { ...character, x: index < activeIndex ? -700 : 1850, y: 390, scale: baseScale * 0.66, dimmed: true };
+            case "over-shoulder":
+                return active
+                    ? { ...character, x: 760, y: 300, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }
+                    : { ...character, x: index < activeIndex ? -440 : 1500, y: 450, scale: baseScale * 1.55, dimmed: true, gazeTarget: activeIndex === 0 ? "left" : "right" };
+            case "payoff-hold":
+                return active
+                    ? { ...character, x: 700, y: 142, scale: baseScale * 1.22, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -220 : 1360, y: 280, scale: baseScale * 0.80, dimmed: true };
+            case "callback-reveal":
+                return active
+                    ? { ...character, x: 680, y: 170, scale: baseScale * 1.14, gazeTarget: "camera" }
+                    : { ...character, x: index < activeIndex ? -180 : 1340, y: 270, scale: baseScale * 0.84, dimmed: true };
+            case "crossing-transition":
+            case "two-shot":
+            default:
+                return character;
+        }
+    });
+}
+
+function HandHeldPropOverlay({
+    prop, characters, visualStyle, cinematic,
+}: {
+    prop?: ForegroundPropSpec;
+    characters: CharacterProps[];
+    visualStyle: ResolvedVisualStyle;
+    cinematic?: CinematicSceneSpec;
+}) {
+    if (!prop?.type || prop.type === "none") return null;
+    if (propPlacementFor(undefined, prop, cinematic) !== "hand-held") return null;
+    const holder = propHolder(characters);
+    if (!holder) return null;
+    const side = handHeldSide(holder);
+    const hand = actorRigPoint(holder, side, true);
+    const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const insert = recipe === "prop-insert";
+    const propX = insert ? 760 : hand.x - 54;
+    const propY = insert ? 270 : hand.y - 102;
+    const propScale = insert ? 1.65 : 0.64;
+    const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
+    return (
+        <div data-physical-interaction="actor-anchored-prop">
+            <PropAsset
+                prop={directedProp}
+                x={propX}
+                y={propY}
+                scale={propScale * visualStyle.propScale}
+                rotate={insert ? (side === "right" ? "-6deg" : "6deg") : (side === "right" ? "-10deg" : "10deg")}
+                palette={visualStyle.palette}
+                lineWeight={visualStyle.lineWeight}
+                shadow={propShadow(visualStyle)}
+                zIndex={8}
+            />
+        </div>
+    );
+}
+
 const STYLE_PRESETS: Record<CartoonVisualStyleName, ResolvedVisualStyle> = {
     "clean-flat": { name: "clean-flat", lineWeight: 6, shadow: "soft-offset", depth: "layered-parallax", lighting: "neutral", propScale: 1, palette: { outline: "#18212F", paper: "#F8FAFC", accent: "#2563EB", accent2: "#38BDF8", surface: "#E2E8F0", shadow: "rgba(15,23,42,0.24)" } },
     "warm-modern": { name: "warm-modern", lineWeight: 7, shadow: "soft-offset", depth: "stage-depth", lighting: "warm-window", propScale: 1.04, palette: { outline: "#1F2937", paper: "#FFF7ED", accent: "#F97316", accent2: "#38BDF8", surface: "#FDE68A", shadow: "rgba(90,55,20,0.24)" } },
@@ -273,9 +447,9 @@ function ForegroundPropOverlay({ prop, visualStyle, shotType, background, cinema
     const placement = propPlacementFor(background, prop, cinematic);
     const anchor = propAnchor(placement, background);
     const shot = shotOffset(shotType);
+    if (placement === "hand-held") return null;
     const badge = shouldRenderPropAsBadge(prop, placement, cinematic);
     const directedProp: ForegroundPropSpec = { ...prop, placement, renderMode: badge ? "badge" : "physical" };
-    const transform = propTransform(shotType, visualStyle.propScale, anchor.rotate);
     return (
         <PropAsset
             prop={directedProp}
@@ -388,15 +562,38 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         [characters, background, shotType],
     );
 
+    const recipeBlockedCharacters = useMemo(
+        () => withCinematicRecipeBlocking(stagedCharacters, cinematic),
+        [stagedCharacters, cinematic],
+    );
+
     const directedCharacters = useMemo(
-        () => withConversationDirection(stagedCharacters, speakerEmphasis),
-        [stagedCharacters, speakerEmphasis],
+        () => withConversationDirection(recipeBlockedCharacters, speakerEmphasis),
+        [recipeBlockedCharacters, speakerEmphasis],
+    );
+    const physicallyDirectedCharacters = useMemo(
+        () => withPhysicalInteraction(directedCharacters, visualEvent?.foregroundProp, background, cinematic),
+        [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
+    );
+    const performedCharacters = useMemo(
+        () => withCinematicActingPerformance(physicallyDirectedCharacters, visualEvent, background, cinematic),
+        [physicallyDirectedCharacters, visualEvent, background, cinematic],
     );
 
     const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
     const cinematicTransition = cinematicTransitionStyle(cinematic, frame);
     const characterLayer = cinematicCharacterLayerStyle(cinematic);
+    const actingStage = cinematicActingStageTransform(cinematic, frame, durationInFrames);
+    const actingActor = performedCharacters.find((character) => character.isSpeaking) ?? performedCharacters[0];
+    const actingActorKey = actingActor?.actorId ?? actingActor?.animationKey ?? actingActor?.characterId;
+    const heldPropActor = propHolder(performedCharacters);
+    const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const crossingProgress = interpolate(frame, [0, endFrame], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: cameraEasing });
+    const crossingDepth = Math.sin(crossingProgress * Math.PI);
+    const crossingLeadTransform = recipe === "crossing-transition"
+        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(-58 * crossingDepth + Math.abs(Math.sin(frame / 5.8)) * -7).toFixed(2)}px) scale(${(1 - crossingDepth * 0.08).toFixed(3)})`
+        : undefined;
 
     return (
         <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }} data-shot-recipe={recipe}>
@@ -405,8 +602,24 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                     <StyleFrame visualStyle={style}>
                         <Background background={background} panX={panX} />
                         <VisualEventOverlay event={visualEvent} visualStyle={style} shotType={shotType} background={background} cinematic={cinematic} />
-                        <AbsoluteFill style={{ transform: `translateX(${panX}px) ${characterLayerTransform(shotType)}`, ...characterLayer, zIndex: 5 }}>
-                            {directedCharacters.map((c, i) => <Character key={`${c.actorId ?? c.characterId}-${i}`} {...c} />)}
+                        <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType)), ...characterLayer, zIndex: 5 }}>
+                            {performedCharacters.map((c, i) => {
+                                const key = c.actorId ?? c.animationKey ?? `${c.characterId}-${i}`;
+                                const crossingTransform = recipe === "crossing-transition"
+                                    ? key === actingActorKey
+                                        ? crossingLeadTransform
+                                        : `translateX(${(180 - crossingProgress * 540).toFixed(2)}px) translateY(${(42 * crossingDepth + Math.abs(Math.sin((frame + 9) / 5.8)) * -6).toFixed(2)}px) scale(${(1 + crossingDepth * 0.08).toFixed(3)})`
+                                    : undefined;
+                                const actorTransform = crossingTransform ?? (key === actingActorKey ? actingStage : undefined);
+                                return (
+                                    <AbsoluteFill key={key} data-acting-actor={key === actingActorKey ? "active" : "listener"} style={{ transform: actorTransform, pointerEvents: "none" }}>
+                                        <Character {...c} />
+                                    </AbsoluteFill>
+                                );
+                            })}
+                            <AbsoluteFill data-held-prop-follows-actor="true" style={{ transform: heldPropActorKey === actingActorKey ? (crossingLeadTransform ?? actingStage) : undefined, pointerEvents: "none" }}>
+                                <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />
+                            </AbsoluteFill>
                         </AbsoluteFill>
                         <ForegroundSceneMask background={background} visualStyle={style} />
                         <CinematicAccent cinematic={cinematic} />
