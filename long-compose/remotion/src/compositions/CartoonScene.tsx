@@ -197,12 +197,19 @@ function withConversationDirection(characters: CharacterProps[], speakerEmphasis
 
 function withCinematicActingPerformance(
     characters: CharacterProps[],
-    prop: ForegroundPropSpec | undefined,
+    event: VisualEventSpec | undefined,
     background: BackgroundSpec | undefined,
     cinematic: CinematicSceneSpec | undefined,
 ): CharacterProps[] {
     if (!characters.length) return characters;
-    const preset = actingPresetFor(cinematic);
+    const cue = String(event?.performanceCue?.type ?? "").toLowerCase();
+    const preset = cue === "double-take" ? "double-take"
+        : cue === "side-eye" || cue === "deadpan" ? "deadpan-side-eye"
+        : cue === "small-defeat" ? "small-defeat"
+        : cue === "reluctant-acceptance" ? "reluctant-acceptance"
+        : cue === "notice" || cue === "point-at-prop" ? "notices-prop"
+        : actingPresetFor(cinematic);
+    const prop = event?.foregroundProp;
     let activeIndex = characters.findIndex((character) => character.isSpeaking);
     if (activeIndex < 0) activeIndex = 0;
     const physicalHold = Boolean(
@@ -210,14 +217,19 @@ function withCinematicActingPerformance(
     );
 
     return characters.map((character, index) => {
-        if (index !== activeIndex) return character;
+        if (index !== activeIndex) {
+            if (cue === "side-eye" || cue === "deadpan") {
+                return { ...character, emotion: "skeptical", gazeTarget: index < activeIndex ? "right" : "left" };
+            }
+            return character;
+        }
         const gestureWhenFree = (gesture: CharacterProps["gesture"]): CharacterProps["gesture"] =>
             physicalHold ? character.gesture : gesture;
         switch (preset) {
             case "double-take":
                 return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "camera", gesture: gestureWhenFree("surprised") };
             case "notices-prop":
-                return { ...character, emotion: "surprised", expression: "surprised", gazeTarget: "down" };
+                return { ...character, emotion: cue === "point-at-prop" ? "concerned" : "surprised", expression: cue === "point-at-prop" ? "normal" : "surprised", gazeTarget: physicalHold ? "down" : "right", gesture: gestureWhenFree(cue === "point-at-prop" ? "point-right" : "explain") };
             case "deadpan-side-eye":
                 return { ...character, emotion: "skeptical", expression: "angry", gazeTarget: "away", gesture: gestureWhenFree("idle") };
             case "small-defeat":
@@ -296,8 +308,8 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                     : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
-                    ? { ...character, x: 420, y: 320, scale: baseScale * 1.05, gazeTarget: "right" }
-                    : { ...character, x: index < activeIndex ? -520 : 1680, y: 340, scale: baseScale * 0.72, dimmed: true };
+                    ? { ...character, x: 230, y: 170, scale: baseScale * 1.85, gazeTarget: "right" }
+                    : { ...character, x: index < activeIndex ? -700 : 1850, y: 390, scale: baseScale * 0.66, dimmed: true };
             case "over-shoulder":
                 return active
                     ? { ...character, x: 760, y: 300, scale: baseScale * 0.98, gazeTarget: activeIndex === 0 ? "right" : "left" }
@@ -336,7 +348,7 @@ function HandHeldPropOverlay({
     const insert = recipe === "prop-insert";
     const propX = hand.x - (insert ? 82 : 54);
     const propY = hand.y - (insert ? 126 : 102);
-    const propScale = insert ? 1.35 : 0.64;
+    const propScale = insert ? 2.15 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
@@ -564,8 +576,8 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
         [directedCharacters, visualEvent?.foregroundProp, background, cinematic],
     );
     const performedCharacters = useMemo(
-        () => withCinematicActingPerformance(physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic),
-        [physicallyDirectedCharacters, visualEvent?.foregroundProp, background, cinematic],
+        () => withCinematicActingPerformance(physicallyDirectedCharacters, visualEvent, background, cinematic),
+        [physicallyDirectedCharacters, visualEvent, background, cinematic],
     );
 
     const cinematicCamera = cinematicCameraStyle(cinematic, frame, durationInFrames);
