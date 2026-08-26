@@ -1,0 +1,42 @@
+{
+  "name": "retention_character_editor",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    {
+      "schema_id": "story",
+      "range": "^1",
+      "as": "story"
+    },
+    {
+      "schema_id": "script",
+      "range": "^1",
+      "as": "script"
+    },
+    {
+      "schema_id": "cast_roster",
+      "range": "^1",
+      "as": "cast_roster"
+    }
+  ],
+  "produces": "script",
+  "produces_version": "1.3.0",
+  "prompt": "retention_character_editor@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 18000,
+    "effort": "high"
+  },
+  "confidence_dimensions": [
+    "hook_curiosity",
+    "dialogue_naturalness",
+    "character_chemistry",
+    "escalation",
+    "payoff",
+    "comprehension_preservation",
+    "non_template_feel"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
+}
