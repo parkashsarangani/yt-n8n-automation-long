@@ -1,7 +1,7 @@
 {
   "graph_id": "cartoon",
-  "version": "5",
-  "description": "Primary two-character cartoon explainer graph. An approved comprehension story becomes a dialogue draft, then an independent comprehension editor repairs factual fidelity, misconception fairness, causal clarity, the central visual model, and the final teach-back before any voice, visual planning, rendering, or publishing cost is incurred. The existing recurring cast, SVG-puppet renderer, creative direction, per-character voices, thumbnail system, deterministic QA, and stock-mode isolation remain intact.",
+  "version": "6",
+  "description": "Two-character comprehension pipeline with character-aware retention editing, adversarial script criticism, a targeted revision pass, and deterministic per-dimension release thresholds before any voice or rendering cost.",
   "nodes": [
     {
       "id": "intent",
@@ -61,13 +61,58 @@
       ]
     },
     {
+      "id": "retention_edit",
+      "transformation": "retention_character_editor",
+      "in": [
+        "approve_story",
+        "comprehension_edit",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "quality_draft",
+      "transformation": "script_quality_critic",
+      "in": [
+        "approve_story",
+        "retention_edit",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "quality_revision",
+      "transformation": "script_quality_reviser",
+      "in": [
+        "approve_story",
+        "retention_edit",
+        "quality_draft",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "quality_final",
+      "transformation": "script_quality_critic",
+      "in": [
+        "approve_story",
+        "quality_revision",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "quality_release",
+      "transformation": "script_quality_release",
+      "in": [
+        "quality_revision",
+        "quality_final"
+      ]
+    },
+    {
       "id": "approve_script",
       "type": "human_gate",
       "in": [
-        "comprehension_edit"
+        "quality_release"
       ],
       "policy": {
-        "auto_pass_if": "confidence.overall >= 0.86"
+        "auto_pass_if": "always"
       }
     },
     {
