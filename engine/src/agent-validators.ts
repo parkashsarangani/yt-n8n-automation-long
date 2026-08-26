@@ -374,7 +374,9 @@ export function agentSemanticValidationErrors(
   payload: unknown,
   inputs: Record<string, Artifact>,
 ): string[] {
-  if (def.name === "dialogue_script_writer" && def.produces === "script") return validateDialogueScript(payload, def);
+  if ((def.name === "dialogue_script_writer" || def.name === "comprehension_editor") && def.produces === "script") {
+    return validateDialogueScript(payload, def);
+  }
   if (def.name === "cartoon_visual_planner" && def.produces === "visual_plan") return validateCartoonVisualPlan(payload, inputs);
   return [];
 }
