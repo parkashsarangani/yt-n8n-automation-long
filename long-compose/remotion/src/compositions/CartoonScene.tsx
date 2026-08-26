@@ -590,6 +590,9 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const crossingProgress = interpolate(frame, [0, endFrame], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: cameraEasing });
+    const crossingLeadTransform = recipe === "crossing-transition"
+        ? crossingLeadTransform
+        : undefined;
 
     return (
         <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }} data-shot-recipe={recipe}>
@@ -613,7 +616,7 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                                     </AbsoluteFill>
                                 );
                             })}
-                            <AbsoluteFill data-held-prop-follows-actor="true" style={{ transform: heldPropActorKey === actingActorKey ? actingStage : undefined, pointerEvents: "none" }}>
+                            <AbsoluteFill data-held-prop-follows-actor="true" style={{ transform: heldPropActorKey === actingActorKey ? (crossingLeadTransform ?? actingStage) : undefined, pointerEvents: "none" }}>
                                 <HandHeldPropOverlay prop={visualEvent?.foregroundProp} characters={performedCharacters} visualStyle={style} cinematic={cinematic} />
                             </AbsoluteFill>
                         </AbsoluteFill>
