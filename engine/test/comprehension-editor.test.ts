@@ -8,7 +8,9 @@ const prompt = readFileSync(new URL("../prompts/comprehension_editor/1.md", impo
 const validators = readFileSync(new URL("../src/agent-validators.ts", import.meta.url), "utf8");
 
 test("cartoon graph reviews comprehension before expensive production work", () => {
-  const byId = new Map(graph.nodes.map((node: { id: string }) => [node.id, node]));
+  const byId = new Map<string, { id: string; in?: string[]; policy?: { auto_pass_if?: string } }>(
+    graph.nodes.map((node: { id: string; in?: string[]; policy?: { auto_pass_if?: string } }) => [node.id, node]),
+  );
   assert.equal(graph.version, "5");
   assert.deepEqual(byId.get("draft_script")?.in, ["approve_story", "cast_roster"]);
   assert.deepEqual(byId.get("comprehension_edit")?.in, ["approve_story", "draft_script", "cast_roster"]);
