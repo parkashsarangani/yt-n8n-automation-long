@@ -1,4 +1,4 @@
-iteration=7
-source=shot-language-runtime-fix
-requested=2026-08-26T07:21:00+00:00
-notes=verify tight prop insert and true actor crossing after TDZ fix
+iteration=8
+source=insert-separation-crossing-depth
+requested=2026-08-26T07:26:00+00:00
+notes=verify clean object insert and collision-safe depth crossing
