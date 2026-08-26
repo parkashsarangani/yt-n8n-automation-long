@@ -150,7 +150,7 @@ async function runQa(spoil: Spoil = {}, opts = {}) {
     await put("seo_metadata", merged("seo"), "seo_optimizer"),
   ];
 
-  const out = await runner.run(makeQaWorker(opts), ids);
+  const out = await runner.run(makeQaWorker({ ...opts, name: "retention_qa", enforceDialogueQuality: true }), ids);
   return { registry, payload: out.artifact.payload as QaPayload };
 }
 
