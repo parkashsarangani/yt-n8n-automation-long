@@ -241,10 +241,15 @@ function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
     if (!/(payoff|resolve|resolution|return|opening|final|lands|closes|changed_behavior|habit|confirm)/.test(finalPoint)) {
       errors.push(`${def.name}@${def.version ?? "1"} contract violated: final scene point must mark a payoff/resolution of the opening situation`);
     } else if (estimatedDurationSec >= LONG_SCRIPT_SECONDS) {
-      if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal)/.test(point))) {
+      // "correction" covers the comprehension-structure genre (dialogue_script_writer@10+):
+      // its midpoint-turn equivalent is the beat where the objection's gap gets resolved.
+      if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal|correction)/.test(point))) {
         errors.push(`${def.name}@${def.version ?? "1"} contract violated: long scripts must include a midpoint turn/reframe point`);
       }
-      const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun)/.test(point)).length;
+      // "objection" and "visual_model" cover the comprehension-structure genre: a
+      // surprising counter-example and a concrete demonstration are that genre's
+      // narrative engagement, in place of a joke/callback/visual-gag/pun beat.
+      const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun|objection|visual_model)/.test(point)).length;
       if (engagementCount < 2) {
         errors.push(`${def.name}@${def.version ?? "1"} contract violated: long scripts must include at least two engagement beats in scene points`);
       }

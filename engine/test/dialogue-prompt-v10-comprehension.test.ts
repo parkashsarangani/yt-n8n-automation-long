@@ -13,6 +13,15 @@ import { readFileSync } from "node:fs";
 const HOOK_RE = /opening_problem|hook/;
 const TAKEAWAY_RE = /practical_action|viewer_value|takeaway|changed behavior|replacement|replace|remove the cue|concrete action/;
 const FINAL_BEAT_RE = /payoff_resolution|payoff|resolution|resolve|return|changed_behavior|habit|confirm/;
+// Only checked for episodes >= LONG_SCRIPT_SECONDS (75s of narration) -- the
+// first real production run of v10 hit exactly this gap: a ~120s episode
+// tripped both of these, since none of v10's original vocabulary matched
+// either regex. Fixed by widening the regexes (agent-validators.ts and
+// cartoon-scenes.ts) rather than the prompt, since "correction"/"objection"/
+// "visual_model" are the genuine equivalents of a midpoint-turn/engagement
+// beat in this genre.
+const MIDPOINT_RE = /midpoint|turn|reframe|reversal|correction/;
+const ENGAGEMENT_RE = /engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun|objection|visual_model/;
 
 const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", import.meta.url), "utf8");
 const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/10.md", import.meta.url), "utf8");
@@ -43,6 +52,13 @@ test("v10's required function vocabulary satisfies the compiler's hard gates", (
   assert.match("hook", HOOK_RE, "the opening function value must match the compiler's hookClarity regex");
   assert.match("takeaway practical_action", TAKEAWAY_RE, "the takeaway function value must match the compiler's viewerTakeaway regex");
   assert.match("recap confirms_understanding", FINAL_BEAT_RE, "the recap function value must match the compiler's final-beat regexes");
+
+  // Long episodes (>= 75s of narration) also need a midpoint-turn beat and at
+  // least two engagement beats -- both checked here since real production
+  // topics for this channel commonly run long enough to hit this path.
+  assert.match("correction", MIDPOINT_RE, "the correction function value must match the compiler's midpoint-turn regex");
+  assert.match("objection", ENGAGEMENT_RE, "objection must count as an engagement beat");
+  assert.match("visual_model", ENGAGEMENT_RE, "visual_model must count as an engagement beat");
 });
 
 test("v10 no longer teaches the retired topic-specific prop contract", () => {

@@ -661,10 +661,15 @@ function assertV3ScriptContract(scenes: ScriptScene[]): void {
 
   if (estimatedDurationSec < LONG_SCRIPT_SECONDS) return;
 
-  if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal)/.test(point))) {
+  // "correction" covers the comprehension-structure genre (dialogue_script_writer@10+):
+  // its midpoint-turn equivalent is the beat where the objection's gap gets resolved.
+  if (!pointLines.some((point) => /(midpoint|turn|reframe|reversal|correction)/.test(point))) {
     throw new Error("dialogue_script_writer@3 contract violated: long scripts must include a midpoint turn/reframe point");
   }
-  const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun)/.test(point)).length;
+  // "objection" and "visual_model" cover the comprehension-structure genre: a
+  // surprising counter-example and a concrete demonstration are that genre's
+  // narrative engagement, in place of a joke/callback/visual-gag/pun beat.
+  const engagementCount = pointLines.filter((point) => /(engagement|joke|callback|contradiction|visual.?gag|punchline|absurd|pun|objection|visual_model)/.test(point)).length;
   if (engagementCount < 2) {
     throw new Error("dialogue_script_writer@3 contract violated: long scripts must include at least two engagement beats in scene points");
   }
