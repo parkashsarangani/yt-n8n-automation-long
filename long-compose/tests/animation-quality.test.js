@@ -52,6 +52,18 @@ test("cartoon runtime exposes semantic acting controls", () => {
   assert.match(characterSource, /ArmLayer/);
 });
 
+test("gesture performance animates limbs locally instead of moving the full cast", () => {
+  assert.match(characterSource, /function armPerformanceTransform/);
+  assert.match(characterSource, /target === "present"/);
+  assert.match(characterSource, /target === "point"/);
+  assert.match(characterSource, /target === "up"/);
+  assert.match(characterSource, /transformOrigin: side === "left"/);
+  assert.match(characterSource, /leftArmTransform/);
+  assert.match(characterSource, /rightArmTransform/);
+  assert.match(characterSource, /reactionKick/);
+  assert.match(characterSource, /performanceLift/);
+});
+
 test("panic performance is character-local and never continuous whole-frame shake", () => {
   assert.match(characterSource, /fearTremorX/);
   assert.match(characterSource, /fearTremorY/);
