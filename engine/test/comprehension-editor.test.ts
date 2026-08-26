@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 const graph = JSON.parse(readFileSync(new URL("../graphs/cartoon.json", import.meta.url), "utf8"));
 const agent = JSON.parse(readFileSync(new URL("../agents/comprehension_editor.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/comprehension_editor/1.md", import.meta.url), "utf8");
+const validators = readFileSync(new URL("../src/agent-validators.ts", import.meta.url), "utf8");
 
 test("cartoon graph reviews comprehension before expensive production work", () => {
   const byId = new Map(graph.nodes.map((node: { id: string }) => [node.id, node]));
@@ -46,4 +47,9 @@ test("comprehension editor enforces a reconstructable visual model and teach-bac
   ]) {
     assert.ok(prompt.includes(phrase), phrase);
   }
+});
+
+test("edited scripts retain the existing dialogue semantic retry gates", () => {
+  assert.match(validators, /def\.name === "dialogue_script_writer" \|\| def\.name === "comprehension_editor"/);
+  assert.match(validators, /return validateDialogueScript\(payload, def\)/);
 });
