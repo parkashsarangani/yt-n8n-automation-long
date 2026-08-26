@@ -5,12 +5,15 @@ import { readFileSync } from "node:fs";
 import { applyRendererStaging } from "../src/workers/cartoon-scenes-v14.ts";
 
 const v14Source = readFileSync(new URL("../src/workers/cartoon-scenes-v14.ts", import.meta.url), "utf8");
+const v15Source = readFileSync(new URL("../src/workers/cartoon-scenes-v15.ts", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../src/workers/index.ts", import.meta.url), "utf8");
 
 test("production cartoon compiler routes through v14/v15 cinematic set-piece staging", () => {
-  assert.match(indexSource, /cartoon-scenes-v14\.ts/);
-  assert.match(indexSource, /makeV14CartoonSceneCompilerWorker/);
-  assert.doesNotMatch(indexSource, /makeV13CartoonSceneCompilerWorker/);
+  assert.match(indexSource, /cartoon-scenes-v15\.ts/);
+  assert.match(indexSource, /makeV15CartoonSceneCompilerWorker/);
+  assert.match(v15Source, /cartoon-scenes-v14\.ts/);
+  assert.match(v15Source, /makeV14CartoonSceneCompilerWorker/);
+  assert.match(v15Source, /version:\s*"16"/);
   assert.match(v14Source, /version:\s*"15"/);
 });
 
