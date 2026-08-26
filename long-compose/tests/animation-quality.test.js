@@ -80,7 +80,7 @@ test("active speaker treatment gives every emphasis mode a distinct rendering pa
   assert.match(sceneSource, /case "caption-anchor"/);
   assert.match(sceneSource, /speakerEmphasis === "listener-dim"/);
   assert.match(sceneSource, /useMemo/);
-  assert.match(sceneSource, /withConversationDirection\(stagedCharacters, speakerEmphasis\)/);
+  assert.match(sceneSource, /withConversationDirection\\(recipeBlockedCharacters, speakerEmphasis\\)/);
 });
 
 test("cartoon backgrounds expose deterministic ambient motion", () => {
