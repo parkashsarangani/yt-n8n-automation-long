@@ -118,6 +118,7 @@ test("the catalog loads every agent as pure data", async () => {
       "comprehension_editor",
       "dialogue_script_writer",
       "discovery",
+      "emotional_entertainment_editor",
       "retention_character_editor",
       "script_quality_critic",
       "script_quality_reviser",
@@ -205,6 +206,7 @@ test("an invalid output is retried, and the retry prompt carries the errors", as
 
   const records = await h.runLog.all();
   assert.deepEqual(records.map((r) => r.status), ["schema_invalid", "ok"]);
+  assert.equal(records[0]!.retry_reason, "schema");
   assert.equal(records[1]!.output, out.artifact.artifact_id);
 });
 
