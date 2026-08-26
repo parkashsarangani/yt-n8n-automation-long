@@ -18,6 +18,7 @@
 
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { SCRIPT_QUALITY_THRESHOLDS } from "./script-quality-release.ts";
+import { assessDialogueEvidence } from "../script-dialogue-evidence.ts";
 
 export interface QaWorkerOptions {
   /** Placeholder images tolerated before it fails, as a fraction of scenes. */
@@ -122,6 +123,19 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
               threshold,
             },
         );
+      }
+
+      if (enforceDialogueQuality) {
+        const evidence = assessDialogueEvidence(script);
+        for (const evidenceCheck of evidence.checks) {
+          checks.push({
+            id: `dialogue_${evidenceCheck.id}`,
+            status: evidenceCheck.passed ? "pass" : "fail",
+            message: `${evidenceCheck.passed ? "1/1" : "0/1"} evidence: ${evidenceCheck.message}`,
+            measured: evidenceCheck.passed ? 1 : 0,
+            threshold: 1,
+          });
+        }
       }
 
       // --- visual assets are renderable (integrity, not aesthetics) ------ -------------------------------------
