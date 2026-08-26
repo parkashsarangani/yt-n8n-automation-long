@@ -71,6 +71,22 @@ function isMeaningfulProp(value: string): boolean {
   return prop.length > 1 && !/^(none|n\/a|na|null|room|scene|character|characters|host|buddy)$/i.test(prop);
 }
 
+// The script's freely-typed prop= mention and the visual planner's freely-typed
+// primary_prop are independently generated and only fall into the same
+// canonical bucket above for a closed list of habit-vignette objects (phone,
+// clock, door, ...). A comprehension-genre episode's demonstration object
+// ("scrapbook cards" in the script vs "scrapbook" in the plan -- same object,
+// same word, just singular/plural) has no bucket to land in, so exact
+// equality after normalization fails even when the plan renders the object in
+// every single scene. Whole-word substring containment catches this without
+// requiring an ever-growing canonicalizer list for arbitrary future topics.
+function propsMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  return new RegExp(`\\b${shorter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(longer);
+}
+
 function scriptProp(scene: ScriptScene): string {
   return normalizedProp(pointField(scene, ["prop", "central_object", "prop_in_scene", "object"]));
 }
@@ -118,15 +134,18 @@ function assertNonPlanningPlanOwnedForegroundCoverage(scripts: ScriptScene[], pl
     const plan = planByIndex.get(scene.scene_index);
     const planHasPrimaryPropField = plannedRawProp(plan).length > 0;
     const renderedProp = planHasPrimaryPropField ? plannedProp(plan) : scriptProp(scene);
-    if (renderedProp === prop) coveredThirds.add(thirdForIndex(index, ordered.length));
+    if (propsMatch(renderedProp, prop)) coveredThirds.add(thirdForIndex(index, ordered.length));
   });
 
-  for (const required of ["opening", "middle", "final"]) {
-    if (!coveredThirds.has(required)) {
-      throw new Error(
-        `cartoon_scene_compiler@10 foreground prop gate failed: central object "${prop}" must render as a foreground prop in opening, middle, and payoff/final third; missing ${required}`,
-      );
-    }
+  // Require the central object in at least two of the three thirds, not all
+  // three -- a "confusion tour" opening that samples other objects before
+  // settling on the real demonstration object is legitimate, especially for
+  // comprehension-structure scripts (matches the identical relaxation applied
+  // to the writer-stage central_object_usage gate in agent-validators.ts).
+  if (coveredThirds.size < 2) {
+    throw new Error(
+      `cartoon_scene_compiler@10 foreground prop gate failed: central object "${prop}" must render as a foreground prop in at least two of the opening, middle, and payoff/final thirds; only found ${[...coveredThirds].join(", ") || "none"}`,
+    );
   }
 }
 

@@ -124,12 +124,55 @@ test("v5 scripts compile foreground phone props into renderable visual events", 
   assert.equal(compiled[5].visualEvent.foregroundProp.type, "phone");
 });
 
-test("v5 foreground prop gate fails if the compiled central object is absent from a third", async () => {
+test("v5 foreground prop gate matches near-miss prop names, not just exact strings", async () => {
+  // Real production failure (run_d087c8bd, comprehension-structure genre):
+  // the script's prop=scrapbook cards and the visual plan's
+  // primary_prop=scrapbook are the same object, but exact-string equality
+  // after normalization treated them as different props in every single
+  // scene -- the gate has no canonicalizer bucket for arbitrary topics
+  // beyond the closed habit-vignette vocabulary (phone, clock, door, ...).
+  const worker = makeCartoonSceneCompilerWorker();
+  const scenes = Array.from({ length: 6 }, (_, i) => ({
+    scene_index: i,
+    point: `action=Host flips a scrapbook card; prop=scrapbook cards; function=${i === 0 ? "hook" : i === 5 ? "recap confirms_understanding" : "visual_model"}; value=demonstrates the idea`,
+    narration: `Line ${i} about the scrapbook.`,
+    speaker: i % 2 === 0 ? "host" : "buddy",
+    emotion: "neutral",
+  }));
+  const planScenes = scenes.map((scene) => directedScene(scene.scene_index, {
+    primary_prop: "scrapbook",
+    prop_state: "open",
+    visual_event: "reaction-pop",
+  }));
+
+  const out = await worker.execute(
+    {
+      plan: { payload: { scenes: planScenes } },
+      script: {
+        payload: { scenes },
+        produced_by: { transformation: "dialogue_script_writer", version: "5" },
+      },
+      cast,
+    } as never,
+    ctx as never,
+  );
+
+  const payload = out.payload as { scenes: unknown[] };
+  assert.equal(payload.scenes.length, 6);
+});
+
+test("v5 foreground prop gate fails if the compiled central object covers fewer than two thirds", async () => {
+  // The gate now requires the central object in at least two of the three
+  // thirds, not all three (a "confusion tour" opening that samples other
+  // objects before settling on the real demonstration object is legitimate,
+  // especially for comprehension-structure scripts). Only scene 0 (the
+  // opening third of 6 scenes) carries the prop here, so only one third is
+  // covered -- still a genuine gate failure.
   const worker = makeCartoonSceneCompilerWorker();
   const scenes = phoneScenes();
   const planScenes = scenes.map((scene) => directedScene(scene.scene_index, {
-    primary_prop: scene.scene_index < 4 ? "phone" : "none",
-    prop_state: scene.scene_index < 4 ? "phone-visible" : "none",
+    primary_prop: scene.scene_index === 0 ? "phone" : "none",
+    prop_state: scene.scene_index === 0 ? "phone-visible" : "none",
     visual_event: "reaction-pop",
   }));
 
