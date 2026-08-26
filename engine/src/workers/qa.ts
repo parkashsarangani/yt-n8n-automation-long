@@ -29,6 +29,10 @@ export interface QaWorkerOptions {
   /** Spoken words per minute, for turning a duration into a word budget. */
   wordsPerMinute?: number;
   version?: string;
+  /** Enable comprehension-led dialogue evidence and critic-score publication gates. */
+  enforceDialogueQuality?: boolean;
+  /** Allows the retention QA variant to coexist with legacy QA graph contracts. */
+  name?: string;
 }
 
 type Status = "pass" | "warn" | "fail";
@@ -57,15 +61,18 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxDurationDrift = opts.maxDurationDrift ?? 0.25;
   const maxScriptDrift = opts.maxScriptDrift ?? 0.3;
   const wpm = opts.wordsPerMinute ?? 150;
+  const enforceDialogueQuality = opts.enforceDialogueQuality ?? false;
 
   return {
-    name: "qa",
+    name: opts.name ?? "qa",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? (enforceDialogueQuality ? "2" : "1"),
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
-      { schema_id: "script_quality_report", range: "^1", as: "script_quality" },
+      ...(enforceDialogueQuality
+        ? [{ schema_id: "script_quality_report", range: "^1", as: "script_quality" }]
+        : []),
       { schema_id: "asset_manifest", range: "^1", as: "assets" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
@@ -77,7 +84,9 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const intent = inputs["intent"]!.payload as Intent;
       const script = inputs["script"]!.payload as Script;
-      const scriptQuality = inputs["script_quality"]!.payload as ScriptQualityReport;
+      const scriptQuality = enforceDialogueQuality
+        ? inputs["script_quality"]!.payload as ScriptQualityReport
+        : null;
       const assets = inputs["assets"]!.payload as Assets;
       const voice = inputs["voice"]!.payload as Voice;
       const render = inputs["render"]!.payload as Rendered;
@@ -92,7 +101,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       // The independent critic was already applied before expensive work.
       // Reassert its per-dimension evidence here so the final publication
       // report describes the actual product goal, not aesthetic polish.
-      for (const [dimension, threshold] of Object.entries(SCRIPT_QUALITY_THRESHOLDS)) {
+      if (scriptQuality) for (const [dimension, threshold] of Object.entries(SCRIPT_QUALITY_THRESHOLDS)) {
         const score = scriptQuality.scores?.[dimension];
         checks.push(
           typeof score === "number" && score >= threshold
