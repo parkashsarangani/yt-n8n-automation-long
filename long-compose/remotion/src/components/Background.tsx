@@ -220,7 +220,9 @@ export const Background = ({ background, panX = 0 }: BackgroundProps) => {
     const ambient = background.ambientMotion ?? "none";
     const setPiece = background.setPiece ?? (background.doorwaySetPiece ? { kind: "doorway" as const, motion: "cross" as const } : undefined);
     const scenePlate = scenePlateFor(background);
-    const replaceLayers = scenePlate?.compositeMode === "replace-background";
+    const hasAuthoredLayers = Boolean(background.layers?.back || background.layers?.middle || background.layers?.front);
+    const useReplacementPlate = scenePlate?.compositeMode === "replace-background" && !hasAuthoredLayers;
+    const useOverlayPlate = scenePlate?.compositeMode === "overlay";
     const ambientBase: AmbientFrameMath = {
         slow: Math.sin(frame / 95),
         slower: Math.cos(frame / 131),
@@ -231,9 +233,11 @@ export const Background = ({ background, panX = 0 }: BackgroundProps) => {
 
     return (
         <AbsoluteFill style={{ overflow: "hidden" }}>
-            <ScenePlate asset={scenePlate} />
+            {useReplacementPlate && <ScenePlate asset={scenePlate} />}
+            {!useReplacementPlate && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}
+            {useOverlayPlate && <ScenePlate asset={scenePlate} />}
+            {/* Authored layers are the primary environment when available; dressing stays above opaque back plates. */}
             <SceneDressing background={background} frame={frame} />
-            {!replaceLayers && <BackgroundLayersView background={background} panX={panX} ambientBase={ambientBase} ambient={ambient} />}
             <SetPieceOverlay setPiece={setPiece} frame={frame} />
             <AmbientOverlay ambient={ambient} frame={frame} />
             {effect.fog > 0 && <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 65%, rgba(255,255,255,0.7), transparent 70%)", opacity: effect.fog }} />}
