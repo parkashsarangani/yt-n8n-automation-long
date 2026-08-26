@@ -1,0 +1,361 @@
+{
+  "schema_id": "visual_plan",
+  "version": "2.0.0",
+  "status": "active",
+  "description": "Explanation-first motion plan. Characters are limited identity/reaction anchors; diagrams, state changes, comparisons, kinetic emphasis, and recaps own the frame.",
+  "produced_by": [
+    "cartoon_visual_planner"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CartoonVisualPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "scenes"
+    ],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "template_category",
+            "background_location",
+            "background_variant",
+            "background_tone",
+            "framing",
+            "camera_motion",
+            "listener_actor_id",
+            "speaker_emotion",
+            "speaker_gesture",
+            "speaker_gaze_target",
+            "listener_emotion",
+            "listener_gesture",
+            "listener_gaze_target",
+            "visual_event",
+            "ambient_motion",
+            "speaker_emphasis",
+            "cutaway_label",
+            "scene_role",
+            "explanation_title",
+            "model_elements",
+            "state_before",
+            "state_after",
+            "key_text",
+            "character_cut_in",
+            "sound_cue"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "template_category": {
+              "type": "string",
+              "enum": [
+                "explanation"
+              ]
+            },
+            "background_location": {
+              "type": "string",
+              "enum": [
+                "airplane-cabin",
+                "airport",
+                "airport-gate",
+                "bathroom",
+                "bedroom",
+                "cafe",
+                "classroom",
+                "engineering-lab",
+                "generic-room",
+                "hallway",
+                "hospital-room",
+                "kitchen",
+                "library",
+                "living-room",
+                "office",
+                "park",
+                "school-hallway",
+                "shop",
+                "street",
+                "studio"
+              ]
+            },
+            "background_variant": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "background_tone": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "scary",
+                "happy",
+                "dramatic",
+                "cold",
+                "warm"
+              ]
+            },
+            "framing": {
+              "type": "string",
+              "enum": [
+                "establishing",
+                "two-shot",
+                "speaker-closeup",
+                "listener-closeup",
+                "reaction-closeup",
+                "prop-insert",
+                "over-shoulder",
+                "doorway-transition",
+                "payoff-hold"
+              ]
+            },
+            "camera_motion": {
+              "type": "string",
+              "enum": [
+                "static",
+                "push-in",
+                "pull-out",
+                "pan-left",
+                "pan-right",
+                "reaction-push",
+                "prop-focus",
+                "doorway-track",
+                "payoff-hold"
+              ]
+            },
+            "listener_actor_id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "maxLength": 40
+            },
+            "speaker_emotion": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "happy",
+                "amused",
+                "skeptical",
+                "confused",
+                "concerned",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "thinking",
+                "annoyed"
+              ]
+            },
+            "speaker_gesture": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "explain",
+                "point-left",
+                "point-right",
+                "shrug",
+                "hands-open",
+                "surprised",
+                "thinking",
+                "facepalm",
+                "celebrate"
+              ]
+            },
+            "speaker_gaze_target": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "camera",
+                "left",
+                "right",
+                "up",
+                "down",
+                "away"
+              ]
+            },
+            "listener_emotion": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "happy",
+                "amused",
+                "skeptical",
+                "confused",
+                "concerned",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "thinking",
+                "annoyed"
+              ]
+            },
+            "listener_gesture": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "explain",
+                "point-left",
+                "point-right",
+                "shrug",
+                "hands-open",
+                "surprised",
+                "thinking",
+                "facepalm",
+                "celebrate"
+              ]
+            },
+            "listener_gaze_target": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "camera",
+                "left",
+                "right",
+                "up",
+                "down",
+                "away"
+              ]
+            },
+            "visual_event": {
+              "type": "string",
+              "enum": [
+                "none",
+                "alarm-pulse",
+                "screen-change",
+                "audience-silhouette",
+                "metaphor-cutaway",
+                "prop-tremble",
+                "thought-bubble",
+                "reaction-pop",
+                "callback-card"
+              ]
+            },
+            "ambient_motion": {
+              "type": "string",
+              "enum": [
+                "none",
+                "subtle-parallax",
+                "window-light",
+                "monitor-glow",
+                "chart-wiggle",
+                "clock-tick",
+                "rain-window",
+                "dust-float",
+                "doorway-cross"
+              ]
+            },
+            "speaker_emphasis": {
+              "type": "string",
+              "enum": [
+                "none",
+                "scale-pop",
+                "rim-glow",
+                "listener-dim",
+                "caption-anchor"
+              ]
+            },
+            "cutaway_label": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "primary_prop": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "Optional visible foreground object/interface in this scene, or none. The compiler can also derive this from script point metadata."
+            },
+            "prop_state": {
+              "type": "string",
+              "maxLength": 80,
+              "description": "Optional visible state of the foreground object, such as open threshold, charger-left-behind, keys-on-counter, notification-badge, face-down, across-room, kettle-replacement, open, closed, or none."
+            },
+            "prop_motion": {
+              "type": "string",
+              "enum": [
+                "none",
+                "pulse",
+                "glow",
+                "tremble",
+                "slide-away",
+                "thumb-hover",
+                "open",
+                "close",
+                "bounce",
+                "settle"
+              ]
+            },
+            "foreground_action": {
+              "type": "string",
+              "maxLength": 160,
+              "description": "Optional visible foreground-object action. For doorway continuity, use a concrete action such as Host crosses through the doorway carrying the cue."
+            },
+            "scene_role": {
+              "type": "string",
+              "enum": [
+                "character-hook",
+                "diagram-build",
+                "process-flow",
+                "object-state-change",
+                "comparison",
+                "kinetic-emphasis",
+                "character-reaction",
+                "recap"
+              ]
+            },
+            "explanation_title": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "model_elements": {
+              "type": "array",
+              "maxItems": 5,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 44
+              }
+            },
+            "state_before": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "state_after": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "key_text": {
+              "type": "string",
+              "maxLength": 96
+            },
+            "character_cut_in": {
+              "type": "string",
+              "enum": [
+                "none",
+                "speaker",
+                "listener",
+                "both"
+              ]
+            },
+            "sound_cue": {
+              "type": "string",
+              "enum": [
+                "none",
+                "soft-hit",
+                "tick",
+                "whoosh",
+                "pop",
+                "resolve"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
