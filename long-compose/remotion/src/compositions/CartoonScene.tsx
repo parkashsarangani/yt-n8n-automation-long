@@ -308,7 +308,7 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                     : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
-                    ? { ...character, x: 230, y: 170, scale: baseScale * 1.85, gazeTarget: "right" }
+                    ? { ...character, x: 250, y: 285, scale: baseScale * 1.62, gazeTarget: "right" }
                     : { ...character, x: index < activeIndex ? -700 : 1850, y: 390, scale: baseScale * 0.66, dimmed: true };
             case "over-shoulder":
                 return active
@@ -348,7 +348,7 @@ function HandHeldPropOverlay({
     const insert = recipe === "prop-insert";
     const propX = hand.x - (insert ? 82 : 54);
     const propY = hand.y - (insert ? 126 : 102);
-    const propScale = insert ? 2.15 : 0.64;
+    const propScale = insert ? 2.35 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
