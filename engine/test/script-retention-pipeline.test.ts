@@ -16,7 +16,9 @@ test("cartoon graph revises and independently re-scores before deterministic rel
 });
 
 test("prompt views preserve actual dialogue identity and character-bible fields", () => {
-  for (const token of ['"speaker"', '"emotion"', '"worldview"', '"comic_style"', '"speech_rhythm"', '"blind_spot"', '"relationship_dynamic"']) {
+  assert.match(promptInputs, /speaker: obj\.speaker/);
+  assert.match(promptInputs, /emotion: obj\.emotion/);
+  for (const token of ['"worldview"', '"comic_style"', '"speech_rhythm"', '"blind_spot"', '"relationship_dynamic"']) {
     assert.match(promptInputs, new RegExp(token));
   }
   for (const character of cast.characters) {
