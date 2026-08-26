@@ -17,7 +17,7 @@ test("cartoon graph reviews comprehension before expensive production work", () 
   assert.deepEqual(byId.get("approve_script")?.in, ["comprehension_edit"]);
   assert.equal(byId.get("approve_script")?.policy?.auto_pass_if, "confidence.overall >= 0.86");
   for (const id of ["creative_direction", "visual_plan", "voice", "seo", "thumbnail_brief"]) {
-    assert.ok(byId.get(id)?.in.includes("approve_script"), id);
+    assert.ok(byId.get(id)?.in?.includes("approve_script"), id);
   }
 });
 
