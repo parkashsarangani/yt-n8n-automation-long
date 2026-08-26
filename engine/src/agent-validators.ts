@@ -366,7 +366,7 @@ function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Arti
     if (continuityFailure) failures.push(continuityFailure);
   }
 
-  return failures.length === 0 ? [] : [`cartoon_visual_planner cinematic quality gate failed: ${failures.join("; ")}. Revise before scene compilation.`];
+  return failures.length === 0 ? [] : [`cartoon_visual_planner explanation-action gate failed: ${failures.join("; ")}. Revise only the physical demonstration or required spatial continuity before scene compilation.`];
 }
 
 export function agentSemanticValidationErrors(
@@ -374,7 +374,7 @@ export function agentSemanticValidationErrors(
   payload: unknown,
   inputs: Record<string, Artifact>,
 ): string[] {
-  if ((["dialogue_script_writer", "comprehension_editor", "retention_character_editor", "script_quality_reviser"].includes(def.name)) && def.produces === "script") {
+  if ((["dialogue_script_writer", "comprehension_editor", "retention_character_editor", "emotional_entertainment_editor", "script_quality_reviser"].includes(def.name)) && def.produces === "script") {
     return validateDialogueScript(payload, def);
   }
   if (def.name === "cartoon_visual_planner" && def.produces === "visual_plan") return validateCartoonVisualPlan(payload, inputs);

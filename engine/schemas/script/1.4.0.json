@@ -1,13 +1,14 @@
 {
   "schema_id": "script",
-  "version": "1.3.0",
-  "status": "deprecated",
-  "description": "Script schema used by the dialogue, comprehension, retention/revision, and deterministic quality-release stages. Payload shape remains backward compatible with 1.2.0; the minor version expands the immutable producer allowlist.",
+  "version": "1.4.0",
+  "status": "active",
+  "description": "Script schema for the comprehension, retention, emotional-entertainment, revision, and deterministic release stages. Payload stays backward compatible while the producer lineage expands.",
   "produced_by": [
     "script_writer",
     "dialogue_script_writer",
     "comprehension_editor",
     "retention_character_editor",
+    "emotional_entertainment_editor",
     "script_quality_reviser",
     "script_quality_release",
     "human"

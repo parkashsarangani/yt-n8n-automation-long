@@ -25,3 +25,24 @@ test("missing critic dimensions block release", () => {
   assert.equal(result.passed, false);
   assert.match(result.failures.join("\n"), /dialogue_naturalness=missing/);
 });
+
+
+test("structurally excellent but emotionally flat dialogue cannot release", () => {
+  const result = assessScriptQuality(report({
+    factual_fidelity: 1,
+    comprehension: 1,
+    hook_curiosity: 1,
+    dialogue_naturalness: 1,
+    character_chemistry: 1,
+    escalation: 1,
+    payoff: 1,
+    non_template_feel: 1,
+    emotional_momentum: 0.82,
+    entertainment_value: 0.84,
+    surprise_freshness: 0.86,
+  }));
+  assert.equal(result.passed, false);
+  assert.match(result.failures.join("\n"), /emotional_momentum=0.82/);
+  assert.match(result.failures.join("\n"), /entertainment_value=0.84/);
+  assert.match(result.failures.join("\n"), /surprise_freshness=0.86/);
+});

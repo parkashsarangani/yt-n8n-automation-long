@@ -4,7 +4,8 @@
   "status": "active",
   "description": "Objective checks on a finished episode, run before publishing. Not judgement — every check is a measurement against a declared threshold, which is what makes it safe to gate on automatically. The verdict gates publication; warnings are recorded and do not block, so a slightly short script ships while placeholder images do not.",
   "produced_by": [
-    "qa"
+    "qa",
+    "retention_qa"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

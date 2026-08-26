@@ -17,6 +17,8 @@
  */
 
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { SCRIPT_QUALITY_THRESHOLDS } from "./script-quality-release.ts";
+import { assessDialogueEvidence } from "../script-dialogue-evidence.ts";
 
 export interface QaWorkerOptions {
   /** Placeholder images tolerated before it fails, as a fraction of scenes. */
@@ -28,6 +30,10 @@ export interface QaWorkerOptions {
   /** Spoken words per minute, for turning a duration into a word budget. */
   wordsPerMinute?: number;
   version?: string;
+  /** Enable comprehension-led dialogue evidence and critic-score publication gates. */
+  enforceDialogueQuality?: boolean;
+  /** Allows the retention QA variant to coexist with legacy QA graph contracts. */
+  name?: string;
 }
 
 type Status = "pass" | "warn" | "fail";
@@ -42,6 +48,7 @@ interface Check {
 
 interface Intent { target_duration_sec?: number }
 interface Script { scenes?: Array<{ scene_index: number }>; word_count?: number }
+interface ScriptQualityReport { scores?: Record<string, number>; summary?: string }
 interface Assets { scenes?: Array<{ source?: string }>; degraded_count?: number }
 interface Voice { clips?: Array<{ duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
@@ -55,14 +62,18 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxDurationDrift = opts.maxDurationDrift ?? 0.25;
   const maxScriptDrift = opts.maxScriptDrift ?? 0.3;
   const wpm = opts.wordsPerMinute ?? 150;
+  const enforceDialogueQuality = opts.enforceDialogueQuality ?? false;
 
   return {
-    name: "qa",
+    name: opts.name ?? "qa",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? (enforceDialogueQuality ? "2" : "1"),
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
+      ...(enforceDialogueQuality
+        ? [{ schema_id: "script_quality_report", range: "^1", as: "script_quality" }]
+        : []),
       { schema_id: "asset_manifest", range: "^1", as: "assets" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
@@ -74,6 +85,9 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const intent = inputs["intent"]!.payload as Intent;
       const script = inputs["script"]!.payload as Script;
+      const scriptQuality = enforceDialogueQuality
+        ? inputs["script_quality"]!.payload as ScriptQualityReport
+        : null;
       const assets = inputs["assets"]!.payload as Assets;
       const voice = inputs["voice"]!.payload as Voice;
       const render = inputs["render"]!.payload as Rendered;
@@ -84,7 +98,47 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const sceneCount = script.scenes?.length ?? 0;
       const targetSec = intent.target_duration_sec ?? 0;
 
-      // --- images actually resolved -------------------------------------
+      // --- product goal: comprehension-led dialogue retention -----------
+      // The independent critic was already applied before expensive work.
+      // Reassert its per-dimension evidence here so the final publication
+      // report describes the actual product goal, not aesthetic polish.
+      if (scriptQuality) for (const [dimension, threshold] of Object.entries(SCRIPT_QUALITY_THRESHOLDS)) {
+        const score = scriptQuality.scores?.[dimension];
+        checks.push(
+          typeof score === "number" && score >= threshold
+            ? {
+              id: `script_${dimension}`,
+              status: "pass",
+              message: `${dimension.replaceAll("_", " ")} ${score.toFixed(2)} meets ${threshold.toFixed(2)}`,
+              measured: score,
+              threshold,
+            }
+            : {
+              id: `script_${dimension}`,
+              status: "fail",
+              message: typeof score === "number"
+                ? `${dimension.replaceAll("_", " ")} ${score.toFixed(2)} is below ${threshold.toFixed(2)}`
+                : `${dimension.replaceAll("_", " ")} was not scored by the independent critic`,
+              measured: typeof score === "number" ? score : null,
+              threshold,
+            },
+        );
+      }
+
+      if (enforceDialogueQuality) {
+        const evidence = assessDialogueEvidence(script);
+        for (const evidenceCheck of evidence.checks) {
+          checks.push({
+            id: `dialogue_${evidenceCheck.id}`,
+            status: evidenceCheck.passed ? "pass" : "fail",
+            message: `${evidenceCheck.passed ? "1/1" : "0/1"} evidence: ${evidenceCheck.message}`,
+            measured: evidenceCheck.passed ? 1 : 0,
+            threshold: 1,
+          });
+        }
+      }
+
+      // --- visual assets are renderable (integrity, not aesthetics) ------ -------------------------------------
       // The most expensive silent failure: the video renders fine and is
       // entirely solid-colour placeholders.
       const placeholders =
@@ -93,21 +147,21 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const ratio = sceneCount > 0 ? placeholders / sceneCount : 0;
       checks.push(
         placeholders === 0
-          ? { id: "images_resolved", status: "pass", message: "every scene got a real image" }
+          ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable visual asset" }
           : ratio <= maxPlaceholderRatio
             ? {
-              id: "images_resolved",
+              id: "visual_assets_renderable",
               status: "warn",
-              message: `${placeholders} of ${sceneCount} scenes fell back to a placeholder`,
+              message: `${placeholders} of ${sceneCount} scenes used a degraded visual fallback`,
               measured: ratio,
               threshold: maxPlaceholderRatio,
             }
             : {
-              id: "images_resolved",
+              id: "visual_assets_renderable",
               status: "fail",
               message:
-                `${placeholders} of ${sceneCount} scenes are placeholders (${pct(ratio)}) — ` +
-                `the stock lookup is failing, not the odd scene`,
+                `${placeholders} of ${sceneCount} scenes lack their intended renderable asset (${pct(ratio)}) — ` +
+                `the visual asset pipeline is failing, not merely aesthetically imperfect`,
               measured: ratio,
               threshold: maxPlaceholderRatio,
             },
