@@ -308,7 +308,7 @@ function withCinematicRecipeBlocking(characters: CharacterProps[], cinematic?: C
                     : { ...character, x: index < activeIndex ? -560 : 1740, y: 310, scale: baseScale * 0.78, dimmed: true };
             case "prop-insert":
                 return active
-                    ? { ...character, x: 250, y: 285, scale: baseScale * 1.62, gazeTarget: "right" }
+                    ? { ...character, x: -20, y: 520, scale: baseScale * 2.05, gazeTarget: "right" }
                     : { ...character, x: index < activeIndex ? -700 : 1850, y: 390, scale: baseScale * 0.66, dimmed: true };
             case "over-shoulder":
                 return active
@@ -346,9 +346,9 @@ function HandHeldPropOverlay({
     const hand = actorRigPoint(holder, side, true);
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const insert = recipe === "prop-insert";
-    const propX = hand.x - (insert ? 82 : 54);
-    const propY = hand.y - (insert ? 126 : 102);
-    const propScale = insert ? 2.35 : 0.64;
+    const propX = hand.x - (insert ? 120 : 54);
+    const propY = hand.y - (insert ? 160 : 102);
+    const propScale = insert ? 2.75 : 0.64;
     const directedProp: ForegroundPropSpec = { ...prop, placement: "hand-held", renderMode: "physical" };
     return (
         <div data-physical-interaction="actor-anchored-prop">
@@ -589,6 +589,7 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const heldPropActor = propHolder(performedCharacters);
     const heldPropActorKey = heldPropActor?.actorId ?? heldPropActor?.animationKey ?? heldPropActor?.characterId;
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
+    const crossingProgress = interpolate(frame, [0, endFrame], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: cameraEasing });
 
     return (
         <AbsoluteFill style={{ background: scheme.backgroundGradient, overflow: "hidden" }} data-shot-recipe={recipe}>
@@ -600,7 +601,12 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                         <AbsoluteFill style={{ transform: combineTransforms(`translateX(${panX}px)`, characterLayerTransform(shotType)), ...characterLayer, zIndex: 5 }}>
                             {performedCharacters.map((c, i) => {
                                 const key = c.actorId ?? c.animationKey ?? `${c.characterId}-${i}`;
-                                const actorTransform = key === actingActorKey ? actingStage : undefined;
+                                const crossingTransform = recipe === "crossing-transition"
+                                    ? key === actingActorKey
+                                        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin(frame / 5.8)) * -8).toFixed(2)}px)`
+                                        : `translateX(${(180 - crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin((frame + 9) / 5.8)) * -7).toFixed(2)}px)`
+                                    : undefined;
+                                const actorTransform = crossingTransform ?? (key === actingActorKey ? actingStage : undefined);
                                 return (
                                     <AbsoluteFill key={key} data-acting-actor={key === actingActorKey ? "active" : "listener"} style={{ transform: actorTransform, pointerEvents: "none" }}>
                                         <Character {...c} />
