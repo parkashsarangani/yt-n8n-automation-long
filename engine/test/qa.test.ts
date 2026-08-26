@@ -43,11 +43,18 @@ interface QaPayload {
 const HEALTHY = {
   intent: { brief: "why chile is so long", target_duration_sec: 600 },
   script: {
-    scenes: Array.from({ length: 10 }, (_, i) => ({
-      scene_index: i,
-      point: `point ${i}`,
-      narration: "Narration for this scene, long enough to be real.",
-    })),
+    scenes: [
+      { scene_index: 0, speaker: "host", narration: "Why did the wider road slow us down?", point: "action=Host points at a traffic jam; prop=toy-cars; function=hook; value=wider roads created an unexpected result" },
+      { scene_index: 1, speaker: "buddy", narration: "I think more lanes should clear it.", point: "action=Buddy adds an empty lane; prop=toy-cars; function=intuitive_answer; value=extra capacity appears to reduce congestion" },
+      { scene_index: 2, speaker: "host", narration: "Then why did more cars appear?", point: "action=Host points at arriving cars; prop=toy-cars; function=objection; value=the intuitive prediction conflicts with observation" },
+      { scene_index: 3, speaker: "buddy", narration: "Add space. Drivers switch routes.", point: "action=Buddy moves cars into the new lane; prop=toy-cars; function=visual_model; value=new capacity attracts previously hidden demand" },
+      { scene_index: 4, speaker: "host", narration: "So space changed people's choices.", point: "action=Host rearranges the same cars; prop=toy-cars; function=correction; value=capacity changes demand rather than only flow" },
+      { scene_index: 5, speaker: "buddy", narration: "And the empty lane fills again.", point: "action=Buddy fills the final gap; prop=toy-cars; function=implication; value=the congestion benefit can disappear" },
+      { scene_index: 6, speaker: "host", narration: "That makes widening alone temporary.", point: "action=Host removes the spare lane marker; prop=toy-cars; function=implication; value=road expansion alone cannot preserve relief" },
+      { scene_index: 7, speaker: "buddy", narration: "So compare alternatives before adding lanes.", point: "action=Buddy places transit beside the road; prop=toy-cars; function=takeaway practical_action; value=decisions should account for changed behavior" },
+      { scene_index: 8, speaker: "host", narration: "Let me test that on our road.", point: "action=Host resets the car model; prop=toy-cars; function=takeaway practical_action; value=the corrected model is ready for application" },
+      { scene_index: 9, speaker: "buddy", narration: "More room invited drivers, so traffic returned.", point: "action=Buddy replays the filled lanes; prop=toy-cars; function=recap confirms_understanding; value=the opening contradiction is now explainable" },
+    ],
     word_count: 1500, // exactly 600s at 150wpm
   },
   quality: {
