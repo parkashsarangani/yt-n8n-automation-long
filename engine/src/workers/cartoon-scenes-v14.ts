@@ -191,7 +191,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
+export function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
   const prop = foregroundPropKind(scene);
   const action = sceneText(scene);
   if (setPieceKindFromProp(prop)) return "background-set-piece";
