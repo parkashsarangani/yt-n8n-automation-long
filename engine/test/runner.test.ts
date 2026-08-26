@@ -350,6 +350,9 @@ test("run log rolls up cost per transformation", async () => {
     "story_architect",
   ]);
   assert.ok(summary.output_tokens > 0);
+  assert.equal(summary.first_pass_rate, 1);
+  assert.equal(summary.retry_attempts, 0);
+  assert.deepEqual(summary.retries_by_reason, {});
 });
 
 test("structured-output projection strips unenforceable constraints but keeps them as guidance", () => {
