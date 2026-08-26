@@ -9,6 +9,7 @@
 import type { TransformationDef, WorkerDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type DialogueVoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
+import { makeCartoonSceneCompilerWorker as makeV15CartoonSceneCompilerWorker } from "./cartoon-scenes-v15.ts";
 import { makeCartoonSceneCompilerWorker as makeV16CartoonSceneCompilerWorker } from "./cartoon-scenes-v16.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
@@ -41,7 +42,7 @@ export { buildPrompt } from "./assets.ts";
  * post-v13 doorway staging corrections.
  */
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
-  const worker = makeV16CartoonSceneCompilerWorker();
+  const worker = makeV15CartoonSceneCompilerWorker();
   return {
     ...worker,
     consumes: worker.consumes.filter((input) => input.as !== "creative_direction"),
