@@ -1015,6 +1015,20 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
       compositionId: "KineticText",
       buildProps: (d) => ({ line: d.text }),
     },
+    explanation: {
+      compositionId: "ExplanationScene",
+      buildProps: (d) => ({
+        role: d.role,
+        title: d.title,
+        keyText: d.keyText,
+        elements: d.elements || [],
+        before: d.before,
+        after: d.after,
+        characterCutIn: d.characterCutIn || "none",
+        soundCue: d.soundCue || "none",
+        characters: d.characters || [],
+      }),
+    },
     cartoon: {
       compositionId: "CartoonScene",
       buildProps: (d) => ({
@@ -1063,7 +1077,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
   // Rhubarb runs against this scene's own narration audio, computed here
   // (not by the caller) since mouth cues are a render-time detail, not
   // something the story/planning pipeline needs to know about.
-  if (templateName === "cartoon" && Array.isArray(props.characters)) {
+  if ((templateName === "cartoon" || templateName === "explanation") && Array.isArray(props.characters)) {
     const cues = await generateMouthCues(audioPath, dialogText, tmpDir);
     props.characters = props.characters.map((c) => (c.isSpeaking ? { ...c, mouthCues: cues } : c));
   }
