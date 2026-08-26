@@ -118,8 +118,25 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
     async execute(inputs, ctx): Promise<WorkerOutput> {
-      const out = await v15.execute(inputs, ctx);
       const plans = planScenes(inputs as Record<string, { payload?: unknown } | undefined>);
+      const planInput = inputs["plan"];
+      const planPayload = asRecord(planInput?.payload);
+      // v1-v15 remain the cast/acting compatibility compiler and correctly
+      // reject unknown categories. Feed that boundary a legacy category, then
+      // restore the explanation-first contract after it has done its work.
+      const legacyInputs = plans.some((scene) => scene.scene_role) && planInput && planPayload
+        ? {
+          ...inputs,
+          plan: {
+            ...planInput,
+            payload: {
+              ...planPayload,
+              scenes: plans.map((scene) => ({ ...scene, template_category: "cartoon" })),
+            },
+          },
+        }
+        : inputs;
+      const out = await v15.execute(legacyInputs, ctx);
       if (!plans.some((scene) => scene.scene_role)) return out;
 
       const payload = out.payload as { scenes: CompiledEntry[]; degraded_count?: number };
