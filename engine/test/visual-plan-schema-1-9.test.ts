@@ -10,10 +10,8 @@ function enumFor(property: string): string[] {
   return schema.json_schema.properties.scenes.items.properties[property].enum;
 }
 
-test("cartoon visual planner v12 routes to visual_plan 1.9.0", () => {
-  assert.equal(agent.version, "12");
-  assert.equal(agent.prompt, "cartoon_visual_planner@12");
-  assert.equal(agent.produces_version, "1.9.0");
+test("legacy visual_plan 1.9.0 remains active for non-explanation pipelines", () => {
+  assert.equal(schema.status, "active");
   assert.equal(agent.model.capability, "reasoning_high");
 });
 
