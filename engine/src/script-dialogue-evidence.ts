@@ -150,7 +150,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   );
 
   const modelIndex = functions.indexOf("visual_model");
-  const preModelText = scenes.slice(0, Math.max(0, modelIndex)).map((scene) => `${scene.narration ?? ""} ${scene.point ?? ""}`).join(" ");
+  const preModelText = scenes.slice(0, Math.max(0, modelIndex)).map((scene) => scene.narration ?? "").join(" ");
   const predictionPresent = /\b(?:predict|prediction|expect|guess|bet|think|should|will|would|if .* then)\b/i.test(preModelText);
   const objectionIndex = functions.indexOf("objection");
   add(
