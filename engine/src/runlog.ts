@@ -105,12 +105,25 @@ export function rollup(records: RunRecord[]): {
   input_tokens: number;
   output_tokens: number;
   by_transformation: Record<string, { cost_usd: number; calls: number }>;
+  retry_attempts: number;
+  first_pass_rate: number;
+  retries_by_reason: Record<string, number>;
 } {
   const by: Record<string, { cost_usd: number; calls: number }> = {};
   let cost = 0;
   let inTok = 0;
   let outTok = 0;
+  let retryAttempts = 0;
+  let completed = 0;
+  let firstPassCompleted = 0;
+  const retriesByReason: Record<string, number> = {};
   for (const r of records) {
+    if (r.attempt > 1) retryAttempts++;
+    if (r.output && ["ok", "cache_hit", "accepted_below_quality_bar"].includes(r.status)) {
+      completed++;
+      if (r.attempt === 1) firstPassCompleted++;
+    }
+    if (!r.output && r.retry_reason) retriesByReason[r.retry_reason] = (retriesByReason[r.retry_reason] ?? 0) + 1;
     const c = r.usage?.cost_usd ?? 0;
     cost += c;
     inTok += r.usage?.input_tokens ?? 0;
@@ -124,5 +137,8 @@ export function rollup(records: RunRecord[]): {
     input_tokens: inTok,
     output_tokens: outTok,
     by_transformation: by,
+    retry_attempts: retryAttempts,
+    first_pass_rate: completed > 0 ? Number((firstPassCompleted / completed).toFixed(4)) : 0,
+    retries_by_reason: retriesByReason,
   };
 }
