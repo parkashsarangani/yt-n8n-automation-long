@@ -141,6 +141,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       // --- explanation format owns the frame -----------------------------
       if (enforceDialogueQuality) {
         const explanationScenes = (assets.scenes ?? []).filter((scene) => scene.template_category === "explanation");
+        if (explanationScenes.length > 0) {
         const decoded = explanationScenes.map((scene) => {
           try { return scene.template_data ? JSON.parse(scene.template_data) as Record<string, unknown> : {}; }
           catch { return {}; }
@@ -167,6 +168,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         checks.push(changeRatio >= 0.45
           ? { id: "meaningful_state_change", status: "pass", message: `${pct(changeRatio)} of scenes show a causal/state change`, measured: changeRatio, threshold: 0.45 }
           : { id: "meaningful_state_change", status: "fail", message: `only ${pct(changeRatio)} of scenes show a causal/state change`, measured: changeRatio, threshold: 0.45 });
+        }
       }
 
       // --- visual assets are renderable (integrity, not aesthetics) ------ -------------------------------------
