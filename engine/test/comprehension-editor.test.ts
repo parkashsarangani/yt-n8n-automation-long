@@ -7,20 +7,21 @@ const agent = JSON.parse(readFileSync(new URL("../agents/comprehension_editor.js
 const prompt = readFileSync(new URL("../prompts/comprehension_editor/1.md", import.meta.url), "utf8");
 const validators = readFileSync(new URL("../src/agent-validators.ts", import.meta.url), "utf8");
 
-test("cartoon graph reviews comprehension before expensive production work", () => {
+test("cartoon graph uses one combined edit before evidence-based revision", () => {
   const byId = new Map<string, { id: string; in?: string[]; policy?: { auto_pass_if?: string } }>(
     graph.nodes.map((node: { id: string; in?: string[]; policy?: { auto_pass_if?: string } }) => [node.id, node]),
   );
-  assert.equal(graph.version, "7");
+  assert.equal(graph.version, "8");
   assert.deepEqual(byId.get("draft_script")?.in, ["approve_story", "cast_roster"]);
-  assert.deepEqual(byId.get("comprehension_edit")?.in, ["approve_story", "draft_script", "cast_roster"]);
-  assert.deepEqual(byId.get("retention_edit")?.in, ["approve_story", "comprehension_edit", "cast_roster"]);
-  assert.deepEqual(byId.get("entertainment_edit")?.in, ["approve_story", "retention_edit", "cast_roster"]);
+  assert.equal(byId.has("comprehension_edit"), false);
+  assert.equal(byId.has("retention_edit"), false);
+  assert.equal(byId.has("creative_direction"), false);
+  assert.deepEqual(byId.get("entertainment_edit")?.in, ["approve_story", "draft_script", "cast_roster"]);
   assert.deepEqual(byId.get("quality_draft")?.in, ["approve_story", "entertainment_edit", "cast_roster"]);
   assert.deepEqual(byId.get("quality_release")?.in, ["quality_revision", "quality_final"]);
   assert.deepEqual(byId.get("approve_script")?.in, ["quality_release"]);
   assert.equal(byId.get("approve_script")?.policy?.auto_pass_if, "always");
-  for (const id of ["creative_direction", "visual_plan", "voice", "seo", "thumbnail_brief"]) {
+  for (const id of ["visual_plan", "voice", "seo", "thumbnail_brief"]) {
     assert.ok(byId.get(id)?.in?.includes("approve_script"), id);
   }
 });
