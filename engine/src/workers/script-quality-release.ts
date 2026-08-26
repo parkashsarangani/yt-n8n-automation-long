@@ -1,4 +1,5 @@
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
+import { assessDialogueEvidence } from "../script-dialogue-evidence.ts";
 
 export const SCRIPT_QUALITY_THRESHOLDS = {
   factual_fidelity: 0.97,
@@ -45,7 +46,7 @@ export function makeScriptQualityReleaseWorker(): WorkerDef {
   return {
     name: "script_quality_release",
     kind: "worker",
-    version: "1",
+    version: "2",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "script_quality_report", range: "^1", as: "report" },
@@ -54,8 +55,13 @@ export function makeScriptQualityReleaseWorker(): WorkerDef {
     produces_version: "1.3.0",
     async execute(inputs): Promise<WorkerOutput> {
       const result = assessScriptQuality(inputs["report"]?.payload);
-      if (!result.passed) {
-        throw new Error(`script quality release blocked: ${result.failures.join("; ")}`);
+      const evidence = assessDialogueEvidence(inputs["script"]?.payload);
+      const failures = [
+        ...result.failures,
+        ...evidence.failures.map((failure) => `evidence ${failure}`),
+      ];
+      if (failures.length > 0) {
+        throw new Error(`script quality release blocked: ${failures.join("; ")}`);
       }
       return { payload: inputs["script"]!.payload };
     },
