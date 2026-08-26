@@ -591,7 +591,7 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
     const recipe = normalizedShotRecipe(cinematic?.shotRecipe);
     const crossingProgress = interpolate(frame, [0, endFrame], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: cameraEasing });
     const crossingLeadTransform = recipe === "crossing-transition"
-        ? crossingLeadTransform
+        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin(frame / 5.8)) * -8).toFixed(2)}px)`
         : undefined;
 
     return (
@@ -606,7 +606,7 @@ export const CartoonScene = ({ background, mood = "neutral", characters, camera,
                                 const key = c.actorId ?? c.animationKey ?? `${c.characterId}-${i}`;
                                 const crossingTransform = recipe === "crossing-transition"
                                     ? key === actingActorKey
-                                        ? `translateX(${(-180 + crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin(frame / 5.8)) * -8).toFixed(2)}px)`
+                                        ? crossingLeadTransform
                                         : `translateX(${(180 - crossingProgress * 540).toFixed(2)}px) translateY(${(Math.abs(Math.sin((frame + 9) / 5.8)) * -7).toFixed(2)}px)`
                                     : undefined;
                                 const actorTransform = crossingTransform ?? (key === actingActorKey ? actingStage : undefined);
