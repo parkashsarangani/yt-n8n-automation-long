@@ -1,12 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" width="500" height="700">
-  <!-- narrower angular host face -->
-  <ellipse cx="143" cy="218" rx="26" ry="38" fill="#DFAE8C" stroke="#111111" stroke-width="8"/>
-  <ellipse cx="357" cy="218" rx="26" ry="38" fill="#DFAE8C" stroke="#111111" stroke-width="8"/>
-  <path d="M158 120 Q205 70 250 72 Q312 66 344 122 Q367 173 351 258 Q335 326 250 342 Q165 326 149 258 Q133 173 158 120 Z"
-        fill="#DFAE8C" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2C3A1"/>
+      <stop offset="0.62" stop-color="#DFAE8C"/>
+      <stop offset="1" stop-color="#CC8F6D"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#294956"/>
+      <stop offset="0.58" stop-color="#20343D"/>
+      <stop offset="1" stop-color="#14252D"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="143" cy="218" rx="26" ry="38" fill="url(#skin)" stroke="#17212B" stroke-width="8"/>
+  <ellipse cx="357" cy="218" rx="26" ry="38" fill="url(#skin)" stroke="#17212B" stroke-width="8"/>
+  <path d="M143 206 Q129 219 144 233" fill="none" stroke="#B97C5F" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <path d="M357 206 Q371 219 356 233" fill="none" stroke="#B97C5F" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <!-- narrower angular host face: hexagonal jaw built from straight facets
+       (cheekbone -> jaw corner -> chin point), not the smooth all-curve oval
+       used for buddy, so the silhouette reads as a distinct face shape even
+       in a small/backlit frame, not just a recolored copy. -->
+  <path d="M158 120 Q205 72 250 72 Q295 72 344 122 L358 190 L351 258 L310 320 L250 342 L190 320 L149 258 L142 190 Z"
+        fill="url(#skin)" stroke="#17212B" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M176 141 Q190 111 223 96" fill="none" stroke="#F7D0B2" stroke-width="13" stroke-linecap="round" opacity="0.40"/>
   <path d="M252 205 Q265 225 248 242" fill="none" stroke="#C98968" stroke-width="7" stroke-linecap="round"/>
   <path d="M154 151 Q150 86 205 73 Q250 34 319 72 Q356 82 372 119 Q342 108 323 105 Q306 129 274 111 Q236 139 196 113 Q176 136 154 151 Z"
-        fill="#20343D" stroke="#111111" stroke-width="9" stroke-linejoin="round"/>
+        fill="url(#hair)" stroke="#17212B" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M184 100 Q222 70 267 69" fill="none" stroke="#4F6C78" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
   <path d="M275 72 Q307 67 337 82" fill="none" stroke="#49B4BA" stroke-width="10" stroke-linecap="round"/>
   <path d="M175 286 Q193 308 216 312" fill="none" stroke="#CB8B70" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
   <path d="M325 286 Q307 308 284 312" fill="none" stroke="#CB8B70" stroke-width="4" stroke-linecap="round" opacity="0.7"/>

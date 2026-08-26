@@ -191,11 +191,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
+export function propPlacementForScene(scene: CreativeScene, location?: string): PropPlacement {
   const prop = foregroundPropKind(scene);
   const action = sceneText(scene);
   if (setPieceKindFromProp(prop)) return "background-set-piece";
   if (/\b(?:hold|holds|holding|grab|grabs|picked|picks|clutch|shows|hands?)\b/.test(action)) return "hand-held";
+  if (/\b(?:counter|worktop|countertop)\b/.test(action)) return "on-counter";
+  if (/\b(?:table|desk|sofa|couch|cushion|shelf)\b/.test(action)) return "on-table";
   if (["clock", "calendar", "window", "door"].includes(prop)) return "wall-mounted";
   if (["shoes", "shoe", "vehicle", "car"].includes(prop)) return "floor";
   if (location === "kitchen" || location === "cafe" || location === "shop") return "on-counter";

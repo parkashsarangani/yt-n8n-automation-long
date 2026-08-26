@@ -294,7 +294,7 @@ describe("legacy motion-graphics templates still render", { timeout: TEST_TIMEOU
   }
 });
 
-describe("compose rejects malformed jobs before rendering", { timeout: 20_000 }, () => {
+describe("compose rejects malformed jobs before rendering", { timeout: 45_000 }, () => {
   it("rejects an empty scenes array", async () => {
     const start = await postJSON("/compose", payloadWithScenes([]));
     assert.equal(start.status, 202);

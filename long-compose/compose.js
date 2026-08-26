@@ -1023,6 +1023,11 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         characters: d.characters || [],
         visualEvent: d.visualEvent,
         speakerEmphasis: d.speakerEmphasis,
+        // Explanation direction must survive the production bridge: prop inserts
+        // and reaction framing make the visual model readable, not decorative.
+        shotType: d.shotType || d.framing,
+        visualStyle: d.visualStyle || d.visual_style,
+        cinematic: d.cinematic,
       }),
     },
   };

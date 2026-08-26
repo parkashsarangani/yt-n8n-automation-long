@@ -44,6 +44,12 @@ const mdi = (name: string): AssetSource => ({
     sourceUrl: `https://github.com/Templarian/MaterialDesign/blob/master/svg/${name}.svg`,
 });
 
+const internalProp = (key: string, filename: string, tags: string[]): RegisteredAsset => ({
+    key, role: "prop", tags: [...tags, "physical", "object"], width: 256, height: 256,
+    compositeMode: "overlay", status: "starter-local",
+    source: { kind: "local-svg", library: "internal", path: `assets/props/physical/${filename}.svg`, license: MIT },
+});
+
 const scenePlate = (location: string, tags: string[]): RegisteredAsset => ({
     key: `scene:${location}:default`,
     role: "scenePlate",
@@ -95,7 +101,7 @@ export const LOCAL_ASSET_REGISTRY: Record<string, RegisteredAsset> = {
         source: { kind: "local-svg", library: "scene-pack", path: "assets/set-pieces/doorway.svg", license: CC0 },
     },
 
-    "prop:phone-charger:mdi": mdiProp("prop:phone-charger:mdi", "phone-charger", ["phone", "charger", "cellphone", "cable"], "cellphone-charging"),
+    "prop:phone-charger:physical": internalProp("prop:phone-charger:physical", "phone-charger", ["phone", "charger", "cellphone", "cable", "hand-held"]),
     "prop:keys:mdi": mdiProp("prop:keys:mdi", "keys", ["key", "keys", "lock"], "key-variant"),
     "prop:laptop:mdi": mdiProp("prop:laptop:mdi", "laptop", ["computer", "screen", "work"]),
     "prop:calendar:mdi": mdiProp("prop:calendar:mdi", "calendar", ["date", "schedule", "time"]),
@@ -182,10 +188,10 @@ const SET_PIECE_BY_KIND: Record<string, string> = {
 };
 
 const PROP_ASSET_BY_TYPE: Record<string, string> = {
-    phone: "prop:phone-charger:mdi",
-    cellphone: "prop:phone-charger:mdi",
-    charger: "prop:phone-charger:mdi",
-    "phone-charger": "prop:phone-charger:mdi",
+    phone: "prop:phone-charger:physical",
+    cellphone: "prop:phone-charger:physical",
+    charger: "prop:phone-charger:physical",
+    "phone-charger": "prop:phone-charger:physical",
     keys: "prop:keys:mdi",
     key: "prop:keys:mdi",
     laptop: "prop:laptop:mdi",

@@ -4,7 +4,7 @@ import { mouthAtTime, MouthCue } from "../animation/lipsync";
 const RIG_WIDTH = 500;
 const RIG_HEIGHT = 700;
 
-export type ArmPose = "up" | "down";
+export type ArmPose = "up" | "down" | "present" | "point" | "carry";
 export type Expression = "normal" | "angry" | "surprised";
 const VALID_EXPRESSIONS = new Set<Expression>(["normal", "angry", "surprised"]);
 export type SemanticEmotion =
@@ -67,8 +67,8 @@ const EMOTION: Record<SemanticEmotion, {
     amused:     { brow: "normal",    eye: 0.78, headTilt: -2.0, bodyLean: -0.3, gazeY: -1, listenerMotion: 0.55 },
     skeptical:  { brow: "angry",     eye: 0.72, headTilt: 2.8,  bodyLean: 0.7,  gazeY: -1, listenerMotion: 0.25 },
     confused:   { brow: "surprised", eye: 0.92, headTilt: 3.2,  bodyLean: 0.2,  gazeY: 0,  listenerMotion: 0.50 },
-    concerned:  { brow: "normal",    eye: 0.88, headTilt: -1.8, bodyLean: -0.6, gazeY: 1,  listenerMotion: 0.35 },
-    sad:        { brow: "normal",    eye: 0.72, headTilt: 2.0,  bodyLean: 0.9,  gazeY: 2,  listenerMotion: 0.20 },
+    concerned:  { brow: "normal",    eye: 0.88, headTilt: -1.8, bodyLean: -0.6, gazeY: 1, listenerMotion: 0.35 },
+    sad:        { brow: "normal",    eye: 0.72, headTilt: 2.0,  bodyLean: 0.9,  gazeY: 2, listenerMotion: 0.20 },
     angry:      { brow: "angry",     eye: 0.82, headTilt: -1.2, bodyLean: -1.0, gazeY: 0,  listenerMotion: 0.55 },
     surprised:  { brow: "surprised", eye: 1.14, headTilt: -2.2, bodyLean: -1.1, gazeY: -1, listenerMotion: 0.85 },
     scared:     { brow: "surprised", eye: 1.20, headTilt: -3.0, bodyLean: 1.6,  gazeY: -1, listenerMotion: 0.95 },
@@ -79,16 +79,16 @@ const EMOTION: Record<SemanticEmotion, {
 const GESTURE: Record<Gesture, {
     left: ArmPose; right: ArmPose; bodyRotate: number; bodyY: number; scale: number; headExtra: number;
 }> = {
-    idle:          { left: "down", right: "down", bodyRotate: 0.0,  bodyY: 0,   scale: 1.000, headExtra: 0 },
-    explain:       { left: "down", right: "up",   bodyRotate: -0.8, bodyY: -2,  scale: 1.003, headExtra: -0.6 },
-    "point-left": { left: "up",   right: "down", bodyRotate: 0.8,  bodyY: -1,  scale: 1.002, headExtra: 0.8 },
-    "point-right":{ left: "down", right: "up",   bodyRotate: -0.8, bodyY: -1,  scale: 1.002, headExtra: -0.8 },
-    shrug:         { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -5,  scale: 1.004, headExtra: 1.4 },
-    "hands-open": { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -3,  scale: 1.006, headExtra: -0.8 },
-    surprised:     { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -7,  scale: 1.015, headExtra: -1.2 },
-    thinking:      { left: "down", right: "up",   bodyRotate: 1.0,  bodyY: 0,   scale: 1.000, headExtra: 2.0 },
-    facepalm:      { left: "down", right: "up",   bodyRotate: -1.0, bodyY: 1,   scale: 0.998, headExtra: -3.0 },
-    celebrate:     { left: "up",   right: "up",   bodyRotate: 0.0,  bodyY: -10, scale: 1.020, headExtra: -1.5 },
+    idle:          { left: "down",    right: "down",    bodyRotate: 0.0,  bodyY: 0,   scale: 1.000, headExtra: 0 },
+    explain:       { left: "down",    right: "present", bodyRotate: -0.8, bodyY: -2,  scale: 1.003, headExtra: -0.6 },
+    "point-left": { left: "point",   right: "down",    bodyRotate: 0.8,  bodyY: -1,  scale: 1.002, headExtra: 0.8 },
+    "point-right":{ left: "down",    right: "point",   bodyRotate: -0.8, bodyY: -1,  scale: 1.002, headExtra: -0.8 },
+    shrug:         { left: "present", right: "present", bodyRotate: 0.0,  bodyY: -5,  scale: 1.004, headExtra: 1.4 },
+    "hands-open": { left: "present", right: "present", bodyRotate: 0.0,  bodyY: -3,  scale: 1.006, headExtra: -0.8 },
+    surprised:     { left: "up",      right: "up",      bodyRotate: 0.0,  bodyY: -7,  scale: 1.015, headExtra: -1.2 },
+    thinking:      { left: "down",    right: "present", bodyRotate: 1.0,  bodyY: 0,   scale: 1.000, headExtra: 2.0 },
+    facepalm:      { left: "down",    right: "up",      bodyRotate: -1.0, bodyY: 1,   scale: 0.998, headExtra: -3.0 },
+    celebrate:     { left: "up",      right: "up",      bodyRotate: 0.0,  bodyY: -10, scale: 1.020, headExtra: -1.5 },
 };
 
 function gazeFor(target: GazeTarget | undefined, x: number): { x: number; y: number } | null {
@@ -103,8 +103,46 @@ function gazeFor(target: GazeTarget | undefined, x: number): { x: number; y: num
     }
 }
 
-const ArmLayer: React.FC<{ rig: (name: string) => string; side: "left" | "right"; target: ArmPose }> = ({ rig, side, target }) => (
-    <Img src={rig(`arms/${side}-${target}.svg`)} style={layerStyle} />
+function armPerformanceTransform(
+    side: "left" | "right",
+    target: ArmPose,
+    gesture: Gesture | undefined,
+    motionFrame: number,
+    phase: number,
+    isSpeaking: boolean,
+): string {
+    const direction = side === "left" ? 1 : -1;
+    const wave = Math.sin((motionFrame + phase) / (isSpeaking ? 7.5 : 15));
+    const quiet = Math.sin((motionFrame + phase) / 23);
+    if (target === "present") {
+        const emphasis = gesture === "shrug" || gesture === "hands-open" ? 1.5 : 1;
+        return `translateY(${wave * -2.2 * emphasis}px) rotate(${direction * wave * 1.8 * emphasis}deg)`;
+    }
+    if (target === "point") {
+        return `translate(${direction * wave * 2.4}px, ${wave * -1.5}px) rotate(${direction * wave * 1.1}deg)`;
+    }
+    if (target === "up") {
+        return `translateY(${wave * -3.2}px) rotate(${direction * wave * 2.2}deg)`;
+    }
+    if (target === "carry") {
+        return `translateY(${wave * -1.1}px) rotate(${direction * wave * 0.7}deg)`;
+    }
+    return `rotate(${direction * quiet * 0.45}deg)`;
+}
+
+const ArmLayer: React.FC<{
+    rig: (name: string) => string;
+    side: "left" | "right";
+    target: ArmPose;
+    transform: string;
+}> = ({ rig, side, target, transform }) => (
+    <div style={{
+        ...layerStyle,
+        transform,
+        transformOrigin: side === "left" ? "31% 51%" : "69% 51%",
+    }}>
+        <Img src={rig(`arms/${side}-${target}.svg`)} style={layerStyle} />
+    </div>
 );
 
 export const Character: React.FC<CharacterProps> = ({
@@ -161,6 +199,14 @@ export const Character: React.FC<CharacterProps> = ({
     const bodyY = semanticGesture?.bodyY ?? 0;
     const gestureScale = semanticGesture?.scale ?? 1;
     const brow = expression && VALID_EXPRESSIONS.has(expression) ? expression : emotionProfile.brow;
+    const leftArmTransform = armPerformanceTransform("left", targetLeft, gesture, motionFrame, idlePhase, isSpeaking);
+    const rightArmTransform = armPerformanceTransform("right", targetRight, gesture, motionFrame, headPhase, isSpeaking);
+    const reactionKick = emotion === "surprised" || emotion === "scared"
+        ? Math.exp(-Math.min(frame, 36) / 10) * 0.055
+        : 0;
+    const performanceLift = gesture === "celebrate" ? Math.sin((motionFrame + speechPhase) / 8) * -4
+        : gesture === "surprised" ? Math.exp(-Math.min(frame, 30) / 9) * -12
+        : 0;
 
     // Fear is actor-local performance, not camera motion. Keep it below a pixel
     // and around 1 Hz so it reads as nervous energy rather than screen buzz.
@@ -180,7 +226,7 @@ export const Character: React.FC<CharacterProps> = ({
     return (
         <div style={{
             position: "absolute", left: x, top: y, width: RIG_WIDTH, height: RIG_HEIGHT,
-            transform: `translate(${fearTremorX}px, ${bodyY + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale * activePulseScale}) scaleY(${bodyScaleY})`,
+            transform: `translate(${fearTremorX}px, ${bodyY + performanceLift + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale * activePulseScale * (1 + reactionKick)}) scaleY(${bodyScaleY})`,
             transformOrigin: "bottom center",
             opacity: dimmed ? 0.82 : 1,
             filter,
@@ -193,9 +239,14 @@ export const Character: React.FC<CharacterProps> = ({
                     boxShadow: "0 0 24px rgba(255,221,76,0.44)",
                 }} />
             )}
-            <Img src={rig("body.svg")} style={layerStyle} />
-            <ArmLayer rig={rig} side="left" target={targetLeft} />
-            <ArmLayer rig={rig} side="right" target={targetRight} />
+            <div style={{
+                position: "absolute", left: 126, bottom: 6, width: 248, height: 36,
+                borderRadius: "50%", background: "rgba(15,23,42,0.18)", filter: "blur(9px)",
+                transform: `scaleX(${0.92 + Math.abs(breathWave) * 0.04})`, transformOrigin: "center", zIndex: -1,
+            }} />
+            <Img src={rig("body.svg")} style={{ ...layerStyle, filter: "drop-shadow(0 10px 10px rgba(15,23,42,0.10))" }} />
+            <ArmLayer rig={rig} side="left" target={targetLeft} transform={leftArmTransform} />
+            <ArmLayer rig={rig} side="right" target={targetRight} transform={rightArmTransform} />
             <div style={{ ...layerStyle, transform: `rotate(${headAngle}deg)`, transformOrigin: "50% 40%" }}>
                 <Img src={rig("head.svg")} style={layerStyle} />
                 <div style={{ ...layerStyle, transform: `scaleY(${eyeScaleY})`, transformOrigin: "50% 30%" }}>

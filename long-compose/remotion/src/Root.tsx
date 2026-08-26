@@ -24,27 +24,27 @@ const D = 120; // default frames
 
 export const RemotionRoot: React.FC = () => (
     <>
-        <Composition id="StatReveal" component={StatReveal} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="StatReveal" component={StatReveal as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ statValue: "3.5x", label: "MORE VIEWS", icon: "activity", mood: "upbeat" as const }} />
-        <Composition id="Comparison" component={Comparison} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="Comparison" component={Comparison as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ leftLabel: "BEFORE", leftValue: "$100", rightLabel: "AFTER", rightValue: "$10,000", mood: "upbeat" as const }} />
-        <Composition id="KineticText" component={KineticText} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="KineticText" component={KineticText as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ line: "This changes everything", mood: "serious" as const }} />
-        <Composition id="CaptionOverlay" component={CaptionOverlay} durationInFrames={900} fps={FPS} width={W} height={H}
+        <Composition id="CaptionOverlay" component={CaptionOverlay as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={900} fps={FPS} width={W} height={H}
             defaultProps={{ words: [] as Array<{ text: string; start: number; end: number }>, commentHook: "", totalDuration: 30 }} />
-        <Composition id="SceneTransition" component={SceneTransition} durationInFrames={12} fps={FPS} width={W} height={H}
+        <Composition id="SceneTransition" component={SceneTransition as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={12} fps={FPS} width={W} height={H}
             defaultProps={{ type: "crossfade" as const }} />
 
-        <Composition id="DataTimeline" component={DataTimeline} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="DataTimeline" component={DataTimeline as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ events: [{ year: "1947", title: "Independence" }], title: "Timeline" }} />
-        <Composition id="DataRanking" component={DataRanking} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="DataRanking" component={DataRanking as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ items: [{ rank: 1, name: "China", value: "1.4B" }], title: "Ranking" }} />
-        <Composition id="DataBarChart" component={DataBarChart} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="DataBarChart" component={DataBarChart as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ items: [{ label: "A", value: 80 }], title: "Chart" }} />
-        <Composition id="ListNumberedVertical" component={ListNumberedVertical} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="ListNumberedVertical" component={ListNumberedVertical as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{ items: [{ text: "Key fact" }], title: "Key Facts" }} />
 
-        <Composition id="CartoonScene" component={CartoonScene} durationInFrames={D} fps={FPS} width={W} height={H}
+        <Composition id="CartoonScene" component={CartoonScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{
                 mood: "neutral" as const,
                 background: {

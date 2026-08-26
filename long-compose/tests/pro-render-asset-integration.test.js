@@ -12,7 +12,7 @@ const manifest = JSON.parse(readFileSync(join(root, "remotion/public/assets/mani
 test("CartoonScene consumes scene composition before rendering characters", () => {
   assert.match(cartoonScene, /composeCharactersForScene/);
   assert.match(cartoonScene, /const stagedCharacters = useMemo/);
-  assert.match(cartoonScene, /withConversationDirection\(stagedCharacters, speakerEmphasis\)/);
+  assert.match(cartoonScene, /withConversationDirection\(recipeBlockedCharacters, speakerEmphasis\)/);
   assert.match(cartoonScene, /foregroundMaskForScene/);
 });
 
