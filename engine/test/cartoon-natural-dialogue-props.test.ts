@@ -110,7 +110,15 @@ async function compile(scenes: unknown[], planOverrides: (sceneIndex: number) =>
   );
 }
 
-test("dialogue_script_writer v6 rejects textbook-style AI explainer dialogue", async () => {
+test("compiler no longer hard-blocks on textbook-style dialogue (agent stage owns this check)", async () => {
+  // Real production failure: run_a1838b5d's writer stage retried this exact
+  // heuristic 3 times, then explicitly accepted the script on the last attempt
+  // per agent-validators.ts's retry-then-accept policy -- but this compiler-stage
+  // copy re-threw the identical check unconditionally, permanently blocking a run
+  // the writer had already been allowed to continue. Removed the compiler-stage
+  // duplicate; agent-validators.ts's validateDialogueScript is now the sole
+  // enforcement point, and it has real retry-with-feedback plus a policy for what
+  // happens when a script still misses the bar after 3 tries.
   const scenes = planningScenesWithNaturalDialogue("clock").map((scene, index) => ({
     ...scene,
     narration: [
@@ -123,17 +131,13 @@ test("dialogue_script_writer v6 rejects textbook-style AI explainer dialogue", a
     ][index]!,
   }));
 
-  await assert.rejects(
-    () => compile(scenes, () => ({ primary_prop: "clock", prop_state: "clock-visible" })),
-    /natural dialogue gate failed/,
-  );
+  const out = await compile(scenes, () => ({ primary_prop: "clock", prop_state: "clock-visible" }));
+  assert.ok(out.payload);
 });
 
-test("planning topics reject phone as the central scripted prop", async () => {
-  await assert.rejects(
-    () => compile(planningScenesWithNaturalDialogue("phone")),
-    /topic prop gate failed: planning\/lateness scenes .* use phone as the central prop/,
-  );
+test("compiler no longer hard-blocks planning topics for using phone as the central prop (agent stage owns this check)", async () => {
+  const out = await compile(planningScenesWithNaturalDialogue("phone"));
+  assert.ok(out.payload);
 });
 
 test("planning topics override planner phone defaults with time and routine props", async () => {

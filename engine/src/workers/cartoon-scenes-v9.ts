@@ -33,7 +33,6 @@ interface ForegroundPropSpec {
 
 const WORDS_PER_SECOND = 2.6;
 const ACTION_QUALITY_SCRIPT_VERSION = 5;
-const NATURAL_DIALOGUE_SCRIPT_VERSION = 6;
 const LONG_EPISODE_SECONDS = 120;
 const MIN_LONG_PROP_STATES = 5;
 const MIN_LONG_CUTAWAYS = 3;
@@ -47,10 +46,6 @@ function dialogueWriterVersion(scriptArtifact: unknown): number {
 
 function shouldApplyV8Gate(scriptArtifact: unknown): boolean {
   return dialogueWriterVersion(scriptArtifact) >= ACTION_QUALITY_SCRIPT_VERSION;
-}
-
-function shouldApplyNaturalDialogueGate(scriptArtifact: unknown): boolean {
-  return dialogueWriterVersion(scriptArtifact) >= NATURAL_DIALOGUE_SCRIPT_VERSION;
 }
 
 function pointField(scene: ScriptScene, keys: string[]): string {
@@ -384,47 +379,6 @@ function assertRuntimeDensity(scripts: ScriptScene[], entries: CompiledEntry[]):
   }
 }
 
-function assertNaturalDialogue(scripts: ScriptScene[]): void {
-  const ordered = scripts.filter((scene) => !scene.is_outro).slice().sort((a, b) => a.scene_index - b.scene_index);
-  if (ordered.length === 0) return;
-
-  const lines = ordered.map((scene) => scene.narration.trim()).filter(Boolean);
-  const counts = lines.map(wordCount);
-  const averageWords = counts.reduce((sum, count) => sum + count, 0) / Math.max(1, counts.length);
-  const shortLines = counts.filter((count) => count <= 10).length;
-  const longLines = ordered.filter((scene) => wordCount(scene.narration) > 18);
-  const fragmentLines = ordered.filter((scene) => wordCount(scene.narration) <= 4);
-  const humanMomentLines = ordered.filter((scene) => /\b(?:i|i'm|im|i’ll|i'd|me|my|you|you're|youre|your|we|we're|were|wait|nope|ugh|okay|still|again|late|where|why|how|fine|hate|rude|keys?)\b|(?:n't|'m|'re|'ve|'ll|'d)/i.test(scene.narration));
-  const lecturePhrases = ordered.filter((scene) => /\b(?:that's fascinating|that is fascinating|interesting|exactly\.|this means|in other words|research shows|studies show|the reason is|what happens is|the key is|the concept is|as a result)\b/i.test(scene.narration));
-  const definitionLines = ordered.filter((scene) => /^\s*(?:the\s+)?(?:planning fallacy|dopamine|cognitive bias|the brain|your brain|human brain|reward system)\s+(?:is|means|refers to|causes|explains)\b/i.test(scene.narration));
-  const conceptLectureLines = ordered.filter((scene) => /\b(?:planning fallacy|cognitive bias|dopamine|reward system|human brain)\b/i.test(scene.narration) && wordCount(scene.narration) > 12);
-
-  const failures: string[] = [];
-  if (averageWords > 12.5) failures.push(`average line length ${averageWords.toFixed(1)} words exceeds 12.5`);
-  if (shortLines < Math.ceil(lines.length * 0.5)) failures.push(`${shortLines}/${lines.length} lines are 10 words or fewer; at least half must be short`);
-  if (longLines.length > Math.max(1, Math.floor(lines.length * 0.2))) failures.push(`too many long lines: ${longLines.map((s) => s.scene_index).join(", ")}`);
-  if (fragmentLines.length < 1) failures.push("needs at least one short human fragment such as Wait, Nope, Ugh, or Still late");
-  if (humanMomentLines.length < Math.ceil(lines.length * 0.45)) failures.push("too few lines sound like someone inside the situation rather than explaining it");
-  if (lecturePhrases.length > 0) failures.push(`lecture/generic reaction phrases in scenes ${lecturePhrases.map((s) => s.scene_index).join(", ")}`);
-  if (definitionLines.length > 0) failures.push(`definition-style concept lines in scenes ${definitionLines.map((s) => s.scene_index).join(", ")}`);
-  if (conceptLectureLines.length > 1) failures.push(`too many long concept-label lines in scenes ${conceptLectureLines.map((s) => s.scene_index).join(", ")}`);
-
-  if (failures.length > 0) {
-    throw new Error(`dialogue_script_writer@6 natural dialogue gate failed: ${failures.join("; ")}. Rewrite as short, human, situational dialogue, not textbook/explainer speech.`);
-  }
-}
-
-function assertTopicPropSemantics(scripts: ScriptScene[]): void {
-  const ordered = scripts.filter((scene) => !scene.is_outro).slice().sort((a, b) => a.scene_index - b.scene_index);
-  if (!isPlanningOrLatenessTopic(ordered)) return;
-  const phoneScenes = ordered.filter((scene) => propValue(scene) === "phone");
-  if (phoneScenes.length > 0) {
-    throw new Error(
-      `dialogue_script_writer@6 topic prop gate failed: planning/lateness scenes ${phoneScenes.map((s) => s.scene_index).join(", ")} use phone as the central prop. Use clock, keys, calendar, route-map, door, coffee, or shoes unless the story is specifically about a phone.`,
-    );
-  }
-}
-
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const base = makeBaseCartoonSceneCompilerWorker();
   return {
@@ -435,10 +389,14 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
       if (!shouldApplyV8Gate(inputs["script"])) return out;
       const scriptScenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const planScenes = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;
-      if (shouldApplyNaturalDialogueGate(inputs["script"])) {
-        assertNaturalDialogue(scriptScenes);
-        assertTopicPropSemantics(scriptScenes);
-      }
+      // The natural-dialogue and topic-prop checks that used to run here duplicated
+      // agent-validators.ts's validateDialogueScript, but as an unconditional throw
+      // with no retry -- unlike the agent stage, which retries with feedback and then
+      // accepts the script on its final attempt if it still misses the bar. That made
+      // this compiler-stage copy silently override the agent stage's explicit
+      // accept-and-proceed decision, permanently blocking runs the writer had already
+      // been allowed to continue (real production case: run_a1838b5d). Dropped both;
+      // the agent-stage gate is the sole enforcement point for this content heuristic.
       const payload = out.payload as { scenes: CompiledEntry[]; degraded_count?: number };
       const entries = applyForegroundProps(payload.scenes, scriptScenes, planScenes);
       assertForegroundCoverage(scriptScenes, entries);
