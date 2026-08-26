@@ -1,4 +1,4 @@
-iteration=20
-source=shot-language-insert-crossing
-requested=2026-08-26T07:08:00+00:00
-notes=verify tight prop insert crop and true actor crossing
+iteration=21
+source=shot-language-final-chain
+requested=2026-08-26T07:14:00+00:00
+notes=verify tight prop insert, true crossing, and attached carried prop
