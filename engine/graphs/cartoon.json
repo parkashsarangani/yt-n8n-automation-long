@@ -1,7 +1,7 @@
 {
   "graph_id": "cartoon",
-  "version": "6",
-  "description": "Two-character comprehension pipeline with character-aware retention editing, adversarial script criticism, a targeted revision pass, and deterministic per-dimension release thresholds before any voice or rendering cost.",
+  "version": "7",
+  "description": "Two-character comprehension pipeline with dedicated retention and emotional-entertainment editing, adversarial criticism, targeted revision, observable dialogue evidence, and deterministic release thresholds before voice or rendering cost.",
   "nodes": [
     {
       "id": "intent",
@@ -70,11 +70,20 @@
       ]
     },
     {
+      "id": "entertainment_edit",
+      "transformation": "emotional_entertainment_editor",
+      "in": [
+        "approve_story",
+        "retention_edit",
+        "cast_roster"
+      ]
+    },
+    {
       "id": "quality_draft",
       "transformation": "script_quality_critic",
       "in": [
         "approve_story",
-        "retention_edit",
+        "entertainment_edit",
         "cast_roster"
       ]
     },
@@ -83,7 +92,7 @@
       "transformation": "script_quality_reviser",
       "in": [
         "approve_story",
-        "retention_edit",
+        "entertainment_edit",
         "quality_draft",
         "cast_roster"
       ]
