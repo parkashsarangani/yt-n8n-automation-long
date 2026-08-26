@@ -10,6 +10,9 @@ export const SCRIPT_QUALITY_THRESHOLDS = {
   escalation: 0.94,
   payoff: 0.95,
   non_template_feel: 0.90,
+  emotional_momentum: 0.94,
+  entertainment_value: 0.95,
+  surprise_freshness: 0.93,
 } as const;
 
 type Dimension = keyof typeof SCRIPT_QUALITY_THRESHOLDS;
