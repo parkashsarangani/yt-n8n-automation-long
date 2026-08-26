@@ -56,3 +56,15 @@ test("a complete beat list still fails when characters do not predict, interact,
   assert.ok(result.failures.some((failure) => failure.startsWith("model_reused_in_recap")));
   assert.ok(result.failures.some((failure) => failure.startsWith("both_characters_advance_reasoning")));
 });
+
+
+test("structurally correct dialogue still fails when delivery is emotionally flat", () => {
+  const flat = structuredClone(strongScript);
+  for (const scene of flat.scenes) scene.emotion = "neutral";
+
+  const result = assessDialogueEvidence(flat);
+  assert.equal(result.passed, false);
+  assert.ok(result.failures.some((failure) => failure.startsWith("playable_emotional_palette")));
+  assert.ok(result.failures.some((failure) => failure.startsWith("emotional_movement")));
+  assert.ok(result.failures.some((failure) => failure.startsWith("model_break_reaction")));
+});
