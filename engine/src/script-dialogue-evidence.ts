@@ -132,7 +132,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
     ordered,
     ordered
       ? "all eight comprehension functions appear in causal order"
-      : `required function order is incomplete or broken: ${REQUIRED_FUNCTIONS.filter((_, i) => positions[i] < 0).join(", ") || "order mismatch"}`,
+      : `required function order is incomplete or broken: ${REQUIRED_FUNCTIONS.filter((_, i) => positions[i]! < 0).join(", ") || "order mismatch"}`,
     positions.filter((position) => position >= 0).length,
     REQUIRED_FUNCTIONS.length,
   );
