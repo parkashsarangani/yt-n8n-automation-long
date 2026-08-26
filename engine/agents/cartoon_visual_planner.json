@@ -14,8 +14,8 @@
       "as": "cast_roster"
     }
   ],
-  "produces": "visual_plan",
-  "produces_version": "2.0.0",
+  "produces": "explanation_plan",
+  "produces_version": "1.0.0",
   "prompt": "cartoon_visual_planner@13",
   "model": {
     "capability": "reasoning_high",
