@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { applyPlannerShotAuthority } from "../src/workers/cartoon-scenes-v15.ts";
+import { propPlacementForScene } from "../src/workers/cartoon-scenes-v14.ts";
 
 function entry(sceneIndex: number, heuristicRecipe = "two-shot") {
   return {
@@ -98,4 +99,40 @@ test("legacy pan/pull camera remains in base camera layer instead of double-movi
     const scene = parsed(output!);
     assert.equal(scene.cinematic.cameraIntent, "static");
   }
+});
+
+
+function creativePropScene(type: string, state: string, action: string) {
+  return {
+    scene_index: 1,
+    scene_function: "prop_setup",
+    energy_beat: "setup",
+    foreground_prop: { type, state, motion: "none", anchor: "foreground", action },
+    blocking: { speaker_position: "left", listener_position: "right", prop_position: "center", power_shift: "none" },
+    metaphor: { type: "none", label: "", emotional_beat: "" },
+    callback_role: "seed" as const,
+    performance_note: "",
+  };
+}
+
+test("explicit surfaces outrank carryable prop defaults", () => {
+  assert.equal(
+    propPlacementForScene(creativePropScene("charger", "visible on sofa cushion", "Buddy points at the charger on the sofa cushion"), "living-room"),
+    "on-table",
+  );
+  assert.equal(
+    propPlacementForScene(creativePropScene("phone", "waiting on desk", "The phone remains on the desk"), "office"),
+    "on-table",
+  );
+  assert.equal(
+    propPlacementForScene(creativePropScene("keys", "left on counter", "Keys sit on the kitchen counter"), "kitchen"),
+    "on-counter",
+  );
+});
+
+test("explicit carry actions still produce hand-held props", () => {
+  assert.equal(
+    propPlacementForScene(creativePropScene("charger", "grabbed", "Host grabs and shows the charger"), "living-room"),
+    "hand-held",
+  );
 });
