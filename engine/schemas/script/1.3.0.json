@@ -1,7 +1,7 @@
 {
   "schema_id": "script",
   "version": "1.3.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "Script schema used by the dialogue, comprehension, retention/revision, and deterministic quality-release stages. Payload shape remains backward compatible with 1.2.0; the minor version expands the immutable producer allowlist.",
   "produced_by": [
     "script_writer",
