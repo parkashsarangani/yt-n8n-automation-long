@@ -279,7 +279,7 @@ export function cinematicActingStageTransform(cinematic: CinematicSceneSpec | un
             // Keep the actor travelling through the frame so early/mid/late states
             // are compositionally distinct and the move reads as physical staging.
             const travel = easeInOutCubic(clamp(frame / Math.max(1, durationInFrames - 1), 0, 1));
-            const x = 90 - travel * 480;
+            const x = -180 + travel * 540;
             return `translateX(${x.toFixed(2)}px) translateY(${(Math.abs(beat) * -8).toFixed(2)}px) rotate(${(beat * 0.45).toFixed(2)}deg)`;
         }
         case "double-take":
