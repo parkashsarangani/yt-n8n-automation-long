@@ -71,7 +71,8 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
-    makeQaWorker(opts.qa ?? {}),
+    makeQaWorker({ ...(opts.qa ?? {}), name: "qa", enforceDialogueQuality: false }),
+    makeQaWorker({ ...(opts.qa ?? {}), name: "retention_qa", enforceDialogueQuality: true }),
     ...(opts.publish ? [makePublishWorker(opts.publish)] : []),
   ];
   return new Map(workers.map((w) => [w.name, w]));
