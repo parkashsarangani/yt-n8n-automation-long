@@ -55,6 +55,45 @@ function planScenes(inputs: Record<string, { payload?: unknown } | undefined>): 
 }
 
 /**
+ * The v1-v15 compatibility compiler still contains puppet-era staging variety
+ * checks. Explanation scenes do not render those fields, so normalize them
+ * deterministically before entering that boundary. This prevents irrelevant
+ * studio/two-shot repetition from blocking a valid motion-graphics plan while
+ * leaving the legacy compiler and legacy graphs unchanged.
+ */
+export function normalizeExplanationCompatibilityStaging(
+  scenes: ExplanationPlanScene[],
+): Array<ExplanationPlanScene & { template_category: "cartoon"; framing?: string; camera_motion?: string }> {
+  return scenes.map((scene) => {
+    if (!scene.scene_role) {
+      return { ...scene, template_category: "cartoon" };
+    }
+
+    const alternate = Math.abs(scene.scene_index) % 2 === 1;
+    const role = scene.scene_role as ExplanationRole;
+    const framing = role === "character-hook"
+      ? (alternate ? "speaker-closeup" : "two-shot")
+      : role === "character-reaction"
+        ? (alternate ? "reaction-closeup" : "listener-closeup")
+        : role === "kinetic-emphasis"
+          ? (alternate ? "speaker-closeup" : "prop-insert")
+          : (alternate ? "over-shoulder" : "prop-insert");
+    const cameraMotion = role === "character-reaction"
+      ? "reaction-push"
+      : ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role)
+        ? "prop-focus"
+        : "static";
+
+    return {
+      ...scene,
+      template_category: "cartoon",
+      framing,
+      camera_motion: cameraMotion,
+    };
+  });
+}
+
+/**
  * Converts the final cinematic-puppet payload into an explanation-first
  * payload. The accumulated v1-v15 compiler remains the compatibility layer for
  * cast identity and acting data; this boundary changes what owns the frame.
@@ -131,7 +170,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
             ...planInput,
             payload: {
               ...planPayload,
-              scenes: plans.map((scene) => ({ ...scene, template_category: "cartoon" })),
+              scenes: normalizeExplanationCompatibilityStaging(plans),
             },
           },
         }
