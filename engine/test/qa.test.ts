@@ -356,3 +356,22 @@ test("visual aesthetics are not represented as blocking quality scores", async (
   assert.equal(check(payload, "thumbnail_image").status, "warn");
   assert.equal(payload.checks.some((c) => /cinematic|camera variety|environment variety/i.test(c.id)), false);
 });
+
+
+test("perfect critic scores cannot hide lecture-like dialogue", async () => {
+  const fakeDialogue = HEALTHY.script.scenes.map((scene, index) => ({
+    ...scene,
+    speaker: "host",
+    narration: "Here is another useful fact about this concept.",
+    point: `action=Host talks; prop=none; function=${index === 0 ? "hook" : "implication"}; value=viewer learns concept`,
+  }));
+  const { payload } = await runQa({ script: { scenes: fakeDialogue } });
+
+  assert.equal(payload.verdict, "fail");
+  assert.equal(check(payload, "dialogue_two_active_characters").status, "fail");
+  assert.equal(check(payload, "dialogue_comprehension_arc").status, "fail");
+  assert.equal(check(payload, "dialogue_physical_explanation_model").status, "fail");
+  assert.ok(payload.checks.every((item) =>
+    !item.id.startsWith("script_") || item.status === "pass"
+  ), "critic scores should remain high in this adversarial fixture");
+});
