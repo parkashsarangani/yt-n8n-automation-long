@@ -97,7 +97,7 @@ export function applyExplanationFormat(
         explanationRole: role,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
-        meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison"].includes(role),
+        meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
       },
     };
 
