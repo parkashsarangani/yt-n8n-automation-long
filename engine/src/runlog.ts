@@ -48,6 +48,8 @@ export interface RunRecord {
   started_at: string;
   duration_ms: number;
   error?: string | null;
+  /** Machine-readable reason for a retry or below-bar acceptance. */
+  retry_reason?: "provider" | "schema" | "natural_dialogue" | "story_contract" | "visual_explanation" | "other_semantic" | null;
   /**
    * External job identifier for a long-running transformation (a render, say).
    * Recorded while the job is in flight so a crashed run leaves a trace of what
