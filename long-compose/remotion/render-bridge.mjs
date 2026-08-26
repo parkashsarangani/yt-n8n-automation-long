@@ -20,6 +20,7 @@ import {
     openSync,
     readFileSync,
     readdirSync,
+    renameSync,
     rmSync,
     statSync,
     unlinkSync,
@@ -168,17 +169,31 @@ async function getBundleLocation() {
             if (cachedBundleIsFresh(stamp)) return bundleDirFor(stamp);
 
             const dir = bundleDirFor(stamp);
+            // Build into a process-private temp directory and only rename it
+            // into place once webpack has fully finished. Directory rename is
+            // atomic on POSIX, so a sibling process's existsSync(index.html)
+            // check can never observe a partially-written bundle: either the
+            // final directory doesn't exist yet, or it's complete. Building
+            // straight into `dir` let a reader see index.html the moment
+            // webpack emitted it, while later chunk files were still being
+            // flushed, occasionally handing a concurrent renderMedia() call a
+            // truncated bundle.js that only had part of the Root registered
+            // (surfaced as "Could not find composition ... Available
+            // compositions: <one arbitrary composition>").
+            const buildingDir = `${dir}.building-${process.pid}`;
+            rmSync(buildingDir, { recursive: true, force: true });
             console.log(`[remotion] Bundling once for shared scene renders...`);
-            const location = await bundle({
+            await bundle({
                 entryPoint: path.resolve(__dirname, "./src/index.ts"),
-                outDir: dir,
+                outDir: buildingDir,
                 rootDir: __dirname,
                 publicDir: path.join(__dirname, "public"),
                 webpackOverride: (config) => config,
             });
+            renameSync(buildingDir, dir);
             pruneOldBundles(stamp);
-            console.log(`[remotion] Bundle ready: ${location}`);
-            return location;
+            console.log(`[remotion] Bundle ready: ${dir}`);
+            return dir;
         } finally {
             if (lockFd !== undefined) closeSync(lockFd);
             try { unlinkSync(bundleLock); } catch { /* already removed */ }
