@@ -103,8 +103,46 @@ function gazeFor(target: GazeTarget | undefined, x: number): { x: number; y: num
     }
 }
 
-const ArmLayer: React.FC<{ rig: (name: string) => string; side: "left" | "right"; target: ArmPose }> = ({ rig, side, target }) => (
-    <Img src={rig(`arms/${side}-${target}.svg`)} style={layerStyle} />
+function armPerformanceTransform(
+    side: "left" | "right",
+    target: ArmPose,
+    gesture: Gesture | undefined,
+    motionFrame: number,
+    phase: number,
+    isSpeaking: boolean,
+): string {
+    const direction = side === "left" ? 1 : -1;
+    const wave = Math.sin((motionFrame + phase) / (isSpeaking ? 7.5 : 15));
+    const quiet = Math.sin((motionFrame + phase) / 23);
+    if (target === "present") {
+        const emphasis = gesture === "shrug" || gesture === "hands-open" ? 1.5 : 1;
+        return `translateY(${wave * -2.2 * emphasis}px) rotate(${direction * wave * 1.8 * emphasis}deg)`;
+    }
+    if (target === "point") {
+        return `translate(${direction * wave * 2.4}px, ${wave * -1.5}px) rotate(${direction * wave * 1.1}deg)`;
+    }
+    if (target === "up") {
+        return `translateY(${wave * -3.2}px) rotate(${direction * wave * 2.2}deg)`;
+    }
+    if (target === "carry") {
+        return `translateY(${wave * -1.1}px) rotate(${direction * wave * 0.7}deg)`;
+    }
+    return `rotate(${direction * quiet * 0.45}deg)`;
+}
+
+const ArmLayer: React.FC<{
+    rig: (name: string) => string;
+    side: "left" | "right";
+    target: ArmPose;
+    transform: string;
+}> = ({ rig, side, target, transform }) => (
+    <div style={{
+        ...layerStyle,
+        transform,
+        transformOrigin: side === "left" ? "31% 51%" : "69% 51%",
+    }}>
+        <Img src={rig(`arms/${side}-${target}.svg`)} style={layerStyle} />
+    </div>
 );
 
 export const Character: React.FC<CharacterProps> = ({
@@ -161,6 +199,14 @@ export const Character: React.FC<CharacterProps> = ({
     const bodyY = semanticGesture?.bodyY ?? 0;
     const gestureScale = semanticGesture?.scale ?? 1;
     const brow = expression && VALID_EXPRESSIONS.has(expression) ? expression : emotionProfile.brow;
+    const leftArmTransform = armPerformanceTransform("left", targetLeft, gesture, motionFrame, idlePhase, isSpeaking);
+    const rightArmTransform = armPerformanceTransform("right", targetRight, gesture, motionFrame, headPhase, isSpeaking);
+    const reactionKick = emotion === "surprised" || emotion === "scared"
+        ? Math.exp(-Math.min(frame, 36) / 10) * 0.055
+        : 0;
+    const performanceLift = gesture === "celebrate" ? Math.sin((motionFrame + speechPhase) / 8) * -4
+        : gesture === "surprised" ? Math.exp(-Math.min(frame, 30) / 9) * -12
+        : 0;
 
     // Fear is actor-local performance, not camera motion. Keep it below a pixel
     // and around 1 Hz so it reads as nervous energy rather than screen buzz.
@@ -180,7 +226,7 @@ export const Character: React.FC<CharacterProps> = ({
     return (
         <div style={{
             position: "absolute", left: x, top: y, width: RIG_WIDTH, height: RIG_HEIGHT,
-            transform: `translate(${fearTremorX}px, ${bodyY + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale * activePulseScale}) scaleY(${bodyScaleY})`,
+            transform: `translate(${fearTremorX}px, ${bodyY + performanceLift + fearTremorY}px) rotate(${bodyRotate}deg) scale(${scale * gestureScale * activePulseScale * (1 + reactionKick)}) scaleY(${bodyScaleY})`,
             transformOrigin: "bottom center",
             opacity: dimmed ? 0.82 : 1,
             filter,
@@ -199,8 +245,8 @@ export const Character: React.FC<CharacterProps> = ({
                 transform: `scaleX(${0.92 + Math.abs(breathWave) * 0.04})`, transformOrigin: "center", zIndex: -1,
             }} />
             <Img src={rig("body.svg")} style={{ ...layerStyle, filter: "drop-shadow(0 10px 10px rgba(15,23,42,0.10))" }} />
-            <ArmLayer rig={rig} side="left" target={targetLeft} />
-            <ArmLayer rig={rig} side="right" target={targetRight} />
+            <ArmLayer rig={rig} side="left" target={targetLeft} transform={leftArmTransform} />
+            <ArmLayer rig={rig} side="right" target={targetRight} transform={rightArmTransform} />
             <div style={{ ...layerStyle, transform: `rotate(${headAngle}deg)`, transformOrigin: "50% 40%" }}>
                 <Img src={rig("head.svg")} style={layerStyle} />
                 <div style={{ ...layerStyle, transform: `scaleY(${eyeScaleY})`, transformOrigin: "50% 30%" }}>
