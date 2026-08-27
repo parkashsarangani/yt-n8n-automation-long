@@ -14,6 +14,7 @@ test("visual operation is wired from compose bridge to Remotion", () => {
   assert.match(compose, /visualOperation: d\.visualOperation/);
   assert.match(compose, /visualPrimitive: d\.visualPrimitive/);
   assert.match(compose, /visualState: d\.visualState/);
+  assert.match(compose, /numericValue: Number\.isFinite/);
   assert.match(compose, /compositionMode: d\.compositionMode/);
   assert.match(root, /id="ExplanationScene"/);
   assert.match(root, /visualOperation: "timeline"/);
@@ -31,21 +32,22 @@ test("renderer implements every concrete operation", () => {
 
 test("renderer depicts semantic subjects instead of naming generic cards", () => {
   for (const primitive of ["particles", "rays", "wave", "horizon", "spectrum", "path", "shells", "objects"]) {
-    assert.match(scene, new RegExp(`"${primitive}"`));
+    assert.match(motion, new RegExp(`"${primitive}"`));
   }
-  assert.match(scene, /function SemanticCanvas/);
-  assert.match(scene, /Array\.from\(\{ length: count \}/);
-  assert.match(scene, /<polyline points=\{points\}/);
-  assert.match(scene, /primitive === "horizon" \|\| primitive === "shells"/);
-  assert.match(scene, /visualPrimitive === "objects"/);
+  assert.match(motion, /function Geometry/);
+  assert.match(motion, /Array\.from\(\{ length: 28 \}/);
+  assert.match(motion, /<polyline points=\{points\}/);
+  assert.match(motion, /primitive === "horizon"/);
+  assert.match(motion, /primitive === "shells"/);
+  assert.match(motion, /primitive === "objects"/);
   assert.match(scene, /function PayoffResolution/);
   assert.match(scene, /visualOperation === "payoff"/);
   assert.match(scene, /durationInFrames \* 0\.62/);
-  assert.match(scene, /operation === "compress"/);
-  assert.match(scene, /operation === "group"/);
-  assert.match(scene, /operation === "sort"/);
-  assert.match(scene, /operation === "stack"/);
-  assert.match(scene, /operation === "scale-compare"/);
+  assert.match(motion, /operation === "compress"/);
+  assert.match(motion, /operation === "group"/);
+  assert.match(motion, /operation === "sort"/);
+  assert.match(motion, /operation === "stack"/);
+  assert.match(motion, /operation === "scale-compare"/);
 });
 
 test("reaction characters use deliberate bust panels", () => {
@@ -98,7 +100,28 @@ test("motion design system implements all relationship primitives with staged ch
   assert.match(motion, /consequence/);
   assert.match(motion, /hold/);
   assert.match(motion, /strokeDasharray/);
-  assert.match(motion, /wrong&&/);
+  assert.match(motion, /state === "hypothesis"/);
+  assert.match(motion, /state === "contradiction"/);
+  assert.doesNotMatch(motion, /const wrong = state === "hypothesis" \|\| state === "contradiction"/);
   assert.match(motion, /fontSize="31"/);
   assert.match(scene, /MotionDesignSystem/);
+});
+
+
+test("geometry, operation, state, and composition are independent renderer layers", () => {
+  assert.match(motion, /function Geometry/);
+  assert.match(motion, /function OperationStage/);
+  assert.match(motion, /function StateDecorator/);
+  assert.match(motion, /<OperationStage operation=\{operation\}/);
+  assert.match(scene, /function BookendComposition/);
+  assert.match(scene, /function FullModelComposition/);
+  assert.match(scene, /function ReactionComposition/);
+  assert.match(scene, /<CompositionFrame mode=\{compositionMode\}/);
+  assert.match(scene, /operation=\{visualOperation\}/);
+});
+
+test("quantity graphics use authored data instead of a fixed count", () => {
+  assert.match(motion, /numericValue/);
+  assert.match(motion, /Number\.isFinite\(numericValue\)/);
+  assert.doesNotMatch(motion, /Math\.round\(transform\*40\)/);
 });
