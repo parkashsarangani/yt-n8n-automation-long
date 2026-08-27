@@ -42,8 +42,8 @@ function Label({ text, x, y, active = false, state }: { text?: string; x: number
   if (!text) return null;
   const colors = palette[state];
   return <g transform={`translate(${x} ${y})`}>
-    <rect x="-132" y="-34" width="264" height="68" rx="21" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
-    <text textAnchor="middle" dominantBaseline="middle" fill={PAPER} fontSize="31" fontWeight="820">{text.slice(0, 22)}</text>
+    <rect x="-170" y="-44" width="340" height="88" rx="24" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
+    <text textAnchor="middle" dominantBaseline="middle" fill={PAPER} fontSize="48" fontWeight="820">{text.slice(0, 20)}</text>
   </g>;
 }
 
