@@ -1021,6 +1021,9 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         role: d.role,
         visualOperation: d.visualOperation,
         visualPrimitive: d.visualPrimitive || "objects",
+        numericValue: Number.isFinite(d.numericValue) ? d.numericValue : null,
+        visualState: d.visualState || "mechanism",
+        compositionMode: d.compositionMode || "full-model",
         title: d.title,
         keyText: d.keyText,
         elements: d.elements || [],
@@ -1637,7 +1640,8 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // exclude the actual last-scene duration (not the old fixed 2.5s constant).
     const outroDuration = durations.length > 1 ? durations[durations.length - 1] : 0;
     const contentDuration = totalVideoDuration - outroDuration;
-    const assContent = buildAssFromAlignment(scenes, offsets, comment_hook, contentDuration);
+    const explanationMode = scenes.some((scene) => scene?.template_name === "explanation");
+    const assContent = buildAssFromAlignment(scenes, offsets, explanationMode ? "" : comment_hook, contentDuration);
     await fsp.writeFile(assPath, assContent);
 
     // ===== PHASE 4: Sound design + Audio mixing + Final composite =====
@@ -1665,6 +1669,12 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       pop: { type: "impact", volume: 0.09 },
       resolve: { type: "impact", volume: 0.14 },
     };
+    const visualStateFallback = {
+      hypothesis: { type: "whoosh", volume: 0.065 },
+      contradiction: { type: "impact", volume: 0.11 },
+      qualification: { type: "whoosh", volume: 0.075 },
+      payoff: { type: "impact", volume: 0.14 },
+    };
     const operationFallback = {
       stack: { type: "impact", volume: 0.07 },
       compress: { type: "whoosh", volume: 0.10 },
@@ -1679,7 +1689,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     scenes.forEach((scene, index) => {
       if (scene?.template_name !== "explanation" || isOutroScene(scene)) return;
       const data = sceneTemplateData(scene);
-      const selected = cueMap[data.soundCue] || operationFallback[data.visualOperation];
+      const selected = cueMap[data.soundCue] || operationFallback[data.visualOperation] || visualStateFallback[data.visualState];
       const operationPhase = data.visualOperation === "payoff"
         ? 0.74
         : ["compress", "group", "sort", "scale-compare"].includes(data.visualOperation)
@@ -1762,7 +1772,6 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     if (hasMusic) {
       // Explanation renders use a quieter bed so speech and transformation cues
       // stay in front; legacy formats preserve their established balance.
-      const explanationMode = scenes.some((scene) => scene?.template_name === "explanation");
       const musicVolume = explanationMode ? 0.11 : 0.15;
       audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,volume=${musicVolume}[music]`);
       audioFilters.push(`[music][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);

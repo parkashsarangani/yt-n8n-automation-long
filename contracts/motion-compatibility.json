@@ -1,0 +1,82 @@
+{
+  "stack": [
+    "particles",
+    "objects",
+    "hierarchy",
+    "nested-context",
+    "quantity",
+    "shells"
+  ],
+  "timeline": [
+    "timeline",
+    "cause-chain",
+    "path",
+    "map",
+    "rays",
+    "wave",
+    "spectrum",
+    "cycle",
+    "particles"
+  ],
+  "counter": [
+    "quantity",
+    "particles",
+    "objects"
+  ],
+  "compress": [
+    "particles",
+    "objects",
+    "many-to-one",
+    "physical-transformation",
+    "before-after",
+    "shells"
+  ],
+  "group": [
+    "network",
+    "one-to-many",
+    "many-to-one",
+    "facets-around-center",
+    "overlapping-sets",
+    "nested-context",
+    "particles",
+    "objects"
+  ],
+  "sort": [
+    "objects",
+    "hierarchy",
+    "quantity",
+    "timeline"
+  ],
+  "scale-compare": [
+    "before-after",
+    "physical-transformation",
+    "spectrum",
+    "quantity",
+    "objects",
+    "overlapping-sets"
+  ],
+  "payoff": [
+    "particles",
+    "rays",
+    "wave",
+    "horizon",
+    "spectrum",
+    "path",
+    "shells",
+    "objects",
+    "network",
+    "hierarchy",
+    "one-to-many",
+    "many-to-one",
+    "facets-around-center",
+    "overlapping-sets",
+    "nested-context",
+    "cycle",
+    "cause-chain",
+    "before-after",
+    "map",
+    "timeline",
+    "quantity",
+    "physical-transformation"
+  ]
+}

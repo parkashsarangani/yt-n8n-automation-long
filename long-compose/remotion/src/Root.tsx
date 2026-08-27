@@ -50,6 +50,8 @@ export const RemotionRoot: React.FC = () => (
                 role: "diagram-build" as const,
                 visualOperation: "timeline" as const,
                 visualPrimitive: "rays" as const,
+                visualState: "mechanism" as const,
+                compositionMode: "full-model" as const,
                 title: "The mechanism",
                 keyText: "",
                 elements: ["Signal", "Compression", "Result"],
@@ -59,6 +61,7 @@ export const RemotionRoot: React.FC = () => (
                 soundCue: "none",
                 characters: [],
             }} />
+
 
         <Composition id="CartoonScene" component={CartoonScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{
