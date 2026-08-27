@@ -63,6 +63,34 @@ test("older plans infer subject-shaped primitives without blocking resume", () =
   assert.equal(data.rendererPerformance.visualPrimitive, "rays");
 });
 
+test("recap reuses the opening primitive for a visual callback", () => {
+  const entries = [0, 2].map((scene_index) => ({
+    scene_index,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }));
+  const scenes = applyExplanationFormat(entries, [
+    {
+      scene_index: 0,
+      scene_role: "character-hook",
+      visual_operation: "timeline",
+      visual_primitive: "particles",
+      model_elements: ["dark sky", "stars"],
+    },
+    {
+      scene_index: 2,
+      scene_role: "recap",
+      visual_operation: "payoff",
+      visual_primitive: "objects",
+      key_text: "The darkness is evidence",
+    },
+  ]);
+  const recap = JSON.parse(scenes[1]!.template_data);
+  assert.equal(recap.visualPrimitive, "particles");
+  assert.equal(recap.rendererPerformance.primitiveWasNormalized, true);
+});
+
 test("explanation scenes cannot pass with semantic roles alone", () => {
   const entries = [{
     scene_index: 4,
