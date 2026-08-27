@@ -104,13 +104,35 @@ function SemanticCanvas({ primitive, operation, elements, before, after, keyText
     const count = 52;
     return <div style={{ position: "relative", width: "100%", height: 510, borderRadius: 38, overflow: "hidden", background: "radial-gradient(circle at 50% 48%, #172D55, #060A14 72%)", boxShadow: "inset 0 0 90px #000A" }}>
       {Array.from({ length: count }, (_, index) => {
-        const x = 4 + ((index * 37) % 92);
-        const y = 5 + ((index * 61) % 84);
+        const rawX = 4 + ((index * 37) % 92);
+        const rawY = 5 + ((index * 61) % 84);
         const delay = index / count * 0.72;
         const visible = interpolate(p, [delay, Math.min(1, delay + 0.2)], [0.12, 1], clamp);
-        const size = 3 + (index * 7) % 9;
+        const baseSize = 3 + (index * 7) % 9;
+        let targetX = rawX;
+        let targetY = rawY;
+        if (operation === "compress") {
+          targetX = 50 + ((index % 9) - 4) * 2.1;
+          targetY = 49 + (Math.floor(index / 9) - 2) * 4.2;
+        } else if (operation === "group") {
+          const centers = [[24, 30], [73, 32], [49, 70]];
+          const center = centers[index % centers.length];
+          targetX = center[0] + ((index * 5) % 17) - 8;
+          targetY = center[1] + ((index * 7) % 15) - 7;
+        } else if (operation === "sort") {
+          targetX = 10 + (index % 10) * 8.5;
+          targetY = 10 + Math.floor(index / 10) * 14;
+        } else if (operation === "stack") {
+          targetX = 34 + (index % 10) * 3.7;
+          targetY = 86 - Math.floor(index / 10) * 14;
+        }
+        const x = interpolate(p, [0.12, 0.92], [rawX, targetX], { ...clamp, easing: Easing.inOut(Easing.cubic) });
+        const y = interpolate(p, [0.12, 0.92], [rawY, targetY], { ...clamp, easing: Easing.inOut(Easing.cubic) });
+        const size = operation === "scale-compare"
+          ? baseSize * (index % 2 ? 0.65 + p * 0.35 : 1.15 - p * 0.35)
+          : baseSize;
         const gap = x > 43 && x < 58 && y > 32 && y < 66;
-        const filtered = gap && p < 0.72;
+        const filtered = gap && p < 0.72 && !["compress", "group", "sort", "stack"].includes(operation);
         return <div key={index} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: size, height: size, borderRadius: "50%", background: index % 5 ? PAPER : BLUE, opacity: filtered ? 0.04 : visible, transform: `scale(${pulse})`, boxShadow: `0 0 ${size * 2}px ${index % 5 ? "#F7F4EA" : BLUE}` }} />;
       })}
       <div style={{ position: "absolute", left: "47%", top: "48%", width: 18, height: 18, borderRadius: "50%", background: ACCENT, boxShadow: "0 0 28px #FFD166" }} />
