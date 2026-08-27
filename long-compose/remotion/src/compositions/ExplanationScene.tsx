@@ -34,6 +34,16 @@ const INK = "#172033";
 const ACCENT = "#FFD166";
 const BLUE = "#65C7F7";
 const GREEN = "#7DE2A8";
+const PRIMITIVE_GLOW: Record<VisualPrimitive, string> = {
+  particles: "#4169A8",
+  rays: "#2D8FB8",
+  wave: "#4E63C8",
+  horizon: "#3D8B72",
+  spectrum: "#9158A8",
+  path: "#2C7A9C",
+  shells: "#5A739E",
+  objects: "#354D78",
+};
 const clamp = { extrapolateLeft: "clamp" as const, extrapolateRight: "clamp" as const };
 
 function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationSceneProps, "characters"> & { mode?: string }) {
@@ -71,7 +81,7 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
 
 function Title({ children }: { children?: string }) {
   if (!children) return null;
-  return <div style={{ fontSize: 44, fontWeight: 820, letterSpacing: -1.1, color: PAPER, marginBottom: 24, maxWidth: 1320 }}>{children}</div>;
+  return <div style={{ fontSize: 56, fontWeight: 840, letterSpacing: -1.1, color: PAPER, marginBottom: 24, maxWidth: 1320 }}>{children}</div>;
 }
 
 function Card({ label, accent = false, style = {} }: { label: string; accent?: boolean; style?: React.CSSProperties }) {
@@ -86,7 +96,7 @@ function Card({ label, accent = false, style = {} }: { label: string; accent?: b
 
 function SemanticLabels({ values }: { values: string[] }) {
   return <div style={{ position: "absolute", left: 40, right: 40, bottom: 18, display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
-    {values.slice(0, 3).map((value, index) => <div key={index} style={{ color: PAPER, background: "#0B1020CC", border: "2px solid #65C7F766", borderRadius: 999, padding: "10px 18px", fontSize: 23, fontWeight: 760 }}>{value}</div>)}
+    {values.slice(0, 3).map((value, index) => <div key={index} style={{ color: PAPER, background: "#0B1020CC", border: "2px solid #65C7F766", borderRadius: 999, padding: "13px 22px", fontSize: 34, lineHeight: 1.05, fontWeight: 800 }}>{value}</div>)}
   </div>;
 }
 
@@ -356,10 +366,11 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const characterDominant = role === "character-hook" || role === "character-reaction";
   const hasPanel = characterCutIn !== "none";
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
+  const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive];
 
   return (
-    <AbsoluteFill style={{ background: `radial-gradient(circle at 18% 18%, #17294C 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.14, backgroundImage: "linear-gradient(#65C7F722 1px, transparent 1px), linear-gradient(90deg, #65C7F722 1px, transparent 1px)", backgroundSize: "64px 64px" }} />
+    <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, opacity: 0.12, backgroundImage: `linear-gradient(${primitiveGlow}44 1px, transparent 1px), linear-gradient(90deg, ${primitiveGlow}44 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
       <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 780 : 480) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
