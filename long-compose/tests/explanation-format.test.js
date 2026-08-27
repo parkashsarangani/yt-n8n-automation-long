@@ -35,6 +35,11 @@ test("renderer depicts semantic subjects instead of naming generic cards", () =>
   assert.match(scene, /<polyline points=\{points\}/);
   assert.match(scene, /primitive === "horizon" \|\| primitive === "shells"/);
   assert.match(scene, /visualPrimitive === "objects"/);
+  assert.match(scene, /operation === "compress"/);
+  assert.match(scene, /operation === "group"/);
+  assert.match(scene, /operation === "sort"/);
+  assert.match(scene, /operation === "stack"/);
+  assert.match(scene, /operation === "scale-compare"/);
 });
 
 test("reaction characters use deliberate bust panels", () => {
