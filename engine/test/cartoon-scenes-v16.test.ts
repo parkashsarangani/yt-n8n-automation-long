@@ -208,7 +208,7 @@ test("relational claims infer reusable relationship primitives", () => {
     template_data: "{}",
   }));
   const scenes = applyExplanationFormat(entries, [
-    { scene_index: 0, scene_role: "character-hook", visual_operation: "timeline", explanation_title: "One reality appears as many forms", model_elements: ["one source", "many forms"] },
+    { scene_index: 0, scene_role: "character-hook", visual_operation: "group", explanation_title: "One reality appears as many forms", model_elements: ["one source", "many forms"] },
     { scene_index: 1, scene_role: "diagram-build", visual_operation: "group", explanation_title: "Facets around one center", model_elements: ["center", "facets"] },
     { scene_index: 2, scene_role: "recap", visual_operation: "payoff", explanation_title: "Distinct forms remain connected", model_elements: ["forms", "source"] },
   ]);
@@ -222,11 +222,19 @@ test("relational claims infer reusable relationship primitives", () => {
 
 
 test("compiler rejects semantic primitives paired with meaningless operations", () => {
-  const entries = [{ scene_index: 4, source: "template" as const, template_category: "cartoon", template_data: "{}" }];
-  assert.throws(() => applyExplanationFormat(entries, [{
-    scene_index: 4,
-    scene_role: "diagram-build",
-    visual_operation: "sort",
-    visual_primitive: "network",
-  }]), /incompatible with visual_primitive/);
+  const entries = [4, 5].map((scene_index) => ({ scene_index, source: "template" as const, template_category: "cartoon", template_data: "{}" }));
+  assert.throws(() => applyExplanationFormat(entries, [
+    {
+      scene_index: 4,
+      scene_role: "diagram-build",
+      visual_operation: "sort",
+      visual_primitive: "network",
+    },
+    {
+      scene_index: 5,
+      scene_role: "recap",
+      visual_operation: "payoff",
+      visual_primitive: "network",
+    },
+  ]), /incompatible with visual_primitive/);
 });
