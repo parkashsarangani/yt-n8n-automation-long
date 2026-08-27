@@ -310,6 +310,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       composition_mode: i === 1 ? "full-model" : "bookend",
       explanation_title: i === 0 ? "The mystery" : i === 1 ? "The choice" : "The answer",
       model_elements: i === 0 ? ["humming locker", "Host notices"] : ["closed locker", "open locker"],
+      numeric_value: null,
       state_before: i === 1 ? "closed and humming" : "",
       state_after: i === 1 ? "open and louder" : "",
       key_text: i === 2 ? "It was waiting" : "",
