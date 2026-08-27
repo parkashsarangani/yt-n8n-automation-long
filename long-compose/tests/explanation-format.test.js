@@ -11,6 +11,7 @@ test("visual operation is wired from compose bridge to Remotion", () => {
   assert.match(compose, /explanation:\s*\{/);
   assert.match(compose, /compositionId: "ExplanationScene"/);
   assert.match(compose, /visualOperation: d\.visualOperation/);
+  assert.match(compose, /visualPrimitive: d\.visualPrimitive/);
   assert.match(root, /id="ExplanationScene"/);
   assert.match(root, /visualOperation: "timeline"/);
   assert.match(compose, /templateName === "explanation"/);
@@ -25,9 +26,20 @@ test("renderer implements every concrete operation", () => {
   assert.match(scene, /OperationCanvas operation=\{visualOperation\}/);
 });
 
+test("renderer depicts semantic subjects instead of naming generic cards", () => {
+  for (const primitive of ["particles", "rays", "wave", "horizon", "spectrum", "path", "shells", "objects"]) {
+    assert.match(scene, new RegExp(`"${primitive}"`));
+  }
+  assert.match(scene, /function SemanticCanvas/);
+  assert.match(scene, /Array\.from\(\{ length: count \}/);
+  assert.match(scene, /<polyline points=\{points\}/);
+  assert.match(scene, /primitive === "horizon" \|\| primitive === "shells"/);
+  assert.match(scene, /visualPrimitive === "objects"/);
+});
+
 test("reaction characters use deliberate bust panels", () => {
   assert.match(scene, /function BustReactionPanel/);
-  assert.match(scene, /scale=\{0\.82\}/);
+  assert.match(scene, /scale=\{1\.12\}/);
   assert.match(scene, /borderRadius: 38/);
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);
   assert.doesNotMatch(scene, /function CharacterRail/);
