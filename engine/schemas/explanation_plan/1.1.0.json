@@ -1,7 +1,7 @@
 {
   "schema_id": "explanation_plan",
   "version": "1.1.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "Explanation-first plan requiring both a visual operation and a subject-shaped semantic primitive.",
   "produced_by": [
     "explanation_visual_planner"
