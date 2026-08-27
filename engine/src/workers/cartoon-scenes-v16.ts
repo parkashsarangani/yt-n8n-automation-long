@@ -88,13 +88,15 @@ export function applyExplanationFormat(
     const legacy = JSON.parse(entry.template_data) as Record<string, unknown>;
     const characters = Array.isArray(legacy.characters) ? legacy.characters : [];
     const role = plan.scene_role as ExplanationRole;
-    const operation = cleanText(plan.visual_operation, 24) as VisualOperation;
-    if (!VISUAL_OPERATIONS.has(operation)) {
+    const plannedOperation = cleanText(plan.visual_operation, 24) as VisualOperation;
+    if (!VISUAL_OPERATIONS.has(plannedOperation)) {
       throw new Error(`Scene ${entry.scene_index} requires a valid visual_operation`);
     }
-    if (role === "recap" && operation !== "payoff") {
-      throw new Error(`Scene ${entry.scene_index} recap must use visual_operation "payoff"`);
-    }
+    // A preserved plan cannot be regenerated when a resumed run starts at this
+    // compiler. Normalize the cross-field recap invariant deterministically so
+    // older successful artifacts still receive the decisive payoff renderer.
+    const operation: VisualOperation = role === "recap" ? "payoff" : plannedOperation;
+    const operationWasNormalized = operation !== plannedOperation;
     const cutIn = cleanText(plan.character_cut_in || (
       role === "character-hook" ? "both" :
       role === "character-reaction" ? "listener" :
@@ -120,6 +122,7 @@ export function applyExplanationFormat(
         format: "explanation-motion",
         explanationRole: role,
         visualOperation: operation,
+        operationWasNormalized,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
         meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
@@ -138,7 +141,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "19",
+    version: "20",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),

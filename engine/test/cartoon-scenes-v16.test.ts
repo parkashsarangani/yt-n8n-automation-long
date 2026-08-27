@@ -55,20 +55,39 @@ test("explanation scenes cannot pass with semantic roles alone", () => {
   );
 });
 
-test("the recap is reserved for the decisive payoff operation", () => {
+test("a preserved recap plan is normalized to the decisive payoff on resume", () => {
   const entries = [{
-    scene_index: 9,
+    scene_index: 31,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }];
+  const [scene] = applyExplanationFormat(entries, [{
+    scene_index: 31,
+    scene_role: "recap",
+    visual_operation: "timeline",
+    key_text: "Days worth remembering",
+  }]);
+  const data = JSON.parse(scene!.template_data);
+  assert.equal(data.visualOperation, "payoff");
+  assert.equal(data.rendererPerformance.visualOperation, "payoff");
+  assert.equal(data.rendererPerformance.operationWasNormalized, true);
+});
+
+test("missing or unknown operations still block instead of being invented", () => {
+  const entries = [{
+    scene_index: 31,
     source: "template" as const,
     template_category: "cartoon",
     template_data: "{}",
   }];
   assert.throws(
     () => applyExplanationFormat(entries, [{
-      scene_index: 9,
+      scene_index: 31,
       scene_role: "recap",
-      visual_operation: "timeline",
+      visual_operation: "unknown",
     }]),
-    /recap must use visual_operation "payoff"/,
+    /requires a valid visual_operation/,
   );
 });
 
