@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyExplanationFormat, normalizeExplanationCompatibilityStaging } from "../src/workers/cartoon-scenes-v16.ts";
+import { applyExplanationFormat } from "../src/workers/cartoon-scenes-v16.ts";
+import { shouldEnforceLegacyStagingGates } from "../src/workers/cartoon-scenes.ts";
 
 test("explanation format makes the model own the frame while preserving cast", () => {
   const entries = [{
@@ -47,30 +48,8 @@ test("legacy plans remain backward compatible", () => {
   assert.deepEqual(applyExplanationFormat(entries, [{ scene_index: 0 }]), entries);
 });
 
-
-test("explanation plans bypass obsolete puppet staging repetition deterministically", () => {
-  const repeated = Array.from({ length: 5 }, (_, offset) => ({
-    scene_index: 15 + offset,
-    scene_role: "character-hook" as const,
-  }));
-
-  const normalized = normalizeExplanationCompatibilityStaging(repeated);
-  assert.deepEqual(normalized.map((scene) => scene.template_category), [
-    "cartoon", "cartoon", "cartoon", "cartoon", "cartoon",
-  ]);
-  assert.deepEqual(normalized.map((scene) => scene.framing), [
-    "speaker-closeup", "two-shot", "speaker-closeup", "two-shot", "speaker-closeup",
-  ]);
-  assert.ok(normalized.every((scene) => scene.camera_motion === "static"));
-});
-
-test("model scenes use legacy-only prop coverage without changing explanation roles", () => {
-  const normalized = normalizeExplanationCompatibilityStaging([
-    { scene_index: 2, scene_role: "diagram-build" },
-    { scene_index: 3, scene_role: "process-flow" },
-  ]);
-
-  assert.deepEqual(normalized.map((scene) => scene.scene_role), ["diagram-build", "process-flow"]);
-  assert.deepEqual(normalized.map((scene) => scene.framing), ["prop-insert", "over-shoulder"]);
-  assert.ok(normalized.every((scene) => scene.camera_motion === "prop-focus"));
+test("only explanation plans bypass legacy puppet staging gates", () => {
+  assert.equal(shouldEnforceLegacyStagingGates("explanation_plan"), false);
+  assert.equal(shouldEnforceLegacyStagingGates("visual_plan"), true);
+  assert.equal(shouldEnforceLegacyStagingGates(undefined), true);
 });
