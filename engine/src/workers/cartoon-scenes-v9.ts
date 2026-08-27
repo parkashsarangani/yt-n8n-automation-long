@@ -38,6 +38,10 @@ const MIN_LONG_PROP_STATES = 5;
 const MIN_LONG_CUTAWAYS = 3;
 const PLANNING_TOPIC_PROPS = new Set(["clock", "keys", "calendar", "route-map", "door", "coffee", "shoes"]);
 
+export function shouldApplyLegacyRuntimeDensity(planArtifact: unknown): boolean {
+  return (planArtifact as { schema_id?: unknown } | undefined)?.schema_id !== "explanation_plan";
+}
+
 function dialogueWriterVersion(scriptArtifact: unknown): number {
   const producedBy = (scriptArtifact as { produced_by?: { transformation?: unknown; version?: unknown } }).produced_by;
   if (producedBy?.transformation !== "dialogue_script_writer" || typeof producedBy.version !== "string") return 0;
@@ -386,6 +390,11 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
     version: "9",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const out = await base.execute(inputs, ctx);
+      // Explanation plans deliberately replace foreground-prop, cutaway, and
+      // staging density with semantic operations. The v16 compiler wraps this
+      // legacy chain only to retain cast/acting compatibility, so puppet-era
+      // density gates must not run before v16 applies the explanation format.
+      if (!shouldApplyLegacyRuntimeDensity(inputs["plan"])) return out;
       if (!shouldApplyV8Gate(inputs["script"])) return out;
       const scriptScenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const planScenes = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;

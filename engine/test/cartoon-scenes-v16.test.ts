@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyExplanationFormat } from "../src/workers/cartoon-scenes-v16.ts";
 import { shouldEnforceLegacyStagingGates } from "../src/workers/cartoon-scenes.ts";
+import { shouldApplyLegacyRuntimeDensity } from "../src/workers/cartoon-scenes-v9.ts";
 
 test("explanation format makes the model own the frame while preserving cast", () => {
   const entries = [{
@@ -184,4 +185,10 @@ test("only explanation plans bypass legacy puppet staging gates", () => {
   assert.equal(shouldEnforceLegacyStagingGates("explanation_plan"), false);
   assert.equal(shouldEnforceLegacyStagingGates("visual_plan"), true);
   assert.equal(shouldEnforceLegacyStagingGates(undefined), true);
+});
+
+test("long explanation episodes bypass puppet-era prop and cutaway density", () => {
+  assert.equal(shouldApplyLegacyRuntimeDensity({ schema_id: "explanation_plan" }), false);
+  assert.equal(shouldApplyLegacyRuntimeDensity({ schema_id: "visual_plan" }), true);
+  assert.equal(shouldApplyLegacyRuntimeDensity(undefined), true);
 });
