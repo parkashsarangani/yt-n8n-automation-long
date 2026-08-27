@@ -25,13 +25,6 @@
           "required": [
             "scene_index",
             "template_category",
-            "listener_actor_id",
-            "speaker_emotion",
-            "speaker_gesture",
-            "speaker_gaze_target",
-            "listener_emotion",
-            "listener_gesture",
-            "listener_gaze_target",
             "scene_role",
             "visual_operation",
             "visual_primitive",
@@ -39,7 +32,6 @@
             "composition_mode",
             "explanation_title",
             "model_elements",
-            "numeric_value",
             "state_before",
             "state_after",
             "key_text",
@@ -418,7 +410,71 @@
               ],
               "description": "Optional authored quantity used by counter and quantity graphics; null when the scene has no numeric value."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "composition_mode": {
+                    "enum": [
+                      "bookend",
+                      "reaction"
+                    ]
+                  }
+                },
+                "required": [
+                  "composition_mode"
+                ]
+              },
+              "then": {
+                "required": [
+                  "listener_actor_id",
+                  "speaker_emotion",
+                  "speaker_gesture",
+                  "speaker_gaze_target",
+                  "listener_emotion",
+                  "listener_gesture",
+                  "listener_gaze_target"
+                ]
+              }
+            },
+            {
+              "if": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "visual_operation": {
+                        "const": "counter"
+                      }
+                    },
+                    "required": [
+                      "visual_operation"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "visual_primitive": {
+                        "const": "quantity"
+                      }
+                    },
+                    "required": [
+                      "visual_primitive"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "required": [
+                  "numeric_value"
+                ],
+                "properties": {
+                  "numeric_value": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     }
