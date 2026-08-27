@@ -37,5 +37,5 @@ try {
   }
   await fs.writeFile(path.join(outputDir, "manifest.json"), JSON.stringify(manifest, null, 2));
 } finally {
-  await browser.close();
+  await browser.close({ silent: true });
 }
