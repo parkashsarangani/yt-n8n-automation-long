@@ -370,6 +370,22 @@ function validateCartoonVisualPlan(payload: unknown, inputs: Record<string, Arti
   return failures.length === 0 ? [] : [`cartoon_visual_planner explanation-action gate failed: ${failures.join("; ")}. Revise only the physical demonstration or required spatial continuity before scene compilation.`];
 }
 
+// Prefix for semantic errors the runner must never accept on the final
+// attempt. The generic "accept the last attempt rather than block forever"
+// policy exists for soft quality gates (e.g. natural-dialogue phrasing) where
+// a below-bar-but-usable artifact is better than no artifact. It is wrong for
+// a check whose violation a downstream worker enforces as an unconditional
+// throw with no retry of its own: accepting it doesn't avoid the block, it
+// just spends one more attempt arriving at the identical permanent block one
+// stage later (observed in production: run_39850b3e's visual_plan accepted an
+// incompatible operation/primitive pair on attempt 3/3, and the compiler
+// immediately rejected the stored artifact with no way to recover).
+export const HARD_ERROR_PREFIX = "HARD:";
+
+export function hasHardSemanticError(errors: string[]): boolean {
+  return errors.some((error) => error.startsWith(HARD_ERROR_PREFIX));
+}
+
 export function agentSemanticValidationErrors(
   def: AgentDef,
   payload: unknown,
@@ -423,5 +439,9 @@ function validateExplanationPlan(payload: unknown, def: AgentDef): string[] {
   }
 
   if (failures.length === 0) return [];
-  return [`${def.name}@${def.version ?? "1"} motion contract violated: ${failures.slice(0, 6).join("; ")}`];
+  // Hard: both checks above mirror an unconditional throw in the compiler
+  // worker (cartoon-scenes-v16.ts), which has no retry. Accepting a plan that
+  // still fails either one on the last attempt doesn't produce a usable
+  // artifact -- it produces one guaranteed to block the run at the next stage.
+  return [`${HARD_ERROR_PREFIX}${def.name}@${def.version ?? "1"} motion contract violated: ${failures.slice(0, 6).join("; ")}`];
 }
