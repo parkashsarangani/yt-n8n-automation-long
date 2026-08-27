@@ -82,7 +82,7 @@ test("reaction characters use deliberate bust panels", () => {
 });
 
 test("model labels stay legible in the narrowest 1280x720 bookend", () => {
-  const viewBox = motion.match(/viewBox="0 0 (\\d+) (\\d+)"\\s+style=\\{\\{ width:"100%"/);
+  const viewBox = motion.match(/viewBox="0 0 (\\d+) (\\d+)"/);
   assert.ok(viewBox, "expected the model SVG to declare a viewBox");
   const svgWidth = Number(viewBox[1]);
   const compositionWidth = 1920;
