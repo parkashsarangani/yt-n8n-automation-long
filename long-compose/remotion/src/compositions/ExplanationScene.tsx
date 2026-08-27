@@ -98,7 +98,6 @@ function SemanticCanvas({ primitive, operation, elements, before, after, keyText
   const p = interpolate(frame, [0, Math.max(1, durationInFrames - 1)], [0, 1], clamp);
   const values = (elements || []).filter(Boolean);
   const pulse = 0.92 + Math.sin(frame / fps * Math.PI * 2) * 0.08;
-  const payoff = operation === "payoff";
 
   if (primitive === "particles") {
     const count = 52;
@@ -136,7 +135,6 @@ function SemanticCanvas({ primitive, operation, elements, before, after, keyText
         return <div key={index} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: size, height: size, borderRadius: "50%", background: index % 5 ? PAPER : BLUE, opacity: filtered ? 0.04 : visible, transform: `scale(${pulse})`, boxShadow: `0 0 ${size * 2}px ${index % 5 ? "#F7F4EA" : BLUE}` }} />;
       })}
       <div style={{ position: "absolute", left: "47%", top: "48%", width: 18, height: 18, borderRadius: "50%", background: ACCENT, boxShadow: "0 0 28px #FFD166" }} />
-      {payoff && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: `rgba(6,10,20,${0.72 - p * 0.28})` }}><div style={{ color: ACCENT, fontSize: 68, maxWidth: 920, textAlign: "center", lineHeight: 1.02, fontWeight: 920 }}>{keyText || after}</div></div>}
       <SemanticLabels values={values} />
     </div>;
   }
@@ -180,7 +178,6 @@ function SemanticCanvas({ primitive, operation, elements, before, after, keyText
       })}
       <div style={{ width: 28, height: 28, borderRadius: "50%", background: GREEN, boxShadow: "0 0 28px #7DE2A8" }} />
       <div style={{ position: "absolute", left: "50%", top: "50%", width: p * 390, height: 5, background: BLUE, transformOrigin: "left center", transform: `rotate(${-28 + p * 18}deg)` }} />
-      {payoff && <div style={{ zIndex: 3, color: ACCENT, fontSize: 66, fontWeight: 920, textAlign: "center", maxWidth: 850 }}>{keyText || after}</div>}
       <SemanticLabels values={values} />
     </div>;
   }
@@ -198,6 +195,30 @@ function SemanticCanvas({ primitive, operation, elements, before, after, keyText
   }
 
   return null;
+}
+
+function PayoffResolution({ before, after, keyText }: { before?: string; after?: string; keyText?: string }) {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
+  const revealAt = Math.max(fps * 0.8, durationInFrames * 0.62);
+  const resolve = interpolate(frame, [revealAt, Math.max(revealAt + 1, durationInFrames - 1)], [0, 1], {
+    ...clamp,
+    easing: Easing.inOut(Easing.cubic),
+  });
+  const ring = spring({ frame: frame - revealAt, fps, config: { damping: 15, stiffness: 74 } });
+  if (resolve <= 0) return null;
+  return <div style={{
+    position: "absolute", inset: 0, zIndex: 8, display: "grid", placeItems: "center",
+    background: `radial-gradient(circle at 50% 48%, rgba(9,22,40,${0.5 + resolve * 0.24}), rgba(5,8,16,${resolve * 0.9}))`,
+    opacity: resolve,
+  }}>
+    <div style={{ position: "absolute", width: 380 + ring * 350, height: 380 + ring * 350, borderRadius: "50%", border: `12px solid ${GREEN}`, opacity: 0.18 + resolve * 0.42, boxShadow: "0 0 80px #7DE2A844" }} />
+    <div style={{ textAlign: "center", maxWidth: 940, padding: "0 44px", transform: `translateY(${(1 - resolve) * 54}px) scale(${0.9 + resolve * 0.1})` }}>
+      {before ? <div style={{ color: PAPER, fontSize: 34, fontWeight: 760, opacity: 0.72 * (1 - resolve), marginBottom: 18 }}>{before}</div> : null}
+      <div style={{ color: ACCENT, fontSize: 74, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
+      <div style={{ width: resolve * 680, height: 10, borderRadius: 8, background: GREEN, margin: "30px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
+    </div>
+  </div>;
 }
 
 function OperationCanvas({ operation, elements, before, after, keyText }: {
@@ -342,9 +363,12 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 780 : 480) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
-        {visualPrimitive === "objects"
-          ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
-          : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
+        <div style={{ position: "relative", width: "100%" }}>
+          {visualPrimitive === "objects"
+            ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
+            : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
+          {visualOperation === "payoff" ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
+        </div>
       </div>
       <BustReactionPanel characters={safeCharacters} mode={characterCutIn} />
     </AbsoluteFill>
