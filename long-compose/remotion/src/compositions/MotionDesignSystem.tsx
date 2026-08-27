@@ -90,6 +90,14 @@ function operatePoint(base: Point, index: number, total: number, operation: Visu
   ];
 }
 
+function cubicPoint(p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point {
+  const u = 1 - t;
+  return [
+    u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0],
+    u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1],
+  ];
+}
+
 type GeometryProps = {
   primitive: VisualPrimitive;
   operation: VisualOperation;
@@ -132,9 +140,12 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       <Label text={before||labels[0]} x={210} y={390} state={state}/><Label text={after||labels[1]} x={870} y={390} active state={state}/></>;
   }
   if (primitive === "path") {
-    return <><path d="M95 390 C230 80 370 420 510 190 S805 100 985 330" {...commonStroke} opacity=".28"/>
-      <path d="M95 390 C230 80 370 420 510 190 S805 100 985 330" {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
-      <Dot x={95+progress*890} y={390-progress*60} r={22} fill={ACCENT}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
+    const curve: [Point, Point, Point, Point] = [[95,390],[250,55],[720,55],[985,330]];
+    const marker = cubicPoint(curve[0], curve[1], curve[2], curve[3], progress);
+    const d = `M${curve[0][0]} ${curve[0][1]} C${curve[1][0]} ${curve[1][1]} ${curve[2][0]} ${curve[2][1]} ${curve[3][0]} ${curve[3][1]}`;
+    return <><path d={d} {...commonStroke} opacity=".28"/>
+      <path d={d} {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
+      <Dot x={marker[0]} y={marker[1]} r={22} fill={ACCENT}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "shells") {
     return <>{[0,1,2,3].map(i=><circle key={i} cx="540" cy="245" r={65+i*58*progress} {...commonStroke} opacity={.35+i*.15}/>)}
@@ -144,7 +155,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <>{labels.slice(0,4).map((label,i)=>{const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,Math.max(1,labels.slice(0,4).length),operation,progress);return <React.Fragment key={i}><rect x={x-110} y={y-65} width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={x} y={y} active={i===Math.floor(progress*4)} state={state}/></React.Fragment>})}</>;
   }
   if (primitive === "network") {
-    const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];\n    const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
+    const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
+    const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
     const links: Array<[number,number]>=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0],[1,5],[2,4],[0,5]];
     return <>{links.map(([a,b],i)=><DirectedEdge key={i} x1={nodes[a]![0]} y1={nodes[a]![1]} x2={nodes[b]![0]} y2={nodes[b]![1]} progress={Math.max(0,progress-i*.045)} state={state}/>)}
       {nodes.map(([x,y],i)=><Dot key={i} x={x} y={y} r={18+pop(i*.04)*9} fill={i%3===0?ACCENT:BLUE}/>)}</>;
@@ -181,11 +193,13 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "cycle") {
     const pts: Array<[number,number]>=[[540,70],[850,245],[540,420],[230,245]];
-    const moved=pts.map((point,i)=>operatePoint(point,i,pts.length,operation,progress));\n    return <>{moved.map(([x,y],i)=>{const next=moved[(i+1)%moved.length]!;return <React.Fragment key={i}><DirectedEdge x1={x} y1={y} x2={next[0]} y2={next[1]} progress={Math.max(0,progress-i*.12)} state={state} curved/><Dot x={x} y={y} r={31} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}<Label text={keyText||labels[0]} x={540} y={245} active state={state}/></>;
+    const moved=pts.map((point,i)=>operatePoint(point,i,pts.length,operation,progress));
+    return <>{moved.map(([x,y],i)=>{const next=moved[(i+1)%moved.length]!;return <React.Fragment key={i}><DirectedEdge x1={x} y1={y} x2={next[0]} y2={next[1]} progress={Math.max(0,progress-i*.12)} state={state} curved/><Dot x={x} y={y} r={31} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}<Label text={keyText||labels[0]} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "cause-chain") {
-    const xs=[120,385,650,920];
-    return <>{xs.map((x,i)=><React.Fragment key={i}>{i<3&&<DirectedEdge x1={x+40} y1={245} x2={xs[i+1]!-40} y2={245} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={245} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} x={x} y={350} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>)}</>;
+    const bases: Point[]=[[120,245],[385,245],[650,245],[920,245]];
+    const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={y} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} x={x} y={Math.min(440,y+105)} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     return <><rect x="90" y="100" width="390" height="290" rx="34" fill={colors.fill} stroke={colors.muted} strokeWidth="6"/><rect x="600" y="100" width="390" height="290" rx="34" fill={colors.fill} stroke={colors.line} strokeWidth="8" opacity={.3+progress*.7}/>
@@ -197,15 +211,16 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       {places.map((base,i)=>{const moved=places.map((point,j)=>operatePoint(point,j,places.length,operation,progress));const [x,y]=moved[i]!;return <React.Fragment key={i}>{i<moved.length-1&&<DirectedEdge x1={x} y1={y} x2={moved[i+1]![0]} y2={moved[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<g transform={`translate(${x} ${y}) scale(.55)`}><path d="M0 0 c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z" fill={i===places.length-1?GREEN:ACCENT}/></g></React.Fragment>})}</>;
   }
   if (primitive === "timeline") {
-    const xs=[130,350,570,790,970];
-    return <><path d="M90 245 H990" {...commonStroke} opacity=".35"/>{xs.map((x,i)=><React.Fragment key={i}><line x1={x} y1="195" x2={x} y2="295" stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy="245" r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} x={x} y={365} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}<line x1={90+progress*900} y1="155" x2={90+progress*900} y2="335" stroke={PAPER} strokeWidth="8"/></>;
+    const bases: Point[]=[[130,245],[350,245],[570,245],[790,245],[970,245]];
+    const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy={y} r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} x={x} y={Math.min(440,y+120)} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}</>;
   }
   if (primitive === "quantity") {
     const authored = [before, after, keyText, ...labels].join(" ").match(/\d+(?:\.\d+)?/);
     const target = typeof numericValue === "number" && Number.isFinite(numericValue) ? numericValue : authored ? Number(authored[0]) : Math.max(1, labels.length || 10);
     const dots = Math.max(5, Math.min(60, Math.round(target)));
     const active = Math.round(dots*progress);
-    return <>{Array.from({length:dots},(_,i)=><Dot key={i} x={120+(i%10)*92} y={90+Math.floor(i/10)*65} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>)}
+    return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <Dot key={i} x={x} y={y} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>})}
       <text x="540" y="430" textAnchor="middle" fill={PAPER} fontSize="92" fontWeight="900">{Math.round(target*progress).toLocaleString()}</text></>;
   }
   return <><g transform={`translate(540 245) rotate(${progress*180})`}><rect x="-170" y="-100" width="340" height="200" rx={20+progress*50} fill={colors.fill} stroke={colors.line} strokeWidth="8"/><circle r={progress*90} fill={GREEN} opacity={progress*.55}/></g>
@@ -235,7 +250,7 @@ function OperationStage({ operation, progress, state, numericValue, children }: 
 }
 
 function StateDecorator({ state, consequence }: { state: VisualState; consequence: number }) {
-  if (state === "hypothesis") return <g opacity={.25+consequence*.75}><circle cx="980" cy="80" r="34" fill="#3B2E22" stroke="#E8B96A" strokeWidth="5"/><text x="980" y="92" textAnchor="middle" fill={PAPER} fontSize="38" fontWeight="900">?</text></g>;
+  if (state === "hypothesis") return <g opacity={.25+consequence*.75}><rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#E8B96A" strokeWidth="5" strokeDasharray="16 14"/><circle cx="980" cy="80" r="34" fill="#3B2E22" stroke="#E8B96A" strokeWidth="5"/><text x="980" y="92" textAnchor="middle" fill={PAPER} fontSize="38" fontWeight="900">?</text></g>;
   if (state === "contradiction") return <g opacity={consequence}><path d="M470 170 l55 55 -40 55 70 70" fill="none" stroke={RED} strokeWidth="16" strokeLinecap="round"/><path d="M610 155 l-45 70 50 45 -55 80" fill="none" stroke={RED} strokeWidth="10" strokeLinecap="round"/></g>;
   if (state === "qualification") return <rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#B794F4" strokeWidth="6" strokeDasharray="18 14" opacity={.3+consequence*.65}/>;
   if (state === "payoff") return <circle cx="540" cy="245" r={190+consequence*55} fill="none" stroke={GREEN} strokeWidth="10" opacity={consequence*.55}/>;
@@ -255,8 +270,8 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
         <clipPath id="operation-reveal"><rect x="0" y="0" width={1080*transform} height="510"/></clipPath>
       </defs>
       <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" />
-      <OperationStage operation={operation} progress={transform} state={state}>
-        <Geometry primitive={primitive} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>
+      <OperationStage operation={operation} progress={transform} state={state} numericValue={numericValue}>
+        <Geometry primitive={primitive} operation={operation} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>
       </OperationStage>
       <StateDecorator state={state} consequence={consequence}/>
     </svg>
