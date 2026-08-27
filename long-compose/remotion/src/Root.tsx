@@ -49,6 +49,7 @@ export const RemotionRoot: React.FC = () => (
             defaultProps={{
                 role: "diagram-build" as const,
                 visualOperation: "timeline" as const,
+                visualPrimitive: "rays" as const,
                 title: "The mechanism",
                 keyText: "",
                 elements: ["Signal", "Compression", "Result"],

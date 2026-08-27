@@ -11,6 +11,16 @@ export type ExplanationRole =
   | "character-reaction"
   | "recap";
 
+export type VisualPrimitive =
+  | "particles"
+  | "rays"
+  | "wave"
+  | "horizon"
+  | "spectrum"
+  | "path"
+  | "shells"
+  | "objects";
+
 export type VisualOperation =
   | "stack"
   | "timeline"
@@ -30,6 +40,7 @@ interface ExplanationPlanScene {
   scene_index: number;
   scene_role?: ExplanationRole | string;
   visual_operation?: VisualOperation | string;
+  visual_primitive?: VisualPrimitive | string;
   explanation_title?: string;
   model_elements?: string[];
   state_before?: string;
@@ -65,6 +76,29 @@ function cleanElements(value: unknown): string[] {
     .slice(0, 5);
 }
 
+function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
+  const explicit = cleanText(plan.visual_primitive, 24) as VisualPrimitive;
+  const allowed = new Set<VisualPrimitive>([
+    "particles", "rays", "wave", "horizon",
+    "spectrum", "path", "shells", "objects",
+  ]);
+  if (allowed.has(explicit)) return explicit;
+
+  const terms = [
+    plan.explanation_title, plan.key_text, plan.state_before, plan.state_after,
+    ...(Array.isArray(plan.model_elements) ? plan.model_elements : []),
+  ].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
+
+  if (/wavelength|spectrum|infrared|microwave|redshift|ultraviolet/.test(terms)) return "spectrum";
+  if (/sightline|ray|beam|direction/.test(terms)) return "rays";
+  if (/horizon|boundary|reach limit|finite|observable/.test(terms)) return "horizon";
+  if (/pulse|travel|arriv|journey|signal|path/.test(terms)) return "path";
+  if (/layer|shell|depth|nested/.test(terms)) return "shells";
+  if (/wave|oscillat|frequency/.test(terms)) return "wave";
+  if (/star|particle|pin|dot|gap|sky/.test(terms)) return "particles";
+  return "objects";
+}
+
 function planScenes(inputs: Record<string, { payload?: unknown } | undefined>): ExplanationPlanScene[] {
   const payload = asRecord(inputs["plan"]?.payload);
   return Array.isArray(payload?.scenes) ? payload.scenes as ExplanationPlanScene[] : [];
@@ -80,6 +114,12 @@ export function applyExplanationFormat(
   plans: ExplanationPlanScene[],
 ): CompiledEntry[] {
   const byIndex = new Map(plans.map((scene) => [scene.scene_index, scene]));
+  const orderedPlans = [...plans].sort((a, b) => a.scene_index - b.scene_index);
+  const openingPlan = orderedPlans[0];
+  const closingPlan = orderedPlans[orderedPlans.length - 1];
+  const openingIndex = openingPlan?.scene_index;
+  const closingIndex = closingPlan?.scene_index;
+  const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";
 
   return entries.map((entry) => {
     const plan = byIndex.get(entry.scene_index);
@@ -87,7 +127,13 @@ export function applyExplanationFormat(
 
     const legacy = JSON.parse(entry.template_data) as Record<string, unknown>;
     const characters = Array.isArray(legacy.characters) ? legacy.characters : [];
-    const role = plan.scene_role as ExplanationRole;
+    const authoredRole = plan.scene_role as ExplanationRole;
+    const role: ExplanationRole = entry.scene_index === openingIndex
+      ? "character-hook"
+      : entry.scene_index === closingIndex
+        ? "recap"
+        : authoredRole;
+    const roleWasNormalized = role !== authoredRole;
     const plannedOperation = cleanText(plan.visual_operation, 24) as VisualOperation;
     if (!VISUAL_OPERATIONS.has(plannedOperation)) {
       throw new Error(`Scene ${entry.scene_index} requires a valid visual_operation`);
@@ -95,18 +141,24 @@ export function applyExplanationFormat(
     // A preserved plan cannot be regenerated when a resumed run starts at this
     // compiler. Normalize the cross-field recap invariant deterministically so
     // older successful artifacts still receive the decisive payoff renderer.
-    const operation: VisualOperation = role === "recap" ? "payoff" : plannedOperation;
+    const operation: VisualOperation = entry.scene_index === closingIndex ? "payoff" : plannedOperation;
     const operationWasNormalized = operation !== plannedOperation;
-    const cutIn = cleanText(plan.character_cut_in || (
-      role === "character-hook" ? "both" :
-      role === "character-reaction" ? "listener" :
-      role === "recap" ? "speaker" : "none"
-    ), 16);
+    const plannedPrimitive = inferVisualPrimitive(plan);
+    // The final payoff must resolve the visual question the viewer first saw,
+    // not introduce an unrelated graphical vocabulary.
+    const primitive: VisualPrimitive = entry.scene_index === closingIndex ? openingPrimitive : plannedPrimitive;
+    const primitiveWasNormalized = primitive !== plannedPrimitive;
+    const authoredCutIn = cleanText(plan.character_cut_in || "none", 16);
+    const cutIn = entry.scene_index === openingIndex || entry.scene_index === closingIndex
+      ? "both"
+      : authoredCutIn || (role === "character-reaction" ? "listener" : "none");
+    const cutInWasNormalized = cutIn !== authoredCutIn;
 
     const payload = {
       formatVersion: 2,
       role,
       visualOperation: operation,
+      visualPrimitive: primitive,
       title: cleanText(plan.explanation_title),
       keyText: cleanText(plan.key_text, 96),
       elements: cleanElements(plan.model_elements),
@@ -122,7 +174,11 @@ export function applyExplanationFormat(
         format: "explanation-motion",
         explanationRole: role,
         visualOperation: operation,
+        visualPrimitive: primitive,
+        roleWasNormalized,
         operationWasNormalized,
+        primitiveWasNormalized,
+        cutInWasNormalized,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
         meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
@@ -141,7 +197,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "20",
+    version: "23",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),

@@ -1,8 +1,8 @@
 {
   "schema_id": "explanation_plan",
-  "version": "1.0.0",
-  "status": "deprecated",
-  "description": "Backward-compatible explanation plan without required semantic primitives. Preserved artifacts remain readable.",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "Explanation-first plan requiring both a visual operation and a subject-shaped semantic primitive.",
   "produced_by": [
     "explanation_visual_planner"
   ],
@@ -43,6 +43,7 @@
             "cutaway_label",
             "scene_role",
             "visual_operation",
+            "visual_primitive",
             "explanation_title",
             "model_elements",
             "state_before",
@@ -367,6 +368,20 @@
                 "payoff"
               ],
               "description": "The concrete animated operation rendered continuously during this spoken scene."
+            },
+            "visual_primitive": {
+              "type": "string",
+              "enum": [
+                "particles",
+                "rays",
+                "wave",
+                "horizon",
+                "spectrum",
+                "path",
+                "shells",
+                "objects"
+              ],
+              "description": "The subject-shaped graphical vocabulary used inside the selected operation."
             }
           }
         }
