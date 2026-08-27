@@ -148,8 +148,9 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       <Dot x={marker[0]} y={marker[1]} r={22} fill={ACCENT}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "shells") {
-    return <>{[0,1,2,3].map(i=><circle key={i} cx="540" cy="245" r={65+i*58*progress} {...commonStroke} opacity={.35+i*.15}/>)}
-      <Dot x={540} y={245} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
+    const centers=Array.from({length:4},(_,i)=>operatePoint([540,245],i,4,operation,progress));
+    return <>{centers.map(([x,y],i)=><circle key={i} cx={x} cy={y} r={65+i*58*progress} {...commonStroke} opacity={.35+i*.15}/>)}
+      <Dot x={centers[0]![0]} y={centers[0]![1]} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
     return <>{labels.slice(0,4).map((label,i)=>{const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,Math.max(1,labels.slice(0,4).length),operation,progress);return <React.Fragment key={i}><rect x={x-110} y={y-65} width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={x} y={y} active={i===Math.floor(progress*4)} state={state}/></React.Fragment>})}</>;
@@ -162,7 +163,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       {nodes.map(([x,y],i)=><Dot key={i} x={x} y={y} r={18+pop(i*.04)*9} fill={i%3===0?ACCENT:BLUE}/>)}</>;
   }
   if (primitive === "hierarchy") {
-    const children: Array<[number,number]>=[[210,380],[430,380],[650,380],[870,380]];
+    const childBases: Point[]=[[210,380],[430,380],[650,380],[870,380]];
+    const children=childBases.map((point,i)=>operatePoint(point,i,childBases.length,operation,progress));
     return <><Label text={labels[0]||"Root"} x={540} y={85} active state={state}/>
       <DirectedEdge x1={540} y1={120} x2={330} y2={230} progress={progress} state={state}/><DirectedEdge x1={540} y1={120} x2={750} y2={230} progress={progress} state={state}/>
       <Dot x={330} y={245} r={34} fill={BLUE}/><Dot x={750} y={245} r={34} fill={BLUE}/>
@@ -183,12 +185,14 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "overlapping-sets") {
     const spread=105*(1-progress);
-    return <><circle cx={430-spread} cy="245" r="180" fill="#65C7F733" stroke={BLUE} strokeWidth="7"/><circle cx={650+spread} cy="245" r="180" fill="#FFD16633" stroke={ACCENT} strokeWidth="7"/>
+    const compare=operation==="scale-compare"?progress:0;
+    return <><circle cx={430-spread} cy="245" r={180-compare*55} fill="#65C7F733" stroke={BLUE} strokeWidth="7"/><circle cx={650+spread} cy="245" r={180+compare*45} fill="#FFD16633" stroke={ACCENT} strokeWidth="7"/>
       <Label text={labels[0]} x={320-spread} y={245} state={state}/><Label text={labels[1]} x={760+spread} y={245} state={state}/><Label text={labels[2]||keyText} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "nested-context") {
     const sizes=[360,280,200,120];
-    return <>{sizes.map((size,i)=><rect key={i} x={540-size*progress/2} y={245-size*progress/2} width={size*progress} height={size*progress} rx={30+i*5} fill={i===3?colors.fill:"none"} stroke={i===0?colors.line:colors.muted} strokeWidth={i===0?8:4}/>)}
+    const centers=sizes.map((_,i)=>operatePoint([540,245],i,sizes.length,operation,progress));
+    return <>{sizes.map((size,i)=>{const [x,y]=centers[i]!;return <rect key={i} x={x-size*progress/2} y={y-size*progress/2} width={size*progress} height={size*progress} rx={30+i*5} fill={i===3?colors.fill:"none"} stroke={i===0?colors.line:colors.muted} strokeWidth={i===0?8:4}/>})}
       <Label text={labels[0]||keyText} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "cycle") {
@@ -202,8 +206,11 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={y} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} x={x} y={Math.min(440,y+105)} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
-    return <><rect x="90" y="100" width="390" height="290" rx="34" fill={colors.fill} stroke={colors.muted} strokeWidth="6"/><rect x="600" y="100" width="390" height="290" rx="34" fill={colors.fill} stroke={colors.line} strokeWidth="8" opacity={.3+progress*.7}/>
-      <Label text={before||labels[0]} x={285} y={245} state={state}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={795} y={245} active state={state}/></>;
+    const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
+    const rightWidth=390*(operation==="scale-compare"?1+progress*.28:1);
+    const inward=operation==="compress"?progress*105:0;
+    return <><rect x={90+inward} y="100" width={leftWidth} height="290" rx="34" fill={colors.fill} stroke={colors.muted} strokeWidth="6"/><rect x={990-inward-rightWidth} y="100" width={rightWidth} height="290" rx="34" fill={colors.fill} stroke={colors.line} strokeWidth="8" opacity={.3+progress*.7}/>
+      <Label text={before||labels[0]} x={90+inward+leftWidth/2} y={245} state={state}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={990-inward-rightWidth/2} y={245} active state={state}/></>;
   }
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
@@ -223,7 +230,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <Dot key={i} x={x} y={y} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>})}
       <text x="540" y="430" textAnchor="middle" fill={PAPER} fontSize="92" fontWeight="900">{Math.round(target*progress).toLocaleString()}</text></>;
   }
-  return <><g transform={`translate(540 245) rotate(${progress*180})`}><rect x="-170" y="-100" width="340" height="200" rx={20+progress*50} fill={colors.fill} stroke={colors.line} strokeWidth="8"/><circle r={progress*90} fill={GREEN} opacity={progress*.55}/></g>
+  const physicalScale=operation==="scale-compare"?0.72+progress*.55:operation==="compress"?1-progress*.42:1;
+  return <><g transform={`translate(540 245) rotate(${progress*180}) scale(${physicalScale})`}><rect x="-170" y="-100" width="340" height="200" rx={20+progress*50} fill={colors.fill} stroke={colors.line} strokeWidth="8"/><circle r={progress*90} fill={GREEN} opacity={progress*.55}/></g>
     <Label text={before||labels[0]} x={260} y={430} state={state}/><Label text={after||labels[1]||keyText} x={820} y={430} active state={state}/></>;
 }
 
