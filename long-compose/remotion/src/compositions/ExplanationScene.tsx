@@ -13,6 +13,7 @@ export interface ExplanationSceneProps {
   visualOperation?: VisualOperation;
   visualPrimitive?: VisualPrimitive;
   visualState?: VisualState;
+  numericValue?: number | null;
   compositionMode?: CompositionMode;
   title?: string;
   keyText?: string;
@@ -379,6 +380,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   visualOperation = "timeline",
   visualPrimitive = "objects",
   visualState = "mechanism",
+  numericValue = null,
   compositionMode = "full-model",
   title = "",
   keyText = "",
@@ -402,7 +404,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          <MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} elements={elements} before={before} after={after} keyText={keyText} />
+          <MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} />
           {visualOperation === "payoff" ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </CompositionFrame>
