@@ -465,6 +465,10 @@ function assertNoTemplateBoredom(entries: CompiledEntry[]): void {
   }
 }
 
+export function shouldEnforceLegacyStagingGates(planSchemaId: unknown): boolean {
+  return planSchemaId !== "explanation_plan";
+}
+
 function assertBackgroundVariety(entries: CompiledEntry[]): void {
   if (entries.length < MIN_DYNAMIC_BACKGROUND_SCENES) return;
   const keys = new Set<string>();
@@ -731,8 +735,14 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
         return { scene_index: scriptScene.scene_index, source: "template" as const, template_category: "cartoon", template_data: JSON.stringify(compiled) };
       });
 
-      assertNoTemplateBoredom(entries);
-      assertBackgroundVariety(entries);
+      // Explanation plans render into a different composition after this
+      // compatibility pass. Their legacy room/shot fields never reach the
+      // viewer, so puppet-era staging variety is neither meaningful nor a
+      // valid release gate. Legacy visual_plan callers retain both checks.
+      if (shouldEnforceLegacyStagingGates(inputs["plan"]?.schema_id)) {
+        assertNoTemplateBoredom(entries);
+        assertBackgroundVariety(entries);
+      }
       return { payload: { scenes: entries, degraded_count: 0 }, blobs: [] };
     },
   };
