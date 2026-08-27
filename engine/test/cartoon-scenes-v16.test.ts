@@ -39,7 +39,8 @@ test("explanation format makes the model own the frame while preserving cast", (
   assert.equal(data.visualPrimitive, "shells");
   assert.equal(data.visualState, "mechanism");
   assert.equal(data.compositionMode, "full-model");
-  assert.equal(data.formatVersion, 2);
+  assert.equal(data.numericValue, null);
+  assert.equal(data.formatVersion, 3);
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
   assert.equal(data.rendererPerformance.explanatoryModelVisible, true);
   assert.equal(data.rendererPerformance.meaningfulStateChange, true);
