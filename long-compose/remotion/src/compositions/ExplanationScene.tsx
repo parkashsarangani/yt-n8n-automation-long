@@ -59,22 +59,22 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
   }).slice(0, mode === "both" ? 2 : 1);
   if (!selected.length) return null;
 
-  const width = mode === "both" ? 690 : 390;
+  const width = mode === "both" ? 760 : 430;
   return (
     <div style={{
-      position: "absolute", right: 48, top: 116, bottom: 176, width,
+      position: "absolute", right: 48, top: 94, bottom: 168, width,
       overflow: "hidden", borderRadius: 38, zIndex: 8,
       background: "linear-gradient(180deg, #21365F 0%, #101A31 100%)",
-      border: "3px solid #65C7F755", boxShadow: "0 24px 70px #0008",
+      border: "3px solid #65C7F766", boxShadow: "0 24px 70px #0008",
     }}>
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 50% 35%, #65C7F722, transparent 62%)" }} />
       {selected.map((character, index) => (
         <Character
           key={character.characterId || index}
           {...character}
-          x={mode === "both" ? -145 + index * 330 : -105}
-          y={6}
-          scale={1.12}
+          x={mode === "both" ? -110 + index * 365 : -35}
+          y={430}
+          scale={1.45}
         />
       ))}
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #0B1020)" }} />
@@ -377,7 +377,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, opacity: 0.12, backgroundImage: `linear-gradient(${primitiveGlow}44 1px, transparent 1px), linear-gradient(90deg, ${primitiveGlow}44 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
-      <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 780 : 480) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
+      <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 850 : 520) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
