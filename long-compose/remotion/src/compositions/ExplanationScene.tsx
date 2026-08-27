@@ -37,7 +37,7 @@ const INK = "#172033";
 const ACCENT = "#FFD166";
 const BLUE = "#65C7F7";
 const GREEN = "#7DE2A8";
-const PRIMITIVE_GLOW: Record<VisualPrimitive, string> = {
+const PRIMITIVE_GLOW: Partial<Record<VisualPrimitive, string>> = {
   particles: "#4169A8",
   rays: "#2D8FB8",
   wave: "#4E63C8",
@@ -372,7 +372,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const hasPanel = characterCutIn !== "none";
   const relationshipPrimitive = RELATIONSHIP_PRIMITIVES.includes(visualPrimitive as RelationshipPrimitive);
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
-  const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive];
+  const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82";
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
