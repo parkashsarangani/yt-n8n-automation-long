@@ -271,7 +271,10 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
       </defs>
       <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" />
       <OperationStage operation={operation} progress={transform} state={state} numericValue={numericValue}>
-        <Geometry primitive={primitive} operation={operation} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>
+        {state === "contradiction" ? <>
+          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
+          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
+        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>}
       </OperationStage>
       <StateDecorator state={state} consequence={consequence}/>
     </svg>
