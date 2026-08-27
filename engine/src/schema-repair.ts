@@ -12,7 +12,15 @@
  * neutral default only when no case/whitespace/hyphen match exists.
  */
 
-const SAFE_FALLBACKS = ["none", "neutral", "idle", "auto", "static"];
+// Last-resort values chosen to be inert rather than assertive. "mechanism"
+// earns a place for the renderer's visual_state: that enum begins with
+// "hypothesis", so an off-vocabulary state -- the planner reaching for a script
+// beat name like "correction" -- fell through to allowed[0] and drew the scene
+// as a tentative dashed guess. That is the opposite of what a correction beat
+// means, and nothing surfaced it because the repair succeeded. "mechanism" is
+// the plain explanatory state, which is the safe thing to draw when the
+// intended one cannot be recovered.
+const SAFE_FALLBACKS = ["none", "neutral", "idle", "auto", "static", "mechanism"];
 
 export interface EnumRepair {
   path: string;

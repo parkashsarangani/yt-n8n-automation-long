@@ -30,6 +30,6 @@
     "dialogue_visual_alignment"
   ],
   "retry": {
-    "max_attempts": 2
+    "max_attempts": 3
   }
 }
