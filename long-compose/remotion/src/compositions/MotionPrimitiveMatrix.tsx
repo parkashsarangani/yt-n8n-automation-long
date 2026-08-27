@@ -1,43 +1,56 @@
 import React from "react";
 import { AbsoluteFill } from "remotion";
+import compatibility from "../motion-compatibility.json";
 import {
   ALL_VISUAL_PRIMITIVES,
   MotionDesignSystem,
-  RELATIONSHIP_PRIMITIVES,
-  type SubjectPrimitive,
   type VisualOperation,
+  type VisualPrimitive,
   type VisualState,
 } from "./MotionDesignSystem";
 
-const operations: VisualOperation[] = ["stack", "timeline", "counter", "compress", "group", "sort", "scale-compare", "payoff"];
-const states: VisualState[] = ["hypothesis", "contradiction", "mechanism", "qualification", "payoff"];
-const subjects = ALL_VISUAL_PRIMITIVES.filter((primitive): primitive is SubjectPrimitive =>
-  ["particles","rays","wave","horizon","spectrum","path","shells","objects"].includes(primitive)
+export type CompatibilityCase = { operation: VisualOperation; primitive: VisualPrimitive };
+export const COMPATIBILITY_CASES: CompatibilityCase[] = Object.entries(compatibility).flatMap(([operation, primitives]) =>
+  primitives.map((primitive) => ({ operation: operation as VisualOperation, primitive: primitive as VisualPrimitive }))
 );
+export const CASES_PER_PAGE = 16;
+export const COMPATIBILITY_PAGE_COUNT = Math.ceil(COMPATIBILITY_CASES.length / CASES_PER_PAGE);
+const columns = 4;
+const cellWidth = 480;
+const cellHeight = 270;
+const scale = 0.42;
 
-function Matrix({ primitives, columns, scale, cellWidth, cellHeight }: {
-  primitives: typeof ALL_VISUAL_PRIMITIVES; columns: number; scale: number; cellWidth: number; cellHeight: number;
-}) {
-  return <AbsoluteFill style={{ background: "#050912", fontFamily: "Inter, Arial, sans-serif" }}>
-    {primitives.map((primitive, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const operation = operations[index % operations.length]!;
-      return <div key={primitive} data-primitive={primitive} style={{
-        position: "absolute", left: 18 + column * cellWidth, top: 18 + row * cellHeight,
-        width: 1080, height: 510, transform: `scale(${scale})`, transformOrigin: "top left",
-      }}>
-        <MotionDesignSystem primitive={primitive} operation={operation} state={states[index % states.length]!}
-          numericValue={operation === "counter" || primitive === "quantity" ? 73 : null}
-          elements={[primitive.replaceAll("-", " "), "evidence", "result", "limit"]}
-          before="before" after="after" keyText="resolved" />
-      </div>;
-    })}
-  </AbsoluteFill>;
+function Cell({ item, index, state }: { item: CompatibilityCase; index: number; state: VisualState }) {
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  return <div data-case={`${item.operation}/${item.primitive}`} style={{
+    position: "absolute", left: column * cellWidth + 12, top: row * cellHeight + 22,
+    width: 1080, height: 510, transform: `scale(${scale})`, transformOrigin: "top left",
+  }}>
+    <MotionDesignSystem
+      primitive={item.primitive}
+      operation={item.operation}
+      state={state}
+      diagnosticMode="foreground-only"
+      numericValue={item.operation === "counter" || item.primitive === "quantity" ? 73 : null}
+      elements={[item.primitive.replaceAll("-", " "), "evidence", "result", "limit"]}
+      before="before" after="after" keyText="resolved"
+    />
+  </div>;
 }
 
-export const MotionPrimitiveMatrix: React.FC = () =>
-  <Matrix primitives={RELATIONSHIP_PRIMITIVES} columns={5} scale={0.34} cellWidth={382} cellHeight={265} />;
+export const MotionCompatibilityMatrix: React.FC<{ page?: number }> = ({ page = 0 }) => {
+  const cases = COMPATIBILITY_CASES.slice(page * CASES_PER_PAGE, (page + 1) * CASES_PER_PAGE);
+  return <AbsoluteFill style={{ background: "#000", fontFamily: "Inter, Arial, sans-serif" }}>
+    {cases.map((item, index) => <Cell key={`${item.operation}/${item.primitive}`} item={item} index={index} state="mechanism" />)}
+  </AbsoluteFill>;
+};
 
-export const SubjectPrimitiveMatrix: React.FC = () =>
-  <Matrix primitives={subjects} columns={4} scale={0.42} cellWidth={474} cellHeight={510} />;
+export const PrimitiveStateMatrix: React.FC<{ page?: number; state?: "hypothesis" | "contradiction" }> = ({ page = 0, state = "hypothesis" }) => {
+  const items = ALL_VISUAL_PRIMITIVES.slice(page * CASES_PER_PAGE, (page + 1) * CASES_PER_PAGE);
+  return <AbsoluteFill style={{ background: "#000", fontFamily: "Inter, Arial, sans-serif" }}>
+    {items.map((primitive, index) => <Cell key={primitive} item={{ operation: "payoff", primitive }} index={index} state={state} />)}
+  </AbsoluteFill>;
+};
+
+export const PRIMITIVE_STATE_PAGE_COUNT = Math.ceil(ALL_VISUAL_PRIMITIVES.length / CASES_PER_PAGE);
