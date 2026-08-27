@@ -17,6 +17,7 @@ import { ListNumberedVertical } from "./scenes/ListAnimations/ListNumberedVertic
 // Cartoon puppet scene - layered SVG characters, lip-synced via Rhubarb.
 import { CartoonScene } from "./compositions/CartoonScene";
 import { ExplanationScene } from "./compositions/ExplanationScene";
+import { MotionPrimitiveMatrix } from "./compositions/MotionPrimitiveMatrix";
 
 const FPS = 30;
 const W = 1920;
@@ -61,6 +62,8 @@ export const RemotionRoot: React.FC = () => (
                 soundCue: "none",
                 characters: [],
             }} />
+
+        <Composition id="MotionPrimitiveMatrix" component={MotionPrimitiveMatrix as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H} defaultProps={{}} />
 
         <Composition id="CartoonScene" component={CartoonScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{
