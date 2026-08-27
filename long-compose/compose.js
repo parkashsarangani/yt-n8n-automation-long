@@ -1021,6 +1021,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         role: d.role,
         visualOperation: d.visualOperation,
         visualPrimitive: d.visualPrimitive || "objects",
+        numericValue: Number.isFinite(d.numericValue) ? d.numericValue : null,
         visualState: d.visualState || "mechanism",
         compositionMode: d.compositionMode || "full-model",
         title: d.title,
