@@ -70,11 +70,12 @@ type GeometryProps = {
   before: string;
   after: string;
   keyText: string;
+  numericValue: number | null;
   progress: number;
   pop: (delay?: number) => number;
 };
 
-function Geometry({ primitive, state, labels, before, after, keyText, progress, pop }: GeometryProps) {
+function Geometry({ primitive, state, labels, before, after, keyText, numericValue, progress, pop }: GeometryProps) {
   const colors = palette[state];
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
@@ -173,7 +174,7 @@ function Geometry({ primitive, state, labels, before, after, keyText, progress, 
   }
   if (primitive === "quantity") {
     const authored = [before, after, keyText, ...labels].join(" ").match(/\d+(?:\.\d+)?/);
-    const target = authored ? Number(authored[0]) : Math.max(1, labels.length || 10);
+    const target = typeof numericValue === "number" && Number.isFinite(numericValue) ? numericValue : authored ? Number(authored[0]) : Math.max(1, labels.length || 10);
     const dots = Math.max(5, Math.min(60, Math.round(target)));
     const active = Math.round(dots*progress);
     return <>{Array.from({length:dots},(_,i)=><Dot key={i} x={120+(i%10)*92} y={90+Math.floor(i/10)*65} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>)}
@@ -216,8 +217,8 @@ function StateDecorator({ state, consequence }: { state: VisualState; consequenc
   return null;
 }
 
-export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", elements = [], before = "", after = "", keyText = "" }: {
-  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; elements?: string[]; before?: string; after?: string; keyText?: string;
+export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], before = "", after = "", keyText = "" }: {
+  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; before?: string; after?: string; keyText?: string;
 }) {
   const { setup, transform, consequence, hold, pop } = useProgress();
   const labels = [...elements, before, after].filter(Boolean).slice(0, operation === "timeline" || primitive === "cause-chain" ? 4 : 3);
@@ -230,7 +231,7 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
       </defs>
       <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" />
       <OperationStage operation={operation} progress={transform} state={state}>
-        <Geometry primitive={primitive} state={state} labels={labels} before={before} after={after} keyText={keyText} progress={transform} pop={pop}/>
+        <Geometry primitive={primitive} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>
       </OperationStage>
       <StateDecorator state={state} consequence={consequence}/>
     </svg>
