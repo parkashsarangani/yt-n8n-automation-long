@@ -59,6 +59,7 @@ interface ExplanationPlanScene {
   composition_mode?: "bookend" | "full-model" | "reaction" | string;
   explanation_title?: string;
   model_elements?: string[];
+  numeric_value?: number | null;
   state_before?: string;
   state_after?: string;
   key_text?: string;
@@ -194,8 +195,8 @@ export function applyExplanationFormat(
     const authoredCompositionMode = cleanText(plan.composition_mode || "full-model", 20);
     const compositionMode = entry.scene_index === openingIndex || entry.scene_index === closingIndex
       ? "bookend"
-      : authoredCompositionMode === "reaction" || authoredCompositionMode === "bookend"
-        ? authoredCompositionMode
+      : authoredCompositionMode === "reaction" || role === "character-reaction" || cutIn !== "none"
+        ? "reaction"
         : "full-model";
 
     const payload = {
@@ -208,6 +209,7 @@ export function applyExplanationFormat(
       title: cleanText(plan.explanation_title),
       keyText: cleanText(plan.key_text, 96),
       elements: cleanElements(plan.model_elements),
+      numericValue: typeof plan.numeric_value === "number" && Number.isFinite(plan.numeric_value) ? plan.numeric_value : null,
       before: cleanText(plan.state_before, 64),
       after: cleanText(plan.state_after, 64),
       characterCutIn: cutIn,
@@ -245,7 +247,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "24",
+    version: "25",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
@@ -263,7 +265,19 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
             ...planInput,
             payload: {
               ...planPayload,
-              scenes: plans.map((scene) => ({ ...scene, template_category: "cartoon" })),
+              scenes: plans.map((scene) => ({
+                background_location: "studio",
+                background_variant: "normal",
+                background_tone: "neutral",
+                framing: "two-shot",
+                camera_motion: "static",
+                visual_event: "none",
+                ambient_motion: "none",
+                speaker_emphasis: "none",
+                cutaway_label: "",
+                ...scene,
+                template_category: "cartoon",
+              })),
             },
           },
         }
