@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
 import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
-import { agentSemanticValidationErrors } from "./agent-validators.ts";
+import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
@@ -277,8 +277,10 @@ export class Runner {
       }
 
       const semanticErrors = agentSemanticValidationErrors(def, payload, inputs);
+      // The HARD: marker is an internal routing signal, never user-facing text.
+      const displayErrors = semanticErrors.map((e) => e.startsWith(HARD_ERROR_PREFIX) ? e.slice(HARD_ERROR_PREFIX.length) : e);
       if (semanticErrors.length > 0 && attempt < maxAttempts) {
-        lastErrors = semanticErrors;
+        lastErrors = displayErrors;
         await this.writeRecord({
           run_id: runId,
           graph_id: opts.graphId ?? null,
@@ -297,8 +299,8 @@ export class Runner {
           confidence,
           started_at: startedAt,
           startedMs,
-          error: semanticErrors.join("; "),
-          retry_reason: classifyRetryReason(semanticErrors),
+          error: displayErrors.join("; "),
+          retry_reason: classifyRetryReason(displayErrors),
           // Semantic gate rejections only ever recorded the error message,
           // never the payload that triggered it -- undiagnosable after the
           // fact without re-running (real cost) or guessing. The schema
@@ -307,17 +309,28 @@ export class Runner {
           detail: JSON.stringify(payload).slice(0, 50_000),
         });
         this.deps.logger?.warn(
-          `[${def.name}] attempt ${attempt}/${maxAttempts} failed semantic validation: ${semanticErrors.join("; ")}`,
+          `[${def.name}] attempt ${attempt}/${maxAttempts} failed semantic validation: ${displayErrors.join("; ")}`,
         );
         continue;
       }
-      // Schema-valid but still failing the quality gate on the last attempt:
+      // Schema-valid but still failing the quality gate on the last attempt.
+      // For a soft gate (style/quality, e.g. natural-dialogue phrasing),
       // accept it rather than throwing away a structurally sound artifact and
-      // blocking the whole run. Logged loudly and recorded under a distinct
-      // status so it stays visible and searchable, not silently downgraded.
+      // blocking the whole run. A hard gate is different: it mirrors an
+      // unconditional throw with no retry in a downstream worker, so
+      // accepting the artifact does not avoid the block -- it just spends one
+      // more attempt arriving at the identical permanent block one stage
+      // later (production case: run_39850b3e's visual_plan was accepted with
+      // an incompatible operation/primitive pair on attempt 3/3, and the
+      // compiler rejected the stored artifact with no way to recover).
+      if (semanticErrors.length > 0 && hasHardSemanticError(semanticErrors)) {
+        throw new RunnerError(
+          `${def.name} produced a ${def.produces} that still fails a hard validation rule after ${maxAttempts} attempts: ${displayErrors.join("; ")}`,
+        );
+      }
       if (semanticErrors.length > 0) {
         this.deps.logger?.warn(
-          `[${def.name}] attempt ${attempt}/${maxAttempts} (final) accepted despite failing semantic validation: ${semanticErrors.join("; ")}`,
+          `[${def.name}] attempt ${attempt}/${maxAttempts} (final) accepted despite failing semantic validation: ${displayErrors.join("; ")}`,
         );
       }
 
@@ -357,8 +370,8 @@ export class Runner {
         confidence,
         started_at: startedAt,
         startedMs,
-        error: semanticErrors.length > 0 ? semanticErrors.join("; ") : null,
-        retry_reason: semanticErrors.length > 0 ? classifyRetryReason(semanticErrors) : null,
+        error: displayErrors.length > 0 ? displayErrors.join("; ") : null,
+        retry_reason: displayErrors.length > 0 ? classifyRetryReason(displayErrors) : null,
       });
 
       return { artifact, runId, attempts: attempt, deduped };

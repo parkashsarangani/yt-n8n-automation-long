@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentSemanticValidationErrors } from "../src/agent-validators.ts";
+import { agentSemanticValidationErrors, hasHardSemanticError } from "../src/agent-validators.ts";
 import type { AgentDef } from "../src/runner.ts";
 
 const DEF = {
@@ -65,4 +65,30 @@ test("plans from other agents are not policed by this contract", () => {
   const other = { ...DEF, name: "cartoon_visual_planner", produces: "visual_plan" } as unknown as AgentDef;
   const errors = agentSemanticValidationErrors(other, { scenes: [scene(0, "compress", "nested-context")] }, {});
   assert.doesNotMatch(errors.join("\n"), /motion contract violated/);
+});
+
+test("a motion contract violation is marked hard, so the runner cannot silently accept it", () => {
+  // Real production failure (same run, next deploy): the agent-stage retry
+  // above worked -- three attempts, each narrowing the violations -- but the
+  // runner's generic "accept the last attempt rather than block forever"
+  // policy then accepted a plan that still failed this check. The compiler
+  // enforces it unconditionally with no retry of its own, so accepting didn't
+  // avoid the block; it produced an artifact guaranteed to fail one stage
+  // later. hasHardSemanticError is what the runner checks before it will
+  // apply that policy, so this failure must report true.
+  const errors = agentSemanticValidationErrors(DEF, { scenes: [scene(2, "group", "map")] }, {});
+  assert.equal(hasHardSemanticError(errors), true);
+});
+
+test("a soft gate (natural dialogue) is never marked hard", () => {
+  // The passthrough exists precisely for this class of failure: a stylistic
+  // gate where a below-bar-but-schema-valid artifact is better than none.
+  const scriptDef = { ...DEF, name: "dialogue_script_writer", produces: "script" } as unknown as AgentDef;
+  const scenes = Array.from({ length: 6 }, (_, i) => ({
+    scene_index: i,
+    narration: "The system explains the underlying causal mechanism at length in formal prose.",
+  }));
+  const errors = agentSemanticValidationErrors(scriptDef, { scenes }, {});
+  assert.ok(errors.length > 0, "expected the fixture to actually trip the naturalness gate");
+  assert.equal(hasHardSemanticError(errors), false);
 });
