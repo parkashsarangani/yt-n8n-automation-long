@@ -28,6 +28,8 @@ export const TestRoot: React.FC = () => <>
     durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={bookend} />
   <Composition id="ExplanationEmptyBookendReference" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>}
     durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={{ ...bookend, characters: [] }} />
+  <Composition id="ExplanationBackgroundRegression" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>}
+    durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={{ ...bookend, compositionMode: "full-model" as const, characterCutIn: "none" as const, characters: [], rendererDiagnosticMode: "background-only" as const }} />
   <Composition id="ExplanationPayoffRegression" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>}
     durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={payoff} />
 </>;
