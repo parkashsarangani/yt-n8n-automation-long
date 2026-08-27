@@ -25,11 +25,6 @@
           "required": [
             "scene_index",
             "template_category",
-            "background_location",
-            "background_variant",
-            "background_tone",
-            "framing",
-            "camera_motion",
             "listener_actor_id",
             "speaker_emotion",
             "speaker_gesture",
@@ -37,10 +32,6 @@
             "listener_emotion",
             "listener_gesture",
             "listener_gaze_target",
-            "visual_event",
-            "ambient_motion",
-            "speaker_emphasis",
-            "cutaway_label",
             "scene_role",
             "visual_operation",
             "visual_primitive",
@@ -48,6 +39,7 @@
             "composition_mode",
             "explanation_title",
             "model_elements",
+            "numeric_value",
             "state_before",
             "state_after",
             "key_text",
@@ -418,6 +410,13 @@
                 "reaction"
               ],
               "description": "Frame ownership mode. Bookends show both characters, full-model gives the graphic most of the canvas, reaction allows a deliberate character return."
+            },
+            "numeric_value": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Optional authored quantity used by counter and quantity graphics; null when the scene has no numeric value."
             }
           }
         }
