@@ -6,12 +6,15 @@ const test = require("node:test");
 const root = fs.readFileSync(path.join(__dirname, "../remotion/src/Root.tsx"), "utf8");
 const compose = fs.readFileSync(path.join(__dirname, "../compose.js"), "utf8");
 const scene = fs.readFileSync(path.join(__dirname, "../remotion/src/compositions/ExplanationScene.tsx"), "utf8");
+const motion = fs.readFileSync(path.join(__dirname, "../remotion/src/compositions/MotionDesignSystem.tsx"), "utf8");
 
 test("visual operation is wired from compose bridge to Remotion", () => {
   assert.match(compose, /explanation:\s*\{/);
   assert.match(compose, /compositionId: "ExplanationScene"/);
   assert.match(compose, /visualOperation: d\.visualOperation/);
   assert.match(compose, /visualPrimitive: d\.visualPrimitive/);
+  assert.match(compose, /visualState: d\.visualState/);
+  assert.match(compose, /compositionMode: d\.compositionMode/);
   assert.match(root, /id="ExplanationScene"/);
   assert.match(root, /visualOperation: "timeline"/);
   assert.match(compose, /templateName === "explanation"/);
@@ -47,7 +50,8 @@ test("renderer depicts semantic subjects instead of naming generic cards", () =>
 
 test("reaction characters use deliberate bust panels", () => {
   assert.match(scene, /function BustReactionPanel/);
-  assert.match(scene, /scale=\{1\.12\}/);
+  assert.match(scene, /scale=\{1\.45\}/);
+  assert.match(scene, /y=\{430\}/);
   assert.match(scene, /borderRadius: 38/);
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);
   assert.doesNotMatch(scene, /function CharacterRail/);
@@ -70,6 +74,8 @@ test("captions are larger, raised, shorter, and omit speaker prefixes", () => {
 
 test("sound design follows operations and preserves a restrained payoff", () => {
   assert.match(compose, /operationFallback/);
+  assert.match(compose, /visualStateFallback/);
+  assert.match(compose, /explanationMode \? "" : comment_hook/);
   assert.match(compose, /sfxEvents\.length >= 7/);
   assert.match(compose, /time - lastCueTime < 2\.4/);
   assert.match(compose, /explanationMode \? 0\.11 : 0\.15/);
@@ -77,4 +83,22 @@ test("sound design follows operations and preserves a restrained payoff", () => 
   assert.match(compose, /operationPhase/);
   assert.match(compose, /data\.visualOperation === "payoff"/);
   assert.match(compose, /0\.74/);
+});
+
+
+test("motion design system implements all relationship primitives with staged change", () => {
+  for (const primitive of ["network", "hierarchy", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "cycle", "cause-chain", "before-after", "map", "timeline", "quantity", "spectrum", "physical-transformation"]) {
+    assert.match(motion, new RegExp(`"${primitive}"`));
+  }
+  for (const state of ["hypothesis", "contradiction", "mechanism", "qualification", "payoff"]) {
+    assert.match(motion, new RegExp(`"${state}"`));
+  }
+  assert.match(motion, /setup/);
+  assert.match(motion, /transform/);
+  assert.match(motion, /consequence/);
+  assert.match(motion, /hold/);
+  assert.match(motion, /strokeDasharray/);
+  assert.match(motion, /wrong&&/);
+  assert.match(motion, /fontSize="31"/);
+  assert.match(scene, /MotionDesignSystem/);
 });
