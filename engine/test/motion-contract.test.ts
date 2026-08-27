@@ -21,7 +21,7 @@ test("canonical compatibility contains 64 unique production-valid renderer cases
 test("planner compatibility lines name every canonical primitive exactly", () => {
   for (const [operation, primitives] of Object.entries(MOTION_COMPATIBILITY)) {
     const prefix = "- `" + operation + "`:";
-    const line = prompt.split("\n").find((candidate) => candidate.startsWith(prefix) && candidate.includes("`"));
+    const line = prompt.split("\n").filter((candidate) => candidate.startsWith(prefix)).at(-1);
     assert.ok(line, operation);
     if (operation === "payoff") continue;
     for (const primitive of primitives) assert.ok(line!.includes("`" + primitive + "`"), `${operation}/${primitive}`);
