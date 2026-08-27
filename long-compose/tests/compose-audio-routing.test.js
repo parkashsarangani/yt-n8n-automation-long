@@ -14,9 +14,9 @@ describe("compose cartoon render routing", () => {
     assert.match(cartoonBlock[0], /speakerEmphasis:\s*d\.speakerEmphasis/);
   });
 
-  it("preserves scene-timed audio for cartoon lip sync", () => {
+  it("preserves scene-timed audio for cartoon and explanation character lip sync", () => {
     assert.match(source, /preserveSceneAudioForLipSync/);
-    assert.match(source, /scene\?\.visual_source === "template" && scene\?\.template_name === "cartoon"/);
+    assert.match(source, /\["cartoon", "explanation"\]\.includes\(scene\?\.template_name\)/);
     assert.match(source, /if \(!preserveSceneAudioForLipSync\) \{[\s\S]*buildGaplessVoice/);
     assert.match(source, /const voiceLabel = preserveSceneAudioForLipSync \? "0:a" : "1:a"/);
     assert.match(source, /const mixLabels = \[voiceLabel\]/);
