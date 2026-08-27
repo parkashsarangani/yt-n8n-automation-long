@@ -200,7 +200,7 @@ export function applyExplanationFormat(
         : "full-model";
 
     const payload = {
-      formatVersion: 2,
+      formatVersion: 3,
       role,
       visualOperation: operation,
       visualPrimitive: primitive,
