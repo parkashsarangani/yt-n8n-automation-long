@@ -19,7 +19,21 @@ export type VisualPrimitive =
   | "spectrum"
   | "path"
   | "shells"
-  | "objects";
+  | "objects"
+  | "network"
+  | "hierarchy"
+  | "one-to-many"
+  | "many-to-one"
+  | "facets-around-center"
+  | "overlapping-sets"
+  | "nested-context"
+  | "cycle"
+  | "cause-chain"
+  | "before-after"
+  | "map"
+  | "timeline"
+  | "quantity"
+  | "physical-transformation";
 
 export type VisualOperation =
   | "stack"
@@ -41,6 +55,8 @@ interface ExplanationPlanScene {
   scene_role?: ExplanationRole | string;
   visual_operation?: VisualOperation | string;
   visual_primitive?: VisualPrimitive | string;
+  visual_state?: "hypothesis" | "contradiction" | "mechanism" | "qualification" | "payoff" | string;
+  composition_mode?: "bookend" | "full-model" | "reaction" | string;
   explanation_title?: string;
   model_elements?: string[];
   state_before?: string;
@@ -81,6 +97,9 @@ function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
   const allowed = new Set<VisualPrimitive>([
     "particles", "rays", "wave", "horizon",
     "spectrum", "path", "shells", "objects",
+    "network", "hierarchy", "one-to-many", "many-to-one", "facets-around-center",
+    "overlapping-sets", "nested-context", "cycle", "cause-chain", "before-after",
+    "map", "timeline", "quantity", "physical-transformation",
   ]);
   if (allowed.has(explicit)) return explicit;
 
@@ -89,6 +108,19 @@ function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
     ...(Array.isArray(plan.model_elements) ? plan.model_elements : []),
   ].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
 
+  if (/overlap|shared categor|both groups|intersection/.test(terms)) return "overlapping-sets";
+  if (/one source|single source|many forms|manifest|facets|viewpoints|attributes around/.test(terms)) return "facets-around-center";
+  if (/converge|many inputs|combine into|merge into/.test(terms)) return "many-to-one";
+  if (/branch|one becomes many|one produces|splits into/.test(terms)) return "one-to-many";
+  if (/hierarchy|rank|parent|child|taxonomy|family tree/.test(terms)) return "hierarchy";
+  if (/network|connected|relationship|interact|web of/.test(terms)) return "network";
+  if (/nested|context|inside|layers of meaning/.test(terms)) return "nested-context";
+  if (/cycle|loop|feeds back|repeats/.test(terms)) return "cycle";
+  if (/causes|leads to|results in|chain|because then/.test(terms)) return "cause-chain";
+  if (/before|after|changed from|became|transform/.test(terms)) return "before-after";
+  if (/map|location|route|region|travel across/.test(terms)) return "map";
+  if (/timeline|years|century|era|over time/.test(terms)) return "timeline";
+  if (/quantity|count|amount|more|fewer|increase|decrease/.test(terms)) return "quantity";
   if (/wavelength|spectrum|infrared|microwave|redshift|ultraviolet/.test(terms)) return "spectrum";
   if (/sightline|ray|beam|direction/.test(terms)) return "rays";
   if (/horizon|boundary|reach limit|finite|observable/.test(terms)) return "horizon";
@@ -153,12 +185,26 @@ export function applyExplanationFormat(
       ? "both"
       : authoredCutIn || (role === "character-reaction" ? "listener" : "none");
     const cutInWasNormalized = cutIn !== authoredCutIn;
+    const authoredVisualState = cleanText(plan.visual_state || "mechanism", 20);
+    const visualState = entry.scene_index === closingIndex
+      ? "payoff"
+      : ["hypothesis", "contradiction", "mechanism", "qualification", "payoff"].includes(authoredVisualState)
+        ? authoredVisualState
+        : "mechanism";
+    const authoredCompositionMode = cleanText(plan.composition_mode || "full-model", 20);
+    const compositionMode = entry.scene_index === openingIndex || entry.scene_index === closingIndex
+      ? "bookend"
+      : authoredCompositionMode === "reaction" || authoredCompositionMode === "bookend"
+        ? authoredCompositionMode
+        : "full-model";
 
     const payload = {
       formatVersion: 2,
       role,
       visualOperation: operation,
       visualPrimitive: primitive,
+      visualState,
+      compositionMode,
       title: cleanText(plan.explanation_title),
       keyText: cleanText(plan.key_text, 96),
       elements: cleanElements(plan.model_elements),
@@ -175,6 +221,8 @@ export function applyExplanationFormat(
         explanationRole: role,
         visualOperation: operation,
         visualPrimitive: primitive,
+        visualState,
+        compositionMode,
         roleWasNormalized,
         operationWasNormalized,
         primitiveWasNormalized,
@@ -197,7 +245,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "23",
+    version: "24",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
