@@ -23,7 +23,11 @@ test("explanation planner v3 emits required motion-design explanation_plan 1.2",
   assert.ok(scene.required.includes("visual_primitive"));
   assert.ok(scene.required.includes("visual_state"));
   assert.ok(scene.required.includes("composition_mode"));
-  assert.ok(scene.required.includes("numeric_value"));
+  assert.equal(scene.required.includes("numeric_value"), false);
+  const characterRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("speaker_emotion"));
+  assert.ok(characterRule?.then.required.includes("listener_gesture"));
+  const numericRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("numeric_value"));
+  assert.equal(numericRule?.then.properties.numeric_value.type, "number");
   for (const discarded of ["background_location", "background_variant", "background_tone", "framing", "camera_motion", "visual_event", "ambient_motion", "speaker_emphasis", "cutaway_label"]) {
     assert.equal(scene.required.includes(discarded), false, discarded);
   }
