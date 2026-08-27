@@ -11,6 +11,17 @@ export type VisualOperation = "stack" | "timeline" | "counter" | "compress" | "g
 export type VisualState = "hypothesis" | "contradiction" | "mechanism" | "qualification" | "payoff";
 export type CompositionMode = "bookend" | "full-model" | "reaction";
 
+export const MOTION_COMPATIBILITY: Record<VisualOperation, readonly VisualPrimitive[] | readonly ["*"]> = {
+  stack: ["particles", "objects", "hierarchy", "nested-context", "quantity", "shells"],
+  timeline: ["timeline", "cause-chain", "path", "map", "rays", "wave", "spectrum", "cycle", "particles"],
+  counter: ["quantity", "particles", "objects"],
+  compress: ["particles", "objects", "many-to-one", "physical-transformation", "before-after", "shells"],
+  group: ["network", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "particles", "objects"],
+  sort: ["objects", "hierarchy", "quantity", "timeline"],
+  "scale-compare": ["before-after", "physical-transformation", "spectrum", "quantity", "objects", "overlapping-sets"],
+  payoff: ["*"],
+};
+
 const PAPER = "#F7F4EA";
 const ACCENT = "#FFD166";
 const BLUE = "#65C7F7";
@@ -119,7 +130,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <>{Array.from({ length: 28 }, (_, i) => {
       const base: Point = [105 + (i % 7) * 142, 82 + Math.floor(i / 7) * 110];
       const [x, y] = operatePoint(base, i, 28, operation, progress);
-      return <Dot key={i} x={x} y={y} r={10 + pop(i * 0.025) * 13} fill={i % 4 === 0 ? ACCENT : colors.line} opacity={0.3 + progress * 0.7} />;
+      const activated = operation !== "counter" || i < Math.ceil(28 * progress);
+      return <Dot key={i} x={x} y={y} r={(10 + pop(i * 0.025) * 13) * (activated ? 1 : 0.52)} fill={i % 4 === 0 ? ACCENT : colors.line} opacity={activated ? 0.3 + progress * 0.7 : 0.12} />;
     })}<Label text={labels[0] || keyText} x={540} y={455} active state={state} /></>;
   }
   if (primitive === "rays") {
@@ -135,9 +147,13 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><circle cx="540" cy="245" r="30" fill={ACCENT}/><path d="M90 245 H990" {...commonStroke} opacity=".35"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "spectrum") {
+    const comparing = operation === "scale-compare";
+    const leftWidth = comparing ? 310 - progress * 105 : 900;
+    const rightWidth = comparing ? 310 + progress * 105 : 0;
     return <><defs><linearGradient id="motion-spectrum"><stop stopColor="#7447FF"/><stop offset=".35" stopColor="#3C8DFF"/><stop offset=".65" stopColor="#E9E45D"/><stop offset="1" stopColor="#E84E4E"/></linearGradient></defs>
-      <rect x="90" y="185" width="900" height="100" rx="50" fill="url(#motion-spectrum)" opacity=".9"/><line x1={90+progress*900} y1="145" x2={90+progress*900} y2="335" stroke={PAPER} strokeWidth="9"/>
-      <Label text={before||labels[0]} x={210} y={390} state={state}/><Label text={after||labels[1]} x={870} y={390} active state={state}/></>;
+      <rect x={comparing ? 120 : 90} y={comparing ? 135 : 185} width={leftWidth} height="100" rx="50" fill="url(#motion-spectrum)" opacity=".9"/>
+      {comparing ? <rect x="620" y="285" width={rightWidth} height="100" rx="50" fill="url(#motion-spectrum)" opacity=".9"/> : <line x1={90+progress*900} y1="145" x2={90+progress*900} y2="335" stroke={PAPER} strokeWidth="9"/>}
+      <Label text={before||labels[0]} x={comparing ? 280 : 210} y={comparing ? 285 : 390} state={state}/><Label text={after||labels[1]} x={comparing ? 790 : 870} y={comparing ? 435 : 390} active state={state}/></>;
   }
   if (primitive === "path") {
     const curve: [Point, Point, Point, Point] = [[95,390],[250,55],[720,55],[985,330]];
@@ -153,7 +169,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       <Dot x={centers[0]![0]} y={centers[0]![1]} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
-    return <>{labels.slice(0,4).map((label,i)=>{const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,Math.max(1,labels.slice(0,4).length),operation,progress);return <React.Fragment key={i}><rect x={x-110} y={y-65} width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={x} y={y} active={i===Math.floor(progress*4)} state={state}/></React.Fragment>})}</>;
+    return <>{labels.slice(0,4).map((label,i)=>{const total=Math.max(1,labels.slice(0,4).length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={i} transform={`translate(${x} ${y}) scale(${activated?1:.58})`} opacity={activated?1:.16}><rect x="-110" y="-65" width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={0} y={0} active={activated&&i===Math.floor(progress*total)} state={state}/></g>})}</>;
   }
   if (primitive === "network") {
     const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
@@ -223,8 +239,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy={y} r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} x={x} y={Math.min(440,y+120)} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}</>;
   }
   if (primitive === "quantity") {
-    const authored = [before, after, keyText, ...labels].join(" ").match(/\d+(?:\.\d+)?/);
-    const target = typeof numericValue === "number" && Number.isFinite(numericValue) ? numericValue : authored ? Number(authored[0]) : Math.max(1, labels.length || 10);
+    if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");
+    const target = numericValue;
     const dots = Math.max(5, Math.min(60, Math.round(target)));
     const active = Math.round(dots*progress);
     return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <Dot key={i} x={x} y={y} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>})}
@@ -269,6 +285,9 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
   primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; before?: string; after?: string; keyText?: string;
 }) {
   const { setup, transform, consequence, hold, pop } = useProgress();
+  if ((operation === "counter" || primitive === "quantity") && numericValue === null) {
+    throw new Error(`${operation}/${primitive} requires an explicit numericValue`);
+  }
   const labels = [...elements, before, after].filter(Boolean).slice(0, operation === "timeline" || primitive === "cause-chain" ? 4 : 3);
   const colors = palette[state];
   return <div style={{ position:"relative", width:"100%", height:510, borderRadius:36, overflow:"hidden", boxShadow:"0 24px 70px #0008" }}>
