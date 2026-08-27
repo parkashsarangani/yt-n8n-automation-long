@@ -219,3 +219,14 @@ test("relational claims infer reusable relationship primitives", () => {
   assert.equal(opening.compositionMode, "bookend");
   assert.equal(middle.compositionMode, "full-model");
 });
+
+
+test("compiler rejects semantic primitives paired with meaningless operations", () => {
+  const entries = [{ scene_index: 4, source: "template" as const, template_category: "cartoon", template_data: "{}" }];
+  assert.throws(() => applyExplanationFormat(entries, [{
+    scene_index: 4,
+    scene_role: "diagram-build",
+    visual_operation: "sort",
+    visual_primitive: "network",
+  }]), /incompatible with visual_primitive/);
+});
