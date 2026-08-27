@@ -158,15 +158,15 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "one-to-many") {
     const targets: Array<[number,number]>=[[850,85],[920,180],[940,300],[860,410]];
-    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map(([x,y],i)=><React.Fragment key={i}><DirectedEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state}/><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/></React.Fragment>)}</>;
+    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);return <React.Fragment key={i}><DirectedEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state}/><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}</>;
   }
   if (primitive === "many-to-one") {
     const sources: Array<[number,number]>=[[150,85],[90,180],[80,300],[160,410]];
-    return <>{sources.map(([x,y],i)=><React.Fragment key={i}><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/><DirectedEdge x1={x+30} y1={y} x2={720} y2={245} progress={Math.max(0,progress-i*.08)} state={state}/></React.Fragment>)}<Label text={after||labels[0]} x={850} y={245} active state={state}/></>;
+    return <>{sources.map((base,i)=>{const [x,y]=operatePoint(base,i,sources.length,operation,progress);return <React.Fragment key={i}><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/><DirectedEdge x1={x+30} y1={y} x2={720} y2={245} progress={Math.max(0,progress-i*.08)} state={state}/></React.Fragment>})}<Label text={after||labels[0]} x={850} y={245} active state={state}/></>;
   }
   if (primitive === "facets-around-center") {
     const facets: Array<[number,number]>=[[540,65],[820,150],[820,350],[540,430],[260,350],[260,150]];
-    return <>{facets.map(([x,y],i)=><React.Fragment key={i}><path d={`M540 245 L${x} ${y}`} {...commonStroke} opacity={.2+progress*.65}/><polygon points={`${x},${y-30} ${x+34},${y} ${x},${y+30} ${x-34},${y}`} fill={i%2?BLUE:ACCENT} opacity={.45+progress*.55}/></React.Fragment>)}
+    return <>{facets.map((base,i)=>{const [x,y]=operatePoint(base,i,facets.length,operation,progress);return <React.Fragment key={i}><path d={`M540 245 L${x} ${y}`} {...commonStroke} opacity={.2+progress*.65}/><polygon points={`${x},${y-30} ${x+34},${y} ${x},${y+30} ${x-34},${y}`} fill={i%2?BLUE:ACCENT} opacity={.45+progress*.55}/></React.Fragment>})}
       <circle cx="540" cy="245" r="84" fill={colors.fill} stroke={colors.line} strokeWidth="8"/><Label text={labels[0]||keyText} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "overlapping-sets") {
@@ -181,7 +181,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "cycle") {
     const pts: Array<[number,number]>=[[540,70],[850,245],[540,420],[230,245]];
-    return <>{pts.map(([x,y],i)=>{const next=pts[(i+1)%pts.length]!;return <React.Fragment key={i}><DirectedEdge x1={x} y1={y} x2={next[0]} y2={next[1]} progress={Math.max(0,progress-i*.12)} state={state} curved/><Dot x={x} y={y} r={31} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}<Label text={keyText||labels[0]} x={540} y={245} active state={state}/></>;
+    const moved=pts.map((point,i)=>operatePoint(point,i,pts.length,operation,progress));\n    return <>{moved.map(([x,y],i)=>{const next=moved[(i+1)%moved.length]!;return <React.Fragment key={i}><DirectedEdge x1={x} y1={y} x2={next[0]} y2={next[1]} progress={Math.max(0,progress-i*.12)} state={state} curved/><Dot x={x} y={y} r={31} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}<Label text={keyText||labels[0]} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "cause-chain") {
     const xs=[120,385,650,920];
@@ -194,7 +194,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
     return <><path d="M70 410 Q210 40 385 250 T690 210 T1010 355" fill="none" stroke={colors.muted} strokeWidth="30" opacity=".24"/>
-      {places.map(([x,y],i)=><React.Fragment key={i}>{i<places.length-1&&<DirectedEdge x1={x} y1={y} x2={places[i+1]![0]} y2={places[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<g transform={`translate(${x} ${y}) scale(.55)`}><path d="M0 0 c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z" fill={i===places.length-1?GREEN:ACCENT}/></g></React.Fragment>)}</>;
+      {places.map((base,i)=>{const moved=places.map((point,j)=>operatePoint(point,j,places.length,operation,progress));const [x,y]=moved[i]!;return <React.Fragment key={i}>{i<moved.length-1&&<DirectedEdge x1={x} y1={y} x2={moved[i+1]![0]} y2={moved[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<g transform={`translate(${x} ${y}) scale(.55)`}><path d="M0 0 c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z" fill={i===places.length-1?GREEN:ACCENT}/></g></React.Fragment>})}</>;
   }
   if (primitive === "timeline") {
     const xs=[130,350,570,790,970];
