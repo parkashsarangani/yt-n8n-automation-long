@@ -6,6 +6,7 @@ const agent = JSON.parse(readFileSync(new URL("../agents/explanation_visual_plan
 const legacySchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.0.0.json", import.meta.url), "utf8"));
 const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.1.0.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
+const legacyScene = legacySchema.json_schema.properties.scenes.items;
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
@@ -18,6 +19,7 @@ test("explanation planner v2 emits required semantic explanation_plan 1.1", () =
   assert.equal(legacySchema.status, "deprecated");
   assert.ok(scene.required.includes("visual_operation"));
   assert.ok(scene.required.includes("visual_primitive"));
+  assert.equal(legacyScene.required.includes("visual_primitive"), false);
   assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["script", "cast_roster"]);
 });
 
