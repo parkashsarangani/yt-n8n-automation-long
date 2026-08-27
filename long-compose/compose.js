@@ -1671,13 +1671,22 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       group: { type: "whoosh", volume: 0.09 },
       sort: { type: "whoosh", volume: 0.09 },
       "scale-compare": { type: "impact", volume: 0.08 },
+      timeline: { type: "impact", volume: 0.055 },
+      counter: { type: "impact", volume: 0.06 },
+      payoff: { type: "impact", volume: 0.14 },
     };
     let lastCueTime = -10;
     scenes.forEach((scene, index) => {
       if (scene?.template_name !== "explanation" || isOutroScene(scene)) return;
       const data = sceneTemplateData(scene);
       const selected = cueMap[data.soundCue] || operationFallback[data.visualOperation];
-      const time = (offsets[index] || 0) + Math.min(0.9, Math.max(0.35, (durations[index] || 1) * 0.28));
+      const operationPhase = data.visualOperation === "payoff"
+        ? 0.74
+        : ["compress", "group", "sort", "scale-compare"].includes(data.visualOperation)
+          ? 0.68
+          : 0.46;
+      const sceneDuration = durations[index] || 1;
+      const time = (offsets[index] || 0) + Math.min(Math.max(0.35, sceneDuration - 0.25), Math.max(0.35, sceneDuration * operationPhase));
       if (!selected || time - lastCueTime < 2.4 || sfxEvents.length >= 7) return;
       if (sfxAvailable[selected.type]) {
         sfxEvents.push({ ...selected, time });
