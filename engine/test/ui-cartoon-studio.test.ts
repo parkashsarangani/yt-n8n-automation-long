@@ -22,6 +22,29 @@ test("cartoon studio UI is cartoon-first and exposes the recurring cast", async 
   assert.match(html, /\/api\/discover/);
 });
 
+test("Studio progress mirrors the lean explanation-first production graph", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+
+  for (const label of [
+    "Dialogue draft",
+    "Entertainment edit",
+    "Script critique",
+    "Targeted script revision",
+    "Release script",
+    "Plan visual operations",
+    "Compile animated scenes",
+    "Render motion-graphics episode",
+    "Output release check",
+  ]) {
+    assert.match(html, new RegExp(label));
+  }
+
+  assert.match(html, /Explanation-first motion graphics/);
+  assert.doesNotMatch(html, /script:"Dialogue script"/);
+  assert.doesNotMatch(html, /visual_plan:"Shot direction"/);
+  assert.doesNotMatch(html, /Dialogue-driven cartoon animation/);
+});
+
 test("episode idea suggestions unwrap the topic_candidates artifact shape", async () => {
   const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
 
