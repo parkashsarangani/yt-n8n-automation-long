@@ -22,12 +22,32 @@ test("visual operation is wired from compose bridge to Remotion", () => {
 });
 
 test("renderer implements every concrete operation", () => {
+  // Operations live in MotionDesignSystem's OperationStage, not in
+  // ExplanationScene. Before the composable refactor these literals were
+  // asserted against ExplanationScene, where they sat inside SemanticCanvas /
+  // OperationCanvas -- components the refactor stopped calling but left in the
+  // file. That kept this test green against ~240 lines of unreachable code
+  // while the real render path went through MotionDesignSystem. The dead
+  // components are now deleted and the assertions point at the live renderer.
   for (const operation of ["stack", "timeline", "counter", "compress", "group", "sort", "scale-compare", "payoff"]) {
-    assert.match(scene, new RegExp(`"${operation}"`));
+    assert.match(motion, new RegExp(`"${operation}"`));
   }
-  assert.match(scene, /durationInFrames/);
-  assert.match(scene, /Easing\.inOut/);
-  assert.match(scene, /OperationCanvas operation=\{visualOperation\}/);
+  assert.match(motion, /durationInFrames/);
+  assert.match(motion, /Easing\.inOut/);
+  // Primitive, operation and state must all reach one composed renderer --
+  // that separation is the point of the refactor, so assert the real call.
+  assert.match(scene, /<MotionDesignSystem\b[^>]*\bprimitive=\{visualPrimitive\}/);
+  assert.match(scene, /<MotionDesignSystem\b[^>]*\boperation=\{visualOperation\}/);
+  assert.match(scene, /<MotionDesignSystem\b[^>]*\bstate=\{visualState\}/);
+  // Geometry (what exists) must stay separate from the operation transform
+  // (what happens to it), rather than each primitive hardcoding its animation.
+  assert.match(motion, /function Geometry/);
+  assert.match(motion, /function OperationStage/);
+});
+
+test("dead pre-refactor canvases are gone, not just bypassed", () => {
+  assert.doesNotMatch(scene, /function SemanticCanvas/);
+  assert.doesNotMatch(scene, /function OperationCanvas/);
 });
 
 test("renderer depicts semantic subjects instead of naming generic cards", () => {
@@ -58,8 +78,25 @@ test("reaction characters use deliberate bust panels", () => {
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);
   assert.doesNotMatch(scene, /function CharacterRail/);
   assert.match(scene, /fontSize: 56/);
-  assert.match(scene, /fontSize: 34, lineHeight: 1\.05/);
   assert.match(scene, /PRIMITIVE_GLOW/);
+});
+
+test("model labels stay legible at 1280x720", () => {
+  // Replaces a literal `fontSize: 34, lineHeight: 1.05` match against
+  // ExplanationScene's old SemanticLabels pills, which the composable refactor
+  // removed -- labels now render inside MotionDesignSystem's SVG. Asserting a
+  // computed floor instead of a magic string means this keeps testing
+  // legibility rather than one particular hardcoded number.
+  const viewBox = motion.match(/viewBox="0 0 (\d+) (\d+)"\s+style=\{\{ width:"100%"/);
+  assert.ok(viewBox, "expected the model SVG to declare a viewBox");
+  const scale = 1280 / Number(viewBox[1]);
+
+  const sizes = [...motion.matchAll(/fontSize="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.ok(sizes.length > 0, "expected SVG text in the model renderer");
+  for (const size of sizes) {
+    const effective = size * scale;
+    assert.ok(effective >= 28, `label fontSize ${size} renders at ${effective.toFixed(1)}px at 1280 wide, below the 28px floor`);
+  }
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
