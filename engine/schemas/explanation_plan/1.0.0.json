@@ -1,8 +1,8 @@
 {
   "schema_id": "explanation_plan",
   "version": "1.0.0",
-  "status": "active",
-  "description": "Explanation-first motion plan driven by concrete animated visual operations. Characters are limited to deliberate reaction panels.",
+  "status": "deprecated",
+  "description": "Backward-compatible explanation plan without required semantic primitives. Preserved artifacts remain readable.",
   "produced_by": [
     "explanation_visual_planner"
   ],
@@ -367,20 +367,6 @@
                 "payoff"
               ],
               "description": "The concrete animated operation rendered continuously during this spoken scene."
-            },
-            "visual_primitive": {
-              "type": "string",
-              "enum": [
-                "particles",
-                "rays",
-                "wave",
-                "horizon",
-                "spectrum",
-                "path",
-                "shells",
-                "objects"
-              ],
-              "description": "The subject-shaped graphical vocabulary used inside the selected operation. Optional for backward compatibility; the compiler infers it from model labels."
             }
           }
         }
