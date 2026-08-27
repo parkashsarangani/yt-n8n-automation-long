@@ -21,6 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Motion compatibility contract is synchronized
+        run: |
+          cmp contracts/motion-compatibility.json engine/src/motion-compatibility.json
+          cmp contracts/motion-compatibility.json long-compose/remotion/src/motion-compatibility.json
+
       - name: Compose file is valid and starts the right services
         run: |
           set -e
