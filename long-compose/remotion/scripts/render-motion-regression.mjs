@@ -32,6 +32,10 @@ try {
       primitives: allPrimitives.slice(page * perPage, (page + 1) * perPage),
     });
   }
+  for (const primitive of ["network", "path", "quantity"]) requested.push({
+    id: "ExplanationBackgroundRegression", frame: 24, filename: `background-${primitive}.png`,
+    inputProps: { visualPrimitive: primitive }, kind: "background", primitive,
+  });
   requested.push(
     { id: "ExplanationBookendRegression", frame: 96, filename: "bookend.png", kind: "bookend" },
     { id: "ExplanationEmptyBookendReference", frame: 96, filename: "bookend-empty.png", kind: "bookend-reference" },
