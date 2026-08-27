@@ -11,9 +11,25 @@ export type ExplanationRole =
   | "character-reaction"
   | "recap";
 
+export type VisualOperation =
+  | "stack"
+  | "timeline"
+  | "counter"
+  | "compress"
+  | "group"
+  | "sort"
+  | "scale-compare"
+  | "payoff";
+
+const VISUAL_OPERATIONS = new Set<VisualOperation>([
+  "stack", "timeline", "counter", "compress",
+  "group", "sort", "scale-compare", "payoff",
+]);
+
 interface ExplanationPlanScene {
   scene_index: number;
   scene_role?: ExplanationRole | string;
+  visual_operation?: VisualOperation | string;
   explanation_title?: string;
   model_elements?: string[];
   state_before?: string;
@@ -72,6 +88,13 @@ export function applyExplanationFormat(
     const legacy = JSON.parse(entry.template_data) as Record<string, unknown>;
     const characters = Array.isArray(legacy.characters) ? legacy.characters : [];
     const role = plan.scene_role as ExplanationRole;
+    const operation = cleanText(plan.visual_operation, 24) as VisualOperation;
+    if (!VISUAL_OPERATIONS.has(operation)) {
+      throw new Error(`Scene ${entry.scene_index} requires a valid visual_operation`);
+    }
+    if (role === "recap" && operation !== "payoff") {
+      throw new Error(`Scene ${entry.scene_index} recap must use visual_operation "payoff"`);
+    }
     const cutIn = cleanText(plan.character_cut_in || (
       role === "character-hook" ? "both" :
       role === "character-reaction" ? "listener" :
@@ -79,8 +102,9 @@ export function applyExplanationFormat(
     ), 16);
 
     const payload = {
-      formatVersion: 1,
+      formatVersion: 2,
       role,
+      visualOperation: operation,
       title: cleanText(plan.explanation_title),
       keyText: cleanText(plan.key_text, 96),
       elements: cleanElements(plan.model_elements),
@@ -95,6 +119,7 @@ export function applyExplanationFormat(
         ...(asRecord(legacy.rendererPerformance) ?? {}),
         format: "explanation-motion",
         explanationRole: role,
+        visualOperation: operation,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
         meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
@@ -113,7 +138,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "18",
+    version: "19",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
