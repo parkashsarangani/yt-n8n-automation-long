@@ -11,6 +11,7 @@ import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
+import { repairMotionCompatibility } from "./motion-contract.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
   ProviderError,
@@ -230,11 +231,29 @@ export class Runner {
       }
 
       const { payload: rawPayload, confidence } = unwrap(value, def.name);
-      const { data: payload, repairs } = repairEnumValues(rawOutputSchema, rawPayload);
+      const { data: enumRepaired, repairs } = repairEnumValues(rawOutputSchema, rawPayload);
       if (repairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired ${repairs.length} enum value(s): ` +
             repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
+        );
+      }
+      // A valid-but-incompatible visual_operation/visual_primitive pair is not
+      // an enum near-miss (both values are individually legal), so the enum
+      // repair above never sees it. Fixing it here, before the semantic gate
+      // runs, means a model mistake the system already knows how to correct
+      // doesn't cost a full retry attempt -- production evidence this
+      // matters: explanation_visual_planner burned all 3 attempts on
+      // run_39850b3e fixing some pairs while breaking others, and never had a
+      // budget left for the unrelated numeric_value rule that then blocked
+      // the final attempt.
+      const { data: payload, repairs: motionRepairs } = def.produces === "explanation_plan"
+        ? repairMotionCompatibility(enumRepaired)
+        : { data: enumRepaired, repairs: [] };
+      if (motionRepairs.length > 0) {
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired ${motionRepairs.length} incompatible operation/primitive pair(s): ` +
+            motionRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
 
