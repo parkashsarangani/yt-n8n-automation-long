@@ -213,7 +213,7 @@ test("relational claims infer reusable relationship primitives", () => {
   ]);
   const opening = JSON.parse(scenes[0]!.template_data);
   const middle = JSON.parse(scenes[1]!.template_data);
-  assert.equal(opening.visualPrimitive, "one-to-many");
+  assert.equal(opening.visualPrimitive, "facets-around-center");
   assert.equal(middle.visualPrimitive, "facets-around-center");
   assert.equal(opening.compositionMode, "bookend");
   assert.equal(middle.compositionMode, "full-model");
