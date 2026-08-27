@@ -3,17 +3,16 @@ import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoCon
 import { Character, type CharacterProps } from "../components/Character";
 
 export type ExplanationRole =
-  | "character-hook"
-  | "diagram-build"
-  | "process-flow"
-  | "object-state-change"
-  | "comparison"
-  | "kinetic-emphasis"
-  | "character-reaction"
-  | "recap";
+  | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
+  | "comparison" | "kinetic-emphasis" | "character-reaction" | "recap";
+
+export type VisualOperation =
+  | "stack" | "timeline" | "counter" | "compress"
+  | "group" | "sort" | "scale-compare" | "payoff";
 
 export interface ExplanationSceneProps {
   role?: ExplanationRole;
+  visualOperation?: VisualOperation;
   title?: string;
   keyText?: string;
   elements?: string[];
@@ -30,10 +29,9 @@ const INK = "#172033";
 const ACCENT = "#FFD166";
 const BLUE = "#65C7F7";
 const GREEN = "#7DE2A8";
-
 const clamp = { extrapolateLeft: "clamp" as const, extrapolateRight: "clamp" as const };
 
-function CharacterRail({ characters = [], mode = "none" }: Pick<ExplanationSceneProps, "characters"> & { mode?: string }) {
+function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationSceneProps, "characters"> & { mode?: string }) {
   if (mode === "none") return null;
   const selected = characters.filter((character) => {
     if (mode === "both") return true;
@@ -41,74 +39,166 @@ function CharacterRail({ characters = [], mode = "none" }: Pick<ExplanationScene
     if (mode === "listener") return !character.isSpeaking;
     return false;
   }).slice(0, mode === "both" ? 2 : 1);
+  if (!selected.length) return null;
 
+  const width = mode === "both" ? 690 : 390;
   return (
-    <div style={{ position: "absolute", right: 42, bottom: 24, width: mode === "both" ? 570 : 310, height: 420, overflow: "hidden", zIndex: 8 }}>
+    <div style={{
+      position: "absolute", right: 48, top: 116, bottom: 176, width,
+      overflow: "hidden", borderRadius: 38, zIndex: 8,
+      background: "linear-gradient(180deg, #21365F 0%, #101A31 100%)",
+      border: "3px solid #65C7F755", boxShadow: "0 24px 70px #0008",
+    }}>
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 50% 35%, #65C7F722, transparent 62%)" }} />
       {selected.map((character, index) => (
         <Character
           key={character.characterId || index}
           {...character}
-          x={index * 245}
-          y={8}
-          scale={0.58}
+          x={mode === "both" ? -25 + index * 320 : 20}
+          y={86}
+          scale={0.82}
         />
       ))}
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #0B1020)" }} />
     </div>
   );
 }
 
 function Title({ children }: { children?: string }) {
   if (!children) return null;
-  return <div style={{ fontSize: 46, fontWeight: 800, letterSpacing: -1.2, color: PAPER, marginBottom: 34, maxWidth: 1320 }}>{children}</div>;
+  return <div style={{ fontSize: 44, fontWeight: 820, letterSpacing: -1.1, color: PAPER, marginBottom: 24, maxWidth: 1320 }}>{children}</div>;
 }
 
-function Diagram({ role, elements, before, after }: Required<Pick<ExplanationSceneProps, "role">> & Pick<ExplanationSceneProps, "elements" | "before" | "after">) {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const values = (elements || []).filter(Boolean).slice(0, 5);
+function Card({ label, accent = false, style = {} }: { label: string; accent?: boolean; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      borderRadius: 24, padding: "24px 30px", color: INK,
+      background: accent ? GREEN : PAPER, fontSize: 34, lineHeight: 1.08,
+      fontWeight: 800, textAlign: "center", boxShadow: "0 14px 36px #0004", ...style,
+    }}>{label}</div>
+  );
+}
 
-  if (role === "comparison" || role === "object-state-change") {
-    const change = spring({ frame: frame - fps * 0.35, fps, config: { damping: 16, stiffness: 110 } });
-    return (
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 1fr", alignItems: "center", gap: 22, width: 1370 }}>
-        {[before || values[0] || "Before", after || values[1] || "After"].map((value, index) => (
-          <div key={index} style={{
-            minHeight: 330, borderRadius: 30, padding: 44, display: "grid", placeItems: "center",
-            color: INK, background: index ? GREEN : "#D9E2F2", fontSize: 54, fontWeight: 850,
-            transform: index ? `scale(${0.86 + change * 0.14})` : "none",
-            opacity: index ? 0.25 + change * 0.75 : 1,
-          }}>{value}</div>
-        ))}
-        <div style={{ gridColumn: 2, gridRow: 1, color: ACCENT, fontSize: 76, fontWeight: 900, textAlign: "center" }}>→</div>
-      </div>
-    );
+function OperationCanvas({ operation, elements, before, after, keyText }: {
+  operation: VisualOperation; elements?: string[]; before?: string; after?: string; keyText?: string;
+}) {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
+  const values = (elements || []).filter(Boolean).slice(0, 5);
+  const nodes = values.length ? values : ["Start", "Change", "Result"];
+  const p = interpolate(frame, [0, Math.max(1, durationInFrames - 1)], [0, 1], clamp);
+  const breathe = 1 + Math.sin(frame / fps * Math.PI * 2) * 0.012;
+  const enter = (index: number) => spring({ frame: frame - index * fps * 0.18, fps, config: { damping: 18, stiffness: 105 } });
+
+  if (operation === "stack") {
+    return <div style={{ position: "relative", width: 1040, height: 500 }}>
+      {nodes.map((value, index) => {
+        const e = enter(index);
+        const lift = (1 - p) * (nodes.length - index) * 10;
+        return <Card key={index} label={value} accent={index === nodes.length - 1} style={{
+          position: "absolute", width: 610, left: 120 + index * 55,
+          bottom: 38 + index * 74 + lift, opacity: e,
+          transform: `translateX(${(1 - e) * -80}px) scale(${0.94 + e * 0.06})`,
+          zIndex: index + 1,
+        }} />;
+      })}
+      <div style={{ position: "absolute", right: 50, top: 105, color: ACCENT, fontSize: 72, fontWeight: 900 }}>{nodes.length}</div>
+    </div>;
   }
 
-  const nodes = values.length ? values : ["Question", "Mechanism", "Result"];
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 22, width: 1450 }}>
+  if (operation === "timeline") {
+    const x = 65 + p * 870;
+    return <div style={{ position: "relative", width: 1040, height: 430 }}>
+      <div style={{ position: "absolute", left: 65, right: 65, top: 210, height: 10, borderRadius: 9, background: "#65C7F744" }} />
+      <div style={{ position: "absolute", left: 65, top: 210, height: 10, width: p * 870, borderRadius: 9, background: BLUE }} />
       {nodes.map((value, index) => {
-        const enter = spring({ frame: frame - index * fps * 0.18, fps, config: { damping: 18, stiffness: 105 } });
-        return (
-          <div key={index} style={{ display: "contents" }}>
-            <div style={{
-              flex: 1, minHeight: role === "diagram-build" ? 245 : 190, borderRadius: 28,
-              display: "grid", placeItems: "center", padding: 30, textAlign: "center",
-              background: index === nodes.length - 1 ? GREEN : PAPER, color: INK,
-              fontSize: 38, lineHeight: 1.08, fontWeight: 800,
-              transform: `translateY(${(1 - enter) * 34}px) scale(${0.9 + enter * 0.1})`,
-              opacity: enter,
-            }}>{value}</div>
-            {index < nodes.length - 1 && <div style={{ color: BLUE, fontSize: 58, fontWeight: 900, opacity: enter }}>→</div>}
-          </div>
-        );
+        const at = 65 + index * (870 / Math.max(1, nodes.length - 1));
+        const e = enter(index);
+        return <div key={index} style={{ position: "absolute", left: at - 92, top: index % 2 ? 244 : 74, width: 184, opacity: e }}>
+          <div style={{ color: PAPER, fontSize: 25, fontWeight: 780, textAlign: "center" }}>{value}</div>
+          <div style={{ position: "absolute", left: 82, top: index % 2 ? -46 : 108, width: 22, height: 22, borderRadius: 99, background: index === nodes.length - 1 ? GREEN : BLUE, boxShadow: "0 0 0 8px #65C7F722" }} />
+        </div>;
       })}
+      <div style={{ position: "absolute", left: x - 3, top: 165, width: 6, height: 100, background: ACCENT, boxShadow: "0 0 20px #FFD166" }} />
+    </div>;
+  }
+
+  if (operation === "counter") {
+    const count = Math.max(1, Math.round(p * nodes.length));
+    return <div style={{ width: 1040, height: 450, display: "grid", gridTemplateColumns: "360px 1fr", gap: 54, alignItems: "center" }}>
+      <div style={{ color: ACCENT, fontSize: 172, lineHeight: 0.8, fontWeight: 920, fontVariantNumeric: "tabular-nums", transform: `scale(${breathe})` }}>{count}</div>
+      <div style={{ display: "grid", gap: 16 }}>
+        {nodes.map((value, index) => <Card key={index} label={value} accent={index < count} style={{ opacity: index < count ? 1 : 0.24, transform: `translateX(${index < count ? 0 : 34}px)`, transition: "none" }} />)}
+      </div>
+    </div>;
+  }
+
+  if (operation === "compress") {
+    return <div style={{ position: "relative", width: 1080, height: 460 }}>
+      {nodes.map((value, index) => {
+        const startX = index * (900 / Math.max(1, nodes.length - 1));
+        const endX = 380 + index * 18;
+        const x = interpolate(p, [0, 0.82], [startX, endX], { ...clamp, easing: Easing.inOut(Easing.cubic) });
+        return <Card key={index} label={value} accent={p > 0.82} style={{ position: "absolute", left: x, top: 150 + Math.sin(index * 2.1) * 65 * (1 - p), width: 190, opacity: 0.75 + p * 0.25, transform: `scale(${1 - p * 0.16})` }} />;
+      })}
+      <div style={{ position: "absolute", left: 330, right: 310, bottom: 24, color: ACCENT, fontSize: 32, textAlign: "center", opacity: interpolate(p, [0.68, 1], [0, 1], clamp), fontWeight: 850 }}>{after || keyText || "One compact group"}</div>
+    </div>;
+  }
+
+  if (operation === "group") {
+    const centers = [[230, 150], [700, 150], [470, 340]];
+    return <div style={{ position: "relative", width: 1050, height: 480 }}>
+      {nodes.map((value, index) => {
+        const startX = 70 + index * 205;
+        const startY = 80 + (index % 2) * 260;
+        const center = centers[index % centers.length];
+        return <Card key={index} label={value} accent={index % 3 === 2} style={{
+          position: "absolute", width: 210,
+          left: interpolate(p, [0, 0.88], [startX, center[0]], { ...clamp, easing: Easing.inOut(Easing.cubic) }),
+          top: interpolate(p, [0, 0.88], [startY, center[1]], { ...clamp, easing: Easing.inOut(Easing.cubic) }),
+          transform: `scale(${0.9 + p * 0.08})`,
+        }} />;
+      })}
+      {centers.map((center, i) => <div key={i} style={{ position: "absolute", left: center[0] - 35, top: center[1] - 35, width: 280, height: 145, borderRadius: 80, border: "3px dashed #65C7F766", opacity: interpolate(p, [0.45, 0.8], [0, 1], clamp) }} />)}
+    </div>;
+  }
+
+  if (operation === "sort") {
+    const order = nodes.map((_, i) => i).sort((a, b) => nodes[a].localeCompare(nodes[b]));
+    return <div style={{ position: "relative", width: 1080, height: 470 }}>
+      {nodes.map((value, index) => {
+        const target = order.indexOf(index);
+        const startY = 30 + index * 82;
+        const endY = 30 + target * 82;
+        const y = interpolate(p, [0.15, 0.86], [startY, endY], { ...clamp, easing: Easing.inOut(Easing.cubic) });
+        return <Card key={index} label={value} accent={target === 0} style={{ position: "absolute", left: 210 + target * p * 22, top: y, width: 610, transform: `scale(${breathe})` }} />;
+      })}
+    </div>;
+  }
+
+  if (operation === "scale-compare") {
+    const leftScale = interpolate(p, [0, 1], [1, 0.72], clamp);
+    const rightScale = interpolate(p, [0, 1], [0.72, 1.12], clamp);
+    return <div style={{ width: 1080, height: 470, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 70, alignItems: "center" }}>
+      <Card label={before || nodes[0] || "Before"} style={{ minHeight: 260, display: "grid", placeItems: "center", fontSize: 48, transform: `scale(${leftScale})` }} />
+      <Card label={after || nodes[1] || "After"} accent style={{ minHeight: 260, display: "grid", placeItems: "center", fontSize: 48, transform: `scale(${rightScale})` }} />
+    </div>;
+  }
+
+  const resolve = spring({ frame: frame - fps * 0.25, fps, config: { damping: 13, stiffness: 82 } });
+  return <div style={{ width: 1120, height: 500, display: "grid", placeItems: "center", position: "relative" }}>
+    <div style={{ position: "absolute", width: 420 + p * 340, height: 420 + p * 340, borderRadius: "50%", border: `18px solid ${GREEN}`, opacity: 0.18 + p * 0.42, transform: `scale(${resolve})` }} />
+    <div style={{ textAlign: "center", zIndex: 2 }}>
+      <div style={{ color: PAPER, fontSize: 44, fontWeight: 760, opacity: 1 - p * 0.72, transform: `translateY(${-p * 44}px)` }}>{before || nodes[0]}</div>
+      <div style={{ color: ACCENT, fontSize: 82, lineHeight: 1.02, fontWeight: 920, marginTop: 26, transform: `scale(${0.86 + resolve * 0.14})` }}>{keyText || after || nodes[nodes.length - 1]}</div>
+      <div style={{ width: p * 720, maxWidth: 720, height: 10, borderRadius: 8, background: GREEN, margin: "32px auto 0" }} />
     </div>
-  );
+  </div>;
 }
 
 export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   role = "diagram-build",
+  visualOperation = "timeline",
   title = "",
   keyText = "",
   elements = [],
@@ -119,35 +209,20 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const progress = interpolate(frame, [0, fps * 0.28], [0, 1], clamp);
-  const emphasis = spring({ frame: frame - fps * 0.08, fps, config: { damping: 15, stiffness: 120 } });
+  const progress = interpolate(frame, [0, fps * 0.25], [0, 1], clamp);
   const characterDominant = role === "character-hook" || role === "character-reaction";
+  const hasPanel = characterCutIn !== "none";
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
 
   return (
-    <AbsoluteFill style={{
-      background: `radial-gradient(circle at 18% 18%, #17294C 0, ${BG} 48%, #070A12 100%)`,
-      fontFamily: "Inter, Arial, sans-serif", overflow: "hidden",
-    }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.16, backgroundImage: "linear-gradient(#65C7F722 1px, transparent 1px), linear-gradient(90deg, #65C7F722 1px, transparent 1px)", backgroundSize: "64px 64px" }} />
-      <div style={{ position: "absolute", left: 92, top: 74, right: 92, bottom: 90, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
+    <AbsoluteFill style={{ background: `radial-gradient(circle at 18% 18%, #17294C 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, opacity: 0.14, backgroundImage: "linear-gradient(#65C7F722 1px, transparent 1px), linear-gradient(90deg, #65C7F722 1px, transparent 1px)", backgroundSize: "64px 64px" }} />
+      <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 780 : 480) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
         <Title>{title}</Title>
-        {characterDominant ? (
-          <div style={{ width: 1200, borderLeft: `12px solid ${ACCENT}`, padding: "28px 40px", color: PAPER, fontSize: 70, lineHeight: 1.04, fontWeight: 880, letterSpacing: -2.2, transform: `translateX(${(1-emphasis)*-38}px)` }}>
-            {keyText || elements[0] || "Look at what changes."}
-          </div>
-        ) : role === "kinetic-emphasis" || role === "recap" ? (
-          <div style={{ color: PAPER, fontSize: role === "kinetic-emphasis" ? 92 : 68, maxWidth: 1350, lineHeight: 1.02, fontWeight: 900, letterSpacing: -2.8, transform: `scale(${0.91 + emphasis * 0.09})`, transformOrigin: "left center" }}>
-            <span style={{ color: ACCENT }}>{keyText || elements.join(" · ")}</span>
-          </div>
-        ) : (
-          <Diagram role={role} elements={elements} before={before} after={after} />
-        )}
+        {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
+        <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
       </div>
-      <CharacterRail characters={safeCharacters} mode={characterCutIn} />
-      <div style={{ position: "absolute", left: 92, bottom: 42, color: BLUE, fontSize: 20, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase" }}>
-        {role.replaceAll("-", " ")}
-      </div>
+      <BustReactionPanel characters={safeCharacters} mode={characterCutIn} />
     </AbsoluteFill>
   );
 };

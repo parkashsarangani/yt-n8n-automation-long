@@ -19,6 +19,7 @@ test("explanation format makes the model own the frame while preserving cast", (
   const plans = [{
     scene_index: 2,
     scene_role: "object-state-change" as const,
+    visual_operation: "compress" as const,
     explanation_title: "Why years feel shorter",
     model_elements: ["one year", "lived years"],
     state_before: "1 of 10",
@@ -32,10 +33,43 @@ test("explanation format makes the model own the frame while preserving cast", (
   assert.equal(scene?.template_category, "explanation");
   const data = JSON.parse(scene!.template_data);
   assert.equal(data.role, "object-state-change");
+  assert.equal(data.visualOperation, "compress");
+  assert.equal(data.formatVersion, 2);
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
   assert.equal(data.rendererPerformance.explanatoryModelVisible, true);
   assert.equal(data.rendererPerformance.meaningfulStateChange, true);
   assert.equal(data.rendererPerformance.characterCutIn, "none");
+  assert.equal(data.rendererPerformance.visualOperation, "compress");
+});
+
+test("explanation scenes cannot pass with semantic roles alone", () => {
+  const entries = [{
+    scene_index: 4,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }];
+  assert.throws(
+    () => applyExplanationFormat(entries, [{ scene_index: 4, scene_role: "diagram-build" }]),
+    /requires a valid visual_operation/,
+  );
+});
+
+test("the recap is reserved for the decisive payoff operation", () => {
+  const entries = [{
+    scene_index: 9,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }];
+  assert.throws(
+    () => applyExplanationFormat(entries, [{
+      scene_index: 9,
+      scene_role: "recap",
+      visual_operation: "timeline",
+    }]),
+    /recap must use visual_operation "payoff"/,
+  );
 });
 
 test("legacy plans remain backward compatible", () => {

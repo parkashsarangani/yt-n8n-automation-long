@@ -1019,6 +1019,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
       compositionId: "ExplanationScene",
       buildProps: (d) => ({
         role: d.role,
+        visualOperation: d.visualOperation,
         title: d.title,
         keyText: d.keyText,
         elements: d.elements || [],
@@ -1241,7 +1242,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,62,&H00FFFFFF,&H0000DFFF,&H40000000,&H80000000,0,0,0,0,100,100,0,0,1,3,4,2,60,60,100,1
+Style: Caption,Inter Bold,76,&H00FFFFFF,&H0000DFFF,&H50000000,&HA0000000,0,0,0,0,100,100,0,0,1,5,4,2,90,90,172,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -1249,8 +1250,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
   let events = "";
-  // Show phrases of ~6-10 words at a time, with the spoken word highlighted.
-  const WORDS_PER_PHRASE = 8;
+  // Keep mobile captions short, large, and above the bottom UI-safe area.
+  const WORDS_PER_PHRASE = 6;
 
   scenes.forEach((scene, sceneIdx) => {
     if (isOutroScene(scene)) return;
@@ -1279,12 +1280,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     if (current) words.push({ text: current, start: wordStart, end: ends[ends.length - 1] });
 
-    // A scene is one character's spoken turn (script.scenes[].speaker), so
-    // the speaker is constant across every phrase this scene produces. Tint
-    // the "already spoken" karaoke color to the active speaker's color, and
-    // name them once at the start of the turn rather than on every phrase.
-    const speakerName = typeof scene?.speaker_name === "string" ? scene.speaker_name.trim() : "";
-    const speakerColorTag = speakerName ? `{\\1c${hexToAssColor(scene.speaker_color)}}` : "";
+    // Preserve character identity through caption color without printing
+    // production speaker-name prefixes into the viewer-facing line.
+    const hasSpeaker = typeof scene?.speaker_name === "string" && scene.speaker_name.trim().length > 0;
+    const speakerColorTag = hasSpeaker ? `{\\1c${hexToAssColor(scene.speaker_color)}}` : "";
 
     // Group words into phrases
     for (let phraseStart = 0; phraseStart < words.length; phraseStart += WORDS_PER_PHRASE) {
@@ -1298,9 +1297,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       // Use ASS \kf (smooth karaoke fill) to progressively highlight each word
       // in the CaptionHL color as it's spoken.
       let line = speakerColorTag;
-      if (speakerName && phraseStart === 0) {
-        line += `${escapeAssText(speakerName.toUpperCase())}: `;
-      }
       for (let w = 0; w < phrase.length; w++) {
         const word = phrase[w];
         // \kf duration is in centiseconds (100ths of a second)
@@ -1441,13 +1437,17 @@ async function buildGaplessVoice(audioPaths, outPath) {
   return outPath;
 }
 
-function isOutroScene(scene) {
+function sceneTemplateData(scene) {
   const data = scene?.template_data;
-  if (data && typeof data === "object") return data.is_outro === true;
+  if (data && typeof data === "object") return data;
   if (typeof data === "string") {
-    try { return JSON.parse(data)?.is_outro === true; } catch { return false; }
+    try { return JSON.parse(data) || {}; } catch { return {}; }
   }
-  return false;
+  return {};
+}
+
+function isOutroScene(scene) {
+  return sceneTemplateData(scene).is_outro === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1653,15 +1653,40 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       riser: fs.existsSync(sfxFiles.riser),
     };
 
-    // Sound design: NO per-cut SFX (that whoosh-on-every-cut clashed with the
-    // tone). Instead, ONE tasteful accent at the payoff/reveal - a soft riser
-    // building into it, then a gentle impact as it lands. This is the single
-    // intentional audio beat that punctuates the climax without the noise.
+    // Restrained operation-aware sound design. Authored transformation cues
+    // punctuate visible changes, while spacing and a hard cap prevent every cut
+    // from becoming noisy. The final payoff keeps its quiet riser and resolve.
     const sfxEvents = [];
+    const cueMap = {
+      "soft-hit": { type: "impact", volume: 0.10 },
+      tick: { type: "impact", volume: 0.07 },
+      whoosh: { type: "whoosh", volume: 0.11 },
+      pop: { type: "impact", volume: 0.09 },
+      resolve: { type: "impact", volume: 0.14 },
+    };
+    const operationFallback = {
+      stack: { type: "impact", volume: 0.07 },
+      compress: { type: "whoosh", volume: 0.10 },
+      group: { type: "whoosh", volume: 0.09 },
+      sort: { type: "whoosh", volume: 0.09 },
+      "scale-compare": { type: "impact", volume: 0.08 },
+    };
+    let lastCueTime = -10;
+    scenes.forEach((scene, index) => {
+      if (scene?.template_name !== "explanation" || isOutroScene(scene)) return;
+      const data = sceneTemplateData(scene);
+      const selected = cueMap[data.soundCue] || operationFallback[data.visualOperation];
+      const time = (offsets[index] || 0) + Math.min(0.9, Math.max(0.35, (durations[index] || 1) * 0.28));
+      if (!selected || time - lastCueTime < 2.4 || sfxEvents.length >= 7) return;
+      if (sfxAvailable[selected.type]) {
+        sfxEvents.push({ ...selected, time });
+        lastCueTime = time;
+      }
+    });
     const emphasisOffset = offsets[emphasisIdx];
     if (emphasisIdx >= 1 && emphasisOffset != null) {
-      if (sfxAvailable.riser) sfxEvents.push({ type: "riser", time: Math.max(0, emphasisOffset - 1.3), volume: 0.18 });
-      if (sfxAvailable.impact) sfxEvents.push({ type: "impact", time: emphasisOffset, volume: 0.22 });
+      if (sfxAvailable.riser) sfxEvents.push({ type: "riser", time: Math.max(0, emphasisOffset - 1.3), volume: 0.14 });
+      if (sfxAvailable.impact) sfxEvents.push({ type: "impact", time: emphasisOffset, volume: 0.17 });
     }
 
     // Cartoon mouth cues are rendered into each per-scene Remotion clip from
@@ -1672,7 +1697,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // voice source instead, so mouth cues and audible speech share the same
     // boundaries throughout.
     const preserveSceneAudioForLipSync = scenes.some(
-      (scene) => scene?.visual_source === "template" && scene?.template_name === "cartoon"
+      (scene) => scene?.visual_source === "template" && ["cartoon", "explanation"].includes(scene?.template_name)
     );
     let voicePath = null;
     if (!preserveSceneAudioForLipSync) {
@@ -1725,8 +1750,11 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     const mixLabels = [voiceLabel];
 
     if (hasMusic) {
-      // Gentler ducking: ratio 4 instead of 10, shaped attack/release
-      audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,volume=0.15[music]`);
+      // Explanation renders use a quieter bed so speech and transformation cues
+      // stay in front; legacy formats preserve their established balance.
+      const explanationMode = scenes.some((scene) => scene?.template_name === "explanation");
+      const musicVolume = explanationMode ? 0.11 : 0.15;
+      audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,volume=${musicVolume}[music]`);
       audioFilters.push(`[music][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);
       mixLabels.push("duckedmusic");
     }

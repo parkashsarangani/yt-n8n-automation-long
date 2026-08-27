@@ -48,6 +48,7 @@ export const RemotionRoot: React.FC = () => (
         <Composition id="ExplanationScene" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
             defaultProps={{
                 role: "diagram-build" as const,
+                visualOperation: "timeline" as const,
                 title: "The mechanism",
                 keyText: "",
                 elements: ["Signal", "Compression", "Result"],
