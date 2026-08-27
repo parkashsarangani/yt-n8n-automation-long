@@ -166,7 +166,7 @@ function Geometry({ primitive, state, labels, before, after, keyText, numericVal
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
     return <><path d="M70 410 Q210 40 385 250 T690 210 T1010 355" fill="none" stroke={colors.muted} strokeWidth="30" opacity=".24"/>
-      {places.map(([x,y],i)=><React.Fragment key={i}>{i<places.length-1&&<DirectedEdge x1={x} y1={y} x2={places[i+1]![0]} y2={places[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<path d={`M${x} ${y} c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z`} fill={i===places.length-1?GREEN:ACCENT} transform="scale(.55)"/></React.Fragment>)}</>;
+      {places.map(([x,y],i)=><React.Fragment key={i}>{i<places.length-1&&<DirectedEdge x1={x} y1={y} x2={places[i+1]![0]} y2={places[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<g transform={`translate(${x} ${y}) scale(.55)`}><path d="M0 0 c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z" fill={i===places.length-1?GREEN:ACCENT}/></g></React.Fragment>)}</>;
   }
   if (primitive === "timeline") {
     const xs=[130,350,570,790,970];
