@@ -281,31 +281,34 @@ function StateDecorator({ state, consequence }: { state: VisualState; consequenc
   return null;
 }
 
-export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], before = "", after = "", keyText = "" }: {
+export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
   primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; before?: string; after?: string; keyText?: string;
+  diagnosticMode?: "normal" | "foreground-only" | "background-only";
 }) {
   const { setup, transform, consequence, hold, pop } = useProgress();
-  if ((operation === "counter" || primitive === "quantity") && numericValue === null) {
+  if ((operation === "counter" || primitive === "quantity") && (numericValue === null || !Number.isFinite(numericValue))) {
     throw new Error(`${operation}/${primitive} requires an explicit numericValue`);
   }
   const labels = [...elements, before, after].filter(Boolean).slice(0, operation === "timeline" || primitive === "cause-chain" ? 4 : 3);
   const colors = palette[state];
-  return <div style={{ position:"relative", width:"100%", height:510, borderRadius:36, overflow:"hidden", boxShadow:"0 24px 70px #0008" }}>
+  const foregroundVisible = diagnosticMode !== "background-only";
+  const backgroundVisible = diagnosticMode !== "foreground-only";
+  return <div style={{ position:"relative", width:"100%", height:510, borderRadius:36, overflow:"hidden", boxShadow:diagnosticMode==="normal"?"0 24px 70px #0008":"none" }}>
     <svg viewBox="0 0 1080 510" style={{ width:"100%", height:"100%", display:"block" }}>
       <defs>
         <marker id="motion-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill={colors.line}/></marker>
         <clipPath id="operation-reveal"><rect x="0" y="0" width={1080*transform} height="510"/></clipPath>
       </defs>
-      <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" />
-      <OperationStage operation={operation} progress={transform} state={state} numericValue={numericValue}>
+      {backgroundVisible ? <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" /> : null}
+      {foregroundVisible ? <OperationStage operation={operation} progress={transform} state={state} numericValue={numericValue}>
         {state === "contradiction" ? <>
           <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
           <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
         </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>}
-      </OperationStage>
-      <StateDecorator state={state} consequence={consequence}/>
+      </OperationStage> : null}
+      {foregroundVisible ? <StateDecorator state={state} consequence={consequence}/> : null}
     </svg>
-    {state!=="payoff"&&consequence>0&&keyText&&<div style={{position:"absolute",left:90,right:90,bottom:18,textAlign:"center",fontSize:40,fontWeight:900,color:state==="contradiction"?RED:ACCENT,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{keyText}</div>}
+    {foregroundVisible&&state!=="payoff"&&consequence>0&&keyText&&<div style={{position:"absolute",left:90,right:90,bottom:18,textAlign:"center",fontSize:40,fontWeight:900,color:state==="contradiction"?RED:ACCENT,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{keyText}</div>}
     <div data-motion-phase={hold>0?"hold":consequence>0?"consequence":transform>0?"transform":setup>0?"setup":"idle"} style={{display:"none"}}/>
   </div>;
 }
