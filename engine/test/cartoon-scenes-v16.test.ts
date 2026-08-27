@@ -16,7 +16,7 @@ test("explanation format makes the model own the frame while preserving cast", (
       rendererPerformance: { plannerShotAuthority: true },
     }),
   }];
-  const plans = [{
+  const plans = [{ scene_index: 0, scene_role: "character-hook" as const, visual_operation: "timeline" as const }, {
     scene_index: 2,
     scene_role: "object-state-change" as const,
     visual_operation: "compress" as const,
@@ -28,7 +28,7 @@ test("explanation format makes the model own the frame while preserving cast", (
     key_text: "A smaller fraction",
     character_cut_in: "none" as const,
     sound_cue: "soft-hit" as const,
-  }];
+  }, { scene_index: 4, scene_role: "recap" as const, visual_operation: "payoff" as const }];
 
   const [scene] = applyExplanationFormat(entries, plans);
   assert.equal(scene?.template_category, "explanation");
@@ -42,6 +42,36 @@ test("explanation format makes the model own the frame while preserving cast", (
   assert.equal(data.rendererPerformance.meaningfulStateChange, true);
   assert.equal(data.rendererPerformance.characterCutIn, "none");
   assert.equal(data.rendererPerformance.visualOperation, "compress");
+});
+
+test("opening and closing scenes always render both-character bookends", () => {
+  const entries = [0, 1, 2].map((scene_index) => ({
+    scene_index,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: JSON.stringify({ characters: [
+      { characterId: "buddy", isSpeaking: scene_index === 0 },
+      { characterId: "host", isSpeaking: scene_index !== 0 },
+    ] }),
+  }));
+  const plans = [
+    { scene_index: 0, scene_role: "diagram-build", visual_operation: "counter", visual_primitive: "particles", character_cut_in: "none" },
+    { scene_index: 1, scene_role: "process-flow", visual_operation: "timeline", visual_primitive: "path", character_cut_in: "none" },
+    { scene_index: 2, scene_role: "kinetic-emphasis", visual_operation: "sort", visual_primitive: "objects", character_cut_in: "speaker" },
+  ];
+  const scenes = applyExplanationFormat(entries, plans);
+  const opening = JSON.parse(scenes[0]!.template_data);
+  const middle = JSON.parse(scenes[1]!.template_data);
+  const closing = JSON.parse(scenes[2]!.template_data);
+  assert.equal(opening.role, "character-hook");
+  assert.equal(opening.characterCutIn, "both");
+  assert.equal(middle.characterCutIn, "none");
+  assert.equal(closing.role, "recap");
+  assert.equal(closing.visualOperation, "payoff");
+  assert.equal(closing.visualPrimitive, "particles");
+  assert.equal(closing.characterCutIn, "both");
+  assert.equal(opening.rendererPerformance.roleWasNormalized, true);
+  assert.equal(closing.rendererPerformance.cutInWasNormalized, true);
 });
 
 test("older plans infer subject-shaped primitives without blocking resume", () => {
