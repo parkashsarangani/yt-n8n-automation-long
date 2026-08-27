@@ -52,7 +52,8 @@ test("inline image bytes cannot enter the URL-only image-to-video call", () => {
 
 test("outro handling accepts object or encoded template data and normalizes final position", () => {
   assert.match(source, /function isOutroScene\(scene\)/);
-  assert.match(source, /JSON\.parse\(data\)\?\.is_outro === true/);
+  assert.match(source, /function sceneTemplateData\(scene\)/);
+  assert.match(source, /return sceneTemplateData\(scene\)\.is_outro === true/);
   assert.match(source, /Expected at most one outro scene/);
   assert.match(source, /scenes\.splice\(outroIndex, 1\)/);
   assert.match(source, /scenes\.push\(outro\)/);
