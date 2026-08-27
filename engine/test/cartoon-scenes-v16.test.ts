@@ -20,6 +20,7 @@ test("explanation format makes the model own the frame while preserving cast", (
     scene_index: 2,
     scene_role: "object-state-change" as const,
     visual_operation: "compress" as const,
+    visual_primitive: "shells" as const,
     explanation_title: "Why years feel shorter",
     model_elements: ["one year", "lived years"],
     state_before: "1 of 10",
@@ -34,12 +35,32 @@ test("explanation format makes the model own the frame while preserving cast", (
   const data = JSON.parse(scene!.template_data);
   assert.equal(data.role, "object-state-change");
   assert.equal(data.visualOperation, "compress");
+  assert.equal(data.visualPrimitive, "shells");
   assert.equal(data.formatVersion, 2);
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
   assert.equal(data.rendererPerformance.explanatoryModelVisible, true);
   assert.equal(data.rendererPerformance.meaningfulStateChange, true);
   assert.equal(data.rendererPerformance.characterCutIn, "none");
   assert.equal(data.rendererPerformance.visualOperation, "compress");
+});
+
+test("older plans infer subject-shaped primitives without blocking resume", () => {
+  const entries = [{
+    scene_index: 6,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }];
+  const [scene] = applyExplanationFormat(entries, [{
+    scene_index: 6,
+    scene_role: "process-flow",
+    visual_operation: "timeline",
+    explanation_title: "Trace every sightline",
+    model_elements: ["Earth", "sightline", "distant star"],
+  }]);
+  const data = JSON.parse(scene!.template_data);
+  assert.equal(data.visualPrimitive, "rays");
+  assert.equal(data.rendererPerformance.visualPrimitive, "rays");
 });
 
 test("explanation scenes cannot pass with semantic roles alone", () => {
