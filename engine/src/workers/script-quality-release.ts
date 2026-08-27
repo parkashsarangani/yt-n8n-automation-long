@@ -45,11 +45,26 @@ export function assessScriptQuality(payload: unknown): {
   return { passed: failures.length === 0, average, failures };
 }
 
+export function assessShowBookends(payload: unknown): string[] {
+  const script = payload && typeof payload === "object" ? payload as { scenes?: unknown } : {};
+  const scenes = Array.isArray(script.scenes) ? script.scenes as Array<Record<string, unknown>> : [];
+  if (!scenes.length) return ["bookend script has no scenes"];
+  const first = scenes[0];
+  const failures: string[] = [];
+  if (first.speaker !== "buddy") failures.push("opening speaker must be buddy");
+  const openingLine = typeof first.narration === "string" ? first.narration.trim() : "";
+  if (!openingLine.endsWith("?")) failures.push("Buddy opening must be a hook question");
+  const last = scenes[scenes.length - 1];
+  const lastPoint = typeof last.point === "string" ? last.point : "";
+  if (!/function=recap confirms_understanding/.test(lastPoint)) failures.push("final scene must resolve the opening through recap");
+  return failures;
+}
+
 export function makeScriptQualityReleaseWorker(): WorkerDef {
   return {
     name: "script_quality_release",
     kind: "worker",
-    version: "2",
+    version: "3",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "script_quality_report", range: "^1", as: "report" },
@@ -59,9 +74,11 @@ export function makeScriptQualityReleaseWorker(): WorkerDef {
     async execute(inputs): Promise<WorkerOutput> {
       const result = assessScriptQuality(inputs["report"]?.payload);
       const evidence = assessDialogueEvidence(inputs["script"]?.payload);
+      const bookendFailures = assessShowBookends(inputs["script"]?.payload);
       const failures = [
         ...result.failures,
         ...evidence.failures.map((failure) => `evidence ${failure}`),
+        ...bookendFailures,
       ];
       if (failures.length > 0) {
         throw new Error(`script quality release blocked: ${failures.join("; ")}`);
