@@ -63,6 +63,26 @@ export const RemotionRoot: React.FC = () => (
                 characters: [],
             }} />
 
+        <Composition id="ExplanationBookendRegression" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
+            defaultProps={{
+                role: "character-hook" as const,
+                visualOperation: "group" as const,
+                visualPrimitive: "facets-around-center" as const,
+                visualState: "hypothesis" as const,
+                numericValue: null,
+                compositionMode: "bookend" as const,
+                title: "Can one source have many forms?",
+                keyText: "One reality, several viewpoints",
+                elements: ["shared source", "form", "viewpoint"],
+                before: "one",
+                after: "many",
+                characterCutIn: "both" as const,
+                characters: [
+                    { characterId: "pilot", x: 0, y: 0, scale: 1, isSpeaking: false },
+                    { characterId: "pilot-2", x: 0, y: 0, scale: 1, isSpeaking: true },
+                ],
+            }} />
+
         <Composition id="MotionPrimitiveMatrix" component={MotionPrimitiveMatrix as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H} defaultProps={{}} />
 
         <Composition id="CartoonScene" component={CartoonScene as unknown as React.ComponentType<Record<string, unknown>>} durationInFrames={D} fps={FPS} width={W} height={H}
