@@ -114,7 +114,11 @@ export function applyExplanationFormat(
   plans: ExplanationPlanScene[],
 ): CompiledEntry[] {
   const byIndex = new Map(plans.map((scene) => [scene.scene_index, scene]));
-  const openingPlan = plans.find((scene) => scene.scene_role === "character-hook") ?? plans[0];
+  const orderedPlans = [...plans].sort((a, b) => a.scene_index - b.scene_index);
+  const openingPlan = orderedPlans[0];
+  const closingPlan = orderedPlans[orderedPlans.length - 1];
+  const openingIndex = openingPlan?.scene_index;
+  const closingIndex = closingPlan?.scene_index;
   const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";
 
   return entries.map((entry) => {
@@ -123,7 +127,13 @@ export function applyExplanationFormat(
 
     const legacy = JSON.parse(entry.template_data) as Record<string, unknown>;
     const characters = Array.isArray(legacy.characters) ? legacy.characters : [];
-    const role = plan.scene_role as ExplanationRole;
+    const authoredRole = plan.scene_role as ExplanationRole;
+    const role: ExplanationRole = entry.scene_index === openingIndex
+      ? "character-hook"
+      : entry.scene_index === closingIndex
+        ? "recap"
+        : authoredRole;
+    const roleWasNormalized = role !== authoredRole;
     const plannedOperation = cleanText(plan.visual_operation, 24) as VisualOperation;
     if (!VISUAL_OPERATIONS.has(plannedOperation)) {
       throw new Error(`Scene ${entry.scene_index} requires a valid visual_operation`);
@@ -131,18 +141,18 @@ export function applyExplanationFormat(
     // A preserved plan cannot be regenerated when a resumed run starts at this
     // compiler. Normalize the cross-field recap invariant deterministically so
     // older successful artifacts still receive the decisive payoff renderer.
-    const operation: VisualOperation = role === "recap" ? "payoff" : plannedOperation;
+    const operation: VisualOperation = entry.scene_index === closingIndex ? "payoff" : plannedOperation;
     const operationWasNormalized = operation !== plannedOperation;
     const plannedPrimitive = inferVisualPrimitive(plan);
     // The final payoff must resolve the visual question the viewer first saw,
     // not introduce an unrelated graphical vocabulary.
-    const primitive: VisualPrimitive = role === "recap" ? openingPrimitive : plannedPrimitive;
+    const primitive: VisualPrimitive = entry.scene_index === closingIndex ? openingPrimitive : plannedPrimitive;
     const primitiveWasNormalized = primitive !== plannedPrimitive;
-    const cutIn = cleanText(plan.character_cut_in || (
-      role === "character-hook" ? "both" :
-      role === "character-reaction" ? "listener" :
-      role === "recap" ? "speaker" : "none"
-    ), 16);
+    const authoredCutIn = cleanText(plan.character_cut_in || "none", 16);
+    const cutIn = entry.scene_index === openingIndex || entry.scene_index === closingIndex
+      ? "both"
+      : authoredCutIn || (role === "character-reaction" ? "listener" : "none");
+    const cutInWasNormalized = cutIn !== authoredCutIn;
 
     const payload = {
       formatVersion: 2,
@@ -165,8 +175,10 @@ export function applyExplanationFormat(
         explanationRole: role,
         visualOperation: operation,
         visualPrimitive: primitive,
+        roleWasNormalized,
         operationWasNormalized,
         primitiveWasNormalized,
+        cutInWasNormalized,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
         meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
@@ -185,7 +197,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "22",
+    version: "23",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
