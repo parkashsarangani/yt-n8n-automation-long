@@ -114,6 +114,8 @@ export function applyExplanationFormat(
   plans: ExplanationPlanScene[],
 ): CompiledEntry[] {
   const byIndex = new Map(plans.map((scene) => [scene.scene_index, scene]));
+  const openingPlan = plans.find((scene) => scene.scene_role === "character-hook") ?? plans[0];
+  const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";
 
   return entries.map((entry) => {
     const plan = byIndex.get(entry.scene_index);
@@ -131,7 +133,11 @@ export function applyExplanationFormat(
     // older successful artifacts still receive the decisive payoff renderer.
     const operation: VisualOperation = role === "recap" ? "payoff" : plannedOperation;
     const operationWasNormalized = operation !== plannedOperation;
-    const primitive = inferVisualPrimitive(plan);
+    const plannedPrimitive = inferVisualPrimitive(plan);
+    // The final payoff must resolve the visual question the viewer first saw,
+    // not introduce an unrelated graphical vocabulary.
+    const primitive: VisualPrimitive = role === "recap" ? openingPrimitive : plannedPrimitive;
+    const primitiveWasNormalized = primitive !== plannedPrimitive;
     const cutIn = cleanText(plan.character_cut_in || (
       role === "character-hook" ? "both" :
       role === "character-reaction" ? "listener" :
@@ -160,6 +166,7 @@ export function applyExplanationFormat(
         visualOperation: operation,
         visualPrimitive: primitive,
         operationWasNormalized,
+        primitiveWasNormalized,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
         meaningfulStateChange: ["diagram-build", "process-flow", "object-state-change", "comparison", "recap"].includes(role),
@@ -178,7 +185,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "21",
+    version: "22",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
