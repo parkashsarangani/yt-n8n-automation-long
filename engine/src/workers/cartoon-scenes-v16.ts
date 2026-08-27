@@ -11,6 +11,16 @@ export type ExplanationRole =
   | "character-reaction"
   | "recap";
 
+export type VisualPrimitive =
+  | "particles"
+  | "rays"
+  | "wave"
+  | "horizon"
+  | "spectrum"
+  | "path"
+  | "shells"
+  | "objects";
+
 export type VisualOperation =
   | "stack"
   | "timeline"
@@ -30,6 +40,7 @@ interface ExplanationPlanScene {
   scene_index: number;
   scene_role?: ExplanationRole | string;
   visual_operation?: VisualOperation | string;
+  visual_primitive?: VisualPrimitive | string;
   explanation_title?: string;
   model_elements?: string[];
   state_before?: string;
@@ -65,6 +76,29 @@ function cleanElements(value: unknown): string[] {
     .slice(0, 5);
 }
 
+function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
+  const explicit = cleanText(plan.visual_primitive, 24) as VisualPrimitive;
+  const allowed = new Set<VisualPrimitive>([
+    "particles", "rays", "wave", "horizon",
+    "spectrum", "path", "shells", "objects",
+  ]);
+  if (allowed.has(explicit)) return explicit;
+
+  const terms = [
+    plan.explanation_title, plan.key_text, plan.state_before, plan.state_after,
+    ...(Array.isArray(plan.model_elements) ? plan.model_elements : []),
+  ].filter((value): value is string => typeof value === "string").join(" ").toLowerCase();
+
+  if (/wavelength|spectrum|infrared|microwave|redshift|ultraviolet/.test(terms)) return "spectrum";
+  if (/sightline|ray|beam|direction/.test(terms)) return "rays";
+  if (/horizon|boundary|reach limit|finite|observable/.test(terms)) return "horizon";
+  if (/pulse|travel|arriv|journey|signal|path/.test(terms)) return "path";
+  if (/layer|shell|depth|nested/.test(terms)) return "shells";
+  if (/wave|oscillat|frequency/.test(terms)) return "wave";
+  if (/star|particle|pin|dot|gap|sky/.test(terms)) return "particles";
+  return "objects";
+}
+
 function planScenes(inputs: Record<string, { payload?: unknown } | undefined>): ExplanationPlanScene[] {
   const payload = asRecord(inputs["plan"]?.payload);
   return Array.isArray(payload?.scenes) ? payload.scenes as ExplanationPlanScene[] : [];
@@ -97,6 +131,7 @@ export function applyExplanationFormat(
     // older successful artifacts still receive the decisive payoff renderer.
     const operation: VisualOperation = role === "recap" ? "payoff" : plannedOperation;
     const operationWasNormalized = operation !== plannedOperation;
+    const primitive = inferVisualPrimitive(plan);
     const cutIn = cleanText(plan.character_cut_in || (
       role === "character-hook" ? "both" :
       role === "character-reaction" ? "listener" :
@@ -107,6 +142,7 @@ export function applyExplanationFormat(
       formatVersion: 2,
       role,
       visualOperation: operation,
+      visualPrimitive: primitive,
       title: cleanText(plan.explanation_title),
       keyText: cleanText(plan.key_text, 96),
       elements: cleanElements(plan.model_elements),
@@ -122,6 +158,7 @@ export function applyExplanationFormat(
         format: "explanation-motion",
         explanationRole: role,
         visualOperation: operation,
+        visualPrimitive: primitive,
         operationWasNormalized,
         characterCutIn: cutIn,
         explanatoryModelVisible: !["character-hook", "character-reaction"].includes(role),
@@ -141,7 +178,7 @@ export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const v15 = makeV15CartoonSceneCompilerWorker();
   return {
     ...v15,
-    version: "20",
+    version: "21",
     consumes: v15.consumes
       .filter((input) => input.as !== "creative_direction")
       .map((input) => input.as === "plan" ? { ...input, schema_id: "explanation_plan", range: "^1" } : input),
