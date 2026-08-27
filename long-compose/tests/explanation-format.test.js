@@ -93,7 +93,7 @@ test("model labels stay legible in the narrowest 1280x720 bookend", () => {
   const labelSize = Number(motion.match(/fontSize="(\d+)" fontWeight="820"/)?.[1]);
   assert.ok(Number.isFinite(labelSize), "expected the reusable SVG label size");
   const effective = labelSize * scale;
-  assert.ok(effective >= 28, \`model labels render at \${effective.toFixed(1)}px in the narrowest bookend, below the 28px floor\`);
+  assert.ok(effective >= 28, "model labels render at " + effective.toFixed(1) + "px in the narrowest bookend, below the 28px floor");
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
