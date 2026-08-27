@@ -40,8 +40,8 @@ function Label({ text, x, y, active = false, state }: { text?: string; x: number
   if (!text) return null;
   const colors = palette[state];
   return <g transform={`translate(${x} ${y})`}>
-    <rect x="-105" y="-27" width="210" height="54" rx="18" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
-    <text textAnchor="middle" dominantBaseline="middle" fill={PAPER} fontSize="25" fontWeight="800">{text.slice(0, 24)}</text>
+    <rect x="-132" y="-34" width="264" height="68" rx="21" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
+    <text textAnchor="middle" dominantBaseline="middle" fill={PAPER} fontSize="31" fontWeight="820">{text.slice(0, 22)}</text>
   </g>;
 }
 
@@ -126,7 +126,7 @@ export function MotionDesignSystem({ primitive, state = "mechanism", elements = 
     <svg viewBox="0 0 1080 510" style={{ width:"100%", height:"100%", display:"block" }}>{base}{body}
       {wrong&&<g opacity={consequence}><line x1="160" y1="80" x2="920" y2="430" stroke={RED} strokeWidth="15" strokeLinecap="round"/><line x1="920" y1="80" x2="160" y2="430" stroke={RED} strokeWidth="15" strokeLinecap="round"/></g>}
     </svg>
-    {consequence>0&&keyText&&<div style={{position:"absolute",left:90,right:90,bottom:22,textAlign:"center",fontSize:38,fontWeight:900,color:state==="payoff"?GREEN:ACCENT,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{keyText}</div>}
+    {state!=="payoff"&&consequence>0&&keyText&&<div style={{position:"absolute",left:90,right:90,bottom:22,textAlign:"center",fontSize:38,fontWeight:900,color:state==="payoff"?GREEN:ACCENT,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{keyText}</div>}
   </div>;
 }
 
