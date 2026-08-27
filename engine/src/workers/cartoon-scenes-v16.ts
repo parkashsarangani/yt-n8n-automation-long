@@ -136,7 +136,7 @@ function operationFitsPrimitive(operation: VisualOperation, primitive: VisualPri
   if (operation === "payoff") return true;
   const compatible: Record<Exclude<VisualOperation, "payoff">, Set<VisualPrimitive>> = {
     stack: new Set(["particles", "objects", "hierarchy", "nested-context", "quantity", "shells"]),
-    timeline: new Set(["timeline", "cause-chain", "path", "map", "rays", "wave", "spectrum", "cycle"]),
+    timeline: new Set(["timeline", "cause-chain", "path", "map", "rays", "wave", "spectrum", "cycle", "particles"]),
     counter: new Set(["quantity", "particles", "objects"]),
     compress: new Set(["particles", "objects", "many-to-one", "physical-transformation", "before-after", "shells"]),
     group: new Set(["network", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "particles", "objects"]),
