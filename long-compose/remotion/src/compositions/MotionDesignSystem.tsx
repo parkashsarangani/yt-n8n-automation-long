@@ -58,6 +58,23 @@ function Label({ text, x, y, active = false, state }: { text?: string; x: number
   </g>;
 }
 
+// Four labels cannot sit in one row at the legible pill size: 4 x 340 is wider
+// than the 1080 viewBox, so cause-chain and timeline had labels overlapping
+// each other and running off both edges. Dense rows use two fixed slots per
+// band rather than shrinking the type below the legibility floor.
+//
+// The slots are fixed deliberately. Tying a label to its operated entity looks
+// tidier at rest but collides as soon as an operation moves the entities --
+// payoff arranges them on a circle where two share the same x, which stacked
+// two labels exactly on top of each other. Labels annotate the row; the
+// geometry is what moves.
+const DENSE_ROW_Y = [340, 436] as const;
+const DENSE_ROW_X = [270, 810] as const;
+const denseLabelSlot = (index: number) => ({
+  x: DENSE_ROW_X[Math.floor(index / 2) % 2]!,
+  y: DENSE_ROW_Y[index % 2]!,
+});
+
 function DirectedEdge({ x1, y1, x2, y2, progress, state, curved = false }: {
   x1: number; y1: number; x2: number; y2: number; progress: number; state: VisualState; curved?: boolean;
 }) {
@@ -237,7 +254,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "cause-chain") {
     const bases: Point[]=[[120,245],[385,245],[650,245],[920,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={y} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} x={x} y={Math.min(440,y+105)} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>})}</>;
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={y} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -254,7 +271,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "timeline") {
     const bases: Point[]=[[130,245],[350,245],[570,245],[790,245],[970,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy={y} r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} x={x} y={Math.min(440,y+120)} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}</>;
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy={y} r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}</>;
   }
   if (primitive === "quantity") {
     if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");
@@ -263,6 +280,37 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     const active = Math.round(dots*progress);
     return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <Dot key={i} x={x} y={y} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>})}
       <text x="540" y="430" textAnchor="middle" fill={PAPER} fontSize="92" fontWeight="900">{Math.round(target*progress).toLocaleString()}</text></>;
+  }
+  if (primitive === "physical-transformation") {
+    // Had no branch of its own, so it fell through to the generic default
+    // below and drew the same rotating slab as any unhandled primitive -- two
+    // different authored primitives rendering as one picture.
+    //
+    // Deliberately not before-after: that primitive cuts between two finished
+    // panels, this one keeps a single body of matter on screen and reorganises
+    // it in place, so the viewer watches the conversion rather than comparing
+    // two end states.
+    const grains = 27;
+    const provisional = state === "hypothesis";
+    const broken = state === "contradiction";
+    return <><rect x="150" y="104" width="780" height="248" rx={26 + progress * 96} fill={colors.fill} stroke={colors.line} strokeWidth="7" opacity={.42 + progress * .38} />
+      {Array.from({ length: grains }, (_, i) => {
+        const lattice: Point = [236 + (i % 9) * 68, 160 + Math.floor(i / 9) * 62];
+        // The loosening is the point: grains leave their lattice site as the
+        // conversion proceeds, then the operation places them.
+        const loosened: Point = [lattice[0] + Math.sin(i * 1.7) * 52 * progress, lattice[1] + Math.cos(i * 2.3) * 44 * progress];
+        const [ox, oy] = operatePoint(loosened, i, grains, operation, progress);
+        const x = ox + (broken ? Math.sin(i * 2.6) * 30 * progress : 0);
+        const y = oy + (broken ? Math.cos(i * 1.9) * 24 * progress : 0);
+        const radius = 14 - progress * 5;
+        const opacity = .4 + pop(i * .018) * .6;
+        const fill = i % 4 === 0 ? ACCENT : colors.line;
+        if (provisional) return <circle key={i} cx={x} cy={y} r={radius} fill="none" stroke={fill} strokeWidth="3" strokeDasharray="6 6" opacity={opacity} />;
+        return <Dot key={i} x={x} y={y} r={radius} fill={fill} opacity={opacity} />;
+      })}
+      <Label text={before || labels[0]} x={260} y={430} state={state} />
+      <DirectedEdge x1={440} y1={430} x2={640} y2={430} progress={progress} state={state} />
+      <Label text={after || labels[1] || keyText} x={820} y={430} active state={state} /></>;
   }
   const physicalScale=operation==="scale-compare"?0.72+progress*.55:operation==="compress"?1-progress*.42:1;
   return <><g transform={`translate(540 245) rotate(${progress*180}) scale(${physicalScale})`}><rect x="-170" y="-100" width="340" height="200" rx={20+progress*50} fill={colors.fill} stroke={colors.line} strokeWidth="8"/><circle r={progress*90} fill={GREEN} opacity={progress*.55}/></g>
