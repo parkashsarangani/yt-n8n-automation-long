@@ -1,19 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character, type CharacterProps } from "../components/Character";
-import { MotionDesignSystem, RELATIONSHIP_PRIMITIVES, type RelationshipPrimitive, type VisualState, type CompositionMode } from "./MotionDesignSystem";
+import { MotionDesignSystem, type VisualPrimitive, type VisualOperation, type VisualState, type CompositionMode } from "./MotionDesignSystem";
 
 export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
   | "comparison" | "kinetic-emphasis" | "character-reaction" | "recap";
 
-export type VisualPrimitive =
-  | "particles" | "rays" | "wave" | "horizon"
-  | "spectrum" | "path" | "shells" | "objects" | RelationshipPrimitive;
-
-export type VisualOperation =
-  | "stack" | "timeline" | "counter" | "compress"
-  | "group" | "sort" | "scale-compare" | "payoff";
 
 export interface ExplanationSceneProps {
   role?: ExplanationRole;
@@ -80,6 +73,36 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #0B1020)" }} />
     </div>
   );
+}
+
+type CompositionProps = {
+  children: ReactNode;
+  characters: CharacterProps[];
+  cutIn: "none" | "speaker" | "listener" | "both";
+  opacity: number;
+};
+
+function ContentStage({ children, right, opacity }: { children: ReactNode; right: number; opacity: number }) {
+  return <div style={{ position: "absolute", left: 86, top: 62, right, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity }}>{children}</div>;
+}
+
+function BookendComposition({ children, characters, opacity }: CompositionProps) {
+  return <><ContentStage right={850} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode="both" /></>;
+}
+
+function FullModelComposition({ children, opacity }: CompositionProps) {
+  return <ContentStage right={86} opacity={opacity}>{children}</ContentStage>;
+}
+
+function ReactionComposition({ children, characters, cutIn, opacity }: CompositionProps) {
+  const panelMode = cutIn === "none" ? "listener" : cutIn;
+  return <><ContentStage right={panelMode === "both" ? 850 : 520} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode={panelMode} /></>;
+}
+
+function CompositionFrame(props: CompositionProps & { mode: CompositionMode }) {
+  if (props.mode === "bookend") return <BookendComposition {...props} />;
+  if (props.mode === "reaction") return <ReactionComposition {...props} />;
+  return <FullModelComposition {...props} />;
 }
 
 function Title({ children }: { children?: string }) {
@@ -369,27 +392,20 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const { fps } = useVideoConfig();
   const progress = interpolate(frame, [0, fps * 0.25], [0, 1], clamp);
   const characterDominant = compositionMode === "bookend" || role === "character-hook" || role === "character-reaction";
-  const hasPanel = characterCutIn !== "none";
-  const relationshipPrimitive = RELATIONSHIP_PRIMITIVES.includes(visualPrimitive as RelationshipPrimitive);
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82";
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, opacity: 0.12, backgroundImage: `linear-gradient(${primitiveGlow}44 1px, transparent 1px), linear-gradient(90deg, ${primitiveGlow}44 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
-      <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 850 : 520) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
+      <CompositionFrame mode={compositionMode} characters={safeCharacters} cutIn={characterCutIn} opacity={progress}>
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          {relationshipPrimitive
-            ? <MotionDesignSystem primitive={visualPrimitive as RelationshipPrimitive} state={visualState} elements={elements} before={before} after={after} keyText={keyText} />
-            : visualPrimitive === "objects"
-              ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
-              : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
+          <MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} elements={elements} before={before} after={after} keyText={keyText} />
           {visualOperation === "payoff" ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
-      </div>
-      <BustReactionPanel characters={safeCharacters} mode={characterCutIn} />
+      </CompositionFrame>
     </AbsoluteFill>
   );
 };
