@@ -1,5 +1,6 @@
 import type { AgentDef } from "./runner.ts";
 import type { Artifact } from "./artifact.ts";
+import { MOTION_COMPATIBILITY, operationFitsPrimitive, requiresNumericValue, type MotionOperation } from "./motion-contract.ts";
 
 const LONG_CARTOON_PLAN_SCENES = 13;
 const SHORT_DIALOGUE_WORD_LIMIT = 10;
@@ -378,5 +379,49 @@ export function agentSemanticValidationErrors(
     return validateDialogueScript(payload, def);
   }
   if (def.name === "cartoon_visual_planner" && def.produces === "visual_plan") return validateCartoonVisualPlan(payload, inputs);
+  if (def.name === "explanation_visual_planner" && def.produces === "explanation_plan") return validateExplanationPlan(payload, def);
   return [];
+}
+
+/**
+ * Primitive/operation compatibility, checked here so the planner can fix its
+ * own mistake.
+ *
+ * The compiler already enforces this contract, but a worker has no retry: one
+ * incompatible pair in a forty-scene plan threw and blocked the run for good
+ * (real case, run_39850b3e: scene 10 asked to compress a nested-context).
+ * Resuming could not help either, since it re-validates the same stored plan.
+ * Running the same contract at the agent stage turns that into a retry with a
+ * specific, actionable message. The compiler assert stays as the last guard.
+ */
+function validateExplanationPlan(payload: unknown, def: AgentDef): string[] {
+  const scenes = Array.isArray((payload as { scenes?: unknown })?.scenes)
+    ? ((payload as { scenes: unknown[] }).scenes)
+    : [];
+  const failures: string[] = [];
+
+  for (const [index, raw] of scenes.entries()) {
+    const scene = (raw ?? {}) as Record<string, unknown>;
+    const at = typeof scene.scene_index === "number" ? scene.scene_index : index;
+    const operation = String(scene.visual_operation ?? "") as MotionOperation;
+    const primitive = String(scene.visual_primitive ?? "");
+    if (!operation || !primitive) continue;
+    if (!(operation in MOTION_COMPATIBILITY)) continue;
+
+    if (!operationFitsPrimitive(operation, primitive)) {
+      const allowed = MOTION_COMPATIBILITY[operation];
+      failures.push(
+        `scene ${at}: visual_operation "${operation}" cannot be applied to visual_primitive "${primitive}". ` +
+        `Either pick a primitive "${operation}" supports (${allowed.join(", ")}), or keep the primitive and choose an operation that supports it.`,
+      );
+      continue;
+    }
+
+    if (requiresNumericValue(operation, primitive) && typeof scene.numeric_value !== "number") {
+      failures.push(`scene ${at}: "${operation}"/"${primitive}" is quantitative, so numeric_value must be a bare JSON number.`);
+    }
+  }
+
+  if (failures.length === 0) return [];
+  return [`${def.name}@${def.version ?? "1"} motion contract violated: ${failures.slice(0, 6).join("; ")}`];
 }
