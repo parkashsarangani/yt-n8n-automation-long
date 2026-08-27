@@ -435,7 +435,30 @@
                   "listener_emotion",
                   "listener_gesture",
                   "listener_gaze_target"
-                ]
+                ],
+                "properties": {
+                  "listener_actor_id": {
+                    "type": "string"
+                  },
+                  "speaker_emotion": {
+                    "type": "string"
+                  },
+                  "speaker_gesture": {
+                    "type": "string"
+                  },
+                  "speaker_gaze_target": {
+                    "type": "string"
+                  },
+                  "listener_emotion": {
+                    "type": "string"
+                  },
+                  "listener_gesture": {
+                    "type": "string"
+                  },
+                  "listener_gaze_target": {
+                    "type": "string"
+                  }
+                }
               }
             },
             {
