@@ -23,6 +23,7 @@ export interface ExplanationSceneProps {
   characterCutIn?: "none" | "speaker" | "listener" | "both";
   soundCue?: string;
   characters?: CharacterProps[];
+  rendererDiagnosticMode?: "normal" | "foreground-only" | "background-only";
 }
 
 const BG = "#0B1020";
@@ -172,6 +173,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   after = "",
   characterCutIn = "none",
   characters = [],
+  rendererDiagnosticMode = "normal",
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -189,7 +191,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
         {!isPayoff ? <Title>{title}</Title> : null}
         {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          <div style={{ opacity: isPayoff ? 0.38 : 1 }}><MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
+          <div style={{ opacity: isPayoff ? 0.38 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
           {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </CompositionFrame>
