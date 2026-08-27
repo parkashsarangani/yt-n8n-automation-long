@@ -6,6 +6,10 @@ export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
   | "comparison" | "kinetic-emphasis" | "character-reaction" | "recap";
 
+export type VisualPrimitive =
+  | "particles" | "rays" | "wave" | "horizon"
+  | "spectrum" | "path" | "shells" | "objects";
+
 export type VisualOperation =
   | "stack" | "timeline" | "counter" | "compress"
   | "group" | "sort" | "scale-compare" | "payoff";
@@ -13,6 +17,7 @@ export type VisualOperation =
 export interface ExplanationSceneProps {
   role?: ExplanationRole;
   visualOperation?: VisualOperation;
+  visualPrimitive?: VisualPrimitive;
   title?: string;
   keyText?: string;
   elements?: string[];
@@ -54,9 +59,9 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
         <Character
           key={character.characterId || index}
           {...character}
-          x={mode === "both" ? -25 + index * 320 : 20}
-          y={86}
-          scale={0.82}
+          x={mode === "both" ? -145 + index * 330 : -105}
+          y={6}
+          scale={1.12}
         />
       ))}
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #0B1020)" }} />
@@ -77,6 +82,100 @@ function Card({ label, accent = false, style = {} }: { label: string; accent?: b
       fontWeight: 800, textAlign: "center", boxShadow: "0 14px 36px #0004", ...style,
     }}>{label}</div>
   );
+}
+
+function SemanticLabels({ values }: { values: string[] }) {
+  return <div style={{ position: "absolute", left: 40, right: 40, bottom: 18, display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+    {values.slice(0, 3).map((value, index) => <div key={index} style={{ color: PAPER, background: "#0B1020CC", border: "2px solid #65C7F766", borderRadius: 999, padding: "10px 18px", fontSize: 23, fontWeight: 760 }}>{value}</div>)}
+  </div>;
+}
+
+function SemanticCanvas({ primitive, operation, elements, before, after, keyText }: {
+  primitive: VisualPrimitive; operation: VisualOperation; elements?: string[]; before?: string; after?: string; keyText?: string;
+}) {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
+  const p = interpolate(frame, [0, Math.max(1, durationInFrames - 1)], [0, 1], clamp);
+  const values = (elements || []).filter(Boolean);
+  const pulse = 0.92 + Math.sin(frame / fps * Math.PI * 2) * 0.08;
+  const payoff = operation === "payoff";
+
+  if (primitive === "particles") {
+    const count = 52;
+    return <div style={{ position: "relative", width: "100%", height: 510, borderRadius: 38, overflow: "hidden", background: "radial-gradient(circle at 50% 48%, #172D55, #060A14 72%)", boxShadow: "inset 0 0 90px #000A" }}>
+      {Array.from({ length: count }, (_, index) => {
+        const x = 4 + ((index * 37) % 92);
+        const y = 5 + ((index * 61) % 84);
+        const delay = index / count * 0.72;
+        const visible = interpolate(p, [delay, Math.min(1, delay + 0.2)], [0.12, 1], clamp);
+        const size = 3 + (index * 7) % 9;
+        const gap = x > 43 && x < 58 && y > 32 && y < 66;
+        const filtered = gap && p < 0.72;
+        return <div key={index} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: size, height: size, borderRadius: "50%", background: index % 5 ? PAPER : BLUE, opacity: filtered ? 0.04 : visible, transform: `scale(${pulse})`, boxShadow: `0 0 ${size * 2}px ${index % 5 ? "#F7F4EA" : BLUE}` }} />;
+      })}
+      <div style={{ position: "absolute", left: "47%", top: "48%", width: 18, height: 18, borderRadius: "50%", background: ACCENT, boxShadow: "0 0 28px #FFD166" }} />
+      {payoff && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: `rgba(6,10,20,${0.72 - p * 0.28})` }}><div style={{ color: ACCENT, fontSize: 68, maxWidth: 920, textAlign: "center", lineHeight: 1.02, fontWeight: 920 }}>{keyText || after}</div></div>}
+      <SemanticLabels values={values} />
+    </div>;
+  }
+
+  if (primitive === "rays") {
+    return <div style={{ position: "relative", width: "100%", height: 510, overflow: "hidden" }}>
+      <div style={{ position: "absolute", left: "48%", top: "43%", width: 74, height: 74, borderRadius: "50%", background: "radial-gradient(circle at 35% 30%, #8DE5FF, #2879B8)", boxShadow: "0 0 36px #65C7F788", zIndex: 3 }} />
+      {Array.from({ length: 16 }, (_, index) => {
+        const angle = index * 22.5;
+        const length = interpolate(p, [index / 32, Math.min(1, index / 32 + 0.65)], [0, 520], clamp);
+        return <div key={index} style={{ position: "absolute", left: "51%", top: "49%", width: length, height: 3, transformOrigin: "0 50%", transform: `rotate(${angle}deg)`, background: `linear-gradient(90deg, ${BLUE}, ${ACCENT})`, opacity: 0.35 + p * 0.55 }}><div style={{ position: "absolute", right: -7, top: -6, width: 14, height: 14, borderRadius: "50%", background: PAPER, boxShadow: "0 0 18px white" }} /></div>;
+      })}
+      <SemanticLabels values={values} />
+    </div>;
+  }
+
+  if (primitive === "spectrum" || primitive === "wave") {
+    const wavelength = interpolate(p, [0, 1], [34, 92], clamp);
+    const points = Array.from({ length: 90 }, (_, i) => {
+      const x = i * 12;
+      const y = 235 + Math.sin((i * 12 + frame * 3) / wavelength * Math.PI * 2) * 92;
+      return `${x},${y}`;
+    }).join(" ");
+    return <div style={{ position: "relative", width: "100%", height: 510, borderRadius: 36, overflow: "hidden", background: "#080C18" }}>
+      <div style={{ position: "absolute", left: 55, right: 55, top: 72, height: 48, borderRadius: 30, background: "linear-gradient(90deg,#7447FF,#3C8DFF,#45D2C2,#E9E45D,#FF9D45,#E84E4E)", opacity: primitive === "spectrum" ? 0.8 : 0.2 }} />
+      <svg viewBox="0 0 1080 470" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+        <polyline points={points} fill="none" stroke={primitive === "spectrum" ? "#FF765F" : BLUE} strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" style={{ filter: "drop-shadow(0 0 12px currentColor)" }} />
+        {primitive === "spectrum" && <rect x={55 + p * 760} y="52" width="8" height="320" rx="4" fill={ACCENT} />}
+      </svg>
+      <SemanticLabels values={values.length ? values : [before || "visible", after || "shifted"]} />
+    </div>;
+  }
+
+  if (primitive === "horizon" || primitive === "shells") {
+    const rings = primitive === "shells" ? 5 : 3;
+    return <div style={{ position: "relative", width: "100%", height: 510, display: "grid", placeItems: "center", overflow: "hidden" }}>
+      {Array.from({ length: rings }, (_, index) => {
+        const size = 120 + index * 112;
+        const grow = spring({ frame: frame - index * fps * 0.16, fps, config: { damping: 18, stiffness: 75 } });
+        return <div key={index} style={{ position: "absolute", width: size, height: size, borderRadius: "50%", border: `${index === rings - 1 ? 10 : 4}px solid ${index === rings - 1 ? ACCENT : BLUE}`, opacity: 0.25 + grow * 0.65, transform: `scale(${0.72 + grow * 0.28})`, boxShadow: index === rings - 1 ? "0 0 36px #FFD16655" : "none" }} />;
+      })}
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: GREEN, boxShadow: "0 0 28px #7DE2A8" }} />
+      <div style={{ position: "absolute", left: "50%", top: "50%", width: p * 390, height: 5, background: BLUE, transformOrigin: "left center", transform: `rotate(${-28 + p * 18}deg)` }} />
+      {payoff && <div style={{ zIndex: 3, color: ACCENT, fontSize: 66, fontWeight: 920, textAlign: "center", maxWidth: 850 }}>{keyText || after}</div>}
+      <SemanticLabels values={values} />
+    </div>;
+  }
+
+  if (primitive === "path") {
+    const x = 70 + p * 900;
+    return <div style={{ position: "relative", width: "100%", height: 510 }}>
+      <div style={{ position: "absolute", left: 70, right: 70, top: 245, height: 12, borderRadius: 12, background: "#65C7F744" }} />
+      <div style={{ position: "absolute", left: 70, top: 245, width: p * 900, height: 12, borderRadius: 12, background: `linear-gradient(90deg,${BLUE},${ACCENT})` }} />
+      <div style={{ position: "absolute", left: x - 22, top: 222, width: 56, height: 56, borderRadius: "50%", background: PAPER, boxShadow: "0 0 42px 16px #65C7F777", transform: `scale(${pulse})` }} />
+      <div style={{ position: "absolute", left: 52, top: 175, color: PAPER, fontSize: 28, fontWeight: 800 }}>{before || values[0]}</div>
+      <div style={{ position: "absolute", right: 45, top: 175, color: GREEN, fontSize: 28, fontWeight: 800 }}>{after || values[values.length - 1]}</div>
+      <SemanticLabels values={values.slice(1, -1)} />
+    </div>;
+  }
+
+  return null;
 }
 
 function OperationCanvas({ operation, elements, before, after, keyText }: {
@@ -199,6 +298,7 @@ function OperationCanvas({ operation, elements, before, after, keyText }: {
 export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   role = "diagram-build",
   visualOperation = "timeline",
+  visualPrimitive = "objects",
   title = "",
   keyText = "",
   elements = [],
@@ -220,7 +320,9 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       <div style={{ position: "absolute", left: 86, top: 62, right: hasPanel ? (characterCutIn === "both" ? 780 : 480) : 86, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity: progress }}>
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
-        <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
+        {visualPrimitive === "objects"
+          ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
+          : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
       </div>
       <BustReactionPanel characters={safeCharacters} mode={characterCutIn} />
     </AbsoluteFill>
