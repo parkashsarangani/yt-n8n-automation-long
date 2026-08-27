@@ -38,7 +38,34 @@ const PRIMITIVE_GLOW: Partial<Record<VisualPrimitive, string>> = {
   path: "#2C7A9C",
   shells: "#5A739E",
   objects: "#354D78",
+  network: "#275E78", hierarchy: "#594B8A", "one-to-many": "#386F92", "many-to-one": "#386F92",
+  "facets-around-center": "#77518E", "overlapping-sets": "#665099", "nested-context": "#4A628F",
+  cycle: "#2C7781", "cause-chain": "#356D92", "before-after": "#536B87", map: "#276F68",
+  timeline: "#315F8B", quantity: "#715B36", "physical-transformation": "#5E4F89",
 };
+
+function backgroundField(primitive: VisualPrimitive, glow: string) {
+  if (["map","path","timeline","cause-chain"].includes(primitive)) return {
+    backgroundImage: `linear-gradient(118deg, transparent 18%, ${glow}2B 19%, transparent 21%, transparent 48%, ${glow}20 49%, transparent 51%)`,
+    backgroundSize: "440px 440px",
+  };
+  if (["network","facets-around-center","one-to-many","many-to-one","overlapping-sets"].includes(primitive)) return {
+    backgroundImage: `radial-gradient(circle, ${glow}55 1.5px, transparent 2px)`,
+    backgroundSize: "46px 46px",
+  };
+  if (["hierarchy","nested-context","shells","objects"].includes(primitive)) return {
+    backgroundImage: `linear-gradient(${glow}35 1px, transparent 1px), linear-gradient(90deg, ${glow}35 1px, transparent 1px)`,
+    backgroundSize: "72px 72px",
+  };
+  if (["quantity","before-after"].includes(primitive)) return {
+    backgroundImage: `linear-gradient(90deg, ${glow}20 0 48%, transparent 48% 52%, ${glow}12 52%)`,
+    backgroundSize: "100% 100%",
+  };
+  return {
+    backgroundImage: `radial-gradient(ellipse at 30% 35%, ${glow}36, transparent 42%), radial-gradient(ellipse at 75% 62%, ${glow}20, transparent 38%)`,
+    backgroundSize: "100% 100%",
+  };
+}
 const clamp = { extrapolateLeft: "clamp" as const, extrapolateRight: "clamp" as const };
 
 function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationSceneProps, "characters"> & { mode?: string }) {
@@ -154,16 +181,18 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const characterDominant = compositionMode === "bookend" || role === "character-hook" || role === "character-reaction";
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82";
+  const field = backgroundField(visualPrimitive, primitiveGlow);
+  const isPayoff = visualOperation === "payoff";
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.12, backgroundImage: `linear-gradient(${primitiveGlow}44 1px, transparent 1px), linear-gradient(90deg, ${primitiveGlow}44 1px, transparent 1px)`, backgroundSize: "64px 64px" }} />
+      <div style={{ position: "absolute", inset: 0, opacity: 0.18, ...field }} />
       <CompositionFrame mode={compositionMode} characters={safeCharacters} cutIn={characterCutIn} opacity={progress}>
-        <Title>{title}</Title>
-        {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
+        {!isPayoff ? <Title>{title}</Title> : null}
+        {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          <MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} />
-          {visualOperation === "payoff" ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
+          <div style={{ opacity: isPayoff ? 0.38 : 1 }}><MotionDesignSystem primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
+          {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </CompositionFrame>
     </AbsoluteFill>
