@@ -127,11 +127,29 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
   if (primitive === "particles") {
+    // Every other primitive separates hypothesis from contradiction
+    // structurally, via dashed strokes on provisional geometry. Particles had
+    // only a palette change, so two states rendered with identical structure:
+    // invisible to a perceptual comparison, and weak for a viewer too.
+    const provisional = state === "hypothesis";
+    const broken = state === "contradiction";
     return <>{Array.from({ length: 28 }, (_, i) => {
       const base: Point = [105 + (i % 7) * 142, 82 + Math.floor(i / 7) * 110];
-      const [x, y] = operatePoint(base, i, 28, operation, progress);
+      const [ox, oy] = operatePoint(base, i, 28, operation, progress);
+      // Contradiction scatters the particles that carried the failed guess, so
+      // the break reads in the arrangement rather than only in the colour.
+      const x = ox + (broken ? Math.sin(i * 2.1) * 34 * progress : 0);
+      const y = oy + (broken ? Math.cos(i * 1.7) * 26 * progress : 0);
       const activated = operation !== "counter" || i < Math.ceil(28 * progress);
-      return <Dot key={i} x={x} y={y} r={(10 + pop(i * 0.025) * 13) * (activated ? 1 : 0.52)} fill={i % 4 === 0 ? ACCENT : colors.line} opacity={activated ? 0.3 + progress * 0.7 : 0.12} />;
+      const radius = (10 + pop(i * 0.025) * 13) * (activated ? 1 : 0.52);
+      const opacity = activated ? 0.3 + progress * 0.7 : 0.12;
+      const fill = i % 4 === 0 ? ACCENT : colors.line;
+      // Hypothesis draws the same particles as unfilled dashed rings: present,
+      // but not yet asserted.
+      if (provisional) {
+        return <circle key={i} cx={x} cy={y} r={radius} fill="none" stroke={fill} strokeWidth="3" strokeDasharray="6 6" opacity={opacity} />;
+      }
+      return <Dot key={i} x={x} y={y} r={radius} fill={fill} opacity={opacity} />;
     })}<Label text={labels[0] || keyText} x={540} y={455} active state={state} /></>;
   }
   if (primitive === "rays") {
