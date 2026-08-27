@@ -76,8 +76,6 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
     if (mode === "listener") return !character.isSpeaking;
     return false;
   }).slice(0, mode === "both" ? 2 : 1);
-  if (!selected.length) return null;
-
   const width = mode === "both" ? 760 : 430;
   return (
     <div style={{
@@ -152,7 +150,7 @@ function PayoffResolution({ before, after, keyText }: { before?: string; after?:
     opacity: resolve,
   }}>
     <div style={{ position: "absolute", width: 380 + ring * 350, height: 380 + ring * 350, borderRadius: "50%", border: `12px solid ${GREEN}`, opacity: 0.18 + resolve * 0.42, boxShadow: "0 0 80px #7DE2A844" }} />
-    <div style={{ textAlign: "center", maxWidth: 940, padding: "0 44px", transform: `translateY(${(1 - resolve) * 54}px) scale(${0.9 + resolve * 0.1})` }}>
+    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 940, padding: "0 44px", transform: `translateY(${(1 - resolve) * 54}px) scale(${0.9 + resolve * 0.1})` }}>
       {before ? <div style={{ color: PAPER, fontSize: 34, fontWeight: 760, opacity: 0.72 * (1 - resolve), marginBottom: 18 }}>{before}</div> : null}
       <div style={{ color: ACCENT, fontSize: 74, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
       <div style={{ width: resolve * 680, height: 10, borderRadius: 8, background: GREEN, margin: "30px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
