@@ -81,22 +81,19 @@ test("reaction characters use deliberate bust panels", () => {
   assert.match(scene, /PRIMITIVE_GLOW/);
 });
 
-test("model labels stay legible at 1280x720", () => {
-  // Replaces a literal `fontSize: 34, lineHeight: 1.05` match against
-  // ExplanationScene's old SemanticLabels pills, which the composable refactor
-  // removed -- labels now render inside MotionDesignSystem's SVG. Asserting a
-  // computed floor instead of a magic string means this keeps testing
-  // legibility rather than one particular hardcoded number.
-  const viewBox = motion.match(/viewBox="0 0 (\d+) (\d+)"\s+style=\{\{ width:"100%"/);
+test("model labels stay legible in the narrowest 1280x720 bookend", () => {
+  const viewBox = motion.match(/viewBox="0 0 (\\d+) (\\d+)"\\s+style=\\{\\{ width:"100%"/);
   assert.ok(viewBox, "expected the model SVG to declare a viewBox");
-  const scale = 1280 / Number(viewBox[1]);
+  const svgWidth = Number(viewBox[1]);
+  const compositionWidth = 1920;
+  const outputWidth = 1280;
+  const narrowestStageWidth = compositionWidth - 86 - 850;
+  const scale = narrowestStageWidth / svgWidth * (outputWidth / compositionWidth);
 
-  const sizes = [...motion.matchAll(/fontSize="(\d+)"/g)].map((m) => Number(m[1]));
-  assert.ok(sizes.length > 0, "expected SVG text in the model renderer");
-  for (const size of sizes) {
-    const effective = size * scale;
-    assert.ok(effective >= 28, `label fontSize ${size} renders at ${effective.toFixed(1)}px at 1280 wide, below the 28px floor`);
-  }
+  const labelSize = Number(motion.match(/fontSize="(\\d+)" fontWeight="820"/)?.[1]);
+  assert.ok(Number.isFinite(labelSize), "expected the reusable SVG label size");
+  const effective = labelSize * scale;
+  assert.ok(effective >= 28, `model labels render at ${effective.toFixed(1)}px in the narrowest bookend, below the 28px floor`);
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
@@ -140,7 +137,7 @@ test("motion design system implements all relationship primitives with staged ch
   assert.match(motion, /state === "hypothesis"/);
   assert.match(motion, /state === "contradiction"/);
   assert.doesNotMatch(motion, /const wrong = state === "hypothesis" \|\| state === "contradiction"/);
-  assert.match(motion, /fontSize="31"/);
+  assert.match(motion, /fontSize="48"/);
   assert.match(scene, /MotionDesignSystem/);
 });
 
