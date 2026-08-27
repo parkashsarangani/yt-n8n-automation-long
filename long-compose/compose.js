@@ -1020,6 +1020,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
       buildProps: (d) => ({
         role: d.role,
         visualOperation: d.visualOperation,
+        visualPrimitive: d.visualPrimitive || "objects",
         title: d.title,
         keyText: d.keyText,
         elements: d.elements || [],
