@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character, type CharacterProps } from "../components/Character";
+import { MotionDesignSystem, RELATIONSHIP_PRIMITIVES, type RelationshipPrimitive, type VisualState, type CompositionMode } from "./MotionDesignSystem";
 
 export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
@@ -8,7 +9,7 @@ export type ExplanationRole =
 
 export type VisualPrimitive =
   | "particles" | "rays" | "wave" | "horizon"
-  | "spectrum" | "path" | "shells" | "objects";
+  | "spectrum" | "path" | "shells" | "objects" | RelationshipPrimitive;
 
 export type VisualOperation =
   | "stack" | "timeline" | "counter" | "compress"
@@ -18,6 +19,8 @@ export interface ExplanationSceneProps {
   role?: ExplanationRole;
   visualOperation?: VisualOperation;
   visualPrimitive?: VisualPrimitive;
+  visualState?: VisualState;
+  compositionMode?: CompositionMode;
   title?: string;
   keyText?: string;
   elements?: string[];
@@ -352,6 +355,8 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   role = "diagram-build",
   visualOperation = "timeline",
   visualPrimitive = "objects",
+  visualState = "mechanism",
+  compositionMode = "full-model",
   title = "",
   keyText = "",
   elements = [],
@@ -363,8 +368,9 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const progress = interpolate(frame, [0, fps * 0.25], [0, 1], clamp);
-  const characterDominant = role === "character-hook" || role === "character-reaction";
+  const characterDominant = compositionMode === "bookend" || role === "character-hook" || role === "character-reaction";
   const hasPanel = characterCutIn !== "none";
+  const relationshipPrimitive = RELATIONSHIP_PRIMITIVES.includes(visualPrimitive as RelationshipPrimitive);
   const safeCharacters = useMemo(() => characters.map((character) => ({ ...character, x: 0, y: 0 })), [characters]);
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive];
 
@@ -375,9 +381,11 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
         <Title>{title}</Title>
         {characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          {visualPrimitive === "objects"
-            ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
-            : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
+          {relationshipPrimitive
+            ? <MotionDesignSystem primitive={visualPrimitive as RelationshipPrimitive} state={visualState} elements={elements} before={before} after={after} keyText={keyText} />
+            : visualPrimitive === "objects"
+              ? <OperationCanvas operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />
+              : <SemanticCanvas primitive={visualPrimitive} operation={visualOperation} elements={elements} before={before} after={after} keyText={keyText} />}
           {visualOperation === "payoff" ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </div>
