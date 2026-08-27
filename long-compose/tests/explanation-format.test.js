@@ -82,7 +82,7 @@ test("reaction characters use deliberate bust panels", () => {
 });
 
 test("model labels stay legible in the narrowest 1280x720 bookend", () => {
-  const viewBox = motion.match(/viewBox="0 0 (\\d+) (\\d+)"/);
+  const viewBox = motion.match(/viewBox="0 0 (\d+) (\d+)"/);
   assert.ok(viewBox, "expected the model SVG to declare a viewBox");
   const svgWidth = Number(viewBox[1]);
   const compositionWidth = 1920;
@@ -90,10 +90,10 @@ test("model labels stay legible in the narrowest 1280x720 bookend", () => {
   const narrowestStageWidth = compositionWidth - 86 - 850;
   const scale = narrowestStageWidth / svgWidth * (outputWidth / compositionWidth);
 
-  const labelSize = Number(motion.match(/fontSize="(\\d+)" fontWeight="820"/)?.[1]);
+  const labelSize = Number(motion.match(/fontSize="(\d+)" fontWeight="820"/)?.[1]);
   assert.ok(Number.isFinite(labelSize), "expected the reusable SVG label size");
   const effective = labelSize * scale;
-  assert.ok(effective >= 28, `model labels render at ${effective.toFixed(1)}px in the narrowest bookend, below the 28px floor`);
+  assert.ok(effective >= 28, \`model labels render at \${effective.toFixed(1)}px in the narrowest bookend, below the 28px floor\`);
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
