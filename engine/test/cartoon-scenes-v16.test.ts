@@ -37,6 +37,8 @@ test("explanation format makes the model own the frame while preserving cast", (
   assert.equal(data.role, "object-state-change");
   assert.equal(data.visualOperation, "compress");
   assert.equal(data.visualPrimitive, "shells");
+  assert.equal(data.visualState, "mechanism");
+  assert.equal(data.compositionMode, "full-model");
   assert.equal(data.formatVersion, 2);
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
   assert.equal(data.rendererPerformance.explanatoryModelVisible, true);
@@ -66,11 +68,14 @@ test("opening and closing scenes always render both-character bookends", () => {
   const closing = JSON.parse(scenes[2]!.template_data);
   assert.equal(opening.role, "character-hook");
   assert.equal(opening.characterCutIn, "both");
+  assert.equal(opening.compositionMode, "bookend");
   assert.equal(middle.characterCutIn, "none");
   assert.equal(closing.role, "recap");
   assert.equal(closing.visualOperation, "payoff");
   assert.equal(closing.visualPrimitive, "particles");
   assert.equal(closing.characterCutIn, "both");
+  assert.equal(closing.compositionMode, "bookend");
+  assert.equal(closing.visualState, "payoff");
   assert.equal(opening.rendererPerformance.roleWasNormalized, true);
   assert.equal(closing.rendererPerformance.cutInWasNormalized, true);
 });
@@ -191,4 +196,25 @@ test("long explanation episodes bypass puppet-era prop and cutaway density", () 
   assert.equal(shouldApplyLegacyRuntimeDensity({ schema_id: "explanation_plan" }), false);
   assert.equal(shouldApplyLegacyRuntimeDensity({ schema_id: "visual_plan" }), true);
   assert.equal(shouldApplyLegacyRuntimeDensity(undefined), true);
+});
+
+
+test("relational claims infer reusable relationship primitives", () => {
+  const entries = [0, 1, 2].map((scene_index) => ({
+    scene_index,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: "{}",
+  }));
+  const scenes = applyExplanationFormat(entries, [
+    { scene_index: 0, scene_role: "character-hook", visual_operation: "timeline", explanation_title: "One reality appears as many forms", model_elements: ["one source", "many forms"] },
+    { scene_index: 1, scene_role: "diagram-build", visual_operation: "group", explanation_title: "Facets around one center", model_elements: ["center", "facets"] },
+    { scene_index: 2, scene_role: "recap", visual_operation: "payoff", explanation_title: "Distinct forms remain connected", model_elements: ["forms", "source"] },
+  ]);
+  const opening = JSON.parse(scenes[0]!.template_data);
+  const middle = JSON.parse(scenes[1]!.template_data);
+  assert.equal(opening.visualPrimitive, "one-to-many");
+  assert.equal(middle.visualPrimitive, "facets-around-center");
+  assert.equal(opening.compositionMode, "bookend");
+  assert.equal(middle.compositionMode, "full-model");
 });
