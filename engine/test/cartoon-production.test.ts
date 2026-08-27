@@ -305,6 +305,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       template_category: "explanation",
       scene_role: i === 0 ? "character-hook" : i === 1 ? "object-state-change" : "recap",
       visual_operation: i === 0 ? "timeline" : i === 1 ? "compress" : "payoff",
+      visual_primitive: "objects",
       explanation_title: i === 0 ? "The mystery" : i === 1 ? "The choice" : "The answer",
       model_elements: i === 0 ? ["humming locker", "Host notices"] : ["closed locker", "open locker"],
       state_before: i === 1 ? "closed and humming" : "",
