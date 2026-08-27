@@ -367,6 +367,20 @@
                 "payoff"
               ],
               "description": "The concrete animated operation rendered continuously during this spoken scene."
+            },
+            "visual_primitive": {
+              "type": "string",
+              "enum": [
+                "particles",
+                "rays",
+                "wave",
+                "horizon",
+                "spectrum",
+                "path",
+                "shells",
+                "objects"
+              ],
+              "description": "The subject-shaped graphical vocabulary used inside the selected operation. Optional for backward compatibility; the compiler infers it from model labels."
             }
           }
         }
