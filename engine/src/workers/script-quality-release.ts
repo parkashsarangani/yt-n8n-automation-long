@@ -49,12 +49,12 @@ export function assessShowBookends(payload: unknown): string[] {
   const script = payload && typeof payload === "object" ? payload as { scenes?: unknown } : {};
   const scenes = Array.isArray(script.scenes) ? script.scenes as Array<Record<string, unknown>> : [];
   if (!scenes.length) return ["bookend script has no scenes"];
-  const first = scenes[0];
+  const first = scenes[0]!;
   const failures: string[] = [];
   if (first.speaker !== "buddy") failures.push("opening speaker must be buddy");
   const openingLine = typeof first.narration === "string" ? first.narration.trim() : "";
   if (!openingLine.endsWith("?")) failures.push("Buddy opening must be a hook question");
-  const last = scenes[scenes.length - 1];
+  const last = scenes[scenes.length - 1]!;
   const lastPoint = typeof last.point === "string" ? last.point : "";
   if (!/function=recap confirms_understanding/.test(lastPoint)) failures.push("final scene must resolve the opening through recap");
   return failures;
