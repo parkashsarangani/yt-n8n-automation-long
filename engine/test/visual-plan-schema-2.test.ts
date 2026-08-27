@@ -23,6 +23,10 @@ test("explanation planner v3 emits required motion-design explanation_plan 1.2",
   assert.ok(scene.required.includes("visual_primitive"));
   assert.ok(scene.required.includes("visual_state"));
   assert.ok(scene.required.includes("composition_mode"));
+  assert.ok(scene.required.includes("numeric_value"));
+  for (const discarded of ["background_location", "background_variant", "background_tone", "framing", "camera_motion", "visual_event", "ambient_motion", "speaker_emphasis", "cutaway_label"]) {
+    assert.equal(scene.required.includes(discarded), false, discarded);
+  }
   assert.equal(legacyScene.required.includes("visual_primitive"), false);
   assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["script", "cast_roster"]);
 });
@@ -43,4 +47,6 @@ test("explanation plan encodes frame ownership and meaningful change", () => {
   assert.match(prompt, /visual sentence/i);
   assert.match(prompt, /relationship primitives/i);
   assert.match(prompt, /no more than three visible labels/i);
+  assert.match(prompt, /primitive defines what exists/i);
+  assert.match(prompt, /Do not emit or optimize legacy background/i);
 });
