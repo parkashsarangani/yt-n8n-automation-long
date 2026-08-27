@@ -41,6 +41,6 @@ test("explanation plan encodes frame ownership and meaningful change", () => {
   assert.match(prompt, /at most 35%/);
   assert.match(prompt, /sound muted/);
   assert.match(prompt, /visual sentence/i);
-  assert.match(prompt, /RELATIONSHIP primitives/);
+  assert.match(prompt, /relationship primitives/i);
   assert.match(prompt, /maximum of 3 visible labels/i);
 });
