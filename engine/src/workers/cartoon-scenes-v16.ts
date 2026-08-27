@@ -132,6 +132,20 @@ function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
   return "objects";
 }
 
+function operationFitsPrimitive(operation: VisualOperation, primitive: VisualPrimitive): boolean {
+  if (operation === "payoff") return true;
+  const compatible: Record<Exclude<VisualOperation, "payoff">, Set<VisualPrimitive>> = {
+    stack: new Set(["particles", "objects", "hierarchy", "nested-context", "quantity", "shells"]),
+    timeline: new Set(["timeline", "cause-chain", "path", "map", "rays", "wave", "spectrum", "cycle"]),
+    counter: new Set(["quantity", "particles", "objects"]),
+    compress: new Set(["particles", "objects", "many-to-one", "physical-transformation", "before-after", "shells"]),
+    group: new Set(["network", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "particles", "objects"]),
+    sort: new Set(["objects", "hierarchy", "quantity", "timeline"]),
+    "scale-compare": new Set(["before-after", "physical-transformation", "spectrum", "quantity", "objects", "overlapping-sets"]),
+  };
+  return compatible[operation].has(primitive);
+}
+
 function planScenes(inputs: Record<string, { payload?: unknown } | undefined>): ExplanationPlanScene[] {
   const payload = asRecord(inputs["plan"]?.payload);
   return Array.isArray(payload?.scenes) ? payload.scenes as ExplanationPlanScene[] : [];
@@ -181,6 +195,9 @@ export function applyExplanationFormat(
     // not introduce an unrelated graphical vocabulary.
     const primitive: VisualPrimitive = entry.scene_index === closingIndex ? openingPrimitive : plannedPrimitive;
     const primitiveWasNormalized = primitive !== plannedPrimitive;
+    if (!operationFitsPrimitive(operation, primitive)) {
+      throw new Error(`Scene ${entry.scene_index} visual_operation "${operation}" is incompatible with visual_primitive "${primitive}"`);
+    }
     const authoredCutIn = cleanText(plan.character_cut_in || "none", 16);
     const cutIn = entry.scene_index === openingIndex || entry.scene_index === closingIndex
       ? "both"
