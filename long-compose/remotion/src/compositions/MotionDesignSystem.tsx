@@ -63,8 +63,36 @@ function Dot({ x, y, r = 28, fill = BLUE, opacity = 1 }: { x: number; y: number;
   return <circle cx={x} cy={y} r={r} fill={fill} opacity={opacity} />;
 }
 
+type Point = [number, number];
+
+function operatePoint(base: Point, index: number, total: number, operation: VisualOperation, progress: number): Point {
+  let target: Point = base;
+  if (operation === "stack") {
+    target = [420 + (index % 6) * 48, 430 - Math.floor(index / 6) * 48];
+  } else if (operation === "group") {
+    const center: Point = index % 2 === 0 ? [350, 245] : [730, 245];
+    target = [center[0] + ((index * 37) % 120) - 60, center[1] + ((index * 53) % 150) - 75];
+  } else if (operation === "sort") {
+    const rank = total - 1 - index;
+    target = [170 + (rank % 5) * 185, 115 + Math.floor(rank / 5) * 115];
+  } else if (operation === "compress") {
+    target = [540 + (base[0] - 540) * 0.32, 245 + (base[1] - 245) * 0.38];
+  } else if (operation === "scale-compare") {
+    const left = index < total / 2;
+    target = [left ? 260 + (base[0] % 180) : 710 + (base[0] % 230), 245 + (base[1] - 245) * (left ? 0.58 : 1.12)];
+  } else if (operation === "payoff") {
+    const angle = total > 1 ? index / total * Math.PI * 2 : 0;
+    target = [540 + Math.cos(angle) * 160, 245 + Math.sin(angle) * 125];
+  }
+  return [
+    base[0] + (target[0] - base[0]) * progress,
+    base[1] + (target[1] - base[1]) * progress,
+  ];
+}
+
 type GeometryProps = {
   primitive: VisualPrimitive;
+  operation: VisualOperation;
   state: VisualState;
   labels: string[];
   before: string;
@@ -75,14 +103,14 @@ type GeometryProps = {
   pop: (delay?: number) => number;
 };
 
-function Geometry({ primitive, state, labels, before, after, keyText, numericValue, progress, pop }: GeometryProps) {
+function Geometry({ primitive, operation, state, labels, before, after, keyText, numericValue, progress, pop }: GeometryProps) {
   const colors = palette[state];
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
   if (primitive === "particles") {
     return <>{Array.from({ length: 28 }, (_, i) => {
-      const x = 105 + (i % 7) * 142;
-      const y = 82 + Math.floor(i / 7) * 110;
+      const base: Point = [105 + (i % 7) * 142, 82 + Math.floor(i / 7) * 110];
+      const [x, y] = operatePoint(base, i, 28, operation, progress);
       return <Dot key={i} x={x} y={y} r={10 + pop(i * 0.025) * 13} fill={i % 4 === 0 ? ACCENT : colors.line} opacity={0.3 + progress * 0.7} />;
     })}<Label text={labels[0] || keyText} x={540} y={455} active state={state} /></>;
   }
@@ -113,10 +141,10 @@ function Geometry({ primitive, state, labels, before, after, keyText, numericVal
       <Dot x={540} y={245} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
-    return <>{labels.slice(0,4).map((label,i)=>{const x=190+(i%2)*700;const y=145+Math.floor(i/2)*210;return <React.Fragment key={i}><rect x={x-110} y={y-65} width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={x} y={y} active={i===Math.floor(progress*4)} state={state}/></React.Fragment>})}</>;
+    return <>{labels.slice(0,4).map((label,i)=>{const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,Math.max(1,labels.slice(0,4).length),operation,progress);return <React.Fragment key={i}><rect x={x-110} y={y-65} width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={x} y={y} active={i===Math.floor(progress*4)} state={state}/></React.Fragment>})}</>;
   }
   if (primitive === "network") {
-    const nodes: Array<[number,number]>=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
+    const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];\n    const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
     const links: Array<[number,number]>=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0],[1,5],[2,4],[0,5]];
     return <>{links.map(([a,b],i)=><DirectedEdge key={i} x1={nodes[a]![0]} y1={nodes[a]![1]} x2={nodes[b]![0]} y2={nodes[b]![1]} progress={Math.max(0,progress-i*.045)} state={state}/>)}
       {nodes.map(([x,y],i)=><Dot key={i} x={x} y={y} r={18+pop(i*.04)*9} fill={i%3===0?ACCENT:BLUE}/>)}</>;
@@ -184,7 +212,7 @@ function Geometry({ primitive, state, labels, before, after, keyText, numericVal
     <Label text={before||labels[0]} x={260} y={430} state={state}/><Label text={after||labels[1]||keyText} x={820} y={430} active state={state}/></>;
 }
 
-function OperationStage({ operation, progress, state, children }: { operation: VisualOperation; progress: number; state: VisualState; children: React.ReactNode }) {
+function OperationStage({ operation, progress, state, numericValue, children }: { operation: VisualOperation; progress: number; state: VisualState; numericValue: number | null; children: React.ReactNode }) {
   const colors = palette[state];
   const transform = operation === "compress"
     ? `translate(540 245) scale(${1-progress*.18} ${1-progress*.08}) translate(-540 -245)`
@@ -199,11 +227,8 @@ function OperationStage({ operation, progress, state, children }: { operation: V
             : `translate(0 ${operation==="stack"?(1-progress)*54:0})`;
   return <g transform={transform} opacity={.18+progress*.82}>
     {operation === "timeline" ? <g clipPath="url(#operation-reveal)">{children}</g> : children}
-    {operation === "stack" && [0,1,2].map(i=><rect key={i} x={390-i*16} y={420-i*13} width={300+i*32} height="12" rx="6" fill={colors.line} opacity={.25+i*.2}/>)}
-    {operation === "counter" && <text x="1000" y="92" textAnchor="end" fill={colors.line} fontSize="64" fontWeight="900">{Math.round(progress*100)}%</text>}
+    {operation === "counter" && numericValue !== null && <text x="1000" y="92" textAnchor="end" fill={colors.line} fontSize="64" fontWeight="900">{Math.round(numericValue*progress).toLocaleString()}</text>}
     {operation === "compress" && <><path d={`M${80+progress*165} 170 v150`} stroke={colors.line} strokeWidth="10"/><path d={`M${1000-progress*165} 170 v150`} stroke={colors.line} strokeWidth="10"/></>}
-    {operation === "group" && <><circle cx="360" cy="245" r={60+progress*55} fill="none" stroke={colors.muted} strokeWidth="5"/><circle cx="720" cy="245" r={60+progress*55} fill="none" stroke={colors.muted} strokeWidth="5"/></>}
-    {operation === "sort" && [0,1,2,3].map(i=><line key={i} x1={300+i*155} y1={450-i*15} x2={390+i*155} y2={450-i*15} stroke={colors.line} strokeWidth="9"/>)}
     {operation === "scale-compare" && <><line x1="140" y1="440" x2={140+progress*300} y2="440" stroke={ACCENT} strokeWidth="12"/><line x1="620" y1="440" x2={620+progress*380} y2="440" stroke={GREEN} strokeWidth="12"/></>}
     {operation === "payoff" && <circle cx="540" cy="245" r={170+progress*80} fill="none" stroke={GREEN} strokeWidth="8" opacity={.15+progress*.5}/>}
   </g>;
