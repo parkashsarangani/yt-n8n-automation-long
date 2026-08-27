@@ -7,7 +7,7 @@ const test = require("node:test");
 const ffmpeg = require("ffmpeg-static");
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", timeout: 180000, ...options });
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: 240000, ...options });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result;
 }
@@ -22,37 +22,66 @@ function signalRange(file, crop) {
   return Math.max(...maxs) - Math.min(...mins);
 }
 
-function similarity(first, second) {
-  const result = run(ffmpeg, ["-hide_banner", "-i", first, "-i", second, "-lavfi", "ssim", "-f", "null", "-"]);
+function similarity(first, second, crop) {
+  const filter = crop
+    ? `[0:v]crop=${crop}[a];[1:v]crop=${crop}[b];[a][b]ssim`
+    : "ssim";
+  const result = run(ffmpeg, ["-hide_banner", "-i", first, "-i", second, "-lavfi", filter, "-f", "null", "-"]);
   const match = (result.stderr + result.stdout).match(/All:([0-9.]+)/);
   assert.ok(match, "ffmpeg did not report SSIM");
   return Number(match[1]);
 }
 
-test("motion primitives render structurally and change perceptually at 16:9", { timeout: 300000 }, () => {
+const cellCrop = (index) => `468:250:${(index % 4) * 480 + 6}:${Math.floor(index / 4) * 270 + 10}`;
+
+test("every production-valid motion case has isolated foreground pixels and visible progression", { timeout: 360000 }, () => {
   const remotionDir = path.join(__dirname, "../remotion");
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "motion-regression-"));
   try {
-    run(process.execPath, ["scripts/render-motion-regression.mjs", outputDir], { cwd: remotionDir, timeout: 260000 });
+    run(process.execPath, ["scripts/render-motion-regression.mjs", outputDir], { cwd: remotionDir, timeout: 320000 });
     const manifest = JSON.parse(fs.readFileSync(path.join(outputDir, "manifest.json"), "utf8"));
-    assert.equal(manifest.length, 5);
-    for (const frame of manifest) {
+    assert.equal(manifest.compatibilityCases.length, 64);
+    assert.equal(new Set(manifest.compatibilityCases.map((item) => `${item.operation}/${item.primitive}`)).size, 64);
+    for (const frame of manifest.frames) {
       assert.deepEqual([frame.width, frame.height], [1920, 1080], `${frame.id} must use the production aspect ratio`);
-      assert.ok(signalRange(path.join(outputDir, frame.filename)) > 45, `${frame.filename} lacks tonal structure`);
     }
 
-    const relationships = path.join(outputDir, "relationships-transform.png");
-    const subjects = path.join(outputDir, "subjects-transform.png");
-    for (let row = 0; row < 3; row++) for (let column = 0; column < 5; column++) {
-      assert.ok(signalRange(relationships, `378:250:${column * 382}:${row * 265}`) > 24, `relationship cell ${row},${column} is visually empty`);
-    }
-    for (let row = 0; row < 2; row++) for (let column = 0; column < 4; column++) {
-      assert.ok(signalRange(subjects, `466:500:${column * 474}:${row * 510}`) > 24, `subject cell ${row},${column} is visually empty`);
+    const pages = [...new Set(manifest.frames.filter((item) => item.kind === "compatibility").map((item) => item.page))];
+    for (const page of pages) {
+      const early = path.join(outputDir, `compatibility-${page}-42.png`);
+      const late = path.join(outputDir, `compatibility-${page}-96.png`);
+      const cases = manifest.frames.find((item) => item.kind === "compatibility" && item.page === page).cases;
+      cases.forEach((item, index) => {
+        const crop = cellCrop(index);
+        assert.ok(signalRange(late, crop) > 8, `${item.operation}/${item.primitive} has no isolated foreground`);
+        assert.ok(similarity(early, late, crop) < 0.9995, `${item.operation}/${item.primitive} does not visibly progress`);
+      });
     }
 
-    assert.ok(similarity(relationships, path.join(outputDir, "relationships-consequence.png")) < 0.995, "relationship operations do not visibly progress");
-    assert.ok(similarity(subjects, path.join(outputDir, "subjects-consequence.png")) < 0.995, "subject operations do not visibly progress");
-    assert.ok(signalRange(path.join(outputDir, "bookend.png"), "760:760:1110:90") > 30, "two-character reaction panel lacks visible subjects");
+    const statePages = [...new Set(manifest.frames.filter((item) => item.kind === "state").map((item) => item.page))];
+    for (const page of statePages) {
+      const hypothesis = path.join(outputDir, `state-${page}-hypothesis.png`);
+      const contradiction = path.join(outputDir, `state-${page}-contradiction.png`);
+      const primitives = manifest.frames.find((item) => item.kind === "state" && item.page === page).primitives;
+      primitives.forEach((primitive, index) => {
+        assert.ok(similarity(hypothesis, contradiction, cellCrop(index)) < 0.9995, `${primitive} does not visibly transition from hypothesis to contradiction`);
+      });
+    }
+
+    const bookend = path.join(outputDir, "bookend.png");
+    const emptyBookend = path.join(outputDir, "bookend-empty.png");
+    assert.ok(similarity(bookend, emptyBookend, "760:760:1110:90") < 0.985, "bookend panel does not contain detectable character pixels");
+
+    const backgrounds = ["network", "path", "quantity"].map((primitive) => path.join(outputDir, `background-${primitive}.png`));
+    assert.ok(similarity(backgrounds[0], backgrounds[1]) < 0.995, "relational and spatial background fields are indistinguishable");
+    assert.ok(similarity(backgrounds[1], backgrounds[2]) < 0.995, "spatial and quantitative background fields are indistinguishable");
+
+    const payoff = path.join(outputDir, "payoff.png");
+    assert.ok(signalRange(payoff) > 45, "payoff frame lacks a decisive visual resolution");
+    const source = fs.readFileSync(path.join(remotionDir, "src/compositions/ExplanationScene.tsx"), "utf8");
+    assert.equal((source.match(/data-payoff-copy="single"/g) || []).length, 1, "payoff copy must have one owner");
+    assert.match(source, /!isPayoff \? <Title>/, "payoff must suppress the ordinary title");
+    assert.match(source, /!isPayoff && characterDominant && keyText/, "payoff must suppress the ordinary key-text panel");
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
   }
