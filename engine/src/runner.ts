@@ -230,7 +230,54 @@ export class Runner {
         continue;
       }
 
-      const { payload: rawPayload, confidence } = unwrap(value, def.name);
+      let rawPayload: unknown;
+      let confidence: Confidence;
+      try {
+        ({ payload: rawPayload, confidence } = unwrap(value, def.name));
+      } catch (err) {
+        if (!(err instanceof ProviderError)) throw err;
+        // unwrap() failing (missing "payload", or a malformed/out-of-range
+        // confidence.overall) used to propagate straight out of this loop,
+        // skipping the retry-with-feedback path entirely: no run_records
+        // entry, no chance for the model to see and fix the problem, and a
+        // hard failure on attempt 1 regardless of max_attempts -- a run
+        // needed a manual top-level retry every time this happened, and each
+        // retry gave the model a genuinely fresh attempt 1 rather than the
+        // in-agent retry budget doing its job. Treated the same as a schema
+        // validation failure now: recorded, fed back via lastErrors, and
+        // retried within this agent's own attempt budget.
+        lastErrors = [err.message];
+        await this.writeRecord({
+          run_id: runId,
+          graph_id: opts.graphId ?? null,
+          node_id: opts.nodeId ?? null,
+          transformation: def.name,
+          transformation_version: transformationVersion,
+          inputs: inputIds,
+          output: null,
+          status: "schema_invalid",
+          attempt,
+          max_attempts: maxAttempts,
+          provider: provider.id,
+          model: usage?.model ?? null,
+          prompt_ref: def.prompt,
+          usage,
+          confidence: null,
+          started_at: startedAt,
+          startedMs,
+          error: err.message,
+          retry_reason: "schema",
+        });
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} failed to unwrap response: ${err.message}`,
+        );
+        if (attempt === maxAttempts) {
+          throw new RunnerError(
+            `${def.name} produced an invalid ${def.produces} after ${maxAttempts} attempts: ${err.message}`,
+          );
+        }
+        continue;
+      }
       const { data: enumRepaired, repairs } = repairEnumValues(rawOutputSchema, rawPayload);
       if (repairs.length > 0) {
         this.deps.logger?.warn(
