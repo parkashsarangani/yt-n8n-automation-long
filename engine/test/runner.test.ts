@@ -211,6 +211,33 @@ test("an invalid output is retried, and the retry prompt carries the errors", as
   assert.equal(records[1]!.output, out.artifact.artifact_id);
 });
 
+test("a missing confidence.overall is retried like any other invalid output", async () => {
+  // Real production bug: unwrap() (which checks confidence.overall) used to
+  // be called OUTSIDE the try/catch that drives the retry-with-feedback
+  // loop, so a model response with a missing/malformed confidence.overall
+  // threw immediately on attempt 1 regardless of max_attempts -- no
+  // run_records entry, no retry, no chance for the model to see and fix it.
+  // A real run needed a manual top-level retry every single time this
+  // happened. This response is syntactically fine JSON, just missing the
+  // envelope field unwrap() requires.
+  const h = await harness((_req, attempt) =>
+    attempt === 0
+      ? ({ payload: STORY_PAYLOAD, confidence: {} } as unknown as { payload: unknown; confidence: { overall: number } })
+      : { payload: STORY_PAYLOAD, confidence: { overall: 0.88 } },
+  );
+  const intent = await seedIntent(h);
+  const out = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+
+  assert.equal(out.attempts, 2);
+  assert.equal(h.provider.calls.length, 2);
+  assert.match(h.provider.calls[1]!.prompt, /previous attempt was rejected/i);
+  assert.match(h.provider.calls[1]!.prompt, /confidence\.overall/);
+
+  const records = await h.runLog.all();
+  assert.deepEqual(records.map((r) => r.status), ["schema_invalid", "ok"]);
+  assert.match(records[0]!.error ?? "", /confidence\.overall/);
+});
+
 test("an invalid output never becomes an artifact, even after exhausting retries", async () => {
   const h = await harness(() => ({ payload: { ...STORY_PAYLOAD, acts: [] }, confidence: { overall: 0.5 } }));
   const intent = await seedIntent(h);
