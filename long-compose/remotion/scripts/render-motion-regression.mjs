@@ -59,6 +59,7 @@ try {
     { id: "ExplanationBookendRegression", frame: 96, filename: "bookend.png", kind: "bookend" },
     { id: "ExplanationEmptyBookendReference", frame: 96, filename: "bookend-empty.png", kind: "bookend-reference" },
     { id: "ExplanationPayoffRegression", frame: 110, filename: "payoff.png", kind: "payoff" },
+    { id: "ExplanationDenseLabelRegression", frame: 96, filename: "dense-labels.png", kind: "dense-labels" },
   );
 
   const manifest = [];
