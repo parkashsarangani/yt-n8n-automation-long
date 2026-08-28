@@ -351,7 +351,7 @@ test("workers run through the same harness and are given no model", async () => 
   assert.equal((out.artifact.payload as { text: string }).text, "THE ANDES DREW THIS BORDER");
   assert.equal(out.artifact.produced_by.provider, null); // workers have no provider
   // RFC 0001 rule 1, enforced structurally: I/O yes, model no.
-  assert.deepEqual(Object.keys(sawContext).sort(), ["blobs", "logger", "media", "progress"]);
+  assert.deepEqual(Object.keys(sawContext).sort(), ["attemptNumber", "blobs", "logger", "media", "progress"]);
   assert.equal("model" in sawContext, false);
   assert.equal("providers" in sawContext, false);
   assert.deepEqual(Object.keys(sawContext["media"] as object), []);

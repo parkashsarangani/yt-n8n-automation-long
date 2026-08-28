@@ -1,0 +1,92 @@
+{
+  "schema_id": "script",
+  "version": "1.6.0",
+  "status": "active",
+  "description": "Raises `point`'s maxLength from 300 to 420. Production evidence: a real ~56-scene episode's final beat -- the recap/payoff, which legitimately has more to tie together than an ordinary scene -- hit the 300-char cap on all 3 attempts, blocking the run outright with no repair path (unlike additionalProperties or enum near-misses, an over-length string has no deterministic auto-fix). 300 was never derived from an actual content budget; raising it gives complex terminal beats real headroom while the prompt still asks for a compact `action=...; prop=...; function=...; value=...` structure. Additive per RFC 0007: any 1.5.0 script (point <=300 chars) remains valid under 1.6.0's wider bound.",
+  "produced_by": [
+    "script_writer",
+    "dialogue_script_writer",
+    "comprehension_editor",
+    "retention_character_editor",
+    "emotional_entertainment_editor",
+    "script_quality_reviser",
+    "script_quality_release",
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ScriptArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "scenes"
+    ],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "point",
+            "narration"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "act_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "point": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 420,
+              "description": "What this beat does for the story."
+            },
+            "narration": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000
+            },
+            "is_outro": {
+              "type": "boolean"
+            },
+            "speaker": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "character_id from the run's cast_roster who speaks this line. Absent for single-narrator scripts."
+            },
+            "emotion": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "happy",
+                "amused",
+                "skeptical",
+                "confused",
+                "concerned",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "thinking",
+                "annoyed"
+              ],
+              "description": "The speaker's emotional delivery for this line - drives the cartoon renderer's expression/pose choice, and is the visual planner's default speaker_emotion for this scene unless the direction genuinely needs a different nuance. Only meaningful alongside \"speaker\"."
+            }
+          }
+        }
+      },
+      "word_count": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

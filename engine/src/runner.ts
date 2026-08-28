@@ -63,6 +63,18 @@ export interface WorkerContext {
     analytics?: AnalyticsProvider;
   };
   progress(note: { detail: string; job_id?: string }): Promise<void>;
+  /**
+   * 1 on this node's first execution for this run, incrementing each time a
+   * prior execution of the SAME node_id in the SAME run recorded a "failed"
+   * status. Lets a worker that gates on a quality bar (script_quality_release)
+   * accept its best attempt after enough regenerations rather than blocking
+   * a run forever on a bar the upstream generation keeps landing just under --
+   * the same "accept the last attempt" escape hatch agents already have via
+   * their own retry budget, extended to a deterministic worker that has no
+   * retry loop of its own and depends on an operator forcing regeneration
+   * upstream instead.
+   */
+  attemptNumber: number;
 }
 
 export interface WorkerOutput {
@@ -458,10 +470,17 @@ export class Runner {
       throw new RunnerError(`worker "${def.name}" needs a blob store; construct the Runner with { blobs }`);
     }
 
+    const priorFailures = opts.nodeId
+      ? (await this.deps.runLog.all()).filter(
+          (r) => r.run_id === runId && r.node_id === opts.nodeId && r.status === "failed",
+        ).length
+      : 0;
+
     const ctx: WorkerContext = {
       logger: this.deps.logger ?? console,
       blobs: this.deps.blobs,
       media: this.deps.media ?? {},
+      attemptNumber: priorFailures + 1,
       progress: async (note) => {
         await this.deps.runLog.record({
           run_id: runId,

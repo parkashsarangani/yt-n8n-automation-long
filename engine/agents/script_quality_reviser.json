@@ -25,7 +25,7 @@
     }
   ],
   "produces": "script",
-  "produces_version": "1.5.0",
+  "produces_version": "1.6.0",
   "prompt": "script_quality_reviser@2",
   "model": {
     "capability": "reasoning_high",

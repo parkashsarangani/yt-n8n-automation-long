@@ -20,7 +20,7 @@
     }
   ],
   "produces": "script",
-  "produces_version": "1.5.0",
+  "produces_version": "1.6.0",
   "prompt": "retention_character_editor@1",
   "model": {
     "capability": "reasoning_high",
