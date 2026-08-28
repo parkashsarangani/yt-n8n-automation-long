@@ -40,6 +40,43 @@ test("alternating narration with flattering metadata cannot fake dialogue qualit
   assert.ok(result.failures.some((failure) => failure.startsWith("final_teach_back")));
 });
 
+test("close synonyms for the two compound terminal functions still count as the real beat", () => {
+  // Production evidence: dialogue_script_writer wrote `function=payoff` for
+  // its closing scene (echoing the `payoff` field already on its own `story`
+  // input) instead of the taught `recap confirms_understanding`, and
+  // `function=teach_back` on another run. The scene content itself was a
+  // genuine, prop-reusing teach-back -- an exact-string lookup treating the
+  // recap as entirely absent was a vocabulary false negative, not a real
+  // content defect.
+  const synonymScript = structuredClone(strongScript);
+  synonymScript.scenes[6]!.point = synonymScript.scenes[6]!.point.replace("function=takeaway practical_action", "function=takeaway");
+  synonymScript.scenes[7]!.point = synonymScript.scenes[7]!.point.replace("function=recap confirms_understanding", "function=payoff");
+
+  const result = assessDialogueEvidence(synonymScript);
+  assert.equal(result.passed, true, result.failures.join("\n"));
+});
+
+test("a compound recap prop still counts as reusing the visual model when it contains it", () => {
+  // Production evidence: the recap staged the model prop alongside the
+  // episode's opening object ("toy-cars" -> "toy-cars-and-original-jam"),
+  // which is a stronger callback than repeating the bare prop name -- exact
+  // equality treated that as an unrelated prop and failed a real reuse.
+  const compoundRecap = structuredClone(strongScript);
+  compoundRecap.scenes[7]!.point = compoundRecap.scenes[7]!.point.replace("prop=toy-cars;", "prop=toy-cars-and-original-jam;");
+
+  const result = assessDialogueEvidence(compoundRecap);
+  assert.equal(result.passed, true, result.failures.join("\n"));
+});
+
+test("an unrelated recap prop still fails model reuse", () => {
+  const unrelatedRecap = structuredClone(strongScript);
+  unrelatedRecap.scenes[7]!.point = unrelatedRecap.scenes[7]!.point.replace("prop=toy-cars;", "prop=whiteboard;");
+
+  const result = assessDialogueEvidence(unrelatedRecap);
+  assert.equal(result.passed, false);
+  assert.ok(result.failures.some((failure) => failure.startsWith("model_reused_in_recap")));
+});
+
 test("a complete beat list still fails when characters do not predict, interact, or reuse the model", () => {
   const broken = structuredClone(strongScript);
   for (const scene of broken.scenes) {

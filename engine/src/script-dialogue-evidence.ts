@@ -42,6 +42,41 @@ function field(point: string, key: string): string {
   return match?.[1]?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
 }
 
+// dialogue_script_writer's prompt teaches the exact eight REQUIRED_FUNCTIONS
+// strings, but nothing enforces them structurally -- `point` is free text in
+// the schema (RFC 0004 grounding only), so a model that reaches for a close
+// synonym for the two compound, easy-to-abbreviate terminal beats still
+// produces a genuinely correct payoff scene. Production evidence: a real run
+// closed its episode with five `function=teach_back` scenes (applying the
+// corrected model -- the practical-action beat) followed by one
+// `function=payoff` scene (echoing the `payoff` field already present on the
+// `story` artifact given as this agent's own input, restating the corrected
+// idea -- the recap beat). Neither string is in REQUIRED_FUNCTIONS, so an
+// exact-match lookup saw both the takeaway and the recap as entirely absent
+// and failed comprehension_arc, model_reused_in_recap, and final_teach_back
+// simultaneously, over vocabulary, on a script whose actual closing stretch
+// was a valid, prop-reusing teach-back into payoff. Same fix philosophy
+// already used for the compiler's MIDPOINT_RE/ENGAGEMENT_RE regexes: widen
+// the recognizer rather than demand one exact phrase across a ~50-scene
+// generation. `teach_back`/`teach back` reads as *applying* the idea (the
+// takeaway), reserving `recap`/`confirms_understanding`/`payoff` for the beat
+// that actually restates it (the recap) -- matching how the model used both
+// terms in the run that surfaced this gap.
+const FUNCTION_SYNONYMS: Record<string, (typeof REQUIRED_FUNCTIONS)[number]> = {
+  recap: "recap confirms_understanding",
+  "confirms_understanding": "recap confirms_understanding",
+  payoff: "recap confirms_understanding",
+  takeaway: "takeaway practical_action",
+  practical_action: "takeaway practical_action",
+  "practical action": "takeaway practical_action",
+  teach_back: "takeaway practical_action",
+  "teach back": "takeaway practical_action",
+};
+
+function canonicalFunction(raw: string): string {
+  return FUNCTION_SYNONYMS[raw] ?? raw;
+}
+
 function words(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -123,7 +158,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
     0.60,
   );
 
-  const functions = scenes.map((scene) => field(scene.point ?? "", "function"));
+  const functions = scenes.map((scene) => canonicalFunction(field(scene.point ?? "", "function")));
   const positions = REQUIRED_FUNCTIONS.map((fn) => functions.findIndex((value) => value === fn));
   const allPresent = positions.every((position) => position >= 0);
   const ordered = allPresent && positions.every((position, index) => index === 0 || position > positions[index - 1]!);
@@ -179,7 +214,15 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   const modelProps = modelScenes.map((scene) => normalizedProp(field(scene.point ?? "", "prop"))).filter((prop) => prop && prop !== "none");
   const recapIndex = functions.indexOf("recap confirms_understanding");
   const recapProp = recapIndex >= 0 ? normalizedProp(field(scenes[recapIndex]!.point ?? "", "prop")) : "";
-  const stableProp = modelProps.length > 0 && Boolean(recapProp) && modelProps.includes(recapProp);
+  // Exact equality rejected a real reuse in production: the recap staged the
+  // model prop alongside the episode's opening object ("molecule-piece-model"
+  // -> "molecule-piece-model-and-ice-cube-in-glass"), which is a stronger
+  // callback than repeating the bare prop name, not a different one. A
+  // substring check in either direction still requires the recap's prop to
+  // genuinely be built on the model's prop rather than merely fooling a
+  // loose match with an unrelated compound label.
+  const stableProp = modelProps.length > 0 && Boolean(recapProp) &&
+    modelProps.some((prop) => recapProp.includes(prop) || prop.includes(recapProp));
   add(
     checks,
     "model_reused_in_recap",
