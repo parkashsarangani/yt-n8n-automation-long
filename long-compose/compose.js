@@ -211,6 +211,26 @@ function ffprobeDuration(filePath) {
   });
 }
 
+// TTS providers commonly leave 350-750ms of silence after every line. With
+// one audio file per scene those tails accumulate into the stop-start rhythm
+// seen in completed episodes. Preserve a deliberate 160ms response beat while
+// trimming only the trailing pad; leading timing and character alignment stay
+// untouched, so lip sync remains stable.
+async function tightenExplanationTail(audioPath) {
+  const trimmed = `${audioPath}.tight.mp3`;
+  try {
+    await execFileAsync(ffmpegPath, [
+      "-y", "-i", audioPath,
+      "-af", "areverse,silenceremove=start_periods=1:start_duration=0.18:start_threshold=-42dB:start_silence=0.16,areverse",
+      "-c:a", "libmp3lame", "-b:a", "128k", trimmed,
+    ]);
+    await fsp.rename(trimmed, audioPath);
+  } catch (error) {
+    await fsp.unlink(trimmed).catch(() => {});
+    console.warn(`[audio] trailing-silence trim skipped: ${error.message}`);
+  }
+}
+
 // Bounded-concurrency map that never throws mid-flight: returns Promise.allSettled
 // -shaped results ({status,value|reason}) in input order, running at most `limit`
 // tasks at once. Long-form has 40-50 scenes; building them all in parallel (the
@@ -1246,7 +1266,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,76,&H00FFFFFF,&H0000DFFF,&H50000000,&HA0000000,0,0,0,0,100,100,0,0,1,5,4,2,90,90,172,1
+Style: Caption,Inter Bold,80,&H00FFFFFF,&H0000DFFF,&H50000000,&HA0000000,0,0,0,0,100,100,0,0,1,5,4,2,110,110,194,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -1255,7 +1275,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   let events = "";
   // Keep mobile captions short, large, and above the bottom UI-safe area.
-  const WORDS_PER_PHRASE = 6;
+  const WORDS_PER_PHRASE = 5;
 
   scenes.forEach((scene, sceneIdx) => {
     if (isOutroScene(scene)) return;
@@ -1518,6 +1538,10 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         throw new Error(`Scene ${i} missing audio`);
       }
 
+      if (scene?.template_name === "explanation" && !isOutroScene(scene)) {
+        await tightenExplanationTail(audioPath);
+      }
+
       const duration = await ffprobeDuration(audioPath);
       const outPath = path.join(tmpDir, `scene_${i}_final.mp4`);
       let degraded = false;
@@ -1697,7 +1721,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           : 0.46;
       const sceneDuration = durations[index] || 1;
       const time = (offsets[index] || 0) + Math.min(Math.max(0.35, sceneDuration - 0.25), Math.max(0.35, sceneDuration * operationPhase));
-      if (!selected || time - lastCueTime < 2.4 || sfxEvents.length >= 7) return;
+      if (!selected || time - lastCueTime < 1.8 || sfxEvents.length >= 10) return;
       if (sfxAvailable[selected.type]) {
         sfxEvents.push({ ...selected, time });
         lastCueTime = time;
