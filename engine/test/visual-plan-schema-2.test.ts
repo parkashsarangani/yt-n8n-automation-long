@@ -50,7 +50,9 @@ test("explanation plan encodes frame ownership and meaningful change", () => {
   assert.match(prompt, /sound muted/);
   assert.match(prompt, /visual sentence/i);
   assert.match(prompt, /relationship primitives/i);
-  assert.match(prompt, /no more than three visible labels/i);
+  assert.match(prompt, /no more than two visible labels/i);
+  assert.match(prompt, /canonical entities/i);
+  assert.match(prompt, /at least half of explanatory scenes must reuse/i);
   assert.match(prompt, /primitive defines what exists/i);
   assert.match(prompt, /Do not emit or optimize legacy background/i);
 });
