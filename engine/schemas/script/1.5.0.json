@@ -1,0 +1,92 @@
+{
+  "schema_id": "script",
+  "version": "1.5.0",
+  "status": "active",
+  "description": "Widens `emotion` from 6 values to the same 12-value vocabulary visual_plan's speaker_emotion/listener_emotion already use. Renderer support already exists (cartoon-scenes.ts's EMOTIONS set already lists all 12); the script layer was the bottleneck, forcing cartoon_visual_planner to re-derive nuance (skeptical, confused, amused, concerned, thinking, annoyed) from narration text instead of trusting the writer's own stated intent. No other shape change, so this is additive per RFC 0007: a script produced under 1.4.0 remains a valid instance of 1.5.0's superset enum.",
+  "produced_by": [
+    "script_writer",
+    "dialogue_script_writer",
+    "comprehension_editor",
+    "retention_character_editor",
+    "emotional_entertainment_editor",
+    "script_quality_reviser",
+    "script_quality_release",
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ScriptArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "scenes"
+    ],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "point",
+            "narration"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "act_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "point": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 300,
+              "description": "What this beat does for the story."
+            },
+            "narration": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000
+            },
+            "is_outro": {
+              "type": "boolean"
+            },
+            "speaker": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "character_id from the run's cast_roster who speaks this line. Absent for single-narrator scripts."
+            },
+            "emotion": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "happy",
+                "amused",
+                "skeptical",
+                "confused",
+                "concerned",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "thinking",
+                "annoyed"
+              ],
+              "description": "The speaker's emotional delivery for this line - drives the cartoon renderer's expression/pose choice, and is the visual planner's default speaker_emotion for this scene unless the direction genuinely needs a different nuance. Only meaningful alongside \"speaker\"."
+            }
+          }
+        }
+      },
+      "word_count": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

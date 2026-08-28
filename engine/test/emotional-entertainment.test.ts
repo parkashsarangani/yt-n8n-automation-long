@@ -12,7 +12,7 @@ const reportSchema = JSON.parse(readFileSync(new URL("../schemas/script_quality_
 test("entertainment editor is a bounded script agent before criticism", () => {
   assert.equal(agent.kind, "agent");
   assert.equal(agent.produces, "script");
-  assert.equal(agent.produces_version, "1.4.0");
+  assert.equal(agent.produces_version, "1.5.0");
   assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["story", "script", "cast_roster"]);
   assert.ok(agent.confidence_dimensions.includes("emotional_momentum"));
   assert.ok(agent.confidence_dimensions.includes("entertainment_value"));

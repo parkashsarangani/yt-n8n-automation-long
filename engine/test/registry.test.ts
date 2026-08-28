@@ -50,9 +50,10 @@ test("loads the real project schemas", async () => {
   }
   // story and script each carry an additive minor bump (RFC 0007) that widens
   // produced_by to allow "human", for the manual-script flow. script's later
-  // 1.2.0 adds optional speaker/emotion for cartoon-mode dialogue.
+  // 1.2.0 adds optional speaker/emotion for cartoon-mode dialogue; 1.5.0
+  // widens emotion's enum from 6 values to the 12 visual_plan already uses.
   assert.equal(reg.resolveVersion("story"), "1.2.0");
-  assert.equal(reg.resolveVersion("script"), "1.4.0");
+  assert.equal(reg.resolveVersion("script"), "1.5.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {

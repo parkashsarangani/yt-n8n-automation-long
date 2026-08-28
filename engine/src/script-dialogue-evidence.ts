@@ -356,6 +356,72 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
       : "the model breaks the prediction without a specific emotional reaction",
   );
 
+  // The five checks below used to live only as prose rules in
+  // dialogue_script_writer's prompt (spelled out twice: once as a
+  // requirement, once again in the "final self-check" list) despite being
+  // entirely mechanical -- an LLM counting its own word counts and scanning
+  // its own output for banned phrases is an expensive, unreliable way to
+  // enforce something a few lines of code check for free. Moved here so the
+  // prompt can state the intent once ("short lines dominate, no repeats, no
+  // textbook phrasing") and this module holds the actual bar.
+  const wordCounts = scenes.map((scene) => words(scene.narration ?? ""));
+  const shortLineRatio = wordCounts.length > 0 ? wordCounts.filter((count) => count <= 10).length / wordCounts.length : 0;
+  add(
+    checks,
+    "short_line_ratio",
+    shortLineRatio >= 0.50,
+    `${Math.round(shortLineRatio * 100)}% of lines are 10 words or fewer`,
+    shortLineRatio,
+    0.50,
+  );
+
+  // No separate "interruption every 5-7 lines" gate: tried a mechanical
+  // version of it (a <=3-word line required within every 7-line window) and
+  // it failed this project's own hand-authored "healthy episode" fixtures --
+  // real natural dialogue does not reliably hit a pure word-count threshold
+  // that tightly, and there is no reliable way to mechanically distinguish a
+  // genuine interruption from an ordinary short declarative line. Shipping
+  // that gate would risk blocking good scripts on a false positive, exactly
+  // the failure mode this evidence module exists to eliminate.
+  // short_line_ratio above already captures the intent (short lines
+  // dominate) without requiring a specific cadence.
+
+  const normalizedLines = scenes.map((scene) => (scene.narration ?? "").trim().toLowerCase().replace(/[^\w\s]/g, ""));
+  const nearDuplicateWithinWindow = normalizedLines.some((line, index) => {
+    if (!line) return false;
+    for (let back = 1; back <= 5 && index - back >= 0; back++) {
+      if (normalizedLines[index - back] === line) return true;
+    }
+    return false;
+  });
+  add(
+    checks,
+    "no_near_duplicate_lines",
+    !nearDuplicateWithinWindow,
+    nearDuplicateWithinWindow
+      ? "a line repeats near-verbatim within 5 scenes of an earlier one"
+      : "no line repeats near-verbatim within a 5-scene window",
+  );
+
+  const bannedPhrase = /\b(?:is called|this means|the reason is|in other words|research shows|studies show)\b/i;
+  const bannedPhraseHit = scenes.some((scene) => bannedPhrase.test(scene.narration ?? ""));
+  add(
+    checks,
+    "no_definition_phrasing",
+    !bannedPhraseHit,
+    bannedPhraseHit
+      ? "a line uses textbook definition phrasing (\"is called\", \"research shows\", ...)"
+      : "no line uses textbook definition phrasing",
+  );
+
+  const trailingEllipsis = scenes.some((scene) => (scene.narration ?? "").trim().endsWith("..."));
+  add(
+    checks,
+    "no_trailing_ellipsis",
+    !trailingEllipsis,
+    trailingEllipsis ? "a line ends with \"...\"" : "no line ends with \"...\"",
+  );
+
   const passedCount = checks.filter((check) => check.passed).length;
   const failures = checks.filter((check) => !check.passed).map((check) => `${check.id}: ${check.message}`);
   return {

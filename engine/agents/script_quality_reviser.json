@@ -1,7 +1,7 @@
 {
   "name": "script_quality_reviser",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [
     {
       "schema_id": "story",
@@ -25,8 +25,8 @@
     }
   ],
   "produces": "script",
-  "produces_version": "1.4.0",
-  "prompt": "script_quality_reviser@1",
+  "produces_version": "1.5.0",
+  "prompt": "script_quality_reviser@2",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 24000,
