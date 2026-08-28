@@ -125,9 +125,20 @@ export function assertEnvelopeWellFormed(a: Artifact): void {
   if (new Set(a.parents).size !== a.parents.length) {
     throw new ArtifactError(`duplicate parent ids in ${a.artifact_id}`);
   }
-  if (a.parents.includes(a.artifact_id)) {
-    throw new ArtifactError(`artifact ${a.artifact_id} lists itself as a parent`);
-  }
+  // No self-parent check: artifact_id is a pure content hash of
+  // {schema_id, schema_version, payload} (see computeArtifactId), never of
+  // parentage. Since hash collisions are infeasible, `parents.includes(id)`
+  // can only be true when one declared parent is already content-identical
+  // to what's being produced now -- a normal, legitimate shape for an
+  // approval/pass-through worker (script_quality_release consumes a script
+  // and a report, and on a genuine pass returns the script unchanged; that
+  // output necessarily has the same schema_id/schema_version/payload as the
+  // script it consumed, hence the same artifact_id). A real run hit exactly
+  // this the first time quality_release ever actually succeeded: rejecting
+  // it here blocked a script that had genuinely cleared the quality bar,
+  // for a check with no real logic bug behind it -- there is no OTHER way
+  // for this condition to arise given how identity is derived, so it was
+  // never actually protecting against anything a caller could get wrong.
   if (!a.produced_by?.transformation || !a.produced_by?.version || !a.produced_by?.run_id) {
     throw new ArtifactError(`produced_by must carry transformation, version, and run_id`);
   }

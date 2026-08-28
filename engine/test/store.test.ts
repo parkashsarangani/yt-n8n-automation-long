@@ -72,6 +72,39 @@ test("identical content dedups to the same artifact", async () => {
   assert.equal(second.artifact.produced_by.run_id, "run_test");
 });
 
+test("an approval worker can consume an artifact and return it unchanged", async () => {
+  // Real production case: script_quality_release consumes a script and,
+  // on a genuine pass, returns it byte-for-byte unchanged -- so its output
+  // has the exact same {schema_id, schema_version, payload} as the script
+  // it just approved, and therefore the exact same content-derived
+  // artifact_id. Declaring that script as a parent of "its own" output used
+  // to throw ("lists itself as a parent") the first time this code path
+  // was ever actually reached, blocking a script that had genuinely
+  // cleared the quality bar. There is no other way for a declared parent to
+  // equal the artifact being produced, since identity is a pure content
+  // hash (see computeArtifactId) -- this is the only shape that condition
+  // can take, and it's a legitimate one.
+  const { store } = await freshStore();
+  const scriptPayload = {
+    scenes: [
+      { scene_index: 0, act_index: 0, point: "action=Buddy looks up; prop=sky; function=hook; value=opens the mystery", narration: "Why is the night sky dark?" },
+      { scene_index: 1, act_index: 0, point: "action=Host points at the model; prop=sky; function=recap confirms_understanding; value=resolves the mystery", narration: "Because not all light has reached us yet." },
+    ],
+  };
+  const scriptBy: ProducedBy = { transformation: "dialogue_script_writer", version: "1", run_id: "run_test" };
+  const original = await store.put({ schema_id: "script", payload: scriptPayload, produced_by: scriptBy });
+
+  const approved = await store.put({
+    schema_id: "script",
+    payload: scriptPayload,
+    produced_by: { transformation: "script_quality_release", version: "1", run_id: "run_release" },
+    parents: [original.artifact.artifact_id],
+  });
+
+  assert.equal(approved.deduped, true);
+  assert.equal(approved.artifact.artifact_id, original.artifact.artifact_id);
+});
+
 test("identity ignores producer, parents, confidence and time", async () => {
   const { store } = await freshStore();
   const a = await store.put({ schema_id: "story", payload: STORY, produced_by: BY });
