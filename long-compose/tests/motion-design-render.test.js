@@ -188,7 +188,7 @@ test("every production-valid motion case has isolated foreground pixels and visi
     assert.ok(signalRange(payoff) > 45, "payoff frame lacks a decisive visual resolution");
     const source = fs.readFileSync(path.join(remotionDir, "src/compositions/ExplanationScene.tsx"), "utf8");
     assert.equal((source.match(/data-payoff-copy="single"/g) || []).length, 1, "payoff copy must have one owner");
-    assert.match(source, /!isPayoff \? <Title>/, "payoff must suppress the ordinary title");
+    assert.match(source, /showTitle \? <Title>/, "only the opening bookend may own the ordinary title");
     assert.match(source, /!isPayoff && characterDominant && keyText/, "payoff must suppress the ordinary key-text panel");
     // ...and prove it in the frame, not only in the source. If the payoff
     // overlay and the ordinary key-text panel ever render together again, the
@@ -198,6 +198,14 @@ test("every production-valid motion case has isolated foreground pixels and visi
       copyBlocks.length, 1,
       `the closing statement must appear exactly once, found ${copyBlocks.length} blocks of accent copy at ${copyBlocks.map((b) => `y${b.top}-${b.bottom}`).join(", ")}`,
     );
+
+    // Crowded authored copy must resolve structurally: visible entities remain
+    // in the safe area, while the renderer limits text ownership instead of
+    // pushing pills beyond the frame or shrinking them into illegibility.
+    const dense = decodePng(path.join(outputDir, "dense-labels.png"));
+    assert.ok(brightRatio(dense, 120, 210, 1680, 650, 70) > 0.015, "dense model lost its explanatory foreground");
+    assert.ok(brightRatio(dense, 0, 150, 45, 780, 70) < 0.006, "dense model leaks into the left safe edge");
+    assert.ok(brightRatio(dense, 1875, 150, 45, 780, 70) < 0.006, "dense model leaks into the right safe edge");
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
   }

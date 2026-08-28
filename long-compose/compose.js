@@ -211,6 +211,78 @@ function ffprobeDuration(filePath) {
   });
 }
 
+// TTS providers commonly leave 350-750ms of silence after every line. With
+// one audio file per scene those tails accumulate into the stop-start rhythm
+// seen in completed episodes. Preserve a deliberate response beat (160ms for
+// an ordinary turn, within the 120-250ms range that reads as a natural reply
+// rather than a hard stop) while trimming only the trailing pad; leading
+// timing stays untouched, so lip sync remains stable. A scene that hands off
+// into a reversal or the payoff keeps a longer beat instead (see
+// REVERSAL_TAIL_SILENCE_SECONDS below) -- collapsing that pause to the same
+// 160ms as any other turn would erase the one place a pause is actually
+// doing narrative work.
+//
+// Bounded and measured, not trusted blindly: silenceremove's -42dB threshold
+// cannot tell a genuine trailing pad from a quiet final phoneme, a breath, or
+// a deliberate dramatic pause -- amplitude alone doesn't know intent. A run
+// that trimmed more than MAX_TAIL_TRIM_SECONDS is treated as having caught
+// something that wasn't just padding and is discarded in favour of the
+// original file, rather than shipping a clipped ending. The trim also no
+// longer silently invalidates the alignment: the caller receives the actual
+// seconds removed so it can clamp the scene's own caption/lip-sync timestamps
+// to the new duration instead of letting them run past a now-shorter clip and
+// bleed captions into the following scene.
+const MAX_TAIL_TRIM_SECONDS = 0.35;
+// Longer preserved beat before a scene hands off into a contradiction or the
+// payoff -- the reversal needs a breath the surrounding ordinary turns don't.
+const REVERSAL_TAIL_SILENCE_SECONDS = 0.45;
+
+async function tightenExplanationTail(audioPath, preserveSilenceSeconds = 0.16) {
+  const trimmed = `${audioPath}.tight.mp3`;
+  try {
+    const before = await ffprobeDuration(audioPath);
+    await execFileAsync(ffmpegPath, [
+      "-y", "-i", audioPath,
+      "-af", `areverse,silenceremove=start_periods=1:start_duration=0.18:start_threshold=-42dB:start_silence=${preserveSilenceSeconds},areverse`,
+      // 192k, not the original 128k: this is already a second lossy encode
+      // over the TTS provider's own compression, so re-encoding at a lower
+      // bitrate than typical source quality would compound the loss for no
+      // reason connected to the actual goal (removing dead air).
+      "-c:a", "libmp3lame", "-b:a", "192k", trimmed,
+    ]);
+    const after = await ffprobeDuration(trimmed);
+    const removed = before - after;
+    if (!(after > 0) || removed > MAX_TAIL_TRIM_SECONDS) {
+      await fsp.unlink(trimmed).catch(() => {});
+      console.warn(`[audio] trailing-silence trim discarded: removed ${removed.toFixed(3)}s exceeds the ${MAX_TAIL_TRIM_SECONDS}s safety bound`);
+      return 0;
+    }
+    await fsp.rename(trimmed, audioPath);
+    return removed;
+  } catch (error) {
+    await fsp.unlink(trimmed).catch(() => {});
+    console.warn(`[audio] trailing-silence trim skipped: ${error.message}`);
+    return 0;
+  }
+}
+
+// Pulls a scene's trailing alignment timestamps in to match audio that was
+// shortened by `trimmedSeconds`. Without this, a caption or viseme timed
+// against the pre-trim audio can extend past the clip's actual end and either
+// render over black or bleed into the next scene's audio.
+function clampAlignmentToDuration(alignment, trimmedSeconds) {
+  if (!trimmedSeconds || !alignment || typeof alignment !== "object") return alignment;
+  const newDuration = Math.max(0, (Array.isArray(alignment.character_end_times_seconds) && alignment.character_end_times_seconds.length
+    ? alignment.character_end_times_seconds[alignment.character_end_times_seconds.length - 1]
+    : Infinity) - trimmedSeconds);
+  const clamp = (arr) => Array.isArray(arr) ? arr.map((t) => Math.min(t, newDuration)) : arr;
+  return {
+    ...alignment,
+    character_start_times_seconds: clamp(alignment.character_start_times_seconds),
+    character_end_times_seconds: clamp(alignment.character_end_times_seconds),
+  };
+}
+
 // Bounded-concurrency map that never throws mid-flight: returns Promise.allSettled
 // -shaped results ({status,value|reason}) in input order, running at most `limit`
 // tasks at once. Long-form has 40-50 scenes; building them all in parallel (the
@@ -1027,6 +1099,13 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         title: d.title,
         keyText: d.keyText,
         elements: d.elements || [],
+        // Parallel to elements: a stable identity key per entity, independent
+        // of the exact display casing/wording a given scene happens to use.
+        // Without this the renderer hashed shape/colour off the raw display
+        // text, so the same entity referred to with different capitalization
+        // across scenes (a real, common variance) got a different shape --
+        // "canonical reuse across the episode" broke on formatting alone.
+        entityIdentityKeys: d.entityIdentityKeys || [],
         before: d.before,
         after: d.after,
         characterCutIn: d.characterCutIn || "none",
@@ -1246,7 +1325,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Inter Bold,76,&H00FFFFFF,&H0000DFFF,&H50000000,&HA0000000,0,0,0,0,100,100,0,0,1,5,4,2,90,90,172,1
+Style: Caption,Inter Bold,80,&H00FFFFFF,&H0000DFFF,&H50000000,&HA0000000,0,0,0,0,100,100,0,0,1,5,4,2,110,110,194,1
 Style: CommentHook,Inter Bold,54,&H00FFFFFF,&H000000FF,&H40202020,&HC0000000,0,0,0,0,100,100,0,0,3,0,4,2,80,80,680,1
 
 [Events]
@@ -1255,7 +1334,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   let events = "";
   // Keep mobile captions short, large, and above the bottom UI-safe area.
-  const WORDS_PER_PHRASE = 6;
+  const WORDS_PER_PHRASE = 5;
 
   scenes.forEach((scene, sceneIdx) => {
     if (isOutroScene(scene)) return;
@@ -1518,6 +1597,21 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         throw new Error(`Scene ${i} missing audio`);
       }
 
+      if (scene?.template_name === "explanation" && !isOutroScene(scene)) {
+        // A hard cut carries the pause; the next scene's own state tells us
+        // whether this handoff is an ordinary turn or a reversal/payoff about
+        // to land, since a scene doesn't know its own successor.
+        const nextData = sceneTemplateData(scenes[i + 1]);
+        const nextIsReversal = nextData.visualState === "contradiction" || nextData.visualState === "payoff";
+        const trimmedSeconds = await tightenExplanationTail(
+          audioPath,
+          nextIsReversal ? REVERSAL_TAIL_SILENCE_SECONDS : 0.16,
+        );
+        if (trimmedSeconds > 0 && scene?.audio?.alignment) {
+          scene.audio.alignment = clampAlignmentToDuration(scene.audio.alignment, trimmedSeconds);
+        }
+      }
+
       const duration = await ffprobeDuration(audioPath);
       const outPath = path.join(tmpDir, `scene_${i}_final.mp4`);
       let degraded = false;
@@ -1697,7 +1791,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           : 0.46;
       const sceneDuration = durations[index] || 1;
       const time = (offsets[index] || 0) + Math.min(Math.max(0.35, sceneDuration - 0.25), Math.max(0.35, sceneDuration * operationPhase));
-      if (!selected || time - lastCueTime < 2.4 || sfxEvents.length >= 7) return;
+      if (!selected || time - lastCueTime < 1.8 || sfxEvents.length >= 10) return;
       if (sfxAvailable[selected.type]) {
         sfxEvents.push({ ...selected, time });
         lastCueTime = time;

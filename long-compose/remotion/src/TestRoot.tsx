@@ -20,6 +20,18 @@ const payoff = {
   title: "This title must not duplicate", keyText: "The darkness is evidence",
   before: "The old assumption", after: "The darkness is evidence",
 };
+const denseLabels = {
+  ...bookend, role: "diagram-build" as const, compositionMode: "full-model" as const,
+  visualOperation: "group" as const, visualPrimitive: "objects" as const,
+  visualState: "mechanism" as const, characterCutIn: "none" as const, characters: [],
+  title: "This intermediate heading must never render",
+  keyText: "Narration owns this sentence",
+  // "Ganesha" and "The elephant-headed god" carry the same identity key so a
+  // regression render can confirm entityIdentityKeys keeps one entity's mark
+  // visually stable even when its display wording changes mid-episode.
+  elements: ["Ganesha", "The elephant-headed god", "Personal devotion", "Distinct form"],
+  entityIdentityKeys: ["deity", "deity", "devotion", "form"],
+};
 
 export const TestRoot: React.FC = () => <>
   <Composition id="MotionCompatibilityMatrix" component={MotionCompatibilityMatrix} durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={{ page: 0 }} />
@@ -32,4 +44,6 @@ export const TestRoot: React.FC = () => <>
     durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={{ ...bookend, compositionMode: "full-model" as const, characterCutIn: "none" as const, characters: [], rendererDiagnosticMode: "background-only" as const }} />
   <Composition id="ExplanationPayoffRegression" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>}
     durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={payoff} />
+  <Composition id="ExplanationDenseLabelRegression" component={ExplanationScene as unknown as React.ComponentType<Record<string, unknown>>}
+    durationInFrames={120} fps={30} width={1920} height={1080} defaultProps={denseLabels} />
 </>;

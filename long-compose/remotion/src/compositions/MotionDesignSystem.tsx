@@ -46,34 +46,128 @@ function useProgress() {
   const consequence = interpolate(frame, [durationInFrames * 0.72, durationInFrames * 0.9], [0, 1], clamp);
   const hold = interpolate(frame, [durationInFrames * 0.9, durationInFrames], [0, 1], clamp);
   const pop = (delay = 0) => spring({ frame: frame - delay * fps, fps, config: { damping: 16, stiffness: 92 } });
-  return { setup, transform, consequence, hold, pop };
+  // Keep a low-amplitude living hold after the main transformation so a
+  // diagram never becomes a frozen slide while the final clause is spoken.
+  const living = Math.sin(frame / Math.max(1, fps) * Math.PI * 2) * 0.5 + 0.5;
+  return { setup, transform, consequence, hold, living, pop };
 }
 
-function Label({ text, x, y, active = false, state }: { text?: string; x: number; y: number; active?: boolean; state: VisualState }) {
+// Wraps into at most two lines, sized to the pill's actual available width
+// rather than a fixed character count. A label that still overflows past two
+// lines folds its remainder into the second line with an ellipsis instead of
+// being dropped outright: the audit's real finding here was that "collision
+// resolution" meant deleting the label -- the pill vanished entirely, not
+// repositioned or abbreviated -- and a viewer sees no explanation at all
+// where one was authored. An ellipsis still tells them what the scene is
+// about; a blank space where a label should be tells them nothing.
+//
+// The bug that made this worse than the audit even realized: the original
+// (and my first pass at this rewrite) wrote `lines[lines.length - 1] = word`
+// unconditionally. When `lines` is still empty that's `lines[-1] = word` --
+// which does not push a real element, since arrays only grow for
+// non-negative integer indices -- so the FIRST word of every label was
+// silently swallowed on the very next word's turn. A two-word label like
+// "cause chain" rendered as just "chain". Caught by actually rendering a
+// frame and looking at it, not by the perceptual test, which only checks
+// that *some* bright pixels exist in the cell.
+// Exported so tests can pin its behaviour directly rather than only through a
+// full Chrome render -- the bug this function's history documents (see
+// comment below) was invisible to every test that only checked the render
+// pipeline end-to-end.
+export const labelLines = (text: string, maxChars: number): string[] => {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!;
+    const current = lines.length ? lines[lines.length - 1]! : "";
+    if (!current || `${current} ${word}`.length <= maxChars) {
+      if (lines.length) lines[lines.length - 1] = `${current} ${word}`;
+      else lines.push(word);
+      continue;
+    }
+    if (lines.length < 2) {
+      lines.push(word);
+      continue;
+    }
+    const rest = words.slice(i).join(" ");
+    const combined = `${lines[1]} ${rest}`;
+    lines[1] = combined.length <= maxChars ? combined : `${combined.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+    break;
+  }
+  return lines;
+};
+
+function Label({ text, x, y, active = false, state, maxWidth = 300 }: { text?: string; x: number; y: number; active?: boolean; state: VisualState; maxWidth?: number }) {
   if (!text) return null;
   const colors = palette[state];
+  // ~0.56em per character at this weight; derived from maxWidth so a wider
+  // pill (a full-model scene) actually wraps later than a narrow one (a dense
+  // row slot), instead of every pill wrapping at the same fixed character
+  // count regardless of how much room it was actually given.
+  const lines = labelLines(text, Math.max(10, Math.floor((maxWidth - 38) / (54 * 0.56))));
+  if (!lines.length) return null;
+  const longest = Math.max(...lines.map((line) => line.length));
+  const fontSize = Math.max(47, Math.min(54, (maxWidth - 38) / Math.max(4, longest) * 1.72));
+  const width = Math.min(maxWidth, Math.max(150, longest * fontSize * 0.58 + 44));
+  const height = lines.length === 2 ? 96 : 72;
   return <g transform={`translate(${x} ${y})`}>
-    <rect x="-170" y="-44" width="340" height="88" rx="24" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
-    <text textAnchor="middle" dominantBaseline="middle" fill={PAPER} fontSize="48" fontWeight="820">{text.slice(0, 20)}</text>
+    <rect x={-width / 2} y={-height / 2} width={width} height={height} rx="22" fill={active ? colors.fill : "#0B1424"} stroke={active ? colors.line : colors.muted} strokeWidth={active ? 4 : 2} />
+    <text textAnchor="middle" fill={PAPER} fontSize={fontSize} fontWeight="820">
+      {lines.map((line, index) => <tspan key={`${line}-${index}`} x="0" y={(index - (lines.length - 1) / 2) * fontSize * 1.02 + fontSize * 0.34}>{line}</tspan>)}
+    </text>
   </g>;
 }
 
-// Four labels cannot sit in one row at the legible pill size: 4 x 340 is wider
-// than the 1080 viewBox, so cause-chain and timeline had labels overlapping
-// each other and running off both edges. Dense rows use two fixed slots per
-// band rather than shrinking the type below the legibility floor.
-//
-// The slots are fixed deliberately. Tying a label to its operated entity looks
-// tidier at rest but collides as soon as an operation moves the entities --
-// payoff arranges them on a circle where two share the same x, which stacked
-// two labels exactly on top of each other. Labels annotate the row; the
-// geometry is what moves.
-const DENSE_ROW_Y = [340, 436] as const;
-const DENSE_ROW_X = [270, 810] as const;
-const denseLabelSlot = (index: number) => ({
-  x: DENSE_ROW_X[Math.floor(index / 2) % 2]!,
-  y: DENSE_ROW_Y[index % 2]!,
-});
+const hashText = (text: string) => Array.from(text).reduce((hash, char) => ((hash * 31 + char.charCodeAt(0)) >>> 0), 2166136261);
+
+// Six silhouettes (not four) so a viewer tracking several entities across a
+// crowded network/timeline sees genuinely distinct marks rather than the same
+// four shapes repeating and reading as generic "pills and nodes". Hexagon and
+// plus were picked specifically because their outlines differ from the
+// existing circle/diamond/triangle/ring at a glance, even at small size.
+function EntityMark({ id, x, y, size = 30, active = true }: { id: string; x: number; y: number; size?: number; active?: boolean }) {
+  const hash = hashText(id || "entity");
+  const colors = [ACCENT, BLUE, GREEN, "#B794F4", "#FF7D7D", "#5DE0C6"];
+  const fill = colors[hash % colors.length]!;
+  const shape = Math.floor(hash / colors.length) % 6;
+  const opacity = active ? 1 : 0.25;
+  if (shape === 0) return <circle cx={x} cy={y} r={size} fill={fill} opacity={opacity} />;
+  if (shape === 1) return <rect x={x-size} y={y-size} width={size*2} height={size*2} rx={size*.25} fill={fill} opacity={opacity} transform={`rotate(45 ${x} ${y})`} />;
+  if (shape === 2) return <polygon points={`${x},${y-size} ${x+size},${y+size*.8} ${x-size},${y+size*.8}`} fill={fill} opacity={opacity} />;
+  if (shape === 3) return <circle cx={x} cy={y} r={size} fill="none" stroke={fill} strokeWidth={Math.max(6, size*.28)} opacity={opacity} />;
+  if (shape === 4) {
+    const hexPoints = Array.from({ length: 6 }, (_, i) => {
+      const angle = Math.PI / 6 + (i * Math.PI) / 3;
+      return `${x + Math.cos(angle) * size},${y + Math.sin(angle) * size}`;
+    }).join(" ");
+    return <polygon points={hexPoints} fill={fill} opacity={opacity} />;
+  }
+  const arm = size * 0.62;
+  return <path d={`M${x-arm} ${y-size} L${x+arm} ${y-size} L${x+arm} ${y-arm} L${x+size} ${y-arm} L${x+size} ${y+arm} L${x+arm} ${y+arm} L${x+arm} ${y+size} L${x-arm} ${y+size} L${x-arm} ${y+arm} L${x-size} ${y+arm} L${x-size} ${y-arm} L${x-arm} ${y-arm} Z`} fill={fill} opacity={opacity} />;
+}
+
+// A diagram gets at most one central label plus two supporting labels. Watch
+// feedback on a rendered episode found the opposite problem from an earlier
+// audit round: four simultaneous labels read as competing clutter, even
+// though each one individually had a collision-free slot. One entity mattering
+// more than the others is also just true of most explanations -- a cause
+// chain has a beginning and an end that carry the weight; the middle steps
+// are what the geometry (edges, motion) is for. The uncaptioned entities keep
+// their EntityMark shape/colour, so the viewer still sees all of them; they
+// just aren't all narrated in text at once.
+const MAX_LABELS = 3;
+
+// Three fixed, non-overlapping slots -- a peak and two flanking positions --
+// rather than tying a label to its operated entity: an operation like payoff
+// can move two entities to the same x, which would stack two labels exactly
+// on top of each other if the slot followed the entity instead of the row.
+const DENSE_SLOTS = [
+  { x: 540, y: 340 },
+  { x: 270, y: 436 },
+  { x: 810, y: 436 },
+] as const;
+const denseLabelSlot = (index: number) => DENSE_SLOTS[index] ?? DENSE_SLOTS[2]!;
 
 function DirectedEdge({ x1, y1, x2, y2, progress, state, curved = false }: {
   x1: number; y1: number; x2: number; y2: number; progress: number; state: VisualState; curved?: boolean;
@@ -131,15 +225,17 @@ type GeometryProps = {
   operation: VisualOperation;
   state: VisualState;
   labels: string[];
+  identityKeys: string[];
   before: string;
   after: string;
   keyText: string;
   numericValue: number | null;
   progress: number;
+  living: number;
   pop: (delay?: number) => number;
 };
 
-function Geometry({ primitive, operation, state, labels, before, after, keyText, numericValue, progress, pop }: GeometryProps) {
+function Geometry({ primitive, operation, state, labels, identityKeys, before, after, keyText, numericValue, progress, living, pop }: GeometryProps) {
   const colors = palette[state];
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
@@ -166,8 +262,8 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       if (provisional) {
         return <circle key={i} cx={x} cy={y} r={radius} fill="none" stroke={fill} strokeWidth="3" strokeDasharray="6 6" opacity={opacity} />;
       }
-      return <Dot key={i} x={x} y={y} r={radius} fill={fill} opacity={opacity} />;
-    })}<Label text={labels[0] || keyText} x={540} y={455} active state={state} /></>;
+      return <Dot key={i} x={x} y={y} r={radius + living * 1.5} fill={fill} opacity={opacity} />;
+    })}</>;
   }
   if (primitive === "rays") {
     const ends: Array<[number, number]> = [[100,90],[70,245],[110,420],[970,85],[1010,245],[970,420]];
@@ -179,7 +275,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     return <><polyline points={points} {...commonStroke}/><DirectedEdge x1={90} y1={390} x2={990} y2={390} progress={progress} state={state}/><Label text={labels[0]||keyText} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "horizon") {
-    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><circle cx="540" cy="245" r="30" fill={ACCENT}/><path d="M90 245 H990" {...commonStroke} opacity=".35"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
+    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><circle cx="540" cy="245" r="30" fill={ACCENT}/><path d="M90 245 H990" {...commonStroke} opacity=".55"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "spectrum") {
     const comparing = operation === "scale-compare";
@@ -194,7 +290,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     const curve: [Point, Point, Point, Point] = [[95,390],[250,55],[720,55],[985,330]];
     const marker = cubicPoint(curve[0], curve[1], curve[2], curve[3], progress);
     const d = `M${curve[0][0]} ${curve[0][1]} C${curve[1][0]} ${curve[1][1]} ${curve[2][0]} ${curve[2][1]} ${curve[3][0]} ${curve[3][1]}`;
-    return <><path d={d} {...commonStroke} opacity=".28"/>
+    return <><path d={d} {...commonStroke} opacity=".45"/>
       <path d={d} {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
       <Dot x={marker[0]} y={marker[1]} r={22} fill={ACCENT}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
   }
@@ -204,14 +300,15 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
       <Dot x={centers[0]![0]} y={centers[0]![1]} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
-    return <>{labels.slice(0,4).map((label,i)=>{const total=Math.max(1,labels.slice(0,4).length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={i} transform={`translate(${x} ${y}) scale(${activated?1:.58})`} opacity={activated?1:.16}><rect x="-110" y="-65" width="220" height="130" rx="28" fill={colors.fill} stroke={colors.line} strokeWidth="5"/><Label text={label} x={0} y={0} active={activated&&i===Math.floor(progress*total)} state={state}/></g>})}</>;
+    const entities = labels.slice(0,4);
+    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={identityKeys[i]||label} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={260}/> : null}</g>})}</>;
   }
   if (primitive === "network") {
     const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
     const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
     const links: Array<[number,number]>=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0],[1,5],[2,4],[0,5]];
     return <>{links.map(([a,b],i)=><DirectedEdge key={i} x1={nodes[a]![0]} y1={nodes[a]![1]} x2={nodes[b]![0]} y2={nodes[b]![1]} progress={Math.max(0,progress-i*.045)} state={state}/>)}
-      {nodes.map(([x,y],i)=><Dot key={i} x={x} y={y} r={18+pop(i*.04)*9} fill={i%3===0?ACCENT:BLUE}/>)}</>;
+      {nodes.map(([x,y],i)=><EntityMark key={i} id={identityKeys[i] || labels[i] || `entity-${i}`} x={x} y={y} size={18+pop(i*.04)*9}/>)}</>;
   }
   if (primitive === "hierarchy") {
     const childBases: Point[]=[[210,380],[430,380],[650,380],[870,380]];
@@ -231,14 +328,14 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "facets-around-center") {
     const facets: Array<[number,number]>=[[540,65],[820,150],[820,350],[540,430],[260,350],[260,150]];
-    return <>{facets.map((base,i)=>{const [x,y]=operatePoint(base,i,facets.length,operation,progress);return <React.Fragment key={i}><path d={`M540 245 L${x} ${y}`} {...commonStroke} opacity={.2+progress*.65}/><polygon points={`${x},${y-30} ${x+34},${y} ${x},${y+30} ${x-34},${y}`} fill={i%2?BLUE:ACCENT} opacity={.45+progress*.55}/></React.Fragment>})}
+    return <>{facets.map((base,i)=>{const [x,y]=operatePoint(base,i,facets.length,operation,progress);return <React.Fragment key={i}><path d={`M540 245 L${x} ${y}`} {...commonStroke} opacity={.4+progress*.5}/><polygon points={`${x},${y-30} ${x+34},${y} ${x},${y+30} ${x-34},${y}`} fill={i%2?BLUE:ACCENT} opacity={.68+progress*.32}/></React.Fragment>})}
       <circle cx="540" cy="245" r="84" fill={colors.fill} stroke={colors.line} strokeWidth="8"/><Label text={labels[0]||keyText} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "overlapping-sets") {
     const spread=105*(1-progress);
     const compare=operation==="scale-compare"?progress:0;
     return <><circle cx={430-spread} cy="245" r={180-compare*55} fill="#65C7F733" stroke={BLUE} strokeWidth="7"/><circle cx={650+spread} cy="245" r={180+compare*45} fill="#FFD16633" stroke={ACCENT} strokeWidth="7"/>
-      <Label text={labels[0]} x={320-spread} y={245} state={state}/><Label text={labels[1]} x={760+spread} y={245} state={state}/><Label text={labels[2]||keyText} x={540} y={245} active state={state}/></>;
+      <Label text={labels[0]} x={320-spread} y={245} state={state} maxWidth={250}/><Label text={labels[1]} x={760+spread} y={245} state={state} maxWidth={250}/></>;
   }
   if (primitive === "nested-context") {
     const sizes=[360,280,200,120];
@@ -254,7 +351,11 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "cause-chain") {
     const bases: Point[]=[[120,245],[385,245],[650,245],[920,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<Dot x={x} y={y} r={30+pop(i*.12)*10} fill={i===3?GREEN:i%2?BLUE:ACCENT}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(3,Math.floor(progress*4))} state={state}/></React.Fragment>})}</>;
+    // denseLabelSlot places up to 4 entities on distinct, non-overlapping
+    // positions (2x2), so there is no spatial reason to label only the first
+    // two of up to four accepted entities -- that left the back half of the
+    // chain, where the consequence and resolution actually sit, unlabeled.
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={identityKeys[i]||labels[i]||`step-${i}`} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -265,13 +366,16 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   }
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
-    return <><path d="M70 410 Q210 40 385 250 T690 210 T1010 355" fill="none" stroke={colors.muted} strokeWidth="30" opacity=".24"/>
+    return <><path d="M70 410 Q210 40 385 250 T690 210 T1010 355" fill="none" stroke={colors.muted} strokeWidth="30" opacity=".4"/>
       {places.map((base,i)=>{const moved=places.map((point,j)=>operatePoint(point,j,places.length,operation,progress));const [x,y]=moved[i]!;return <React.Fragment key={i}>{i<moved.length-1&&<DirectedEdge x1={x} y1={y} x2={moved[i+1]![0]} y2={moved[i+1]![1]} progress={Math.max(0,progress-i*.13)} state={state}/>}<g transform={`translate(${x} ${y}) scale(.55)`}><path d="M0 0 c-20-30-45-5-45 17 0 33 45 68 45 68s45-35 45-68c0-22-25-47-45-17z" fill={i===places.length-1?GREEN:ACCENT}/></g></React.Fragment>})}</>;
   }
   if (primitive === "timeline") {
     const bases: Point[]=[[130,245],[350,245],[570,245],[790,245],[970,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><circle cx={x} cy={y} r={i/4<=progress?24:12} fill={i/4<=progress?ACCENT:colors.muted}/>{i<4&&<Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.floor(progress*5)} state={state}/>}</React.Fragment>)}</>;
+    // Same reasoning as cause-chain: up to 4 labelled entities all have a
+    // distinct, collision-free denseLabelSlot, so the back half of the
+    // timeline was withheld from viewers for no spatial reason.
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".5"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={identityKeys[i]||labels[i]||`moment-${i}`} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*5))} state={state} maxWidth={260}/></React.Fragment>)}</>;
   }
   if (primitive === "quantity") {
     if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");
@@ -317,7 +421,7 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
     <Label text={before||labels[0]} x={260} y={430} state={state}/><Label text={after||labels[1]||keyText} x={820} y={430} active state={state}/></>;
 }
 
-function OperationStage({ operation, progress, state, numericValue, children }: { operation: VisualOperation; progress: number; state: VisualState; numericValue: number | null; children: React.ReactNode }) {
+function OperationStage({ operation, progress, living, state, numericValue, children }: { operation: VisualOperation; progress: number; living: number; state: VisualState; numericValue: number | null; children: React.ReactNode }) {
   const colors = palette[state];
   const transform = operation === "compress"
     ? `translate(540 245) scale(${1-progress*.18} ${1-progress*.08}) translate(-540 -245)`
@@ -330,7 +434,13 @@ function OperationStage({ operation, progress, state, numericValue, children }: 
           : operation === "payoff"
             ? `translate(540 245) scale(${.92+progress*.08}) translate(-540 -245)`
             : `translate(0 ${operation==="stack"?(1-progress)*54:0})`;
-  return <g transform={transform} opacity={.18+progress*.82}>
+  // .62 floor, not .35: this wraps every scene's entire geometry, so the old
+  // floor meant every scene opened at 35% opacity against a near-black
+  // background until the transform ramped up -- watch feedback specifically
+  // called out the opening's model as "almost invisible", and the first
+  // frames of every other scene had the same problem, just less noticed
+  // since the opening is what a viewer judges first.
+  return <g transform={`${transform} translate(0 ${living * 2 - 1})`} opacity={.62+progress*.38}>
     {operation === "timeline" ? <g clipPath="url(#operation-reveal)">{children}</g> : children}
     {operation === "counter" && numericValue !== null && <text x="1000" y="92" textAnchor="end" fill={colors.line} fontSize="64" fontWeight="900">{Math.round(numericValue*progress).toLocaleString()}</text>}
     {operation === "compress" && <><path d={`M${80+progress*165} 170 v150`} stroke={colors.line} strokeWidth="10"/><path d={`M${1000-progress*165} 170 v150`} stroke={colors.line} strokeWidth="10"/></>}
@@ -343,19 +453,59 @@ function StateDecorator({ state, consequence }: { state: VisualState; consequenc
   if (state === "hypothesis") return <g opacity={.25+consequence*.75}><rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#E8B96A" strokeWidth="5" strokeDasharray="16 14"/><circle cx="980" cy="80" r="34" fill="#3B2E22" stroke="#E8B96A" strokeWidth="5"/><text x="980" y="92" textAnchor="middle" fill={PAPER} fontSize="38" fontWeight="900">?</text></g>;
   if (state === "contradiction") return <g opacity={consequence}><path d="M470 170 l55 55 -40 55 70 70" fill="none" stroke={RED} strokeWidth="16" strokeLinecap="round"/><path d="M610 155 l-45 70 50 45 -55 80" fill="none" stroke={RED} strokeWidth="10" strokeLinecap="round"/></g>;
   if (state === "qualification") return <rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#B794F4" strokeWidth="6" strokeDasharray="18 14" opacity={.3+consequence*.65}/>;
-  if (state === "payoff") return <circle cx="540" cy="245" r={190+consequence*55} fill="none" stroke={GREEN} strokeWidth="10" opacity={consequence*.55}/>;
+  // No payoff ring here: ExplanationScene's own PayoffResolution overlay draws
+  // the canonical unifying ring on top of everything. Both firing at once was
+  // a literal duplicate circle competing with the payoff caption for
+  // attention -- this is the model's copy of a decoration the composition
+  // layer already owns.
   return null;
 }
 
-export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
-  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; before?: string; after?: string; keyText?: string;
+export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], entityIdentityKeys = [], before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
+  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; entityIdentityKeys?: string[]; before?: string; after?: string; keyText?: string;
   diagnosticMode?: "normal" | "foreground-only" | "background-only";
 }) {
-  const { setup, transform, consequence, hold, pop } = useProgress();
+  const { setup, transform, consequence, hold, living, pop } = useProgress();
   if ((operation === "counter" || primitive === "quantity") && (numericValue === null || !Number.isFinite(numericValue))) {
     throw new Error(`${operation}/${primitive} requires an explicit numericValue`);
   }
-  const labels = [...elements, before, after].filter(Boolean).slice(0, operation === "timeline" || primitive === "cause-chain" ? 4 : 3);
+  // Identity labels come only from model elements. Before/after remain owned
+  // by comparison primitives instead of being appended as duplicate pills.
+  // Capped at MAX_LABELS (one central, two supporting) regardless of
+  // primitive: more than that reads as competing clutter rather than a
+  // legible diagram, even when every label individually has its own slot.
+  //
+  // entityIdentityKeys (parallel to elements, by index) is a proxy identity
+  // for the SAME entity across scenes even when its display wording changes
+  // -- it seeds EntityMark's shape/colour hash instead of the raw label text,
+  // so "the cell" and "this structure" (same underlying entity, different
+  // words) render as the same mark rather than two unrelated ones. This does
+  // not solve cross-scene identity in general (that needs an authored
+  // canonical entity list the planner doesn't emit yet); it only keeps a
+  // single scene's marks stable when the compiler already supplies keys.
+  const visibleEntities = state === "payoff" ? [] : (() => {
+    const seen = new Set<string>();
+    const pairs: Array<{ label: string; identity: string }> = [];
+    elements.forEach((el, i) => {
+      if (!el || seen.has(el)) return;
+      seen.add(el);
+      pairs.push({ label: el, identity: entityIdentityKeys[i] || el.toLowerCase() });
+    });
+    return pairs.slice(0, operation === "timeline" || primitive === "cause-chain" ? MAX_LABELS : 2);
+  })();
+  const labels = visibleEntities.map((e) => e.label);
+  const identityKeys = visibleEntities.map((e) => e.identity);
+  // Several Geometry branches fall back to keyText/before/after when their
+  // own labels array is empty (`labels[0] || keyText`, and similar) -- exactly
+  // what payoff leaves empty. Left unguarded, the model kept drawing its own
+  // copy of the same phrase PayoffResolution renders as the large closing
+  // statement: the diagram and the overlay said the same thing twice, and the
+  // diagram's copy sat underneath at low opacity as a ghost the audit
+  // specifically called out ("underlying diagram text remains visible").
+  const isPayoffState = state === "payoff";
+  const geometryKeyText = isPayoffState ? "" : keyText;
+  const geometryBefore = isPayoffState ? "" : before;
+  const geometryAfter = isPayoffState ? "" : after;
   const colors = palette[state];
   const foregroundVisible = diagnosticMode !== "background-only";
   const backgroundVisible = diagnosticMode !== "foreground-only";
@@ -366,15 +516,15 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
         <clipPath id="operation-reveal"><rect x="0" y="0" width={1080*transform} height="510"/></clipPath>
       </defs>
       {backgroundVisible ? <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" /> : null}
-      {foregroundVisible ? <OperationStage operation={operation} progress={transform} state={state} numericValue={numericValue}>
+      {foregroundVisible ? <OperationStage operation={operation} progress={transform} living={living} state={state} numericValue={numericValue}>
         {state === "contradiction" ? <>
-          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
-          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/></g>
-        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} pop={pop}/>}
+          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} identityKeys={identityKeys} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
+          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} identityKeys={identityKeys} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
+        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} identityKeys={identityKeys} before={geometryBefore} after={geometryAfter} keyText={geometryKeyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/>}
       </OperationStage> : null}
       {foregroundVisible ? <StateDecorator state={state} consequence={consequence}/> : null}
     </svg>
-    {foregroundVisible&&state!=="payoff"&&consequence>0&&keyText&&<div style={{position:"absolute",left:90,right:90,bottom:18,textAlign:"center",fontSize:40,fontWeight:900,color:state==="contradiction"?RED:ACCENT,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{keyText}</div>}
+    {foregroundVisible&&state==="contradiction"&&consequence>0&&keyText&&<div style={{position:"absolute",left:150,right:150,bottom:20,textAlign:"center",fontSize:36,fontWeight:900,color:RED,opacity:Math.min(1,consequence+hold*.2),textShadow:"0 5px 20px #000"}}>{labelLines(keyText, 32).flat().slice(0,1)}</div>}
     <div data-motion-phase={hold>0?"hold":consequence>0?"consequence":transform>0?"transform":setup>0?"setup":"idle"} style={{display:"none"}}/>
   </div>;
 }

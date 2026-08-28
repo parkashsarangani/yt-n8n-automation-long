@@ -18,6 +18,7 @@ export interface ExplanationSceneProps {
   title?: string;
   keyText?: string;
   elements?: string[];
+  entityIdentityKeys?: string[];
   before?: string;
   after?: string;
   characterCutIn?: "none" | "speaker" | "listener" | "both";
@@ -30,6 +31,7 @@ const BG = "#0B1020";
 const PAPER = "#F7F4EA";
 const ACCENT = "#FFD166";
 const GREEN = "#7DE2A8";
+const RED = "#FF7D7D";
 const PRIMITIVE_GLOW: Partial<Record<VisualPrimitive, string>> = {
   particles: "#4169A8",
   rays: "#2D8FB8",
@@ -100,6 +102,42 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
   );
 }
 
+// The character's engagement with the model tracks what the model is doing,
+// not just a generic reach: a hypothesis gets a tentative, dashed point (it
+// matches the dashed provisional geometry MotionDesignSystem itself draws for
+// that state); a contradiction gets a sharp retreat timed to the same
+// consequence window MotionDesignSystem uses internally, so the character
+// visibly reacts at the instant the model breaks rather than holding one
+// static pose through it; every other state gets a firm, committed reach.
+// Characters "occupying a neighbouring box" while a diagram animates was the
+// specific complaint -- this ties their one available gesture to the beat
+// the diagram is actually on.
+function CharacterModelInteraction({ operation, state, visible }: { operation: VisualOperation; state: VisualState; visible: boolean }) {
+  const frame = useCurrentFrame();
+  const { fps, durationInFrames } = useVideoConfig();
+  if (!visible) return null;
+  const reach = interpolate(frame, [fps * .2, fps * .85], [0, 1], clamp);
+  // Mirrors useProgress's own consequence window in MotionDesignSystem, so
+  // the character's recoil lands on the same frame the model's geometry
+  // actually breaks, not on an unrelated fixed timer.
+  const consequence = interpolate(frame, [durationInFrames * 0.72, durationInFrames * 0.9], [0, 1], clamp);
+  const y = operation === "compress" ? 410 : operation === "group" ? 330 : operation === "payoff" ? 270 : 365;
+  const tentative = state === "hypothesis";
+  const breaking = state === "contradiction";
+  const pull = breaking ? consequence * 70 : 0;
+  const targetX = 1180 - reach * 250 + pull;
+  const targetY = y - (breaking ? consequence * 34 : 0);
+  const stroke = breaking ? "#FF7D7D" : "#FFD166";
+  const dash = tentative ? "10 14" : breaking ? "22 6" : "18 16";
+  const baseOpacity = tentative ? 0.1 : 0.15;
+  const reachOpacity = tentative ? 0.35 : breaking ? 0.75 : 0.55;
+  return <svg data-character-model-interaction="true" viewBox="0 0 1920 1080" style={{ position: "absolute", inset: 0, zIndex: 7, pointerEvents: "none" }}>
+    <path d={`M1510 520 Q${1380-reach*120} ${y-80} ${targetX} ${targetY}`} fill="none" stroke={stroke} strokeWidth={breaking ? 10 : 8} strokeLinecap="round" strokeDasharray={dash} opacity={baseOpacity + reach * (reachOpacity - baseOpacity)}/>
+    <circle cx={targetX} cy={targetY} r={(tentative ? 9 : 12) + reach*10 + (breaking ? consequence * 8 : 0)} fill={stroke} opacity={tentative ? reach * 0.6 : reach}/>
+    {breaking && consequence > 0 && <circle cx={targetX} cy={targetY} r={18 + consequence * 46} fill="none" stroke={RED} strokeWidth={4} opacity={(1 - consequence) * 0.7} />}
+  </svg>;
+}
+
 type CompositionProps = {
   children: ReactNode;
   characters: CharacterProps[];
@@ -150,11 +188,10 @@ function PayoffResolution({ before, after, keyText }: { before?: string; after?:
     background: `radial-gradient(circle at 50% 48%, rgba(9,22,40,${0.5 + resolve * 0.24}), rgba(5,8,16,${resolve * 0.9}))`,
     opacity: resolve,
   }}>
-    <div style={{ position: "absolute", width: 380 + ring * 350, height: 380 + ring * 350, borderRadius: "50%", border: `12px solid ${GREEN}`, opacity: 0.18 + resolve * 0.42, boxShadow: "0 0 80px #7DE2A844" }} />
-    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 940, padding: "0 44px", transform: `translateY(${(1 - resolve) * 54}px) scale(${0.9 + resolve * 0.1})` }}>
-      {before ? <div style={{ color: PAPER, fontSize: 34, fontWeight: 760, opacity: 0.72 * (1 - resolve), marginBottom: 18 }}>{before}</div> : null}
-      <div style={{ color: ACCENT, fontSize: 74, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
-      <div style={{ width: resolve * 680, height: 10, borderRadius: 8, background: GREEN, margin: "30px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
+    <div style={{ position: "absolute", width: 330 + ring * 270, height: 330 + ring * 270, borderRadius: "50%", border: `10px solid ${GREEN}`, opacity: 0.16 + resolve * 0.38, boxShadow: "0 0 80px #7DE2A844" }} />
+    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 760, padding: "0 44px", transform: `translateY(${(1 - resolve) * 40}px) scale(${0.92 + resolve * 0.08})` }}>
+      <div style={{ color: ACCENT, fontSize: 62, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
+      <div style={{ width: resolve * 520, height: 8, borderRadius: 8, background: GREEN, margin: "24px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
     </div>
   </div>;
 }
@@ -169,6 +206,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   title = "",
   keyText = "",
   elements = [],
+  entityIdentityKeys = [],
   before = "",
   after = "",
   characterCutIn = "none",
@@ -183,15 +221,25 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82";
   const field = backgroundField(visualPrimitive, primitiveGlow);
   const isPayoff = visualOperation === "payoff";
+  const showTitle = compositionMode === "bookend" && !isPayoff;
+  const showInteraction = compositionMode === "reaction" && characterCutIn !== "none";
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.18, ...field }} />
+      <div style={{ position: "absolute", inset: 0, opacity: 0.24, ...field }} />
+      <CharacterModelInteraction operation={visualOperation} state={visualState} visible={showInteraction} />
       <CompositionFrame mode={compositionMode} characters={safeCharacters} cutIn={characterCutIn} opacity={progress}>
-        {!isPayoff ? <Title>{title}</Title> : null}
+        {showTitle ? <Title>{title}</Title> : null}
         {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          <div style={{ opacity: isPayoff ? 0.38 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
+          {/* 0.22, not 0.04: the near-zero opacity was doing double duty as a
+              content filter, hiding leftover labels/rings the model still drew
+              underneath. Those are now actually suppressed at the source (see
+              MotionDesignSystem's isPayoffState handling), so the entity marks
+              -- the "four distinct symbols" a clean payoff needs -- can stay
+              visible enough to read as a soft backdrop instead of vanishing
+              along with the clutter. */}
+          <div style={{ opacity: isPayoff ? 0.22 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} /></div>
           {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </CompositionFrame>
