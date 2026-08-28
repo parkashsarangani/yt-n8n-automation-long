@@ -11,7 +11,7 @@ test("cartoon graph uses one combined edit before evidence-based revision", () =
   const byId = new Map<string, { id: string; in?: string[]; policy?: { auto_pass_if?: string } }>(
     graph.nodes.map((node: { id: string; in?: string[]; policy?: { auto_pass_if?: string } }) => [node.id, node]),
   );
-  assert.equal(graph.version, "8");
+  assert.equal(graph.version, "9");
   assert.deepEqual(byId.get("draft_script")?.in, ["approve_story", "cast_roster"]);
   assert.equal(byId.has("comprehension_edit"), false);
   assert.equal(byId.has("retention_edit"), false);

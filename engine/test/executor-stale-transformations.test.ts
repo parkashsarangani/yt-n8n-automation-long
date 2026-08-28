@@ -212,3 +212,91 @@ test("resume reruns a downstream node whose only success was against a now-super
   assert.equal(result.outputs.script, "script_b");
   assert.equal(result.outputs.scenes, "scenes_from_b");
 });
+
+test("resume after a settled human_gate does not re-derive everything downstream of it", async () => {
+  // Real production bug (run_1c6e2b42): a gate's own "ok" completion record was
+  // always written with inputs: [] (the recordNode default), never the gate's
+  // actual upstream artifact. pruneIncompleteDependencies compares recorded
+  // inputs against the recomputed expected inputs on every resume(), and a
+  // recorded [] against the gate's real 1-element expectation is a permanent
+  // length mismatch -- so every settled gate looked stale on every single
+  // resume() call, deleting it and everything downstream of it from
+  // `completed`, and burning a full paid regeneration of the rest of the
+  // graph each time the run was merely resumed (e.g. to retry an unrelated
+  // failure further downstream, or to approve a later gate) even though
+  // nothing the gate actually gated had changed.
+  const gateGraph: GraphDoc = {
+    graph_id: "test_gate",
+    version: "1",
+    nodes: [
+      { id: "intent", type: "input", schema_id: "intent" },
+      { id: "script", transformation: "dialogue_script_writer", in: ["intent"] },
+      { id: "approve_script", type: "human_gate", in: ["script"] },
+      { id: "scenes", transformation: "cartoon_scene_compiler", in: ["approve_script"] },
+    ],
+  };
+
+  const runLog = new MemoryRunLog();
+  // The shared record() helper above hardcodes graph_id "test@1" (for the
+  // module-level `graph` used by the other tests in this file); deriveCompleted
+  // filters records by graph_id, so this graph needs its own records written
+  // directly against "test_gate@1".
+  await runLog.record({
+    run_id: "run_resume", graph_id: "test_gate@1", node_id: "intent",
+    transformation: "input", transformation_version: "1", inputs: [],
+    output: "intent_seed", status: "ok", attempt: 1, max_attempts: 1,
+    started_at: "2026-08-22T00:00:00.000Z", duration_ms: 0, error: null,
+  });
+  await runLog.record({
+    run_id: "run_resume", graph_id: "test_gate@1", node_id: "script",
+    transformation: "dialogue_script_writer", transformation_version: "7", inputs: ["intent_seed"],
+    output: "the_script", status: "ok", attempt: 1, max_attempts: 1,
+    started_at: "2026-08-22T00:00:00.000Z", duration_ms: 0, error: null,
+  });
+
+  const calls: Array<{ name: string; inputIds: string[] }> = [];
+  const runner = {
+    // The real Runner records to runLog itself (this mock stands in for it),
+    // so it must too -- otherwise a second resume() would always re-run every
+    // transformation node regardless of what this test is actually checking.
+    async run(def: TransformationDef, inputIds: string[]) {
+      calls.push({ name: def.name, inputIds });
+      const artifactId = def.name === "dialogue_script_writer" ? "the_script" : "the_scenes";
+      await runLog.record({
+        run_id: "run_resume", graph_id: "test_gate@1", node_id: def.name === "dialogue_script_writer" ? "script" : "scenes",
+        transformation: def.name, transformation_version: def.version ?? "1", inputs: inputIds,
+        output: artifactId, status: "ok", attempt: 1, max_attempts: 1,
+        started_at: "2026-08-22T00:00:00.000Z", duration_ms: 0, error: null,
+      });
+      return {
+        artifact: { artifact_id: artifactId },
+        runId: "run_resume",
+        attempts: 1,
+        deduped: false,
+      };
+    },
+  } as unknown as Runner;
+
+  const executor = new GraphExecutor({
+    runner,
+    runLog,
+    store: {} as never,
+    registry: {} as never,
+    transformations,
+    maxParallel: 1,
+  });
+
+  // First resume: settles the gate via an explicit decision, then runs "scenes".
+  const first = await executor.resume(gateGraph, "run_resume", { approve_script: { result: "approve" } });
+  assert.equal(first.status, "completed");
+  assert.deepEqual(calls, [{ name: "cartoon_scene_compiler", inputIds: ["the_script"] }]);
+
+  // Second resume: nothing changed and no new decision is supplied. The gate
+  // and "scenes" are both already complete in the run's history, so nothing
+  // should re-run.
+  calls.length = 0;
+  const second = await executor.resume(gateGraph, "run_resume");
+  assert.deepEqual(calls, []);
+  assert.equal(second.status, "completed");
+  assert.equal(second.outputs.scenes, "the_scenes");
+});

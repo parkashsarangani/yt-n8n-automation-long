@@ -169,7 +169,12 @@ export class GraphExecutor {
         if (outcome.kind === "approved") {
           completed.set(gate.id, upstreamId); // identity pass-through
           this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: true });
-          await this.recordNode(runId, graph, gate.id, "human_gate", upstreamId, "ok");
+          // Must record its real upstream input, not the [] default: pruneIncompleteDependencies
+          // compares this against the recomputed expected input on every later resume(), and a
+          // recorded [] against a 1-element expectation is a permanent length mismatch -- every
+          // gate would look stale on every resume, wiping and regenerating everything downstream
+          // of it (the entire rest of the graph) each time, even when nothing actually changed.
+          await this.recordNode(runId, graph, gate.id, "human_gate", upstreamId, "ok", null, "1", [upstreamId]);
         } else if (outcome.kind === "rejected") {
           // Retry: remove the upstream transformation from completed so it reruns.
           // The gate stays unresolved, and on the next loop iteration the upstream
