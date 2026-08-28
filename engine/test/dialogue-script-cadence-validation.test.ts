@@ -152,7 +152,7 @@ test("dialogue_script_writer retries before storing a script with too few short 
   const payload = out.artifact.payload as { scenes: Array<{ narration: string }> };
   const shortLines = payload.scenes.filter((entry) => entry.narration.trim().split(/\s+/).filter(Boolean).length <= 10).length;
   assert.equal(shortLines, 18);
-  assert.equal(out.artifact.produced_by.version, "13");
+  assert.equal(out.artifact.produced_by.version, "14");
 
   const records = await h.runLog.all();
   assert.deepEqual(records.map((record) => record.status), ["schema_invalid", "ok"]);

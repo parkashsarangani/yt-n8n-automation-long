@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const graph = JSON.parse(readFileSync(new URL("../graphs/cartoon.json", import.meta.url), "utf8"));
 const agent = JSON.parse(readFileSync(new URL("../agents/comprehension_editor.json", import.meta.url), "utf8"));
-const prompt = readFileSync(new URL("../prompts/comprehension_editor/1.md", import.meta.url), "utf8");
+const prompt = readFileSync(new URL("../prompts/comprehension_editor/2.md", import.meta.url), "utf8");
 const validators = readFileSync(new URL("../src/agent-validators.ts", import.meta.url), "utf8");
 
 test("cartoon graph uses one combined edit before evidence-based revision", () => {
@@ -29,7 +29,7 @@ test("cartoon graph uses one combined edit before evidence-based revision", () =
 test("comprehension editor is an agent that returns a corrected script", () => {
   assert.equal(agent.kind, "agent");
   assert.equal(agent.produces, "script");
-  assert.equal(agent.prompt, "comprehension_editor@1");
+  assert.equal(agent.prompt, "comprehension_editor@2");
   assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["story", "script", "cast_roster"]);
   assert.deepEqual(agent.confidence_dimensions, [
     "factual_fidelity",

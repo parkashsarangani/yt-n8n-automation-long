@@ -37,16 +37,20 @@ const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", impo
 // model's FIRST occurrence of `implication`/`correction`/`recap` landed out
 // of the required sequence on different real scripts -- fixed with explicit
 // mechanical ordering rules mirroring exactly what the evidence checker
-// computes. The comprehension-structure vocabulary these tests actually
-// check is unchanged from v10.
-const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/13.md", import.meta.url), "utf8");
+// computes. v14 (the prompt-library optimization pass) trims the mechanical
+// counting rules now enforced in script-dialogue-evidence.ts instead of
+// prose, widens the emotion vocabulary from 6 to the 12 values visual_plan
+// already supports, and reorders story/cast_roster to the end of the prompt
+// for prefix-cache-friendliness -- the comprehension-structure vocabulary
+// these tests actually check is unchanged from v10.
+const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/14.md", import.meta.url), "utf8");
 
-test("dialogue_script_writer agent is pinned to the comprehension prompt v13", () => {
-  assert.match(agent, /"version":\s*"13"/);
-  assert.match(agent, /"prompt":\s*"dialogue_script_writer@13"/);
+test("dialogue_script_writer agent is pinned to the comprehension prompt v14", () => {
+  assert.match(agent, /"version":\s*"14"/);
+  assert.match(agent, /"prompt":\s*"dialogue_script_writer@14"/);
 });
 
-test("v13's required function vocabulary satisfies the compiler's hard gates", () => {
+test("v14's required function vocabulary satisfies the compiler's hard gates", () => {
   const requiredFunctions = [
     "hook",
     "intuitive_answer",
@@ -76,7 +80,7 @@ test("v13's required function vocabulary satisfies the compiler's hard gates", (
   assert.match("visual_model", ENGAGEMENT_RE, "visual_model must count as an engagement beat");
 });
 
-test("v13 no longer teaches the retired topic-specific prop contract", () => {
+test("v14 no longer teaches the retired topic-specific prop contract", () => {
   // The old habit-vignette prop contract (phone/clock/keys for lateness
   // topics) doesn't generalize to arbitrary complex-concept episodes and was
   // deliberately dropped in the comprehension-structure rewrite.

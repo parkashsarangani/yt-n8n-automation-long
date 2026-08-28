@@ -20,7 +20,7 @@ test("strong two-character explanation exposes every required evidence signal", 
   const result = assessDialogueEvidence(strongScript);
   assert.equal(result.passed, true, result.failures.join("\n"));
   assert.equal(result.coverage, 1);
-  assert.equal(result.checks.length, 13);
+  assert.equal(result.checks.length, 17);
 });
 
 test("alternating narration with flattering metadata cannot fake dialogue quality", () => {
@@ -124,6 +124,34 @@ test("a complete beat list still fails when characters do not predict, interact,
   assert.ok(result.failures.some((failure) => failure.startsWith("both_characters_advance_reasoning")));
 });
 
+
+test("the five mechanical rules move from prose to a real check", () => {
+  // These used to be prose-only rules in dialogue_script_writer's prompt,
+  // stated twice (once as a requirement, once again in the self-check list)
+  // despite being entirely mechanical -- see the prompt-library optimization
+  // pass that moved them here.
+  const longLines = structuredClone(strongScript);
+  for (const scene of longLines.scenes) {
+    scene.narration = "This particular sentence has been deliberately padded out well past ten words so it fails the short line ratio check.";
+  }
+  const longResult = assessDialogueEvidence(longLines);
+  assert.ok(longResult.failures.some((f) => f.startsWith("short_line_ratio")));
+
+  const duplicated = structuredClone(strongScript);
+  duplicated.scenes[3]!.narration = duplicated.scenes[1]!.narration;
+  const dupResult = assessDialogueEvidence(duplicated);
+  assert.ok(dupResult.failures.some((f) => f.startsWith("no_near_duplicate_lines")));
+
+  const definitional = structuredClone(strongScript);
+  definitional.scenes[1]!.narration = "This is called induced demand, by the way.";
+  const defResult = assessDialogueEvidence(definitional);
+  assert.ok(defResult.failures.some((f) => f.startsWith("no_definition_phrasing")));
+
+  const trailing = structuredClone(strongScript);
+  trailing.scenes[1]!.narration = "I think more lanes should clear it...";
+  const trailingResult = assessDialogueEvidence(trailing);
+  assert.ok(trailingResult.failures.some((f) => f.startsWith("no_trailing_ellipsis")));
+});
 
 test("structurally correct dialogue still fails when delivery is emotionally flat", () => {
   const flat = structuredClone(strongScript);

@@ -1,7 +1,7 @@
 {
   "name": "cartoon_visual_planner",
   "kind": "agent",
-  "version": "12",
+  "version": "13",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
     { "schema_id": "cast_roster", "range": "^1", "as": "cast_roster" },
@@ -9,7 +9,7 @@
   ],
   "produces": "visual_plan",
   "produces_version": "1.9.0",
-  "prompt": "cartoon_visual_planner@12",
+  "prompt": "cartoon_visual_planner@13",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 26000,
