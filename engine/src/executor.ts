@@ -378,7 +378,34 @@ export class GraphExecutor {
       && record.transformation_version === (def.version ?? "1");
   }
 
-  private pruneIncompleteDependencies(completed: Map<string, string>, byId: Map<string, GraphNode>): void {
+  /**
+   * Two invalidations, both needed for resume() to never splice artifacts
+   * from different generations together:
+   *
+   * 1. An upstream dependency has no completion at all (the original check).
+   * 2. An upstream dependency completed, but with a DIFFERENT artifact than
+   *    the one this node was actually run against (recordInputs). Without
+   *    this, a node that succeeded once stays "done" forever in resume's
+   *    eyes even after a fresh sibling attempt for the same node_id fails
+   *    outright: a failed attempt has no output, so the scan in
+   *    deriveCompleted() never removes the earlier success from `completed`
+   *    -- only a "retry" record does, and retry markers are written for the
+   *    node the operator is actually forcing to regenerate, not for every
+   *    node downstream of it that also happens to get a fresh (and this
+   *    time failing) attempt. Real production case: a retried draft_script
+   *    produced a new script, quality_draft ran fresh against it, but
+   *    quality_revision then failed all 3 attempts against that new script
+   *    (a token-budget truncation) -- with only invalidation #1, resume()
+   *    still saw quality_revision/quality_final as complete via their OLD
+   *    success from the PRIOR draft_script generation, and quality_release
+   *    scored that stale, mismatched-lineage script pair as if it were the
+   *    current one.
+   */
+  private pruneIncompleteDependencies(
+    completed: Map<string, string>,
+    recordInputs: Map<string, string[]>,
+    byId: Map<string, GraphNode>,
+  ): void {
     let changed = true;
     while (changed) {
       changed = false;
@@ -386,12 +413,25 @@ export class GraphExecutor {
         const node = byId.get(nodeId);
         if (!node) {
           completed.delete(nodeId);
+          recordInputs.delete(nodeId);
           changed = true;
           continue;
         }
         if (nodeType(node) === "input") continue;
-        if (inputsOf(node).some((upstream) => !completed.has(upstream))) {
+        const upstream = inputsOf(node);
+        if (upstream.some((up) => !completed.has(up))) {
           completed.delete(nodeId);
+          recordInputs.delete(nodeId);
+          changed = true;
+          continue;
+        }
+        const expectedInputs = upstream.map((up) => completed.get(up)!);
+        const actualInputs = recordInputs.get(nodeId) ?? [];
+        const inputsMatch = expectedInputs.length === actualInputs.length
+          && expectedInputs.every((id, i) => id === actualInputs[i]);
+        if (!inputsMatch) {
+          completed.delete(nodeId);
+          recordInputs.delete(nodeId);
           changed = true;
         }
       }
@@ -402,6 +442,7 @@ export class GraphExecutor {
   private async deriveCompleted(graph: GraphDoc, runId: string, ref: string): Promise<Map<string, string>> {
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const out = new Map<string, string>();
+    const recordInputs = new Map<string, string[]>();
     const retried = new Set<string>();
     const records = await this.deps.runLog.all();
     // Scan in order: a "retry" record invalidates the prior success for that node.
@@ -412,6 +453,7 @@ export class GraphExecutor {
       if (r.status === "retry") {
         retried.add(r.node_id);
         out.delete(r.node_id);
+        recordInputs.delete(r.node_id);
         continue;
       }
       if (!r.output) continue;
@@ -426,9 +468,10 @@ export class GraphExecutor {
       if (r.status !== "ok" && r.status !== "cache_hit" && r.status !== "accepted_below_quality_bar") continue;
       if (!this.isCurrentCompletion(r, byId)) continue;
       out.set(r.node_id, r.output);
+      recordInputs.set(r.node_id, r.inputs);
       retried.delete(r.node_id);
     }
-    this.pruneIncompleteDependencies(out, byId);
+    this.pruneIncompleteDependencies(out, recordInputs, byId);
     return out;
   }
 
