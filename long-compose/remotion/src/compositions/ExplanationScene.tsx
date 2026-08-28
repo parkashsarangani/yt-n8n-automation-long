@@ -100,6 +100,18 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
   );
 }
 
+function CharacterModelInteraction({ operation, visible }: { operation: VisualOperation; visible: boolean }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  if (!visible) return null;
+  const reach = interpolate(frame, [fps * .2, fps * .85], [0, 1], clamp);
+  const y = operation === "compress" ? 410 : operation === "group" ? 330 : operation === "payoff" ? 270 : 365;
+  return <svg data-character-model-interaction="true" viewBox="0 0 1920 1080" style={{ position: "absolute", inset: 0, zIndex: 7, pointerEvents: "none" }}>
+    <path d={`M1510 520 Q${1380-reach*120} ${y-80} ${1180-reach*250} ${y}`} fill="none" stroke="#FFD166" strokeWidth="8" strokeLinecap="round" strokeDasharray="18 16" opacity={.15 + reach * .55}/>
+    <circle cx={1180-reach*250} cy={y} r={12 + reach*10} fill="#FFD166" opacity={reach}/>
+  </svg>;
+}
+
 type CompositionProps = {
   children: ReactNode;
   characters: CharacterProps[];
@@ -150,11 +162,10 @@ function PayoffResolution({ before, after, keyText }: { before?: string; after?:
     background: `radial-gradient(circle at 50% 48%, rgba(9,22,40,${0.5 + resolve * 0.24}), rgba(5,8,16,${resolve * 0.9}))`,
     opacity: resolve,
   }}>
-    <div style={{ position: "absolute", width: 380 + ring * 350, height: 380 + ring * 350, borderRadius: "50%", border: `12px solid ${GREEN}`, opacity: 0.18 + resolve * 0.42, boxShadow: "0 0 80px #7DE2A844" }} />
-    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 940, padding: "0 44px", transform: `translateY(${(1 - resolve) * 54}px) scale(${0.9 + resolve * 0.1})` }}>
-      {before ? <div style={{ color: PAPER, fontSize: 34, fontWeight: 760, opacity: 0.72 * (1 - resolve), marginBottom: 18 }}>{before}</div> : null}
-      <div style={{ color: ACCENT, fontSize: 74, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
-      <div style={{ width: resolve * 680, height: 10, borderRadius: 8, background: GREEN, margin: "30px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
+    <div style={{ position: "absolute", width: 330 + ring * 270, height: 330 + ring * 270, borderRadius: "50%", border: `10px solid ${GREEN}`, opacity: 0.16 + resolve * 0.38, boxShadow: "0 0 80px #7DE2A844" }} />
+    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 760, padding: "0 44px", transform: `translateY(${(1 - resolve) * 40}px) scale(${0.92 + resolve * 0.08})` }}>
+      <div style={{ color: ACCENT, fontSize: 62, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
+      <div style={{ width: resolve * 520, height: 8, borderRadius: 8, background: GREEN, margin: "24px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
     </div>
   </div>;
 }
@@ -183,15 +194,18 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82";
   const field = backgroundField(visualPrimitive, primitiveGlow);
   const isPayoff = visualOperation === "payoff";
+  const showTitle = compositionMode === "bookend" && !isPayoff;
+  const showInteraction = compositionMode === "reaction" && characterCutIn !== "none";
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, opacity: 0.18, ...field }} />
+      <div style={{ position: "absolute", inset: 0, opacity: 0.24, ...field }} />
+      <CharacterModelInteraction operation={visualOperation} visible={showInteraction} />
       <CompositionFrame mode={compositionMode} characters={safeCharacters} cutIn={characterCutIn} opacity={progress}>
-        {!isPayoff ? <Title>{title}</Title> : null}
+        {showTitle ? <Title>{title}</Title> : null}
         {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
         <div style={{ position: "relative", width: "100%" }}>
-          <div style={{ opacity: isPayoff ? 0.38 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
+          <div style={{ opacity: isPayoff ? 0.04 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} before={before} after={after} keyText={keyText} /></div>
           {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
       </CompositionFrame>
