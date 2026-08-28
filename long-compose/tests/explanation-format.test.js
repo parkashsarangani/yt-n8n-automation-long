@@ -90,10 +90,13 @@ test("model labels stay legible in the narrowest 1280x720 bookend", () => {
   const narrowestStageWidth = compositionWidth - 86 - 850;
   const scale = narrowestStageWidth / svgWidth * (outputWidth / compositionWidth);
 
-  const labelSize = Number(motion.match(/fontSize="(\d+)" fontWeight="820"/)?.[1]);
-  assert.ok(Number.isFinite(labelSize), "expected the reusable SVG label size");
-  const effective = labelSize * scale;
+  const labelFloor = Number(motion.match(/Math\.max\((\d+), Math\.min\(54/)?.[1]);
+  assert.ok(Number.isFinite(labelFloor), "expected a deterministic SVG label floor");
+  const effective = labelFloor * scale;
   assert.ok(effective >= 28, "model labels render at " + effective.toFixed(1) + "px in the narrowest bookend, below the 28px floor");
+  assert.match(motion, /const labelLines/);
+  assert.doesNotMatch(motion, /text\.slice\(0, 20\)/, "labels must wrap or disappear, never truncate mid-word");
+  assert.match(motion, /slice\(0, operation === "timeline" \|\| primitive === "cause-chain" \? 4 : 2\)/);
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
@@ -102,18 +105,20 @@ test("production metadata is never rendered as a viewer-facing label", () => {
 });
 
 test("captions are larger, raised, shorter, and omit speaker prefixes", () => {
-  assert.match(compose, /Style: Caption,Inter Bold,76/);
-  assert.match(compose, /,90,90,172,1/);
-  assert.match(compose, /const WORDS_PER_PHRASE = 6/);
+  assert.match(compose, /Style: Caption,Inter Bold,80/);
+  assert.match(compose, /,110,110,194,1/);
+  assert.match(compose, /const WORDS_PER_PHRASE = 5/);
   assert.doesNotMatch(compose, /speakerName\.toUpperCase/);
+  assert.match(compose, /tightenExplanationTail/);
+  assert.match(compose, /start_silence=0\.16/);
 });
 
 test("sound design follows operations and preserves a restrained payoff", () => {
   assert.match(compose, /operationFallback/);
   assert.match(compose, /visualStateFallback/);
   assert.match(compose, /explanationMode \? "" : comment_hook/);
-  assert.match(compose, /sfxEvents\.length >= 7/);
-  assert.match(compose, /time - lastCueTime < 2\.4/);
+  assert.match(compose, /sfxEvents\.length >= 10/);
+  assert.match(compose, /time - lastCueTime < 1\.8/);
   assert.match(compose, /explanationMode \? 0\.11 : 0\.15/);
   assert.match(compose, /volume: 0\.14/);
   assert.match(compose, /operationPhase/);
@@ -137,8 +142,24 @@ test("motion design system implements all relationship primitives with staged ch
   assert.match(motion, /state === "hypothesis"/);
   assert.match(motion, /state === "contradiction"/);
   assert.doesNotMatch(motion, /const wrong = state === "hypothesis" \|\| state === "contradiction"/);
-  assert.match(motion, /fontSize="48"/);
+  assert.match(motion, /Math\.max\(47, Math\.min\(54/);
   assert.match(scene, /MotionDesignSystem/);
+});
+
+test("middle scenes suppress slide headings and canonical entities retain identity", () => {
+  assert.match(scene, /const showTitle = compositionMode === "bookend" && !isPayoff/);
+  assert.match(scene, /\{showTitle \? <Title>/);
+  assert.match(motion, /const hashText/);
+  assert.match(motion, /function EntityMark/);
+  assert.match(motion, /id=\{labels\[i\]/);
+});
+
+test("reaction panels interact with the model and payoff removes secondary copy", () => {
+  assert.match(scene, /function CharacterModelInteraction/);
+  assert.match(scene, /data-character-model-interaction="true"/);
+  assert.match(scene, /opacity: isPayoff \? 0\.04 : 1/);
+  const payoff = scene.slice(scene.indexOf("function PayoffResolution"), scene.indexOf("export const ExplanationScene"));
+  assert.doesNotMatch(payoff, /\{before \? <div/, "payoff must not render the old hypothesis as secondary copy");
 });
 
 
