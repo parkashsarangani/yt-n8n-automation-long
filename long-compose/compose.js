@@ -214,21 +214,65 @@ function ffprobeDuration(filePath) {
 // TTS providers commonly leave 350-750ms of silence after every line. With
 // one audio file per scene those tails accumulate into the stop-start rhythm
 // seen in completed episodes. Preserve a deliberate 160ms response beat while
-// trimming only the trailing pad; leading timing and character alignment stay
-// untouched, so lip sync remains stable.
+// trimming only the trailing pad; leading timing stays untouched, so lip sync
+// remains stable.
+//
+// Bounded and measured, not trusted blindly: silenceremove's -42dB threshold
+// cannot tell a genuine trailing pad from a quiet final phoneme, a breath, or
+// a deliberate dramatic pause -- amplitude alone doesn't know intent. A run
+// that trimmed more than MAX_TAIL_TRIM_SECONDS is treated as having caught
+// something that wasn't just padding and is discarded in favour of the
+// original file, rather than shipping a clipped ending. The trim also no
+// longer silently invalidates the alignment: the caller receives the actual
+// seconds removed so it can clamp the scene's own caption/lip-sync timestamps
+// to the new duration instead of letting them run past a now-shorter clip and
+// bleed captions into the following scene.
+const MAX_TAIL_TRIM_SECONDS = 0.35;
+
 async function tightenExplanationTail(audioPath) {
   const trimmed = `${audioPath}.tight.mp3`;
   try {
+    const before = await ffprobeDuration(audioPath);
     await execFileAsync(ffmpegPath, [
       "-y", "-i", audioPath,
       "-af", "areverse,silenceremove=start_periods=1:start_duration=0.18:start_threshold=-42dB:start_silence=0.16,areverse",
-      "-c:a", "libmp3lame", "-b:a", "128k", trimmed,
+      // 192k, not the original 128k: this is already a second lossy encode
+      // over the TTS provider's own compression, so re-encoding at a lower
+      // bitrate than typical source quality would compound the loss for no
+      // reason connected to the actual goal (removing dead air).
+      "-c:a", "libmp3lame", "-b:a", "192k", trimmed,
     ]);
+    const after = await ffprobeDuration(trimmed);
+    const removed = before - after;
+    if (!(after > 0) || removed > MAX_TAIL_TRIM_SECONDS) {
+      await fsp.unlink(trimmed).catch(() => {});
+      console.warn(`[audio] trailing-silence trim discarded: removed ${removed.toFixed(3)}s exceeds the ${MAX_TAIL_TRIM_SECONDS}s safety bound`);
+      return 0;
+    }
     await fsp.rename(trimmed, audioPath);
+    return removed;
   } catch (error) {
     await fsp.unlink(trimmed).catch(() => {});
     console.warn(`[audio] trailing-silence trim skipped: ${error.message}`);
+    return 0;
   }
+}
+
+// Pulls a scene's trailing alignment timestamps in to match audio that was
+// shortened by `trimmedSeconds`. Without this, a caption or viseme timed
+// against the pre-trim audio can extend past the clip's actual end and either
+// render over black or bleed into the next scene's audio.
+function clampAlignmentToDuration(alignment, trimmedSeconds) {
+  if (!trimmedSeconds || !alignment || typeof alignment !== "object") return alignment;
+  const newDuration = Math.max(0, (Array.isArray(alignment.character_end_times_seconds) && alignment.character_end_times_seconds.length
+    ? alignment.character_end_times_seconds[alignment.character_end_times_seconds.length - 1]
+    : Infinity) - trimmedSeconds);
+  const clamp = (arr) => Array.isArray(arr) ? arr.map((t) => Math.min(t, newDuration)) : arr;
+  return {
+    ...alignment,
+    character_start_times_seconds: clamp(alignment.character_start_times_seconds),
+    character_end_times_seconds: clamp(alignment.character_end_times_seconds),
+  };
 }
 
 // Bounded-concurrency map that never throws mid-flight: returns Promise.allSettled
@@ -1539,7 +1583,10 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       }
 
       if (scene?.template_name === "explanation" && !isOutroScene(scene)) {
-        await tightenExplanationTail(audioPath);
+        const trimmedSeconds = await tightenExplanationTail(audioPath);
+        if (trimmedSeconds > 0 && scene?.audio?.alignment) {
+          scene.audio.alignment = clampAlignmentToDuration(scene.audio.alignment, trimmedSeconds);
+        }
       }
 
       const duration = await ffprobeDuration(audioPath);

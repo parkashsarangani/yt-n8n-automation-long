@@ -52,15 +52,48 @@ function useProgress() {
   return { setup, transform, consequence, hold, living, pop };
 }
 
-const labelLines = (text: string, maxChars = 18): string[] => {
+// Wraps into at most two lines, sized to the pill's actual available width
+// rather than a fixed character count. A label that still overflows past two
+// lines folds its remainder into the second line with an ellipsis instead of
+// being dropped outright: the audit's real finding here was that "collision
+// resolution" meant deleting the label -- the pill vanished entirely, not
+// repositioned or abbreviated -- and a viewer sees no explanation at all
+// where one was authored. An ellipsis still tells them what the scene is
+// about; a blank space where a label should be tells them nothing.
+//
+// The bug that made this worse than the audit even realized: the original
+// (and my first pass at this rewrite) wrote `lines[lines.length - 1] = word`
+// unconditionally. When `lines` is still empty that's `lines[-1] = word` --
+// which does not push a real element, since arrays only grow for
+// non-negative integer indices -- so the FIRST word of every label was
+// silently swallowed on the very next word's turn. A two-word label like
+// "cause chain" rendered as just "chain". Caught by actually rendering a
+// frame and looking at it, not by the perceptual test, which only checks
+// that *some* bright pixels exist in the cell.
+// Exported so tests can pin its behaviour directly rather than only through a
+// full Chrome render -- the bug this function's history documents (see
+// comment below) was invisible to every test that only checked the render
+// pipeline end-to-end.
+export const labelLines = (text: string, maxChars: number): string[] => {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const lines: string[] = [];
-  for (const word of words) {
-    const current = lines[lines.length - 1] ?? "";
-    if (!current || `${current} ${word}`.length <= maxChars) lines[lines.length - 1] = current ? `${current} ${word}` : word;
-    else if (lines.length < 2) lines.push(word);
-    else return [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!;
+    const current = lines.length ? lines[lines.length - 1]! : "";
+    if (!current || `${current} ${word}`.length <= maxChars) {
+      if (lines.length) lines[lines.length - 1] = `${current} ${word}`;
+      else lines.push(word);
+      continue;
+    }
+    if (lines.length < 2) {
+      lines.push(word);
+      continue;
+    }
+    const rest = words.slice(i).join(" ");
+    const combined = `${lines[1]} ${rest}`;
+    lines[1] = combined.length <= maxChars ? combined : `${combined.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+    break;
   }
   return lines;
 };
@@ -68,9 +101,11 @@ const labelLines = (text: string, maxChars = 18): string[] => {
 function Label({ text, x, y, active = false, state, maxWidth = 300 }: { text?: string; x: number; y: number; active?: boolean; state: VisualState; maxWidth?: number }) {
   if (!text) return null;
   const colors = palette[state];
-  const lines = labelLines(text);
-  // Long prose is narration, not model copy. Omitting it is safer than the
-  // previous slice(), which shipped visibly truncated words to viewers.
+  // ~0.56em per character at this weight; derived from maxWidth so a wider
+  // pill (a full-model scene) actually wraps later than a narrow one (a dense
+  // row slot), instead of every pill wrapping at the same fixed character
+  // count regardless of how much room it was actually given.
+  const lines = labelLines(text, Math.max(10, Math.floor((maxWidth - 38) / (54 * 0.56))));
   if (!lines.length) return null;
   const longest = Math.max(...lines.map((line) => line.length));
   const fontSize = Math.max(47, Math.min(54, (maxWidth - 38) / Math.max(4, longest) * 1.72));
@@ -296,7 +331,11 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "cause-chain") {
     const bases: Point[]=[[120,245],[385,245],[650,245],[920,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={labels[i]||`step-${i}`} x={x} y={y} size={30+pop(i*.12)*10}/>{i<2?<Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(3,Math.floor(progress*4))} state={state} maxWidth={260}/>:null}</React.Fragment>})}</>;
+    // denseLabelSlot places up to 4 entities on distinct, non-overlapping
+    // positions (2x2), so there is no spatial reason to label only the first
+    // two of up to four accepted entities -- that left the back half of the
+    // chain, where the consequence and resolution actually sit, unlabeled.
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={labels[i]||`step-${i}`} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(3,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -313,7 +352,10 @@ function Geometry({ primitive, operation, state, labels, before, after, keyText,
   if (primitive === "timeline") {
     const bases: Point[]=[[130,245],[350,245],[570,245],[790,245],[970,245]];
     const points=bases.map((point,i)=>operatePoint(point,i,bases.length,operation,progress));
-    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={labels[i]||`moment-${i}`} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/>{i<2&&<Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.floor(progress*5)} state={state} maxWidth={260}/>}</React.Fragment>)}</>;
+    // Same reasoning as cause-chain: up to 4 labelled entities all have a
+    // distinct, collision-free denseLabelSlot, so the back half of the
+    // timeline was withheld from viewers for no spatial reason.
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".35"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={labels[i]||`moment-${i}`} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.floor(progress*5)} state={state} maxWidth={260}/></React.Fragment>)}</>;
   }
   if (primitive === "quantity") {
     if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");

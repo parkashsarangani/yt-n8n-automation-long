@@ -5,20 +5,29 @@ import { readFileSync } from "node:fs";
 const agent = JSON.parse(readFileSync(new URL("../agents/explanation_visual_planner.json", import.meta.url), "utf8"));
 const legacySchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.0.0.json", import.meta.url), "utf8"));
 const semanticSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.1.0.json", import.meta.url), "utf8"));
-const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
+const priorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
+const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
 const legacyScene = legacySchema.json_schema.properties.scenes.items;
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
-test("explanation planner v3 emits required motion-design explanation_plan 1.2", () => {
+test("explanation planner v3 emits required motion-design explanation_plan 1.3", () => {
   assert.equal(agent.version, "3");
   assert.equal(agent.produces, "explanation_plan");
-  assert.equal(agent.produces_version, "1.2.0");
+  assert.equal(agent.produces_version, "1.3.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
   assert.equal(schema.status, "active");
   assert.equal(legacySchema.status, "deprecated");
   assert.equal(semanticSchema.status, "deprecated");
+  // 1.2.0 is deprecated, not retired: an episode paused on a stored 1.2.0
+  // explanation_plan must still validate and resume against its own schema.
+  // Retired versions fail even an exact-version read (see registry.ts), which
+  // is exactly the resumability break the versioned-artifact contract exists
+  // to prevent -- so tightening the limits had to land as a new version
+  // rather than mutating 1.2.0 in place.
+  assert.equal(priorSchema.status, "deprecated");
+  assert.equal(priorSchema.json_schema.properties.scenes.items.properties.explanation_title.maxLength, 80);
   assert.ok(scene.required.includes("visual_operation"));
   assert.ok(scene.required.includes("visual_primitive"));
   assert.ok(scene.required.includes("visual_state"));

@@ -87,10 +87,17 @@ function cleanText(value: unknown, max = 80): string {
 
 function cleanElements(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
+  // Truncate long elements rather than dropping them. A resumed 1.2.0 plan
+  // (deprecated but still valid, per the versioned-artifact contract) allows
+  // elements up to 44 chars against 1.3.0's tighter 32 -- filtering those out
+  // silently deleted labels the plan had explicitly authored, on top of the
+  // renderer doing the same thing on overflow (see labelLines in
+  // MotionDesignSystem.tsx). Neither layer should make content disappear.
   return [...new Set(value
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
-    .filter((item) => item.length > 0 && item.length <= 32))]
+    .filter((item) => item.length > 0)
+    .map((item) => (item.length <= 32 ? item : `${item.slice(0, 31).trimEnd()}…`)))]
     .slice(0, 4);
 }
 
