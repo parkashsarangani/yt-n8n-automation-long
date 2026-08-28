@@ -298,15 +298,15 @@
             },
             "explanation_title": {
               "type": "string",
-              "maxLength": 80
+              "maxLength": 52
             },
             "model_elements": {
               "type": "array",
-              "maxItems": 5,
+              "maxItems": 4,
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 44
+                "maxLength": 32
               }
             },
             "state_before": {
@@ -319,7 +319,7 @@
             },
             "key_text": {
               "type": "string",
-              "maxLength": 96
+              "maxLength": 72
             },
             "character_cut_in": {
               "type": "string",
