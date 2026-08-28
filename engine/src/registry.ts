@@ -130,9 +130,23 @@ export class SchemaRegistry {
       entry,
       validate: (data) => compiled(data) as boolean,
       lastErrors: () =>
-        (compiled.errors ?? []).map(
-          (e) => `${e.instancePath || "$"} ${e.message ?? "is invalid"}`.trim(),
-        ),
+        (compiled.errors ?? []).map((e) => {
+          // ajv's own `message` omits the one detail a retry actually needs for
+          // some keywords: "must NOT have additional properties" never names
+          // the property, so an agent correcting a 50-item array from that
+          // text alone has to guess which field to drop and which scene it's
+          // even on -- real production evidence (dialogue_script_writer
+          // burned all 3 retry attempts flailing at different scene indices
+          // on the same underlying complaint) that this silently starved the
+          // retry loop of the one fact it needed to converge.
+          const extra =
+            e.keyword === "additionalProperties" &&
+            e.params &&
+            typeof (e.params as { additionalProperty?: unknown }).additionalProperty === "string"
+              ? ` (unexpected property: "${(e.params as { additionalProperty: string }).additionalProperty}")`
+              : "";
+          return `${e.instancePath || "$"} ${e.message ?? "is invalid"}${extra}`.trim();
+        }),
     });
     this.byId.set(entry.schema_id, versions);
   }
