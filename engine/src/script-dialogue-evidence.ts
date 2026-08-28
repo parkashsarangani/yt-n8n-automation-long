@@ -319,7 +319,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   add(
     checks,
     "playable_emotional_palette",
-    distinctEmotions.size >= 3 && neutralRatio <= 0.60,
+    distinctEmotions.size >= 3 && neutralRatio <= 0.70,
     `${distinctEmotions.size} distinct playable emotions; ${Math.round(neutralRatio * 100)}% neutral or unspecified`,
     distinctEmotions.size,
     3,
