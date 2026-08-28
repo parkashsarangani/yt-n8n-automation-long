@@ -47,7 +47,12 @@ test("structurally excellent but emotionally flat dialogue cannot release", () =
   assert.match(result.failures.join("\n"), /surprise_freshness=0.86/);
 });
 
-test("show bookends require Buddy's opening question and a resolving recap", () => {
+test("show bookends require Buddy's opening hook question", () => {
+  // The closing-recap requirement lives in assessDialogueEvidence now (its
+  // comprehension_arc/final_teach_back), not here -- a bare tag match on the
+  // last scene reintroduced the exact false negative that module's synonym
+  // table and last-scene fallback exist to fix, so this function only checks
+  // what nothing else already covers: the opening.
   const passing = {
     scenes: [
       { speaker: "buddy", narration: "Why is the night sky dark?", point: "action=Buddy looks up; prop=sky; function=hook; value=opens the mystery" },
