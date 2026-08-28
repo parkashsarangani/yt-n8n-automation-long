@@ -339,18 +339,19 @@ test("every check explains itself well enough to act on at 7am", async () => {
 });
 
 test("final QA blocks a script that misses the dialogue-led product goal", async () => {
+  const weak = 0.79; // below SCRIPT_QUALITY_THRESHOLDS.character_chemistry (0.80)
   const { payload } = await runQa({
     quality: {
       scores: {
         ...HEALTHY.quality.scores,
-        character_chemistry: 0.89,
+        character_chemistry: weak,
       },
     },
   });
 
   const c = check(payload, "script_character_chemistry");
   assert.equal(c.status, "fail");
-  assert.equal(c.measured, 0.89);
+  assert.equal(c.measured, weak);
   assert.equal(payload.verdict, "fail");
 });
 
