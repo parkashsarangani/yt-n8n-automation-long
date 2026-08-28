@@ -87,11 +87,18 @@ function cleanText(value: unknown, max = 80): string {
 
 function cleanElements(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value
+  return [...new Set(value
     .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim().slice(0, 44))
-    .filter(Boolean)
-    .slice(0, 5);
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item.length <= 32))]
+    .slice(0, 4);
+}
+
+function cleanPayoff(value: unknown): string {
+  const text = cleanText(value, 72);
+  if (text.length <= 52) return text;
+  const sentence = text.split(/[.!?;:]/, 1)[0]?.trim() ?? "";
+  return sentence.length >= 8 && sentence.length <= 52 ? sentence : text.slice(0, 49).replace(/\s+\S*$/, "") + "…";
 }
 
 function inferVisualPrimitive(plan: ExplanationPlanScene): VisualPrimitive {
@@ -154,6 +161,7 @@ export function applyExplanationFormat(
   const openingIndex = openingPlan?.scene_index;
   const closingIndex = closingPlan?.scene_index;
   const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";
+  const openingElements = cleanElements(openingPlan?.model_elements);
 
   return entries.map((entry) => {
     const plan = byIndex.get(entry.scene_index);
@@ -210,19 +218,29 @@ export function applyExplanationFormat(
         ? "reaction"
         : "full-model";
 
+    // Closing continuity is deterministic, not a prompt wish: reconstruct the
+    // exact entities introduced by the hook so stable renderer identity
+    // survives even when a preserved plan authored unrelated recap labels.
+    const plannedElements = cleanElements(plan.model_elements);
+    const elements = entry.scene_index === closingIndex && openingElements.length
+      ? openingElements
+      : plannedElements;
     const payload = {
-      formatVersion: 3,
+      formatVersion: 4,
       role,
       visualOperation: operation,
       visualPrimitive: primitive,
       visualState,
       compositionMode,
-      title: cleanText(plan.explanation_title),
-      keyText: cleanText(plan.key_text, 96),
-      elements: cleanElements(plan.model_elements),
+      // Intermediate headings made the render read as a slide deck. Only the
+      // opening owns an orienting title; the final scene owns one payoff line.
+      title: entry.scene_index === openingIndex ? cleanText(plan.explanation_title, 52) : "",
+      keyText: entry.scene_index === closingIndex ? cleanPayoff(plan.key_text || plan.state_after) : cleanText(plan.key_text, 72),
+      elements,
+      entityIdentityKeys: elements.map((element) => element.toLocaleLowerCase()),
       numericValue,
-      before: cleanText(plan.state_before, 64),
-      after: cleanText(plan.state_after, 64),
+      before: entry.scene_index === closingIndex ? "" : cleanText(plan.state_before, 44),
+      after: cleanText(plan.state_after, 44),
       characterCutIn: cutIn,
       soundCue: cleanText(plan.sound_cue || "none", 16),
       characters,
