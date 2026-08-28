@@ -40,7 +40,8 @@ test("explanation format makes the model own the frame while preserving cast", (
   assert.equal(data.visualState, "mechanism");
   assert.equal(data.compositionMode, "full-model");
   assert.equal(data.numericValue, null);
-  assert.equal(data.formatVersion, 3);
+  assert.equal(data.formatVersion, 4);
+  assert.equal(data.title, "", "middle scenes must not render slide headings");
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
   assert.equal(data.rendererPerformance.explanatoryModelVisible, true);
   assert.equal(data.rendererPerformance.meaningfulStateChange, true);
@@ -125,6 +126,9 @@ test("recap reuses the opening primitive for a visual callback", () => {
   ]);
   const recap = JSON.parse(scenes[1]!.template_data);
   assert.equal(recap.visualPrimitive, "particles");
+  assert.deepEqual(recap.elements, ["dark sky", "stars"], "recap must reconstruct the opening entities");
+  assert.deepEqual(recap.entityIdentityKeys, ["dark sky", "stars"]);
+  assert.equal(recap.before, "", "payoff must not retain secondary hypothesis copy");
   assert.equal(recap.rendererPerformance.primitiveWasNormalized, true);
 });
 
