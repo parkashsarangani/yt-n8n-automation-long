@@ -56,6 +56,36 @@ test("close synonyms for the two compound terminal functions still count as the 
   assert.equal(result.passed, true, result.failures.join("\n"));
 });
 
+test("the last scene counts as the recap when no scene explicitly claims the tag", () => {
+  // Production evidence: a real run's actual closing beat -- a substantive
+  // restatement reusing the visual model's prop -- got tagged
+  // `practical_action` instead of `recap confirms_understanding` (after the
+  // vocabulary drifted through `payoff` and `teach_back` on two earlier
+  // runs). The bookend contract structurally guarantees the last scene is
+  // the recap regardless of its tag, so comprehension_arc/final_teach_back/
+  // model_reused_in_recap should still pass on a script whose actual ending
+  // is a real recap, just mistagged.
+  const mistaggedRecap = structuredClone(strongScript);
+  mistaggedRecap.scenes[7]!.point = mistaggedRecap.scenes[7]!.point.replace("function=recap confirms_understanding", "function=practical_action");
+
+  const result = assessDialogueEvidence(mistaggedRecap);
+  assert.equal(result.passed, true, result.failures.join("\n"));
+});
+
+test("the last-scene recap fallback cannot be faked with boilerplate repeated elsewhere", () => {
+  // The explicit-tag requirement the fallback above removes used to double
+  // as an anti-boilerplate guard: without it, a script that never earns a
+  // real recap by repeating the same generic line in every scene could pass
+  // final_teach_back on word count and the phrase blacklist alone.
+  const boilerplateRecap = structuredClone(strongScript);
+  const boilerplate = "This has been a very informative segment about the topic.";
+  for (const scene of boilerplateRecap.scenes) scene.narration = boilerplate;
+  boilerplateRecap.scenes[7]!.point = boilerplateRecap.scenes[7]!.point.replace("function=recap confirms_understanding", "function=implication");
+
+  const result = assessDialogueEvidence(boilerplateRecap);
+  assert.ok(result.failures.some((failure) => failure.startsWith("final_teach_back")));
+});
+
 test("a compound recap prop still counts as reusing the visual model when it contains it", () => {
   // Production evidence: the recap staged the model prop alongside the
   // episode's opening object ("toy-cars" -> "toy-cars-and-original-jam"),

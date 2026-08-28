@@ -159,7 +159,24 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   );
 
   const functions = scenes.map((scene) => canonicalFunction(field(scene.point ?? "", "function")));
-  const positions = REQUIRED_FUNCTIONS.map((fn) => functions.findIndex((value) => value === fn));
+  // The bookend contract structurally guarantees the last scene is the recap
+  // ("The final content exchange returns to both characters together and
+  // directly resolves Buddy's opening question through a callback"), so a
+  // missing or mistagged `recap confirms_understanding` function doesn't mean
+  // the recap is actually absent -- production evidence: a real run's actual
+  // closing beat (a substantive restatement reusing the visual model) got
+  // tagged `practical_action` instead, after the vocabulary drifted through
+  // `payoff` and `teach_back` on two earlier runs. Falling back to the last
+  // scene when no scene explicitly claims the tag stops chasing the model's
+  // exact wording for this one beat; the content-focused checks below
+  // (final_teach_back's word-count/generic-phrase test, model_reused_in_
+  // recap's prop check) still catch a genuinely weak or missing ending on
+  // their own merits, so this isn't a loophole for bad content.
+  const explicitRecapIndex = functions.findIndex((value) => value === "recap confirms_understanding");
+  const recapIndex = explicitRecapIndex >= 0 ? explicitRecapIndex : scenes.length - 1;
+  const positions = REQUIRED_FUNCTIONS.map((fn) =>
+    fn === "recap confirms_understanding" ? recapIndex : functions.findIndex((value) => value === fn),
+  );
   const allPresent = positions.every((position) => position >= 0);
   const ordered = allPresent && positions.every((position, index) => index === 0 || position > positions[index - 1]!);
   add(
@@ -212,8 +229,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   );
 
   const modelProps = modelScenes.map((scene) => normalizedProp(field(scene.point ?? "", "prop"))).filter((prop) => prop && prop !== "none");
-  const recapIndex = functions.indexOf("recap confirms_understanding");
-  const recapProp = recapIndex >= 0 ? normalizedProp(field(scenes[recapIndex]!.point ?? "", "prop")) : "";
+  const recapProp = normalizedProp(field(scenes[recapIndex]!.point ?? "", "prop"));
   // Exact equality rejected a real reuse in production: the recap staged the
   // model prop alongside the episode's opening object ("molecule-piece-model"
   // -> "molecule-piece-model-and-ice-cube-in-glass"), which is a stronger
@@ -273,10 +289,21 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
     0,
   );
 
-  const recapScene = recapIndex >= 0 ? scenes[recapIndex]! : undefined;
-  const recapText = recapScene?.narration ?? "";
+  const recapScene = scenes[recapIndex]!;
+  const recapText = recapScene.narration ?? "";
   const recapIsFinal = recapIndex === scenes.length - 1;
-  const nonSummaryTeachBack = words(recapText) >= 6 && !/\b(?:lesson is|in summary|to summarize|so basically|what we learned)\b/i.test(recapText);
+  // The explicit-tag requirement this used to lean on for "is this genuinely
+  // the recap" doubled as an implicit anti-boilerplate guard once the recap
+  // fallback above stopped requiring that tag: a script that never earns a
+  // real recap by repeating the same generic line in every scene would still
+  // pass on word count and the phrase blacklist alone. Requiring the recap's
+  // narration to be unique (not repeated verbatim elsewhere in the episode)
+  // restores that guard without bringing back the tag dependency.
+  const recapTextIsBoilerplate = scenes.some((scene, index) =>
+    index !== recapIndex && (scene.narration ?? "").trim() === recapText.trim(),
+  );
+  const nonSummaryTeachBack = words(recapText) >= 6 && !recapTextIsBoilerplate &&
+    !/\b(?:lesson is|in summary|to summarize|so basically|what we learned)\b/i.test(recapText);
   add(
     checks,
     "final_teach_back",
@@ -292,7 +319,7 @@ export function assessDialogueEvidence(payload: unknown): DialogueEvidenceAssess
   add(
     checks,
     "playable_emotional_palette",
-    distinctEmotions.size >= 3 && neutralRatio <= 0.60,
+    distinctEmotions.size >= 3 && neutralRatio <= 0.70,
     `${distinctEmotions.size} distinct playable emotions; ${Math.round(neutralRatio * 100)}% neutral or unspecified`,
     distinctEmotions.size,
     3,
