@@ -54,9 +54,19 @@ export function assessShowBookends(payload: unknown): string[] {
   if (first.speaker !== "buddy") failures.push("opening speaker must be buddy");
   const openingLine = typeof first.narration === "string" ? first.narration.trim() : "";
   if (!openingLine.endsWith("?")) failures.push("Buddy opening must be a hook question");
-  const last = scenes[scenes.length - 1]!;
-  const lastPoint = typeof last.point === "string" ? last.point : "";
-  if (!/function=recap confirms_understanding/.test(lastPoint)) failures.push("final scene must resolve the opening through recap");
+  // No closing-recap check here: it used to require the last scene's
+  // function tag to be the literal string `recap confirms_understanding`,
+  // which reintroduced the exact false negative script-dialogue-evidence.ts's
+  // FUNCTION_SYNONYMS table and last-scene fallback exist to fix -- a real
+  // run's actual closing beat (a substantive, prop-reusing restatement) got
+  // tagged `practical_action`, matching neither the literal string nor any
+  // synonym this file knew about. That module's own last-scene-is-the-recap
+  // fallback already treats the bookend contract as structurally guaranteed
+  // rather than tag-dependent, and its final_teach_back check verifies the
+  // last scene's actual CONTENT is a substantive, non-boilerplate teach-back
+  // -- a stronger guarantee than this file re-deriving its own tag match.
+  // See assessDialogueEvidence's comprehension_arc/final_teach_back, which
+  // both run and merge into the same failure list as this function's caller.
   return failures;
 }
 
