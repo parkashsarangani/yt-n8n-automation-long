@@ -96,7 +96,11 @@ test("model labels stay legible in the narrowest 1280x720 bookend", () => {
   assert.ok(effective >= 28, "model labels render at " + effective.toFixed(1) + "px in the narrowest bookend, below the 28px floor");
   assert.match(motion, /const labelLines/);
   assert.doesNotMatch(motion, /text\.slice\(0, 20\)/, "labels must wrap or disappear, never truncate mid-word");
-  assert.match(motion, /slice\(0, operation === "timeline" \|\| primitive === "cause-chain" \? 4 : 2\)/);
+  // MAX_LABELS caps a diagram at one central label plus two supporting ones
+  // (was 4 on timeline/cause-chain) -- more read as competing clutter per the
+  // watchability pass, even with a collision-free slot for each.
+  assert.match(motion, /const MAX_LABELS = 3/);
+  assert.match(motion, /operation === "timeline" \|\| primitive === "cause-chain" \? MAX_LABELS : 2/);
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {
@@ -110,7 +114,12 @@ test("captions are larger, raised, shorter, and omit speaker prefixes", () => {
   assert.match(compose, /const WORDS_PER_PHRASE = 5/);
   assert.doesNotMatch(compose, /speakerName\.toUpperCase/);
   assert.match(compose, /tightenExplanationTail/);
-  assert.match(compose, /start_silence=0\.16/);
+  // The preserved response beat is parameterised now: an ordinary turn keeps
+  // 0.16s (within the 120-250ms range that reads as a natural reply), while a
+  // scene handing off into a reversal/payoff keeps a longer, distinct beat.
+  assert.match(compose, /start_silence=\$\{preserveSilenceSeconds\}/);
+  assert.match(compose, /REVERSAL_TAIL_SILENCE_SECONDS = 0\.45/);
+  assert.match(compose, /nextIsReversal/);
 });
 
 test("sound design follows operations and preserves a restrained payoff", () => {
@@ -151,13 +160,23 @@ test("middle scenes suppress slide headings and canonical entities retain identi
   assert.match(scene, /\{showTitle \? <Title>/);
   assert.match(motion, /const hashText/);
   assert.match(motion, /function EntityMark/);
-  assert.match(motion, /id=\{labels\[i\]/);
+  // identityKeys (from entityIdentityKeys, a compiler-supplied proxy for
+  // "same entity, possibly reworded") seeds EntityMark's shape/colour hash
+  // ahead of the raw display label, so a mark stays visually stable within a
+  // scene even when the label wording shifts.
+  assert.match(motion, /id=\{identityKeys\[i\]\s*\|\|\s*labels\[i\]/);
+  assert.match(scene, /entityIdentityKeys/);
 });
 
 test("reaction panels interact with the model and payoff removes secondary copy", () => {
   assert.match(scene, /function CharacterModelInteraction/);
   assert.match(scene, /data-character-model-interaction="true"/);
-  assert.match(scene, /opacity: isPayoff \? 0\.04 : 1/);
+  // Raised from 0.04: MotionDesignSystem now actually suppresses payoff's
+  // labels/keyText/rings at the source (isPayoffState), rather than relying
+  // on this wrapper to hide a diagram that was still drawing its own copy of
+  // the closing statement underneath -- so dimming it to near-zero is no
+  // longer needed to hide leftover content.
+  assert.match(scene, /opacity: isPayoff \? 0\.22 : 1/);
   const payoff = scene.slice(scene.indexOf("function PayoffResolution"), scene.indexOf("export const ExplanationScene"));
   assert.doesNotMatch(payoff, /\{before \? <div/, "payoff must not render the old hypothesis as secondary copy");
 });

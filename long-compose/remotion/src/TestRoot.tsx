@@ -26,7 +26,11 @@ const denseLabels = {
   visualState: "mechanism" as const, characterCutIn: "none" as const, characters: [],
   title: "This intermediate heading must never render",
   keyText: "Narration owns this sentence",
-  elements: ["Ganesha", "Personal devotion", "Shared source", "Distinct form"],
+  // "Ganesha" and "The elephant-headed god" carry the same identity key so a
+  // regression render can confirm entityIdentityKeys keeps one entity's mark
+  // visually stable even when its display wording changes mid-episode.
+  elements: ["Ganesha", "The elephant-headed god", "Personal devotion", "Distinct form"],
+  entityIdentityKeys: ["deity", "deity", "devotion", "form"],
 };
 
 export const TestRoot: React.FC = () => <>

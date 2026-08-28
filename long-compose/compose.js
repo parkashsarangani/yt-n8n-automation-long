@@ -213,9 +213,14 @@ function ffprobeDuration(filePath) {
 
 // TTS providers commonly leave 350-750ms of silence after every line. With
 // one audio file per scene those tails accumulate into the stop-start rhythm
-// seen in completed episodes. Preserve a deliberate 160ms response beat while
-// trimming only the trailing pad; leading timing stays untouched, so lip sync
-// remains stable.
+// seen in completed episodes. Preserve a deliberate response beat (160ms for
+// an ordinary turn, within the 120-250ms range that reads as a natural reply
+// rather than a hard stop) while trimming only the trailing pad; leading
+// timing stays untouched, so lip sync remains stable. A scene that hands off
+// into a reversal or the payoff keeps a longer beat instead (see
+// REVERSAL_TAIL_SILENCE_SECONDS below) -- collapsing that pause to the same
+// 160ms as any other turn would erase the one place a pause is actually
+// doing narrative work.
 //
 // Bounded and measured, not trusted blindly: silenceremove's -42dB threshold
 // cannot tell a genuine trailing pad from a quiet final phoneme, a breath, or
@@ -228,14 +233,17 @@ function ffprobeDuration(filePath) {
 // to the new duration instead of letting them run past a now-shorter clip and
 // bleed captions into the following scene.
 const MAX_TAIL_TRIM_SECONDS = 0.35;
+// Longer preserved beat before a scene hands off into a contradiction or the
+// payoff -- the reversal needs a breath the surrounding ordinary turns don't.
+const REVERSAL_TAIL_SILENCE_SECONDS = 0.45;
 
-async function tightenExplanationTail(audioPath) {
+async function tightenExplanationTail(audioPath, preserveSilenceSeconds = 0.16) {
   const trimmed = `${audioPath}.tight.mp3`;
   try {
     const before = await ffprobeDuration(audioPath);
     await execFileAsync(ffmpegPath, [
       "-y", "-i", audioPath,
-      "-af", "areverse,silenceremove=start_periods=1:start_duration=0.18:start_threshold=-42dB:start_silence=0.16,areverse",
+      "-af", `areverse,silenceremove=start_periods=1:start_duration=0.18:start_threshold=-42dB:start_silence=${preserveSilenceSeconds},areverse`,
       // 192k, not the original 128k: this is already a second lossy encode
       // over the TTS provider's own compression, so re-encoding at a lower
       // bitrate than typical source quality would compound the loss for no
@@ -1091,6 +1099,13 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         title: d.title,
         keyText: d.keyText,
         elements: d.elements || [],
+        // Parallel to elements: a stable identity key per entity, independent
+        // of the exact display casing/wording a given scene happens to use.
+        // Without this the renderer hashed shape/colour off the raw display
+        // text, so the same entity referred to with different capitalization
+        // across scenes (a real, common variance) got a different shape --
+        // "canonical reuse across the episode" broke on formatting alone.
+        entityIdentityKeys: d.entityIdentityKeys || [],
         before: d.before,
         after: d.after,
         characterCutIn: d.characterCutIn || "none",
@@ -1583,7 +1598,15 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       }
 
       if (scene?.template_name === "explanation" && !isOutroScene(scene)) {
-        const trimmedSeconds = await tightenExplanationTail(audioPath);
+        // A hard cut carries the pause; the next scene's own state tells us
+        // whether this handoff is an ordinary turn or a reversal/payoff about
+        // to land, since a scene doesn't know its own successor.
+        const nextData = sceneTemplateData(scenes[i + 1]);
+        const nextIsReversal = nextData.visualState === "contradiction" || nextData.visualState === "payoff";
+        const trimmedSeconds = await tightenExplanationTail(
+          audioPath,
+          nextIsReversal ? REVERSAL_TAIL_SILENCE_SECONDS : 0.16,
+        );
         if (trimmedSeconds > 0 && scene?.audio?.alignment) {
           scene.audio.alignment = clampAlignmentToDuration(scene.audio.alignment, trimmedSeconds);
         }
