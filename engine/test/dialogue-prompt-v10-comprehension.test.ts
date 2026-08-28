@@ -30,16 +30,23 @@ const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", impo
 // the same run then hit: the model sometimes emitted the `point` value as a
 // bare, unquoted key fragment instead of a proper `"point": "..."` JSON
 // field -- fixed by showing every point example already wrapped in its JSON
-// field form rather than as bare pseudo-syntax text. The comprehension-
-// structure vocabulary these tests actually check is unchanged from v10.
-const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/12.md", import.meta.url), "utf8");
+// field form rather than as bare pseudo-syntax text. v13 fixed two more
+// real-run failure modes: (1) short lines drifting into clipped noun-phrase
+// fragments ("Same tank, opposite verdicts.") instead of real spoken
+// sentences, and (2) the function-order evidence check failing because the
+// model's FIRST occurrence of `implication`/`correction`/`recap` landed out
+// of the required sequence on different real scripts -- fixed with explicit
+// mechanical ordering rules mirroring exactly what the evidence checker
+// computes. The comprehension-structure vocabulary these tests actually
+// check is unchanged from v10.
+const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/13.md", import.meta.url), "utf8");
 
-test("dialogue_script_writer agent is pinned to the comprehension prompt v12", () => {
-  assert.match(agent, /"version":\s*"12"/);
-  assert.match(agent, /"prompt":\s*"dialogue_script_writer@12"/);
+test("dialogue_script_writer agent is pinned to the comprehension prompt v13", () => {
+  assert.match(agent, /"version":\s*"13"/);
+  assert.match(agent, /"prompt":\s*"dialogue_script_writer@13"/);
 });
 
-test("v12's required function vocabulary satisfies the compiler's hard gates", () => {
+test("v13's required function vocabulary satisfies the compiler's hard gates", () => {
   const requiredFunctions = [
     "hook",
     "intuitive_answer",
@@ -69,7 +76,7 @@ test("v12's required function vocabulary satisfies the compiler's hard gates", (
   assert.match("visual_model", ENGAGEMENT_RE, "visual_model must count as an engagement beat");
 });
 
-test("v12 no longer teaches the retired topic-specific prop contract", () => {
+test("v13 no longer teaches the retired topic-specific prop contract", () => {
   // The old habit-vignette prop contract (phone/clock/keys for lateness
   // topics) doesn't generalize to arbitrary complex-concept episodes and was
   // deliberately dropped in the comprehension-structure rewrite.
