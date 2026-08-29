@@ -370,7 +370,22 @@ function Geometry({ primitive, operation, state, labels, identityKeys, before, a
     const rightWidth=390*(operation==="scale-compare"?1+progress*.28:1);
     const inward=operation==="compress"?progress*105:0;
     return <><rect x={90+inward} y="100" width={leftWidth} height="290" rx="34" fill={colors.fill} stroke={colors.muted} strokeWidth="6"/><rect x={990-inward-rightWidth} y="100" width={rightWidth} height="290" rx="34" fill={colors.fill} stroke={colors.line} strokeWidth="8" opacity={.3+progress*.7}/>
-      <Label text={before||labels[0]} x={90+inward+leftWidth/2} y={245} state={state}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={990-inward-rightWidth/2} y={245} active state={state}/></>;
+      {/* Both Labels used to fall back to the default maxWidth (300).
+          Label's own char-budget formula is `max(10, floor((maxWidth-38)/30.24))`
+          -- the `max(10, ...)` floor means anything under ~340 collapses to
+          the SAME 10-char budget as the default, so tying maxWidth to
+          leftWidth/rightWidth (~280-499px) was a no-op fix the first time:
+          "Compact liquid arrangement" and "Open solid arrangement" still
+          truncated to "Compact liquid ar..." / "Open solid arrangeme..." on a
+          real ice-float render (run_f7167c64). Fitting a 3-word before/after
+          phrase across 2 lines without truncation needs maxChars>=15, which
+          needs maxWidth>=492 -- past what this primitive's own decorative
+          box (leftWidth/rightWidth) ever reaches on the shrinking side. A
+          fixed, generous maxWidth here (the Label pill sizes its own
+          background independently of the box drawn beside it, so this does
+          not have to track leftWidth/rightWidth) trades a little headroom
+          past the box's drawn edge for never truncating real content. */}
+      <Label text={before||labels[0]} x={90+inward+leftWidth/2} y={245} state={state} maxWidth={500}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={990-inward-rightWidth/2} y={245} active state={state} maxWidth={500}/></>;
   }
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
