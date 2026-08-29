@@ -26,7 +26,7 @@ export interface ExplanationSceneProps {
   rendererDiagnosticMode?: "normal" | "foreground-only" | "background-only";
 }
 
-const BG = "#0B1020";
+const BG = "#08101E";
 const PAPER = "#F7F4EA";
 const ACCENT = "#FFD166";
 const GREEN = "#7DE2A8";
@@ -48,11 +48,14 @@ const clamp = { extrapolateLeft: "clamp" as const, extrapolateRight: "clamp" as 
 function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationSceneProps, "characters"> & { mode?: string }) {
   if (mode === "none") return null;
   const selected = characters.filter((character) => mode === "both" || (mode === "speaker" ? character.isSpeaking : mode === "listener" ? !character.isSpeaking : false)).slice(0, mode === "both" ? 2 : 1);
-  const width = mode === "both" ? 760 : 430;
+  // Character staging is now an overlay, not half the canvas. This preserves
+  // expressive reactions while leaving enough spatial bandwidth for the model
+  // to remain the dominant information-bearing visual.
+  const width = mode === "both" ? 620 : 360;
   return <div style={{ position: "absolute", right: 48, top: 94, bottom: 168, width, overflow: "hidden", borderRadius: 38, zIndex: 8, background: "linear-gradient(180deg, #21365F 0%, #101A31 100%)", border: "3px solid #65C7F766", boxShadow: "0 24px 70px #0008" }}>
     <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 50% 35%, #65C7F722, transparent 62%)" }} />
-    {selected.map((character, index) => <Character key={character.characterId || index} {...character} x={mode === "both" ? -110 + index * 365 : -35} y={430} scale={1.45} />)}
-    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #0B1020)" }} />
+    {selected.map((character, index) => <Character key={character.characterId || index} {...character} x={mode === "both" ? -150 + index * 300 : -70} y={430} scale={1.4} />)}
+    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 74, background: "linear-gradient(transparent, #08101E)" }} />
   </div>;
 }
 
@@ -77,11 +80,14 @@ type CompositionProps = { children: ReactNode; characters: CharacterProps[]; cut
 function ContentStage({ children, right, opacity }: { children: ReactNode; right: number; opacity: number }) {
   return <div style={{ position: "absolute", left: 56, top: 38, right, bottom: 132, display: "flex", flexDirection: "column", justifyContent: "center", opacity }}>{children}</div>;
 }
-function BookendComposition({ children, characters, opacity }: CompositionProps) { return <><ContentStage right={850} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode="both" /></>; }
+// Composition mode, rather than scene position, owns spatial allocation. That
+// makes an interior bookend/reaction scene benefit from the same full-frame
+// watchability correction as the opening and closing scenes.
+function BookendComposition({ children, characters, opacity }: CompositionProps) { return <><ContentStage right={610} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode="both" /></>; }
 function FullModelComposition({ children, opacity }: CompositionProps) { return <ContentStage right={56} opacity={opacity}>{children}</ContentStage>; }
 function ReactionComposition({ children, characters, cutIn, opacity }: CompositionProps) {
   const panelMode = cutIn === "none" ? "listener" : cutIn;
-  return <><ContentStage right={panelMode === "both" ? 850 : 500} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode={panelMode} /></>;
+  return <><ContentStage right={panelMode === "both" ? 610 : 380} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode={panelMode} /></>;
 }
 function CompositionFrame(props: CompositionProps & { mode: CompositionMode }) {
   if (props.mode === "bookend") return <BookendComposition {...props} />;
@@ -119,12 +125,12 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const primitiveGlow = PRIMITIVE_GLOW[visualPrimitive] ?? "#365B82", field = backgroundField(visualPrimitive, primitiveGlow);
   const isPayoff = visualOperation === "payoff", showTitle = compositionMode === "bookend" && !isPayoff;
   const showInteraction = compositionMode === "reaction" && characterCutIn !== "none";
-  const fullCanvasScale = compositionMode === "full-model" ? (isPayoff ? 1.18 : 1.26) : 1;
-  const scaledWidth = `${100 / fullCanvasScale}%`, scaledHeight = Math.round(510 * fullCanvasScale);
-  // foreground-only is normally a diagnostic surface, but it is exactly the
-  // production treatment needed for full-model scenes: geometry floats on the
-  // episode's background field instead of being trapped inside the same dark
-  // rounded card on every shot. Bookend/reaction scenes retain their panels.
+  const compositionScale = compositionMode === "full-model" ? (isPayoff ? 1.18 : 1.26) : compositionMode === "reaction" ? 1.08 : 1.06;
+  const scaledWidth = `${100 / compositionScale}%`, scaledHeight = Math.round(510 * compositionScale);
+  // foreground-only is the production treatment for full-model scenes:
+  // geometry floats on the episode field instead of being trapped inside the
+  // same rounded card on every shot. Bookend/reaction scenes retain their
+  // character staging but now allocate substantially more room to the model.
   const motionMode = compositionMode === "full-model" && rendererDiagnosticMode === "normal" ? "foreground-only" : rendererDiagnosticMode;
 
   return <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
@@ -134,7 +140,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       {showTitle ? <Title>{title}</Title> : null}
       {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
       <div style={{ position: "relative", width: "100%", minHeight: scaledHeight, display: "grid", placeItems: "center" }}>
-        <div style={{ position: "relative", opacity: isPayoff ? .22 : 1, width: scaledWidth, transform: `scale(${fullCanvasScale})`, transformOrigin: "center center" }}>
+        <div style={{ position: "relative", opacity: isPayoff ? .22 : 1, width: scaledWidth, transform: `scale(${compositionScale})`, transformOrigin: "center center" }}>
           <MotionDesignSystem diagnosticMode={motionMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} />
           {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
