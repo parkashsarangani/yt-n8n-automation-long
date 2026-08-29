@@ -228,6 +228,37 @@ export function selectAiScenes(plans: PlanScene[], scripts: ScriptScene[], durat
     }
   }
   if (!selected.size && candidates.length) selected.add(candidates[0]!.plan.scene_index);
+
+  // Safety valve: a diagram-heavy stretch is legitimately left AI-free (see
+  // "short all-diagram episode still has a valid deterministic path" below,
+  // which asserts a short 4-scene episode is NOT forced into an arbitrary AI
+  // quota) — but an unbounded gap between AI resets still reads as visually
+  // monotonous regardless of what kind of content fills it. Production runs
+  // this session (run_9989c55b, run_8279e9b3, run_f0f60b55) trended
+  // visual_reset_cadence 32.8s -> 25.7s -> 23.8s after the label/slot fixes,
+  // still short of the <=16s QA target. Rather than loosen the score>0 filter
+  // globally (which the diagram-heavy test exists specifically to prevent),
+  // only intervene when a gap is long enough that no reasonable content
+  // choice justifies it, and pick the least-bad scene inside that gap.
+  const HARD_CEILING_SEC = 20;
+  if (ordered.length > 2) {
+    const scoredAll = ordered.map((plan, order) => {
+      const script = scriptBy.get(plan.scene_index) ?? { scene_index: plan.scene_index };
+      return { plan, script, start: starts.get(plan.scene_index) ?? 0, duration: durationBy.get(plan.scene_index) ?? 2, score: scoreScene(plan, script, order === 0, plan.scene_index === lastIndex) };
+    });
+    const selectedOrdered = [...selected].sort((a, b) => (starts.get(a) ?? 0) - (starts.get(b) ?? 0));
+    const windowStarts = [0, ...selectedOrdered.map((i) => (starts.get(i) ?? 0) + (durationBy.get(i) ?? 0))];
+    const windowEnds = [...selectedOrdered.map((i) => starts.get(i) ?? 0), cursor];
+    for (let w = 0; w < windowStarts.length; w++) {
+      const wStart = windowStarts[w]!, wEnd = windowEnds[w]!;
+      if (wEnd - wStart <= HARD_CEILING_SEC || selectedSec >= maxAiSec) continue;
+      const pick = scoredAll
+        .filter((item) => !selected.has(item.plan.scene_index) && item.plan.scene_index !== lastIndex && !item.script.is_outro && item.start >= wStart && item.start < wEnd)
+        .sort((a, b) => b.score - a.score)[0];
+      if (pick && selectedSec + pick.duration <= maxAiSec) { selected.add(pick.plan.scene_index); selectedSec += pick.duration; }
+    }
+  }
+
   return selected;
 }
 
