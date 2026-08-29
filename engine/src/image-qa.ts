@@ -31,6 +31,19 @@ export interface ImageQaResult {
   reason: string;
 }
 
+export interface SemanticQaResult {
+  /**
+   * True only when the image actively depicts something the narration does
+   * NOT claim -- a literal misreading of a figurative line, a wrong causal
+   * direction, an object doing something the script never said. Deliberately
+   * NOT "is this image a perfect illustration": b-roll is allowed to be
+   * atmospheric, partial, or oblique, and rejecting merely-loose imagery
+   * would reject most of what the pipeline legitimately produces.
+   */
+  contradictsNarration: boolean;
+  reason: string;
+}
+
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; text(): Promise<string> }>;
 
 function base64FromBytes(bytes: Uint8Array): string {
@@ -42,16 +55,17 @@ function base64FromBytes(bytes: Uint8Array): string {
 }
 
 /**
- * Returns null (not a boolean) when the check could not run at all -- the
- * caller treats null the same as a pass (image is used unchanged), but the
- * distinction is preserved in logging so a persistent misconfiguration
- * (missing API key) is visible instead of silently indistinguishable from
- * "every image is clean".
+ * Shared vision call. Returns the parsed JSON object the model produced, or
+ * null when the check could not run at all (no API key, network error,
+ * timeout, non-JSON response). Callers treat null as "check did not run" and
+ * pass the image through -- see the module comment on why a QA check must
+ * never fail closed.
  */
-export async function checkGeneratedImageForText(
+async function askVision(
   image: { bytes: Uint8Array; media_type: string },
-  fetchImpl: FetchLike = fetch as unknown as FetchLike,
-): Promise<ImageQaResult | null> {
+  instruction: string,
+  fetchImpl: FetchLike,
+): Promise<Record<string, unknown> | null> {
   const apiKey = process.env["OPENAI_API_KEY"];
   if (!apiKey) return null;
   const baseUrl = (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
@@ -69,10 +83,7 @@ export async function checkGeneratedImageForText(
         messages: [{
           role: "user",
           content: [
-            {
-              type: "text",
-              text: "This image must contain no readable text, letters, numbers, logos, or watermarks anywhere in it -- not on props, signage, packaging, or as a texture/pattern. Look closely at any engraved, printed, or embossed marks on objects. Respond with only this JSON, no other text: {\"has_visible_text\": true or false, \"reason\": \"one short sentence\"}",
-            },
+            { type: "text", text: instruction },
             { type: "image_url", image_url: { url: dataUri } },
           ],
         }],
@@ -85,9 +96,8 @@ export async function checkGeneratedImageForText(
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const content = data.choices?.[0]?.message?.content;
     if (typeof content !== "string") return null;
-    const parsed = JSON.parse(content) as { has_visible_text?: unknown; reason?: unknown };
-    if (typeof parsed.has_visible_text !== "boolean") return null;
-    return { hasVisibleText: parsed.has_visible_text, reason: typeof parsed.reason === "string" ? parsed.reason : "" };
+    const parsed = JSON.parse(content) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
   } catch {
     // Network error, timeout (AbortError), or malformed JSON -- all the same
     // outcome: the check didn't run, the image is used as generated.
@@ -95,4 +105,61 @@ export async function checkGeneratedImageForText(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Returns null (not a boolean) when the check could not run at all -- the
+ * caller treats null the same as a pass (image is used unchanged), but the
+ * distinction is preserved in logging so a persistent misconfiguration
+ * (missing API key) is visible instead of silently indistinguishable from
+ * "every image is clean".
+ */
+export async function checkGeneratedImageForText(
+  image: { bytes: Uint8Array; media_type: string },
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<ImageQaResult | null> {
+  const parsed = await askVision(
+    image,
+    "This image must contain no readable text, letters, numbers, logos, or watermarks anywhere in it -- not on props, signage, packaging, or as a texture/pattern. Look closely at any engraved, printed, or embossed marks on objects. Respond with only this JSON, no other text: {\"has_visible_text\": true or false, \"reason\": \"one short sentence\"}",
+    fetchImpl,
+  );
+  if (!parsed || typeof parsed["has_visible_text"] !== "boolean") return null;
+  return { hasVisibleText: parsed["has_visible_text"], reason: typeof parsed["reason"] === "string" ? parsed["reason"] : "" };
+}
+
+/**
+ * Checks whether an image actively CONTRADICTS the line it illustrates.
+ *
+ * Motivating production defect (run_ad5bd430, onions episode): over
+ * narration about preventing an irritant from reaching the eyes, the image
+ * model rendered a glowing beam running between the two characters' eyes --
+ * stylistically on-model, no text, but explanatorily wrong, so the existing
+ * text-only gate passed it. This is exactly the class of defect a human
+ * storyboard review catches and schema validation never can.
+ *
+ * The bar is deliberately "contradicts", not "illustrates well". B-roll is
+ * legitimately atmospheric, partial, and oblique; a check that demanded a
+ * faithful illustration would reject most of what the pipeline correctly
+ * produces, and a QA gate with a high false-positive rate is worse than
+ * none -- it would push good scenes down the fallback path and make episodes
+ * MORE generic, the opposite of the goal. The prompt therefore states the
+ * asymmetry explicitly and tells the model to answer false when unsure.
+ */
+export async function checkGeneratedImageMatchesNarration(
+  image: { bytes: Uint8Array; media_type: string },
+  narration: string,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<SemanticQaResult | null> {
+  const line = narration.trim().slice(0, 400);
+  if (!line) return null;
+  const parsed = await askVision(
+    image,
+    `This image is b-roll illustrating this spoken line from an explainer video: "${line}"\n\n`
+    + "Decide ONLY whether the image actively contradicts or misrepresents that line -- for example, taking a figurative phrase literally, showing the causal direction backwards, or depicting an event the line never describes.\n\n"
+    + "Do NOT flag an image merely for being atmospheric, abstract, partial, stylised, or a loose association. B-roll is not required to be a literal illustration. If you are unsure, answer false.\n\n"
+    + "Respond with only this JSON, no other text: {\"contradicts_narration\": true or false, \"reason\": \"one short sentence\"}",
+    fetchImpl,
+  );
+  if (!parsed || typeof parsed["contradicts_narration"] !== "boolean") return null;
+  return { contradictsNarration: parsed["contradicts_narration"], reason: typeof parsed["reason"] === "string" ? parsed["reason"] : "" };
 }
