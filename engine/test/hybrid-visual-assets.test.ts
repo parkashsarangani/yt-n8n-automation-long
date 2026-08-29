@@ -79,3 +79,33 @@ test("a long low-scoring stretch still gets a forced reset once the gap exceeds 
   assert.equal(selected.has(9), false, "payoff stays deterministic");
   assert.ok([...selected].some((i) => i >= 1 && i <= 8), "an otherwise-empty 48s stretch must get at least one forced reset");
 });
+
+test("the forced reset prefers a non-character scene over a higher-scoring character one", () => {
+  // Same 48s dead stretch as above, except scene 3 is identical to its
+  // neighbors except for character_cut_in, which raises its raw scoreScene()
+  // by +1 -- the highest in the gap. Production evidence (run_3c266ce5:
+  // character_cut_in_restraint 35%->44%; run_a53a0170: 35%->38%) showed the
+  // valve's plain highest-score pick was inflating character screen time,
+  // since any scene converted to ai_broll counts as character-visible by
+  // default. The valve must still fill the gap, but not with scene 3.
+  const plans = [
+    { scene_index: 0, scene_role: "character-hook", visual_operation: "timeline", visual_primitive: "cause-chain", composition_mode: "bookend" },
+    ...Array.from({ length: 8 }, (_, i) => ({
+      scene_index: i + 1,
+      scene_role: "diagram-build",
+      visual_operation: "timeline",
+      visual_primitive: "timeline",
+      composition_mode: "full-model",
+      ...(i + 1 === 3 ? { character_cut_in: "listener" } : {}),
+    })),
+    { scene_index: 9, scene_role: "recap", visual_operation: "payoff", visual_primitive: "cause-chain", composition_mode: "bookend" },
+  ];
+  const scripts = plans.map(({ scene_index }) => ({ scene_index, narration: "spoken beat" }));
+  const durations = new Map(plans.map(({ scene_index }) => [scene_index, scene_index === 0 ? 4 : scene_index === 9 ? 4 : 6]));
+
+  const selected = selectAiScenes(plans, scripts, durations);
+
+  assert.equal(selected.has(9), false, "payoff stays deterministic");
+  assert.ok([...selected].some((i) => i >= 1 && i <= 8), "the dead stretch still gets a forced reset");
+  assert.equal(selected.has(3), false, "the character-tagged scene must not be the forced pick when a plain alternative exists");
+});
