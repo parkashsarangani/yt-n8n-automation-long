@@ -136,12 +136,15 @@ export class FalImageProvider implements ImageProvider {
   }
 
   /**
-   * Build a shot pack around one anchor. When reference is supplied, the first
-   * shot is itself an edit of that earlier canonical image; this makes visual
-   * identity persist across scenes in the same continuity group. Remaining
-   * shots edit the new scene anchor, preserving identity while allowing a new
-   * camera/action beat. FLUX.2 Pro Edit's documented image_urls input is used
-   * rather than pretending a stable seed alone provides identity continuity.
+   * Build a shot pack around one anchor. This method is intentionally strict:
+   * callers author the exact temporal shot windows that the compositor will
+   * render, so silently filtering a prompt or capping the list would make the
+   * generated pack disagree with narration timing. Invalid packs fail and the
+   * hybrid worker retains the deterministic motion scene instead.
+   *
+   * When reference is supplied, the first shot is itself an edit of that
+   * earlier canonical image. Remaining shots edit the new scene anchor. This
+   * preserves recurring identity across scenes and within each shot pack.
    */
   async generatePack(req: {
     prompts: string[];
@@ -149,8 +152,13 @@ export class FalImageProvider implements ImageProvider {
     seed: number;
     reference?: GeneratedImage;
   }) {
-    const prompts = req.prompts.filter((prompt) => prompt.trim()).slice(0, 5);
-    if (!prompts.length) throw new ProviderError(`${this.id} generatePack needs at least one prompt`);
+    if (req.prompts.length < 1 || req.prompts.length > 5) {
+      throw new ProviderError(`${this.id} generatePack requires 1-5 prompts; received ${req.prompts.length}`);
+    }
+    if (req.prompts.some((prompt) => !prompt.trim())) {
+      throw new ProviderError(`${this.id} generatePack does not accept blank prompts`);
+    }
+    const prompts = req.prompts.map((prompt) => prompt.trim());
 
     const anchor = req.reference
       ? await this.request(
@@ -175,6 +183,10 @@ export class FalImageProvider implements ImageProvider {
           (req.seed + i) & 0x7fffffff,
         ),
       ));
+    }
+
+    if (images.length !== prompts.length) {
+      throw new ProviderError(`${this.id} generated ${images.length}/${prompts.length} requested pack images`);
     }
 
     return {
