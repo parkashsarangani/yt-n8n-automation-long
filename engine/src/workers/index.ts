@@ -11,6 +11,7 @@ import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeCartoonSceneCompilerWorker as makeV15CartoonSceneCompilerWorker } from "./cartoon-scenes-v15.ts";
 import { makeCartoonSceneCompilerWorker as makeV16CartoonSceneCompilerWorker } from "./cartoon-scenes-v16.ts";
+import { makeHybridVisualAssetsWorker } from "./hybrid-visual-assets.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
@@ -23,6 +24,7 @@ export {
   makeVoiceWorker,
   makeDialogueVoiceWorker,
   makeAssetWorker,
+  makeHybridVisualAssetsWorker,
   makeRenderWorker,
   makeCartoonRenderWorker,
   makeThumbnailWorker,
@@ -68,6 +70,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
     makeV16CartoonSceneCompilerWorker(),
+    makeHybridVisualAssetsWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),

@@ -7,7 +7,6 @@ export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
   | "comparison" | "kinetic-emphasis" | "character-reaction" | "recap";
 
-
 export interface ExplanationSceneProps {
   role?: ExplanationRole;
   visualOperation?: VisualOperation;
@@ -102,24 +101,11 @@ function BustReactionPanel({ characters = [], mode = "none" }: Pick<ExplanationS
   );
 }
 
-// The character's engagement with the model tracks what the model is doing,
-// not just a generic reach: a hypothesis gets a tentative, dashed point (it
-// matches the dashed provisional geometry MotionDesignSystem itself draws for
-// that state); a contradiction gets a sharp retreat timed to the same
-// consequence window MotionDesignSystem uses internally, so the character
-// visibly reacts at the instant the model breaks rather than holding one
-// static pose through it; every other state gets a firm, committed reach.
-// Characters "occupying a neighbouring box" while a diagram animates was the
-// specific complaint -- this ties their one available gesture to the beat
-// the diagram is actually on.
 function CharacterModelInteraction({ operation, state, visible }: { operation: VisualOperation; state: VisualState; visible: boolean }) {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   if (!visible) return null;
   const reach = interpolate(frame, [fps * .2, fps * .85], [0, 1], clamp);
-  // Mirrors useProgress's own consequence window in MotionDesignSystem, so
-  // the character's recoil lands on the same frame the model's geometry
-  // actually breaks, not on an unrelated fixed timer.
   const consequence = interpolate(frame, [durationInFrames * 0.72, durationInFrames * 0.9], [0, 1], clamp);
   const y = operation === "compress" ? 410 : operation === "group" ? 330 : operation === "payoff" ? 270 : 365;
   const tentative = state === "hypothesis";
@@ -145,8 +131,13 @@ type CompositionProps = {
   opacity: number;
 };
 
+// The completed-episode audit showed the explanation card using only a small
+// island in the centre of a 16:9 frame. These margins keep caption safety but
+// give the model substantially more screen area; full-model content is then
+// scaled below so its 1080x510 internal canvas no longer renders at ~1080px
+// wide inside a ~1750px stage.
 function ContentStage({ children, right, opacity }: { children: ReactNode; right: number; opacity: number }) {
-  return <div style={{ position: "absolute", left: 86, top: 62, right, bottom: 176, display: "flex", flexDirection: "column", justifyContent: "center", opacity }}>{children}</div>;
+  return <div style={{ position: "absolute", left: 56, top: 38, right, bottom: 132, display: "flex", flexDirection: "column", justifyContent: "center", opacity }}>{children}</div>;
 }
 
 function BookendComposition({ children, characters, opacity }: CompositionProps) {
@@ -154,12 +145,12 @@ function BookendComposition({ children, characters, opacity }: CompositionProps)
 }
 
 function FullModelComposition({ children, opacity }: CompositionProps) {
-  return <ContentStage right={86} opacity={opacity}>{children}</ContentStage>;
+  return <ContentStage right={56} opacity={opacity}>{children}</ContentStage>;
 }
 
 function ReactionComposition({ children, characters, cutIn, opacity }: CompositionProps) {
   const panelMode = cutIn === "none" ? "listener" : cutIn;
-  return <><ContentStage right={panelMode === "both" ? 850 : 520} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode={panelMode} /></>;
+  return <><ContentStage right={panelMode === "both" ? 850 : 500} opacity={opacity}>{children}</ContentStage><BustReactionPanel characters={characters} mode={panelMode} /></>;
 }
 
 function CompositionFrame(props: CompositionProps & { mode: CompositionMode }) {
@@ -170,17 +161,14 @@ function CompositionFrame(props: CompositionProps & { mode: CompositionMode }) {
 
 function Title({ children }: { children?: string }) {
   if (!children) return null;
-  return <div style={{ fontSize: 56, fontWeight: 840, letterSpacing: -1.1, color: PAPER, marginBottom: 24, maxWidth: 1320 }}>{children}</div>;
+  return <div style={{ fontSize: 60, fontWeight: 840, letterSpacing: -1.1, color: PAPER, marginBottom: 20, maxWidth: 1450 }}>{children}</div>;
 }
 
 function PayoffResolution({ before, after, keyText }: { before?: string; after?: string; keyText?: string }) {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const revealAt = Math.max(fps * 0.8, durationInFrames * 0.62);
-  const resolve = interpolate(frame, [revealAt, Math.max(revealAt + 1, durationInFrames - 1)], [0, 1], {
-    ...clamp,
-    easing: Easing.inOut(Easing.cubic),
-  });
+  const resolve = interpolate(frame, [revealAt, Math.max(revealAt + 1, durationInFrames - 1)], [0, 1], { ...clamp, easing: Easing.inOut(Easing.cubic) });
   const ring = spring({ frame: frame - revealAt, fps, config: { damping: 15, stiffness: 74 } });
   if (resolve <= 0) return null;
   return <div style={{
@@ -188,10 +176,10 @@ function PayoffResolution({ before, after, keyText }: { before?: string; after?:
     background: `radial-gradient(circle at 50% 48%, rgba(9,22,40,${0.5 + resolve * 0.24}), rgba(5,8,16,${resolve * 0.9}))`,
     opacity: resolve,
   }}>
-    <div style={{ position: "absolute", width: 330 + ring * 270, height: 330 + ring * 270, borderRadius: "50%", border: `10px solid ${GREEN}`, opacity: 0.16 + resolve * 0.38, boxShadow: "0 0 80px #7DE2A844" }} />
-    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 760, padding: "0 44px", transform: `translateY(${(1 - resolve) * 40}px) scale(${0.92 + resolve * 0.08})` }}>
-      <div style={{ color: ACCENT, fontSize: 62, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
-      <div style={{ width: resolve * 520, height: 8, borderRadius: 8, background: GREEN, margin: "24px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
+    <div style={{ position: "absolute", width: 420 + ring * 330, height: 420 + ring * 330, borderRadius: "50%", border: `10px solid ${GREEN}`, opacity: 0.16 + resolve * 0.38, boxShadow: "0 0 80px #7DE2A844" }} />
+    <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 1080, padding: "0 44px", transform: `translateY(${(1 - resolve) * 40}px) scale(${0.92 + resolve * 0.08})` }}>
+      <div style={{ color: ACCENT, fontSize: 72, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
+      <div style={{ width: resolve * 640, height: 8, borderRadius: 8, background: GREEN, margin: "24px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
     </div>
   </div>;
 }
@@ -223,6 +211,9 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   const isPayoff = visualOperation === "payoff";
   const showTitle = compositionMode === "bookend" && !isPayoff;
   const showInteraction = compositionMode === "reaction" && characterCutIn !== "none";
+  const fullCanvasScale = compositionMode === "full-model" ? (isPayoff ? 1.18 : 1.26) : 1;
+  const scaledWidth = `${100 / fullCanvasScale}%`;
+  const scaledHeight = Math.round(510 * fullCanvasScale);
 
   return (
     <AbsoluteFill style={{ background: `radial-gradient(circle at 24% 22%, ${primitiveGlow}66 0, ${BG} 48%, #070A12 100%)`, fontFamily: "Inter, Arial, sans-serif", overflow: "hidden" }}>
@@ -231,16 +222,17 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       <CompositionFrame mode={compositionMode} characters={safeCharacters} cutIn={characterCutIn} opacity={progress}>
         {showTitle ? <Title>{title}</Title> : null}
         {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
-        <div style={{ position: "relative", width: "100%" }}>
-          {/* 0.22, not 0.04: the near-zero opacity was doing double duty as a
-              content filter, hiding leftover labels/rings the model still drew
-              underneath. Those are now actually suppressed at the source (see
-              MotionDesignSystem's isPayoffState handling), so the entity marks
-              -- the "four distinct symbols" a clean payoff needs -- can stay
-              visible enough to read as a soft backdrop instead of vanishing
-              along with the clutter. */}
-          <div style={{ opacity: isPayoff ? 0.22 : 1 }}><MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} /></div>
-          {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
+        <div style={{ position: "relative", width: "100%", minHeight: scaledHeight, display: "grid", placeItems: "center" }}>
+          <div style={{
+            position: "relative",
+            opacity: isPayoff ? 0.22 : 1,
+            width: scaledWidth,
+            transform: `scale(${fullCanvasScale})`,
+            transformOrigin: "center center",
+          }}>
+            <MotionDesignSystem diagnosticMode={rendererDiagnosticMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} />
+            {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
+          </div>
         </div>
       </CompositionFrame>
     </AbsoluteFill>
