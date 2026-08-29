@@ -264,6 +264,68 @@ describe("cartoon render contract", { timeout: TEST_TIMEOUT }, () => {
     assert.ok(fs.existsSync(result.output_path));
     assert.equal(result.degraded_scenes, 0);
   });
+
+  it("concatenating many heterogeneous-encode scenes does not corrupt total duration", { timeout: TEST_TIMEOUT }, async () => {
+    // Real production bug (run_9989c55b, a hybrid cartoon@11 episode): every
+    // scene_N_final.mp4 was individually verified correct -- Remotion given
+    // the right frame count, each scene's own "-t duration" mux correct, the
+    // pipeline's own totalVideoDuration/fade-out math agreeing on ~60.7s --
+    // but the published video still came out to 346-374s, several minutes of
+    // black screen with only looped background music audible. Root cause:
+    // concatScenes() used the ffmpeg concat DEMUXER with "-c copy", which
+    // assumes every segment shares a consistent timebase. Segments here come
+    // from two different encode paths -- "explanation" template scenes
+    // (Remotion's own H.264 stream, copied straight through) and
+    // images-based scenes (libx264 re-encode via Ken Burns, which leaves a
+    // near-1:1-but-not-exact SAR) -- and mixing them is exactly what silently
+    // produced a corrupted, gapped timeline.
+    //
+    // A 2-scene version of this fixture did NOT reproduce the corruption --
+    // it took the real scene count (14, matching production's own mix at
+    // indices 0/4/6/8) to trigger it reliably; duration of the individual
+    // scenes doesn't matter (verified: even at ~0.5s per scene the bug
+    // reproduced, 51s actual vs. ~10.5s expected), so this keeps every scene
+    // short for a fast test while preserving the real join count.
+    const durations = [0.6, 0.5, 0.5, 0.6, 0.5, 0.5, 0.6, 0.5, 0.6, 0.5, 0.6, 0.6, 0.7, 0.7];
+    const imageIndexes = new Set([0, 4, 6, 8]);
+    const scenes = durations.map((d, i) => {
+      const audio = generateSilentAudioBase64(d);
+      if (imageIndexes.has(i)) {
+        return {
+          scene_index: i,
+          images_base64: [generatePngBase64("0x336699"), generatePngBase64("0x994422")],
+          audio: { audio_base64: audio },
+        };
+      }
+      return legacyTemplateScene(i, audio, "explanation", {
+        role: "diagram-build",
+        visualOperation: "timeline",
+        visualPrimitive: "objects",
+        visualState: "mechanism",
+        compositionMode: "full-model",
+        title: "",
+        keyText: `Key text ${i}`,
+        elements: ["a", "b"],
+        entityIdentityKeys: ["entity-a", "entity-b"],
+      });
+    });
+
+    const start = await postJSON("/compose", payloadWithScenes(scenes));
+    const result = await pollJob(start.body.job_id);
+    assert.ok(fs.existsSync(result.output_path));
+
+    const probe = ffprobeJSON(result.output_path);
+    const actualDuration = Number(probe.format.duration);
+    // Every scene's own duration + the injected 2.5s outro card, plus slack
+    // for fades/mux overhead. The real bug produced ~51s against this same
+    // ~10.5s expectation -- a 5x blowup, not a rounding error.
+    const expectedSum = durations.reduce((a, b) => a + b, 0);
+    const expectedMax = expectedSum + 2.5 + 3;
+    assert.ok(
+      actualDuration < expectedMax,
+      `expected total duration under ${expectedMax}s (14 scenes summing to ${expectedSum}s + outro), got ${actualDuration}s -- concat likely corrupted the timeline`,
+    );
+  });
 });
 
 describe("legacy motion-graphics templates still render", { timeout: TEST_TIMEOUT }, () => {
