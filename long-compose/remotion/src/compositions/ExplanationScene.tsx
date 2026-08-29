@@ -142,8 +142,15 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       <div style={{ position: "relative", width: "100%", minHeight: scaledHeight, display: "grid", placeItems: "center" }}>
         <div style={{ position: "relative", opacity: isPayoff ? .22 : 1, width: scaledWidth, transform: `scale(${compositionScale})`, transformOrigin: "center center" }}>
           <MotionDesignSystem diagnosticMode={motionMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} />
-          {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
         </div>
+        {/* Sibling of the dimmed diagram, not a child of it: PayoffResolution
+            is the closing statement the whole episode resolves to, and CSS
+            opacity on an ancestor multiplies through regardless of the
+            child's own opacity/zIndex. Nesting it inside the isPayoff-dimmed
+            div (as an earlier version of this refactor did) rendered the
+            payoff copy at 22% opacity -- readable in source, invisible on
+            screen. */}
+        {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
       </div>
     </CompositionFrame>
   </AbsoluteFill>;
