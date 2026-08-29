@@ -53,3 +53,29 @@ test("short all-diagram episode still has a valid deterministic path", () => {
   assert.equal(selected.has(3), false);
   assert.ok(selected.size <= 1, "diagram-heavy episodes must not be forced into an arbitrary AI quota");
 });
+
+test("a long low-scoring stretch still gets a forced reset once the gap exceeds the hard ceiling", () => {
+  // scene 0: AI-friendly hook. scenes 1-8: long run of motion-first diagram
+  // scenes (score <= 0, excluded from the normal candidate pool). scene 9:
+  // deterministic payoff. Each of 1-8 runs 6s, so the gap between the hook's
+  // end and the payoff is 48s — well past HARD_CEILING_SEC (20s) and past
+  // what the production runs this session showed reads as visually inert.
+  const plans = [
+    { scene_index: 0, scene_role: "character-hook", visual_operation: "timeline", visual_primitive: "cause-chain", composition_mode: "bookend" },
+    ...Array.from({ length: 8 }, (_, i) => ({
+      scene_index: i + 1,
+      scene_role: "diagram-build",
+      visual_operation: "timeline",
+      visual_primitive: "timeline",
+      composition_mode: "full-model",
+    })),
+    { scene_index: 9, scene_role: "recap", visual_operation: "payoff", visual_primitive: "cause-chain", composition_mode: "bookend" },
+  ];
+  const scripts = plans.map(({ scene_index }) => ({ scene_index, narration: "spoken beat" }));
+  const durations = new Map(plans.map(({ scene_index }) => [scene_index, scene_index === 0 ? 4 : scene_index === 9 ? 4 : 6]));
+
+  const selected = selectAiScenes(plans, scripts, durations);
+
+  assert.equal(selected.has(9), false, "payoff stays deterministic");
+  assert.ok([...selected].some((i) => i >= 1 && i <= 8), "an otherwise-empty 48s stretch must get at least one forced reset");
+});
