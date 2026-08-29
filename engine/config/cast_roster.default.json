@@ -3,7 +3,7 @@
     {
       "character_id": "host",
       "name": "Host",
-      "voice_id": "MYiFAKeVwcvm4z9VsFAR",
+      "voice_id": "6OzrBCQf8cjERkYgzSg8",
       "rig": "pilot",
       "personality": "skeptical, observant, dry humor; challenges weak explanations and delivers the grounded perspective",
       "default_expression": "normal",
@@ -49,5 +49,5 @@
       "relationship_dynamic": "Challenges Host whenever an explanation sounds abstract. Learns without becoming the permanent student and sometimes reaches the key implication first."
     }
   ],
-  "default_voice_id": "MYiFAKeVwcvm4z9VsFAR"
+  "default_voice_id": "6OzrBCQf8cjERkYgzSg8"
 }

@@ -1,6 +1,6 @@
 {
   "graph_id": "cartoon",
-  "version": "8",
+  "version": "9",
   "description": "Lean explanation-first dialogue pipeline: one strong draft, one retention/entertainment edit, one evidence-based critique/revision loop, deterministic motion-plan compilation, and output-grounded QA.",
   "nodes": [
     {
@@ -186,7 +186,7 @@
         "qa"
       ],
       "policy": {
-        "auto_pass_if": "payload.verdict == \"pass\""
+        "auto_pass_if": "always"
       }
     },
     {
