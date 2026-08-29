@@ -130,8 +130,13 @@ test("sound design follows operations and preserves a restrained payoff", () => 
   assert.match(compose, /operationFallback/);
   assert.match(compose, /visualStateFallback/);
   assert.match(compose, /explanationMode \? "" : comment_hook/);
-  assert.match(compose, /sfxEvents\.length >= 10/);
-  assert.match(compose, /time - lastCueTime < 1\.8/);
+  // Raised from 10/1.8s: retention research singles out sound design tied to
+  // every visual change as the single biggest retention lever, and the old
+  // cap left roughly 60% of a typical 15-17 scene episode with no cue at
+  // all. Still bounded, not unlimited -- a continuous barrage of clicks is
+  // its own retention risk.
+  assert.match(compose, /sfxEvents\.length >= 20/);
+  assert.match(compose, /time - lastCueTime < 1\.3/);
   assert.match(compose, /explanationMode \? 0\.11 : 0\.15/);
   assert.match(compose, /volume: 0\.14/);
   assert.match(compose, /operationPhase/);
@@ -197,6 +202,25 @@ test("before-after boxes carry an entity mark, not just colour and text", () => 
   assert.match(motion, /rightId\s*=\s*identityKeys\[1\]\s*\|\|\s*identityKeys\[0\]/);
   assert.match(motion, /<EntityMark id=\{identityKeys\[0\]\} icon=\{leftIcon\}/);
   assert.match(motion, /<EntityMark id=\{rightId\} icon=\{rightIcon\}/);
+});
+
+test("the payoff visually retraces the episode's mechanism, not just a decorative ring", () => {
+  // Watch feedback: "the text supplies the conclusion while the animation
+  // supplies decoration... the final visual should reconstruct that
+  // mechanism". EntityMark must be exported for ExplanationScene to use it,
+  // and the payoff chain must actually be wired to the scene's own reused
+  // entities (elements/entityIdentityKeys/entityIcons), not a fixed prop.
+  assert.match(motion, /export function EntityMark/);
+  assert.match(scene, /function MechanismChain/);
+  assert.match(scene, /entities\.length < 2\) return null/);
+  assert.match(scene, /<PayoffResolution before=\{before\} after=\{after\} keyText=\{keyText\} elements=\{elements\} entityIdentityKeys=\{entityIdentityKeys\} entityIcons=\{entityIcons\}/);
+  // Payoff-state geometry is established as always green (see the
+  // accentCopyBlocks regression test) -- a chain icon landing on the same
+  // hash-derived accent gold as the closing text purely by coincidence would
+  // read as a second, duplicated block of closing copy. Confirmed by an
+  // actual regression run before this override was added.
+  assert.match(motion, /color\?\s*:\s*string/);
+  assert.match(scene, /<EntityMark id=\{id\} icon=\{entityIcons\[id\]\} color=\{GREEN\}/);
 });
 
 test("reaction panels interact with the model and payoff removes secondary copy", () => {

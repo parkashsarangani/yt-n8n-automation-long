@@ -142,10 +142,17 @@ export type EntityIconMap = Record<string, { viewBox: string; body: string }>;
 // hexagon that means nothing; an entity with no confident icon match keeps
 // today's shape exactly as before, this is a strict addition, never a
 // regression on a miss.
-function EntityMark({ id, x, y, size = 30, active = true, icon }: { id: string; x: number; y: number; size?: number; active?: boolean; icon?: { viewBox: string; body: string } }) {
+export function EntityMark({ id, x, y, size = 30, active = true, icon, color }: { id: string; x: number; y: number; size?: number; active?: boolean; icon?: { viewBox: string; body: string }; color?: string }) {
   const hash = hashText(id || "entity");
   const colors = [ACCENT, BLUE, GREEN, "#B794F4", "#FF7D7D", "#5DE0C6"];
-  const fill = colors[hash % colors.length]!;
+  // `color` overrides the hash-derived palette entirely -- used by the
+  // payoff mechanism chain (ExplanationScene.tsx) to force every icon green,
+  // matching the established "payoff-state geometry is always green" visual
+  // language (see the accentCopyBlocks test in motion-design-render.test.js)
+  // instead of occasionally landing on the same accent gold as the closing
+  // text purely by hash coincidence, which a live test run caught reading as
+  // a second, duplicated block of closing copy.
+  const fill = color ?? colors[hash % colors.length]!;
   const opacity = active ? 1 : 0.25;
   if (icon) {
     return <svg x={x - size} y={y - size} width={size * 2} height={size * 2} viewBox={icon.viewBox} opacity={opacity} overflow="visible">

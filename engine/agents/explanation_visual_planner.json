@@ -15,7 +15,7 @@
     }
   ],
   "produces": "explanation_plan",
-  "produces_version": "1.3.0",
+  "produces_version": "1.4.0",
   "prompt": "explanation_visual_planner@1",
   "model": {
     "capability": "reasoning_high",

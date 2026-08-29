@@ -6,28 +6,39 @@ const agent = JSON.parse(readFileSync(new URL("../agents/explanation_visual_plan
 const legacySchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.0.0.json", import.meta.url), "utf8"));
 const semanticSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.1.0.json", import.meta.url), "utf8"));
 const priorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
-const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
+const priorPriorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
+const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.4.0.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
 const legacyScene = legacySchema.json_schema.properties.scenes.items;
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
-test("explanation planner v3 emits required motion-design explanation_plan 1.3", () => {
+test("explanation planner v3 emits required motion-design explanation_plan 1.4", () => {
   assert.equal(agent.version, "3");
   assert.equal(agent.produces, "explanation_plan");
-  assert.equal(agent.produces_version, "1.3.0");
+  assert.equal(agent.produces_version, "1.4.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
   assert.equal(schema.status, "active");
   assert.equal(legacySchema.status, "deprecated");
   assert.equal(semanticSchema.status, "deprecated");
-  // 1.2.0 is deprecated, not retired: an episode paused on a stored 1.2.0
-  // explanation_plan must still validate and resume against its own schema.
-  // Retired versions fail even an exact-version read (see registry.ts), which
-  // is exactly the resumability break the versioned-artifact contract exists
-  // to prevent -- so tightening the limits had to land as a new version
-  // rather than mutating 1.2.0 in place.
+  // 1.2.0/1.3.0 are deprecated, not retired: an episode paused on a stored
+  // 1.2.0 or 1.3.0 explanation_plan must still validate and resume against
+  // its own schema. Retired versions fail even an exact-version read (see
+  // registry.ts), which is exactly the resumability break the
+  // versioned-artifact contract exists to prevent -- so tightening the
+  // limits had to land as a new version rather than mutating an old one in
+  // place, both times.
   assert.equal(priorSchema.status, "deprecated");
   assert.equal(priorSchema.json_schema.properties.scenes.items.properties.explanation_title.maxLength, 80);
+  assert.equal(priorPriorSchema.status, "deprecated");
+  // run_ad5bd430 showed the before-after primitive's 2-line box truncating
+  // even at a much wider renderer maxWidth, because 1.3.0 still let the
+  // planner author up to 64/72 chars for fields that render in a fixed-size
+  // box -- roughly double what a legible 2-line label can hold.
+  assert.equal(priorPriorSchema.json_schema.properties.scenes.items.properties.state_before.maxLength, 64);
+  assert.equal(props.state_before.maxLength, 32);
+  assert.equal(props.state_after.maxLength, 32);
+  assert.equal(props.key_text.maxLength, 48);
   assert.ok(scene.required.includes("visual_operation"));
   assert.ok(scene.required.includes("visual_primitive"));
   assert.ok(scene.required.includes("visual_state"));
@@ -64,4 +75,12 @@ test("explanation plan encodes frame ownership and meaningful change", () => {
   assert.match(prompt, /at least half of explanatory scenes must reuse/i);
   assert.match(prompt, /primitive defines what exists/i);
   assert.match(prompt, /Do not emit or optimize legacy background/i);
+  assert.match(prompt, /well under 32 characters/i);
+  assert.match(prompt, /never a clause or sentence/i);
+  // Diagram specificity: bias primitive selection toward the ones the
+  // renderer actually gives real per-entity icons (objects/before-after/
+  // cause-chain/network/timeline), as a tiebreaker only -- correctness must
+  // still come first, never distorted to chase an icon.
+  assert.match(prompt, /Correctness always wins first/i);
+  assert.match(prompt, /prefer `objects`, `before-after`, `cause-chain`, `network`, or `timeline`/);
 });

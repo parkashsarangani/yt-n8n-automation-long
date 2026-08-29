@@ -1,8 +1,8 @@
 {
   "schema_id": "explanation_plan",
-  "version": "1.3.0",
-  "status": "deprecated",
-  "description": "1.2.0 plus tighter title/element/key-text limits sized to the renderer's actual safe area, so the compiler no longer has to silently drop what does not fit.",
+  "version": "1.4.0",
+  "status": "active",
+  "description": "1.3.0 plus tighter state_before/state_after/key_text limits. A real production render (run_ad5bd430) showed the before-after primitive's 2-line label box truncating even after two rounds of renderer-side maxWidth increases, because nothing constrained how long the planner was allowed to author these fields in the first place -- 64/72 chars is roughly double what a 2-line box at legible font size can hold. Renderer maxWidth tuning alone cannot fix content the schema still permits to be too long.",
   "produced_by": [
     "explanation_visual_planner"
   ],
@@ -311,15 +311,18 @@
             },
             "state_before": {
               "type": "string",
-              "maxLength": 64
+              "maxLength": 32,
+              "description": "A short phrase (aim for well under 32 chars), not a clause -- this renders in a fixed 2-line box alongside a sibling icon. \"sealed cells\" not \"the cells look sealed before the knife touches them\"."
             },
             "state_after": {
               "type": "string",
-              "maxLength": 64
+              "maxLength": 32,
+              "description": "Same constraint as state_before -- a short phrase, not a clause."
             },
             "key_text": {
               "type": "string",
-              "maxLength": 72
+              "maxLength": 48,
+              "description": "One short emphasised phrase, not a sentence -- most call sites render this as a single line."
             },
             "character_cut_in": {
               "type": "string",

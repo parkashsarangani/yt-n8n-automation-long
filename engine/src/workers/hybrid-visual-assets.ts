@@ -1,4 +1,5 @@
 import type { Artifact, BlobRef } from "../artifact.ts";
+import { checkGeneratedImageForText } from "../image-qa.ts";
 import { resolveEntityIcons, type ResolvedIcon } from "../icon-search.ts";
 import {
   MOTION_BG,
@@ -430,6 +431,44 @@ async function generatePack(provider: ConsistentPackProvider, prompts: string[],
   if (!image) throw new Error("image provider returned no image");
   return [image];
 }
+
+/**
+ * generatePack, plus a vision QA pass rejecting the one class of defect the
+ * house style explicitly forbids but the image model sometimes produces
+ * anyway: visible text/lettering/logos baked into the artwork (confirmed in
+ * production, run_ad5bd430 -- a generated knife carried fake engraved
+ * lettering nothing in the pipeline rejected). One retry with a perturbed
+ * seed before giving up; a scene that still fails QA after the retry throws,
+ * which the caller already treats identically to a generation failure --
+ * falling back to the deterministic motion graphic rather than shipping a
+ * flagged image. checkGeneratedImageForText degrades to null (pass) on any
+ * QA-infrastructure problem of its own (missing key, network, timeout), so
+ * this never blocks generation on the QA call itself, only on a confirmed
+ * defect.
+ */
+async function generatePackWithTextQa(
+  provider: ConsistentPackProvider,
+  prompts: string[],
+  seed: number,
+  reference: GeneratedImage | undefined,
+  logger: WorkerContext["logger"],
+  sceneIndex: number,
+): Promise<GeneratedImage[]> {
+  const flaggedReasons = async (images: GeneratedImage[]): Promise<string[]> => {
+    const results = await Promise.all(images.map((image) => checkGeneratedImageForText(image)));
+    return results.filter((result): result is NonNullable<typeof result> => result?.hasVisibleText === true).map((result) => result.reason);
+  };
+
+  const first = await generatePack(provider, prompts, seed, reference);
+  const firstFlags = await flaggedReasons(first);
+  if (firstFlags.length === 0) return first;
+  logger.warn(`[hybrid_visual_assets] scene ${sceneIndex}: ${firstFlags.length} generated image(s) carry visible text (${firstFlags.join("; ")}); regenerating once`);
+
+  const retry = await generatePack(provider, prompts, (seed + 1) >>> 0, reference);
+  const retryFlags = await flaggedReasons(retry);
+  if (retryFlags.length === 0) return retry;
+  throw new Error(`generated images still carry visible text after regeneration: ${retryFlags.join("; ")}`);
+}
 function validateGenerated(images: GeneratedImage[], expected: number): void {
   if (images.length !== expected) throw new Error(`image provider returned ${images.length}/${expected} requested shots`);
   for (const [index, image] of images.entries()) {
@@ -558,7 +597,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
         const seed = stableHash(`${MOTION_STYLE_ID}:${group}`) & 0x7fffffff;
 
         try {
-          const generated = await generatePack(provider, prompts, seed, anchors.get(group));
+          const generated = await generatePackWithTextQa(provider, prompts, seed, anchors.get(group), ctx.logger, base.scene_index);
           validateGenerated(generated, prompts.length);
           if (!anchors.has(group)) anchors.set(group, generated[0]!);
           const refs: BlobRef[] = [];
