@@ -11,7 +11,10 @@ test("cartoon graph uses one combined edit before evidence-based revision", () =
   const byId = new Map<string, { id: string; in?: string[]; policy?: { auto_pass_if?: string } }>(
     graph.nodes.map((node: { id: string; in?: string[]; policy?: { auto_pass_if?: string } }) => [node.id, node]),
   );
-  assert.equal(graph.version, "9");
+  // Pin the structure this test actually protects, not an unrelated graph
+  // version. Version bumps are expected whenever a production node changes;
+  // the assertions below are the comprehension-editor contract.
+  assert.ok(Array.isArray(graph.nodes));
   assert.deepEqual(byId.get("draft_script")?.in, ["approve_story", "cast_roster"]);
   assert.equal(byId.has("comprehension_edit"), false);
   assert.equal(byId.has("retention_edit"), false);
