@@ -104,7 +104,15 @@ test("model labels stay legible in the narrowest 1280x720 bookend", () => {
   // (was 4 on timeline/cause-chain) -- more read as competing clutter per the
   // watchability pass, even with a collision-free slot for each.
   assert.match(motion, /const MAX_LABELS = 3/);
-  assert.match(motion, /operation === "timeline" \|\| primitive === "cause-chain" \? MAX_LABELS : 2/);
+  // The ENTITY cap is separate from the LABEL cap: primitives that draw one
+  // mark per authored entity (a funnel's sources, a chain's steps) must keep
+  // all 4, or the diagram renders an incomplete model and the dropped
+  // entities also lose their resolved icons -- caught on a live render of
+  // the many-to-one funnel, which showed only 2 of 4 sources. MAX_LABELS
+  // still governs how many of those marks get visible text.
+  assert.match(motion, /const MULTI_ENTITY_PRIMITIVES = new Set/);
+  assert.match(motion, /multiEntity = MULTI_ENTITY_PRIMITIVES\.has\(primitive\) \|\| operation === "timeline"/);
+  assert.match(motion, /pairs\.slice\(0, multiEntity \? 4 : 2\)/);
 });
 
 test("production metadata is never rendered as a viewer-facing label", () => {

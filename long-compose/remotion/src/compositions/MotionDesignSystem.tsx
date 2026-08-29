@@ -190,6 +190,16 @@ export function EntityMark({ id, x, y, size = 30, active = true, icon, color }: 
 // just aren't all narrated in text at once.
 const MAX_LABELS = 3;
 
+// Primitives whose geometry draws one mark PER authored entity (a funnel's
+// sources, a chain's steps, a tree's leaves) rather than a fixed pair. These
+// need every authored entity to survive the entity cap, or the diagram
+// silently renders an incomplete model -- and each dropped entity also loses
+// its resolved Iconify icon. MAX_LABELS still separately governs how many of
+// them get a visible TEXT label.
+const MULTI_ENTITY_PRIMITIVES = new Set<string>([
+  "cause-chain", "timeline", "many-to-one", "one-to-many", "hierarchy", "network", "objects", "cycle",
+]);
+
 // Three fixed, non-overlapping slots -- a peak and two flanking positions --
 // rather than tying a label to its operated entity: an operation like payoff
 // can move two entities to the same x, which would stack two labels exactly
@@ -287,6 +297,16 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // invisible to a perceptual comparison, and weak for a viewer too.
     const provisional = state === "hypothesis";
     const broken = state === "contradiction";
+    // Iconify integration (#173) only ever reached objects/network/
+    // cause-chain/timeline/before-after -- particles was still 28 identical
+    // flat-colour dots regardless of whether the scene meant stars, cells,
+    // people, or votes. "many-instance systems" genuinely are many of the
+    // SAME thing, so one representative icon repeated 28 times is the
+    // semantically correct treatment here (not 28 different icons, which
+    // particles was never meant to depict) -- falls back to the existing
+    // hash-derived shape, uniformly, when no icon resolved.
+    const repId = identityKeys[0] || labels[0] || "particle";
+    const repIcon = entityIcons?.[repId];
     return <>{Array.from({ length: 28 }, (_, i) => {
       const base: Point = [105 + (i % 7) * 142, 82 + Math.floor(i / 7) * 110];
       const [ox, oy] = operatePoint(base, i, 28, operation, progress);
@@ -299,16 +319,19 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
       const opacity = activated ? 0.3 + progress * 0.7 : 0.12;
       const fill = i % 4 === 0 ? ACCENT : colors.line;
       // Hypothesis draws the same particles as unfilled dashed rings: present,
-      // but not yet asserted.
+      // but not yet asserted. Kept as plain strokes even with an icon
+      // available -- "not yet asserted" is a structural signal an icon fill
+      // would undercut.
       if (provisional) {
         return <circle key={i} cx={x} cy={y} r={radius} fill="none" stroke={fill} strokeWidth="3" strokeDasharray="6 6" opacity={opacity} />;
       }
-      return <Dot key={i} x={x} y={y} r={radius + living * 1.5} fill={fill} opacity={opacity} />;
+      return <g key={i} opacity={opacity}><EntityMark id={repId} icon={repIcon} x={x} y={y} size={radius + living * 1.5} /></g>;
     })}</>;
   }
   if (primitive === "rays") {
     const ends: Array<[number, number]> = [[100,90],[70,245],[110,420],[970,85],[1010,245],[970,420]];
-    return <><Dot x={540} y={245} r={58} fill={ACCENT}/>{ends.map(([x,y],i)=><DirectedEdge key={i} x1={540} y1={245} x2={x} y2={y} progress={Math.max(0,progress-i*.07)} state={state}/>)}</>;
+    const eid = identityKeys[0] || labels[0] || "source";
+    return <><EntityMark id={eid} icon={entityIcons?.[eid]} x={540} y={245} size={58}/>{ends.map(([x,y],i)=><DirectedEdge key={i} x1={540} y1={245} x2={x} y2={y} progress={Math.max(0,progress-i*.07)} state={state}/>)}</>;
   }
   if (primitive === "wave") {
     const amplitude = 35 + progress * 65;
@@ -316,7 +339,8 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     return <><polyline points={points} {...commonStroke}/><DirectedEdge x1={90} y1={390} x2={990} y2={390} progress={progress} state={state}/><Label text={labels[0]||keyText} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "horizon") {
-    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><circle cx="540" cy="245" r="30" fill={ACCENT}/><path d="M90 245 H990" {...commonStroke} opacity=".55"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
+    const eid = identityKeys[0] || labels[0] || "boundary";
+    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={540} y={245} size={30}/><path d="M90 245 H990" {...commonStroke} opacity=".55"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "spectrum") {
     const comparing = operation === "scale-compare";
@@ -331,14 +355,16 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const curve: [Point, Point, Point, Point] = [[95,390],[250,55],[720,55],[985,330]];
     const marker = cubicPoint(curve[0], curve[1], curve[2], curve[3], progress);
     const d = `M${curve[0][0]} ${curve[0][1]} C${curve[1][0]} ${curve[1][1]} ${curve[2][0]} ${curve[2][1]} ${curve[3][0]} ${curve[3][1]}`;
+    const pathEid = identityKeys[0] || labels[0] || "traveler";
     return <><path d={d} {...commonStroke} opacity=".45"/>
       <path d={d} {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
-      <Dot x={marker[0]} y={marker[1]} r={22} fill={ACCENT}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
+      <EntityMark id={pathEid} icon={entityIcons?.[pathEid]} x={marker[0]} y={marker[1]} size={22}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "shells") {
     const centers=Array.from({length:4},(_,i)=>operatePoint([540,245],i,4,operation,progress));
+    const coreEid = identityKeys[0] || labels[0] || "core";
     return <>{centers.map(([x,y],i)=><circle key={i} cx={x} cy={y} r={65+i*58*progress} {...commonStroke} opacity={.35+i*.15}/>)}
-      <Dot x={centers[0]![0]} y={centers[0]![1]} r={32} fill={ACCENT}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
+      <EntityMark id={coreEid} icon={entityIcons?.[coreEid]} x={centers[0]![0]} y={centers[0]![1]} size={32}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
     const entities = labels.slice(0,4);
@@ -356,16 +382,61 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const children=childBases.map((point,i)=>operatePoint(point,i,childBases.length,operation,progress));
     return <><Label text={labels[0]||"Root"} x={540} y={85} active state={state}/>
       <DirectedEdge x1={540} y1={120} x2={330} y2={230} progress={progress} state={state}/><DirectedEdge x1={540} y1={120} x2={750} y2={230} progress={progress} state={state}/>
+      {/* The two branch-joint Dots stay plain: they are structural (mid-tree
+          fan-out points), not authored entities, so there is nothing for
+          Iconify to look up for them. The 4 leaves below ARE the scene's
+          model_elements and get real icons. */}
       <Dot x={330} y={245} r={34} fill={BLUE}/><Dot x={750} y={245} r={34} fill={BLUE}/>
-      {children.map(([x,y],i)=><React.Fragment key={i}><DirectedEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state}/><Dot x={x} y={y} r={25} fill={ACCENT}/></React.Fragment>)}</>;
+      {children.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><DirectedEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={25}/></React.Fragment>})}</>;
   }
   if (primitive === "one-to-many") {
     const targets: Array<[number,number]>=[[850,85],[920,180],[940,300],[860,410]];
-    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);return <React.Fragment key={i}><DirectedEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state}/><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}</>;
+    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><DirectedEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={24}/></React.Fragment>})}</>;
   }
   if (primitive === "many-to-one") {
+    // Redesigned from 4 static dots with straight lines to one point -- that
+    // read as "dots, but labeled" rather than actually depicting convergence.
+    // This draws a real funnel silhouette with a collecting vessel whose
+    // fill level visibly rises as each source arrives and is absorbed
+    // (fades out at the mouth, rather than persisting as a dot forever),
+    // so the composition itself tells the "many things become one" story
+    // instead of relying entirely on the label to say so.
     const sources: Array<[number,number]>=[[150,85],[90,180],[80,300],[160,410]];
-    return <>{sources.map((base,i)=>{const [x,y]=operatePoint(base,i,sources.length,operation,progress);return <React.Fragment key={i}><Dot x={x} y={y} r={24} fill={i%2?BLUE:ACCENT}/><DirectedEdge x1={x+30} y1={y} x2={720} y2={245} progress={Math.max(0,progress-i*.08)} state={state}/></React.Fragment>})}<Label text={after||labels[0]} x={850} y={245} active state={state}/></>;
+    const mouthX = 430, mouthTop = 95, mouthBottom = 395, spoutX = 610, spoutY = 245;
+    const vesselX = 760, vesselY = 245, vesselW = 190, vesselH = 150;
+    return <>
+      <path d={`M${mouthX} ${mouthTop} L${spoutX} ${spoutY-16} L${spoutX} ${spoutY+16} L${mouthX} ${mouthBottom} Z`} fill={colors.fill} stroke={colors.line} strokeWidth="6" opacity=".5"/>
+      <rect x={vesselX-vesselW/2} y={vesselY-vesselH/2} width={vesselW} height={vesselH} rx="20" fill="none" stroke={colors.line} strokeWidth="7"/>
+      {/* The rising fill is the payoff of this whole primitive -- it must
+          read as a solid, obviously-filling volume against the dark field,
+          not a low-opacity tint of the same stroke colour as the vessel
+          outline (which a live render showed disappearing entirely). */}
+      <rect x={vesselX-vesselW/2+7} y={vesselY+vesselH/2-7-(vesselH-14)*progress} width={vesselW-14} height={Math.max(0,(vesselH-14)*progress)} rx="10" fill={ACCENT} opacity=".92"/>
+      {sources.map((base,i)=>{
+        // Each source travels toward the funnel mouth on its own delayed
+        // schedule, then is absorbed (fades rather than parking at the
+        // mouth forever) -- 4 distinct arrival beats instead of one static
+        // frame, matching "consequence, then a living hold" for a
+        // convergence rather than a single snapshot of it.
+        // Travel all the way to the spout (converging on the funnel's exit),
+        // not to a holding position outside the mouth -- a live render showed
+        // sources bunching up at the entrance instead of visibly passing
+        // through, which reads as "queued", the opposite of "converged".
+        const arrival = Math.max(0, Math.min(1, progress * 1.35 - i * 0.14));
+        const x = base[0] + (spoutX - base[0]) * arrival;
+        const y = base[1] + (spoutY - base[1]) * arrival;
+        // Fade only in the final stretch, once inside the funnel body.
+        const absorbed = arrival > 0.82;
+        const eid = identityKeys[i] || labels[i] || `source-${i}`;
+        return <g key={i} opacity={absorbed ? Math.max(0, 1 - (arrival - 0.82) * 6) : 1}>
+          {arrival < 0.5 && <DirectedEdge x1={x + 26} y1={y} x2={Math.min(mouthX - 12, x + 96)} y2={y} progress={Math.min(1, arrival * 2.4)} state={state} />}
+          <EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={22} />
+        </g>;
+      })}
+      {/* Clear of the vessel's bottom edge -- at +45 the 2-line label box
+          overlapped the vessel itself on a live render. */}
+      <Label text={after || labels[0]} x={vesselX} y={vesselY + vesselH / 2 + 78} active state={state} maxWidth={340} />
+    </>;
   }
   if (primitive === "facets-around-center") {
     const facets: Array<[number,number]>=[[540,65],[820,150],[820,350],[540,430],[260,350],[260,150]];
@@ -466,7 +537,12 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const target = numericValue;
     const dots = Math.max(5, Math.min(60, Math.round(target)));
     const active = Math.round(dots*progress);
-    return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <Dot key={i} x={x} y={y} r={i<active?22:11} fill={i<active?colors.line:colors.muted} opacity={i<active?1:.25}/>})}
+    // Same reasoning as particles: a count is a count of some ONE thing
+    // ("stars", "votes", "cells") -- one representative icon repeated, not
+    // 60 different icons, and not 60 flat-colour dots either.
+    const repId = identityKeys[0] || labels[0] || "unit";
+    const repIcon = entityIcons?.[repId];
+    return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <g key={i} opacity={i<active?1:.25}><EntityMark id={repId} icon={repIcon} x={x} y={y} size={i<active?22:11}/></g>})}
       <text x="540" y="430" textAnchor="middle" fill={PAPER} fontSize="92" fontWeight="900">{Math.round(target*progress).toLocaleString()}</text></>;
   }
   if (primitive === "physical-transformation") {
@@ -575,7 +651,14 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
       seen.add(el);
       pairs.push({ label: el, identity: entityIdentityKeys[i] || el.toLowerCase() });
     });
-    return pairs.slice(0, operation === "timeline" || primitive === "cause-chain" ? MAX_LABELS : 2);
+    // MULTI_ENTITY_PRIMITIVES draw one mark per authored entity rather than
+    // a fixed pair, so capping them at 2 silently dropped half the scene's
+    // model: a 4-source many-to-one funnel rendered only 2 sources, and the
+    // dropped ones also lost their resolved icons (caught on a live render,
+    // not from reading the code). MAX_LABELS still governs how many get
+    // TEXT labels -- this cap is about how many marks exist at all.
+    const multiEntity = MULTI_ENTITY_PRIMITIVES.has(primitive) || operation === "timeline";
+    return pairs.slice(0, multiEntity ? 4 : 2);
   })();
   const labels = visibleEntities.map((e) => e.label);
   const identityKeys = visibleEntities.map((e) => e.identity);
