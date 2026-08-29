@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character, type CharacterProps } from "../components/Character";
-import { MotionDesignSystem, type VisualPrimitive, type VisualOperation, type VisualState, type CompositionMode, type EntityIconMap } from "./MotionDesignSystem";
+import { MotionDesignSystem, EntityMark, type VisualPrimitive, type VisualOperation, type VisualState, type CompositionMode, type EntityIconMap } from "./MotionDesignSystem";
 
 export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
@@ -97,7 +97,52 @@ function CompositionFrame(props: CompositionProps & { mode: CompositionMode }) {
 }
 function Title({ children }: { children?: string }) { return children ? <div style={{ fontSize: 60, fontWeight: 840, letterSpacing: -1.1, color: PAPER, marginBottom: 20, maxWidth: 1450 }}>{children}</div> : null; }
 
-function PayoffResolution({ after, keyText }: { before?: string; after?: string; keyText?: string }) {
+// Watch feedback (ChatGPT re-audit of run_ad5bd430, relayed 2026-08-29): "the
+// text supplies the conclusion while the animation supplies decoration...
+// the final visual should reconstruct that mechanism in one simplified
+// transformation." A bare glowing ring never depicted the episode's actual
+// causal chain (onion cells -> knife/enzyme -> airborne irritant -> tears) --
+// it was the same decoration regardless of what the episode was about. This
+// now renders up to 3 of the recap's own reused entities as a connected
+// icon chain (using the same EntityMark + real Iconify icon every other
+// primitive already uses) ABOVE the closing line, so the payoff visually
+// retraces the mechanism instead of only stating its conclusion in text.
+// Staggered but every icon reaches full opacity BY resolve=1, not some
+// fraction of it -- the first version's formula (resolve*3 - i*1.4) left the
+// 3rd of 3 icons stuck at 20% opacity even at full resolve, confirmed on a
+// live render before shipping. Icon i starts appearing at resolve = i*0.2
+// and is fully in by resolve = 1, for every i -- exported so a plain
+// arithmetic test can pin the boundary condition the live render caught
+// rather than only re-checking it by eye on the next render.
+export function mechanismChainAppearAt(resolve: number, i: number): number {
+  return Math.max(0, Math.min(1, (resolve - i * 0.2) / (1 - i * 0.2)));
+}
+
+function MechanismChain({ elements, entityIdentityKeys, entityIcons, resolve }: { elements: string[]; entityIdentityKeys: string[]; entityIcons: EntityIconMap; resolve: number }) {
+  const entities = elements.slice(0, 3);
+  if (entities.length < 2) return null; // one entity has no "chain" to show; the ring + keyText alone still read as a resolution.
+  const slotX = entities.length === 3 ? [130, 300, 470] : [150, 450];
+  const appearAt = (i: number) => mechanismChainAppearAt(resolve, i);
+  return <svg viewBox="0 0 600 130" style={{ width: Math.min(560, entities.length === 3 ? 560 : 420), height: 122, display: "block", margin: "0 auto 20px", overflow: "visible" }}>
+    {entities.slice(1).map((_, i) => {
+      const x1 = slotX[i]! + 40, x2 = slotX[i + 1]! - 40;
+      return <g key={`arrow-${i}`} opacity={appearAt(i + 1)}>
+        <line x1={x1} y1="65" x2={x2 - 14} y2="65" stroke={GREEN} strokeWidth="5" strokeLinecap="round" />
+        <path d={`M${x2 - 14} 65 L${x2 - 26} 55 L${x2 - 26} 75 Z`} fill={GREEN} />
+      </g>;
+    })}
+    {entities.map((label, i) => {
+      const id = entityIdentityKeys[i] || label;
+      const appear = appearAt(i);
+      return <g key={id} opacity={appear} transform={`translate(0 ${(1 - appear) * 12})`}>
+        <circle cx={slotX[i]} cy="65" r="46" fill="#0B1424" stroke={GREEN} strokeWidth="3" opacity=".9" />
+        <EntityMark id={id} icon={entityIcons[id]} color={GREEN} x={slotX[i]!} y={65} size={30} />
+      </g>;
+    })}
+  </svg>;
+}
+
+function PayoffResolution({ after, keyText, elements = [], entityIdentityKeys = [], entityIcons = {} }: { before?: string; after?: string; keyText?: string; elements?: string[]; entityIdentityKeys?: string[]; entityIcons?: EntityIconMap }) {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
   const revealAt = Math.max(fps * .8, durationInFrames * .62);
@@ -107,6 +152,7 @@ function PayoffResolution({ after, keyText }: { before?: string; after?: string;
   return <div style={{ position: "absolute", inset: 0, zIndex: 8, display: "grid", placeItems: "center", background: `radial-gradient(circle at 50% 48%, rgba(9,22,40,${.5 + resolve * .24}), rgba(5,8,16,${resolve * .9}))`, opacity: resolve }}>
     <div style={{ position: "absolute", width: 420 + ring * 330, height: 420 + ring * 330, borderRadius: "50%", border: `10px solid ${GREEN}`, opacity: .16 + resolve * .38, boxShadow: "0 0 80px #7DE2A844" }} />
     <div data-payoff-copy="single" style={{ textAlign: "center", maxWidth: 1080, padding: "0 44px", transform: `translateY(${(1 - resolve) * 40}px) scale(${.92 + resolve * .08})` }}>
+      <MechanismChain elements={elements} entityIdentityKeys={entityIdentityKeys} entityIcons={entityIcons} resolve={resolve} />
       <div style={{ color: ACCENT, fontSize: 72, lineHeight: 1.02, fontWeight: 930, textShadow: "0 8px 30px #000" }}>{keyText || after}</div>
       <div style={{ width: resolve * 640, height: 8, borderRadius: 8, background: GREEN, margin: "24px auto 0", boxShadow: "0 0 24px #7DE2A866" }} />
     </div>
@@ -151,7 +197,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
             div (as an earlier version of this refactor did) rendered the
             payoff copy at 22% opacity -- readable in source, invisible on
             screen. */}
-        {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} /> : null}
+        {isPayoff ? <PayoffResolution before={before} after={after} keyText={keyText} elements={elements} entityIdentityKeys={entityIdentityKeys} entityIcons={entityIcons} /> : null}
       </div>
     </CompositionFrame>
   </AbsoluteFill>;

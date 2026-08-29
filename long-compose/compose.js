@@ -1820,6 +1820,15 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       counter: { type: "impact", volume: 0.06 },
       payoff: { type: "impact", volume: 0.14 },
     };
+    // Retention research on what actually keeps a short-form viewer watching
+    // singles out sound design as the single biggest lever, specifically "a
+    // whoosh/pop/click tied to every zoom or text reveal" -- not background
+    // music alone. The previous cap (10 events, 1.8s minimum spacing) was
+    // sized for a much shorter or less scene-dense episode: at 15-17 scenes
+    // over 60-70s, it left roughly 60% of scenes with no cue attached to
+    // their visual change at all. Raised to keep pace with a typical
+    // explanation-heavy episode's scene count without producing a
+    // continuous, fatiguing barrage of clicks.
     let lastCueTime = -10;
     scenes.forEach((scene, index) => {
       if (scene?.template_name !== "explanation" || isOutroScene(scene)) return;
@@ -1832,7 +1841,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           : 0.46;
       const sceneDuration = durations[index] || 1;
       const time = (offsets[index] || 0) + Math.min(Math.max(0.35, sceneDuration - 0.25), Math.max(0.35, sceneDuration * operationPhase));
-      if (!selected || time - lastCueTime < 1.8 || sfxEvents.length >= 10) return;
+      if (!selected || time - lastCueTime < 1.3 || sfxEvents.length >= 20) return;
       if (sfxAvailable[selected.type]) {
         sfxEvents.push({ ...selected, time });
         lastCueTime = time;

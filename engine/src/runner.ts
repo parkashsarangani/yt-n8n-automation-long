@@ -11,7 +11,7 @@ import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
-import { repairMotionCompatibility } from "./motion-contract.ts";
+import { repairMotionCompatibility, repairOverlongLabels } from "./motion-contract.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
   ProviderError,
@@ -306,13 +306,26 @@ export class Runner {
       // run_39850b3e fixing some pairs while breaking others, and never had a
       // budget left for the unrelated numeric_value rule that then blocked
       // the final attempt.
-      const { data: payload, repairs: motionRepairs } = def.produces === "explanation_plan"
+      const { data: compatibilityRepaired, repairs: motionRepairs } = def.produces === "explanation_plan"
         ? repairMotionCompatibility(enumRepaired)
         : { data: enumRepaired, repairs: [] };
       if (motionRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired ${motionRepairs.length} incompatible operation/primitive pair(s): ` +
             motionRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
+        );
+      }
+      // Same "fix what the system already knows how to fix, don't spend a
+      // retry attempt on it" reasoning as the operation/primitive repair
+      // above, for explanation_plan@1.4.0's tightened state_before/
+      // state_after/key_text limits -- see repairOverlongLabels' own comment.
+      const { data: payload, repairs: labelRepairs } = def.produces === "explanation_plan"
+        ? repairOverlongLabels(compatibilityRepaired)
+        : { data: compatibilityRepaired, repairs: [] };
+      if (labelRepairs.length > 0) {
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-clamped ${labelRepairs.length} overlong label(s): ` +
+            labelRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
 

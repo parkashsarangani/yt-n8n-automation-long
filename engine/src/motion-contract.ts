@@ -81,3 +81,48 @@ export function repairMotionCompatibility(payload: unknown): { data: unknown; re
 
   return { data: { ...(payload as Record<string, unknown>), scenes: repairedScenes }, repairs };
 }
+
+// explanation_plan@1.4.0 tightened state_before/state_after to 32 chars and
+// key_text to 48 -- the planner is now told this explicitly (see the
+// explanation_visual_planner prompt), but an LLM instruction is not a hard
+// guarantee the way a schema is. Rather than burn a full retry attempt (and
+// risk exhausting the 3-attempt budget, per repairMotionCompatibility's own
+// production evidence) on an otherwise-good plan whose only problem is one
+// field running a few characters long, clamp at a word boundary the same way
+// the Remotion renderer's own labelLines() degrades an overflow: keep whole
+// words, mark the cut with an ellipsis, never chop mid-word.
+const LABEL_FIELD_LIMITS: Record<string, number> = {
+  state_before: 32,
+  state_after: 32,
+  key_text: 48,
+};
+
+function clampAtWordBoundary(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  const truncated = text.slice(0, maxLength - 1);
+  const lastSpace = truncated.lastIndexOf(" ");
+  const base = lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated;
+  return `${base.trimEnd()}…`;
+}
+
+export function repairOverlongLabels(payload: unknown): { data: unknown; repairs: MotionRepair[] } {
+  const repairs: MotionRepair[] = [];
+  if (!payload || typeof payload !== "object") return { data: payload, repairs };
+  const scenes = (payload as { scenes?: unknown }).scenes;
+  if (!Array.isArray(scenes)) return { data: payload, repairs };
+
+  const repairedScenes = scenes.map((raw, index) => {
+    if (!raw || typeof raw !== "object") return raw;
+    let scene = raw as Record<string, unknown>;
+    for (const [field, limit] of Object.entries(LABEL_FIELD_LIMITS)) {
+      const value = scene[field];
+      if (typeof value !== "string" || value.length <= limit) continue;
+      const to = clampAtWordBoundary(value, limit);
+      repairs.push({ path: `$.scenes[${index}].${field}`, from: value, to });
+      scene = { ...scene, [field]: to };
+    }
+    return scene;
+  });
+
+  return { data: { ...(payload as Record<string, unknown>), scenes: repairedScenes }, repairs };
+}
