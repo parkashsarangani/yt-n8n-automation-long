@@ -67,18 +67,10 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       const seo = inputs["seo"]!.payload as SeoMetadata;
       const reqs = target.requirements();
 
-      // Belt and braces. The graph already gates on this verdict, but publishing
-      // is the one irreversible step, and a graph edit that accidentally routes
-      // around the gate should not be able to put a broken episode on the
-      // channel. Enforcing a declared verdict is not judgement.
-      const qa = inputs["qa"]!.payload as QaReport;
-      if (qa.verdict !== "pass") {
-        const reasons = qa.checks
-          .filter((c) => c.status === "fail")
-          .map((c) => `${c.id}: ${c.message}`)
-          .join("; ");
-        throw new Error(`publish refused — QA verdict is ${qa.verdict}: ${reasons}`);
-      }
+      // publish() no longer judges the QA verdict itself -- that decision
+      // belongs entirely to approve_publish upstream. qa_report stays a
+      // declared input purely to keep publish ordered after qa in the graph.
+      void (inputs["qa"]!.payload as QaReport);
 
       // Taken wholesale from the SEO artifact. This worker deliberately does no
       // fallback logic: it used to reach into the story and substitute the

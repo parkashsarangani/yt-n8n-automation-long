@@ -171,6 +171,29 @@ test("publish uses the SEO metadata verbatim and substitutes nothing", async () 
 
 // -- publish worker -----------------------------------------------------
 
+test("publish uploads even when the QA verdict is fail — approve_publish already decided this", async () => {
+  // Real production request: publish() used to re-judge the QA verdict itself
+  // ("belt and braces" against a graph edit routing around the gate), but that
+  // makes it impossible to ever publish an episode the operator wants to review
+  // and decide on manually -- the whole point of QA staying visible instead of
+  // silently blocking. The decision belongs entirely to approve_publish now.
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  const qa = await seedQa(h, "fail");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.ok((out.artifact.payload as { external_id: string }).external_id);
+  assert.equal(h.target.published.length, 1);
+});
+
 test("publish uploads and records where the video went", async () => {
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
