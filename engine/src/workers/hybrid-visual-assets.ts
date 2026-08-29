@@ -1,4 +1,5 @@
 import type { Artifact, BlobRef } from "../artifact.ts";
+import { resolveEntityIcons, type ResolvedIcon } from "../icon-search.ts";
 import {
   MOTION_BG,
   MOTION_PALETTE_ID,
@@ -49,6 +50,7 @@ interface HybridAssetScene extends BaseAssetScene {
   palette_id?: string;
   entity_ids?: string[];
   entity_visual_tokens?: MotionEntityVisualToken[];
+  entity_icons?: Array<{ entity_id: string; icon_id: string; view_box: string; body: string }>;
   visible_character_ids?: string[];
   duration_sec?: number;
   shot_types?: HybridShotType[];
@@ -103,6 +105,24 @@ function entityId(label: string): string {
 function entityIdsFor(plan: PlanScene): string[] {
   return [...new Set((plan.model_elements ?? []).map((value) => clean(value, 80)).filter(Boolean).map(entityId))].slice(0, 4);
 }
+// Same dedup/cap as entityIdsFor, but keeping the original label text
+// alongside its id -- entityIdsFor alone throws the label away once it's
+// hashed, and Iconify search needs real words ("water molecule"), not a
+// hash-derived slug.
+function entityIdLabelPairsFor(plan: PlanScene): Array<{ id: string; label: string }> {
+  const seen = new Set<string>();
+  const pairs: Array<{ id: string; label: string }> = [];
+  for (const raw of plan.model_elements ?? []) {
+    const label = clean(raw, 80);
+    if (!label) continue;
+    const id = entityId(label);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    pairs.push({ id, label });
+    if (pairs.length >= 4) break;
+  }
+  return pairs;
+}
 function parseTemplateData(scene: BaseAssetScene): Record<string, unknown> | null {
   if (!scene.template_data) return null;
   try {
@@ -132,7 +152,12 @@ function shouldPromoteToFullCanvas(plan: PlanScene | undefined, isOpening: boole
   return plan?.composition_mode === "bookend";
 }
 
-function normalizedMotionScene(base: BaseAssetScene, ids: string[], promoteToFullCanvas: boolean): BaseAssetScene {
+function normalizedMotionScene(
+  base: BaseAssetScene,
+  ids: string[],
+  promoteToFullCanvas: boolean,
+  icons: Array<{ entity_id: string; icon_id: string; view_box: string; body: string }> = [],
+): BaseAssetScene {
   const data = parseTemplateData(base);
   if (!data) return base;
   const performance = data["rendererPerformance"] && typeof data["rendererPerformance"] === "object"
@@ -140,6 +165,9 @@ function normalizedMotionScene(base: BaseAssetScene, ids: string[], promoteToFul
   const normalized: Record<string, unknown> = {
     ...data,
     entityIdentityKeys: ids,
+    // Parallel to entityIdentityKeys, keyed the same way: EntityMark prefers
+    // this real icon over its hash-picked geometric shape when an id has one.
+    ...(icons.length ? { entityIcons: Object.fromEntries(icons.map((icon) => [icon.entity_id, { viewBox: icon.view_box, body: icon.body }])) } : {}),
     ...(promoteToFullCanvas ? {
       compositionMode: "full-model",
       characterCutIn: "none",
@@ -437,7 +465,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
       { schema_id: "voice", range: "^1", as: "voice" },
     ],
     produces: "asset_manifest",
-    produces_version: "1.5.0",
+    produces_version: "1.6.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const compiled = inputs["compiled"]!.payload as { scenes: BaseAssetScene[]; degraded_count?: number };
       const plans = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;
@@ -460,6 +488,15 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
       const anchors = new Map<string, GeneratedImage>();
       const scenes: HybridAssetScene[] = [];
 
+      // One batched, deduped lookup for the whole episode instead of one per
+      // scene: an entity like "water molecule" recurring across 6 scenes gets
+      // looked up once, not 6 times, and a slow/failed lookup for one entity
+      // can't stall the rest. Every failure mode inside resolveEntityIcons
+      // already degrades to "this entity keeps its existing hash-picked
+      // shape" -- nothing here needs its own try/catch.
+      const allPairs = plans.flatMap((plan) => entityIdLabelPairsFor(plan));
+      const resolvedIcons: Map<string, ResolvedIcon> = allPairs.length ? await resolveEntityIcons(allPairs) : new Map();
+
       for (const original of [...compiled.scenes].sort((a, b) => a.scene_index - b.scene_index)) {
         const plan = planBy.get(original.scene_index);
         const script = scriptBy.get(original.scene_index) ?? { scene_index: original.scene_index };
@@ -471,14 +508,28 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
         // the closing plan authors unrelated recap wording.
         const ids = isClosing ? openingIds : plan ? entityIdsFor(plan) : [];
         const tokens = motionEntityVisualTokens(ids);
+        // entity_visual_tokens (color/shape) keeps governing every entity
+        // regardless of icon match, including the AI-image prompt contract --
+        // entity_icons is purely additive, and only for ids that actually
+        // resolved to something. A scene whose entities all missed the icon
+        // search simply carries no entity_icons at all, identical to before
+        // this field existed.
+        const icons = ids
+          .map((id) => { const icon = resolvedIcons.get(id); return icon ? { entity_id: id, icon_id: icon.iconId, view_box: icon.viewBox, body: icon.body } : null; })
+          .filter((entry): entry is { entity_id: string; icon_id: string; view_box: string; body: string } => entry !== null);
         const promoteToFullCanvas = shouldPromoteToFullCanvas(plan, isOpening, isClosing);
-        const base = normalizedMotionScene(original, ids, promoteToFullCanvas);
+        // Motion-graphic scenes render entirely from template_data (see
+        // compose.js's explanation.buildProps), so the Remotion renderer never
+        // sees this scene's top-level entity_icons field at all unless the
+        // same data is also embedded here, mirroring entityIdentityKeys.
+        const base = normalizedMotionScene(original, ids, promoteToFullCanvas, icons);
         const motionVisible = motionVisibleCharacterIds(base, script, cast);
         const common = {
           style_id: MOTION_STYLE_ID,
           palette_id: MOTION_PALETTE_ID,
           entity_ids: ids,
           entity_visual_tokens: tokens,
+          ...(icons.length ? { entity_icons: icons } : {}),
           duration_sec: Number(durationSec.toFixed(3)),
         };
 

@@ -121,17 +121,42 @@ function Label({ text, x, y, active = false, state, maxWidth = 300 }: { text?: s
 
 const hashText = (text: string) => Array.from(text).reduce((hash, char) => ((hash * 31 + char.charCodeAt(0)) >>> 0), 2166136261);
 
+// entity_id -> a real icon resolved server-side (engine/src/icon-search.ts,
+// via Iconify's open icon search) for that entity's label. Keyed by the same
+// identityKeys/label id EntityMark already uses for its hash-picked shape --
+// see the entityIcons prop threaded down from MotionDesignSystem below.
+export type EntityIconMap = Record<string, { viewBox: string; body: string }>;
+
 // Six silhouettes (not four) so a viewer tracking several entities across a
 // crowded network/timeline sees genuinely distinct marks rather than the same
 // four shapes repeating and reading as generic "pills and nodes". Hexagon and
 // plus were picked specifically because their outlines differ from the
 // existing circle/diamond/triangle/ring at a glance, even at small size.
-function EntityMark({ id, x, y, size = 30, active = true }: { id: string; x: number; y: number; size?: number; active?: boolean }) {
+//
+// `icon`, when present, replaces the arbitrary hash-picked shape with a real
+// icon (still tinted with the hash-picked colour, so an entity keeps the same
+// colour identity whether or not this particular scene resolved an icon for
+// it, and whether it cuts to an AI-generated shot that only ever gets the
+// colour/shape as a text hint -- see motion-visual-identity.ts). A viewer
+// watching a "water molecule" node now sees an actual droplet instead of a
+// hexagon that means nothing; an entity with no confident icon match keeps
+// today's shape exactly as before, this is a strict addition, never a
+// regression on a miss.
+function EntityMark({ id, x, y, size = 30, active = true, icon }: { id: string; x: number; y: number; size?: number; active?: boolean; icon?: { viewBox: string; body: string } }) {
   const hash = hashText(id || "entity");
   const colors = [ACCENT, BLUE, GREEN, "#B794F4", "#FF7D7D", "#5DE0C6"];
   const fill = colors[hash % colors.length]!;
-  const shape = Math.floor(hash / colors.length) % 6;
   const opacity = active ? 1 : 0.25;
+  if (icon) {
+    return <svg x={x - size} y={y - size} width={size * 2} height={size * 2} viewBox={icon.viewBox} opacity={opacity} overflow="visible">
+      {/* Iconify's own body markup, sanitized engine-side before this ever
+          reaches an artifact (icon-search.ts). fill="currentColor" in that
+          markup resolves against this <g>'s color attribute, so the icon
+          picks up the same hash-derived colour the shape fallback uses. */}
+      <g color={fill} dangerouslySetInnerHTML={{ __html: icon.body }} />
+    </svg>;
+  }
+  const shape = Math.floor(hash / colors.length) % 6;
   if (shape === 0) return <circle cx={x} cy={y} r={size} fill={fill} opacity={opacity} />;
   if (shape === 1) return <rect x={x-size} y={y-size} width={size*2} height={size*2} rx={size*.25} fill={fill} opacity={opacity} transform={`rotate(45 ${x} ${y})`} />;
   if (shape === 2) return <polygon points={`${x},${y-size} ${x+size},${y+size*.8} ${x-size},${y+size*.8}`} fill={fill} opacity={opacity} />;
@@ -234,6 +259,7 @@ type GeometryProps = {
   state: VisualState;
   labels: string[];
   identityKeys: string[];
+  entityIcons?: EntityIconMap;
   before: string;
   after: string;
   keyText: string;
@@ -243,7 +269,7 @@ type GeometryProps = {
   pop: (delay?: number) => number;
 };
 
-function Geometry({ primitive, operation, state, labels, identityKeys, before, after, keyText, numericValue, progress, living, pop }: GeometryProps) {
+function Geometry({ primitive, operation, state, labels, identityKeys, entityIcons, before, after, keyText, numericValue, progress, living, pop }: GeometryProps) {
   const colors = palette[state];
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
@@ -309,14 +335,14 @@ function Geometry({ primitive, operation, state, labels, identityKeys, before, a
   }
   if (primitive === "objects") {
     const entities = labels.slice(0,4);
-    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={identityKeys[i]||label} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
+    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);const eid=identityKeys[i]||label;return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
   }
   if (primitive === "network") {
     const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
     const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
     const links: Array<[number,number]>=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0],[1,5],[2,4],[0,5]];
     return <>{links.map(([a,b],i)=><DirectedEdge key={i} x1={nodes[a]![0]} y1={nodes[a]![1]} x2={nodes[b]![0]} y2={nodes[b]![1]} progress={Math.max(0,progress-i*.045)} state={state}/>)}
-      {nodes.map(([x,y],i)=><EntityMark key={i} id={identityKeys[i] || labels[i] || `entity-${i}`} x={x} y={y} size={18+pop(i*.04)*9}/>)}</>;
+      {nodes.map(([x,y],i)=>{const eid=identityKeys[i] || labels[i] || `entity-${i}`;return <EntityMark key={i} id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={18+pop(i*.04)*9}/>})}</>;
   }
   if (primitive === "hierarchy") {
     const childBases: Point[]=[[210,380],[430,380],[650,380],[870,380]];
@@ -363,7 +389,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, before, a
     // positions (2x2), so there is no spatial reason to label only the first
     // two of up to four accepted entities -- that left the back half of the
     // chain, where the consequence and resolution actually sit, unlabeled.
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={identityKeys[i]||labels[i]||`step-${i}`} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];const eid=identityKeys[i]||labels[i]||`step-${i}`;return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -398,7 +424,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, before, a
     // Same reasoning as cause-chain: up to 4 labelled entities all have a
     // distinct, collision-free denseLabelSlot, so the back half of the
     // timeline was withheld from viewers for no spatial reason.
-    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".5"/>{points.map(([x,y],i)=><React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={identityKeys[i]||labels[i]||`moment-${i}`} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*5))} state={state} maxWidth={260}/></React.Fragment>)}</>;
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".5"/>{points.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`moment-${i}`;return <React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*5))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "quantity") {
     if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");
@@ -484,8 +510,8 @@ function StateDecorator({ state, consequence }: { state: VisualState; consequenc
   return null;
 }
 
-export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], entityIdentityKeys = [], before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
-  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; entityIdentityKeys?: string[]; before?: string; after?: string; keyText?: string;
+export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], entityIdentityKeys = [], entityIcons = {}, before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
+  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; entityIdentityKeys?: string[]; entityIcons?: EntityIconMap; before?: string; after?: string; keyText?: string;
   diagnosticMode?: "normal" | "foreground-only" | "background-only";
 }) {
   const { setup, transform, consequence, hold, living, pop } = useProgress();
@@ -541,9 +567,9 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
       {backgroundVisible ? <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" /> : null}
       {foregroundVisible ? <OperationStage operation={operation} progress={transform} living={living} state={state} numericValue={numericValue}>
         {state === "contradiction" ? <>
-          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} identityKeys={identityKeys} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
-          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} identityKeys={identityKeys} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
-        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} identityKeys={identityKeys} before={geometryBefore} after={geometryAfter} keyText={geometryKeyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/>}
+          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
+          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
+        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={geometryBefore} after={geometryAfter} keyText={geometryKeyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/>}
       </OperationStage> : null}
       {foregroundVisible ? <StateDecorator state={state} consequence={consequence}/> : null}
     </svg>

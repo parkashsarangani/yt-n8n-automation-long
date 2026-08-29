@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character, type CharacterProps } from "../components/Character";
-import { MotionDesignSystem, type VisualPrimitive, type VisualOperation, type VisualState, type CompositionMode } from "./MotionDesignSystem";
+import { MotionDesignSystem, type VisualPrimitive, type VisualOperation, type VisualState, type CompositionMode, type EntityIconMap } from "./MotionDesignSystem";
 
 export type ExplanationRole =
   | "character-hook" | "diagram-build" | "process-flow" | "object-state-change"
@@ -18,6 +18,7 @@ export interface ExplanationSceneProps {
   keyText?: string;
   elements?: string[];
   entityIdentityKeys?: string[];
+  entityIcons?: EntityIconMap;
   before?: string;
   after?: string;
   characterCutIn?: "none" | "speaker" | "listener" | "both";
@@ -114,7 +115,7 @@ function PayoffResolution({ after, keyText }: { before?: string; after?: string;
 
 export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
   role = "diagram-build", visualOperation = "timeline", visualPrimitive = "objects", visualState = "mechanism", numericValue = null,
-  compositionMode = "full-model", title = "", keyText = "", elements = [], entityIdentityKeys = [], before = "", after = "",
+  compositionMode = "full-model", title = "", keyText = "", elements = [], entityIdentityKeys = [], entityIcons = {}, before = "", after = "",
   characterCutIn = "none", characters = [], rendererDiagnosticMode = "normal",
 }) => {
   const frame = useCurrentFrame();
@@ -141,7 +142,7 @@ export const ExplanationScene: React.FC<ExplanationSceneProps> = ({
       {!isPayoff && characterDominant && keyText ? <div style={{ color: PAPER, fontSize: 48, lineHeight: 1.05, fontWeight: 860, borderLeft: `10px solid ${ACCENT}`, padding: "16px 28px", marginBottom: 24 }}>{keyText}</div> : null}
       <div style={{ position: "relative", width: "100%", minHeight: scaledHeight, display: "grid", placeItems: "center" }}>
         <div style={{ position: "relative", opacity: isPayoff ? .22 : 1, width: scaledWidth, transform: `scale(${compositionScale})`, transformOrigin: "center center" }}>
-          <MotionDesignSystem diagnosticMode={motionMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} before={before} after={after} keyText={keyText} />
+          <MotionDesignSystem diagnosticMode={motionMode} primitive={visualPrimitive} operation={visualOperation} state={visualState} numericValue={numericValue} elements={elements} entityIdentityKeys={entityIdentityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} />
         </div>
         {/* Sibling of the dimmed diagram, not a child of it: PayoffResolution
             is the closing statement the whole episode resolves to, and CSS
