@@ -1,4 +1,12 @@
 import type { Artifact, BlobRef } from "../artifact.ts";
+import {
+  MOTION_BG,
+  MOTION_PALETTE_ID,
+  MOTION_PAPER,
+  MOTION_STYLE_ID,
+  motionEntityVisualTokens,
+  type MotionEntityVisualToken,
+} from "../motion-visual-identity.ts";
 import type { Aspect, ImageProvider } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
@@ -33,7 +41,6 @@ interface BaseAssetScene {
   template_data?: string;
 }
 interface ShotSegment { shot_type: HybridShotType; start_sec: number; end_sec: number; semantic_text: string }
-interface EntityVisualToken { entity_id: string; color: string; shape: string }
 interface HybridAssetScene extends BaseAssetScene {
   image_uris?: string[];
   visual_mode?: HybridVisualMode;
@@ -41,7 +48,8 @@ interface HybridAssetScene extends BaseAssetScene {
   style_id?: string;
   palette_id?: string;
   entity_ids?: string[];
-  entity_visual_tokens?: EntityVisualToken[];
+  entity_visual_tokens?: MotionEntityVisualToken[];
+  visible_character_ids?: string[];
   duration_sec?: number;
   shot_types?: HybridShotType[];
   shot_segments?: ShotSegment[];
@@ -53,12 +61,8 @@ interface ConsistentPackProvider extends ImageProvider {
   generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }>;
 }
 
-const STYLE_ID = "motion-editorial-v1";
-const PALETTE_ID = "motion-semantic-v1";
-const MOTION_BG = "#0B1020";
-const MOTION_PAPER = "#F7F4EA";
-const ENTITY_COLORS = ["#FFD166", "#65C7F7", "#7DE2A8", "#B794F4", "#FF7D7D", "#5DE0C6"] as const;
-const ENTITY_SHAPES = ["circle", "diamond", "triangle", "ring", "hexagon", "plus"] as const;
+export const TEMPLATE_DATA_MAX_LENGTH = 8000;
+
 const STATE_ACCENT: Record<string, string> = {
   hypothesis: "#E8B96A",
   contradiction: "#FF7D7D",
@@ -89,11 +93,6 @@ function stableHash(value: string): number {
   for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-// Must match MotionDesignSystem.EntityMark exactly so an entity's AI prompt
-// receives the same semantic color/shape token used by deterministic scenes.
-function motionHash(value: string): number {
-  return Array.from(value).reduce((hash, char) => ((hash * 31 + char.charCodeAt(0)) >>> 0), 2166136261);
-}
 function clean(value: unknown, max = 300): string { return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, max) : ""; }
 function words(text: string): string[] { return clean(text, 4000).split(/\s+/).filter(Boolean); }
 function estimatedDuration(scene: ScriptScene): number { return Math.max(1.8, words(scene.narration ?? "").length / 2.55 + 0.18); }
@@ -104,16 +103,6 @@ function entityId(label: string): string {
 function entityIdsFor(plan: PlanScene): string[] {
   return [...new Set((plan.model_elements ?? []).map((value) => clean(value, 80)).filter(Boolean).map(entityId))].slice(0, 4);
 }
-export function entityVisualTokens(ids: string[]): EntityVisualToken[] {
-  return ids.map((id) => {
-    const hash = motionHash(id);
-    return {
-      entity_id: id,
-      color: ENTITY_COLORS[hash % ENTITY_COLORS.length]!,
-      shape: ENTITY_SHAPES[Math.floor(hash / ENTITY_COLORS.length) % ENTITY_SHAPES.length]!,
-    };
-  });
-}
 function parseTemplateData(scene: BaseAssetScene): Record<string, unknown> | null {
   if (!scene.template_data) return null;
   try {
@@ -121,25 +110,50 @@ function parseTemplateData(scene: BaseAssetScene): Record<string, unknown> | nul
     return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch { return null; }
 }
-function normalizedMotionScene(base: BaseAssetScene, ids: string[], isOpening: boolean, isClosing: boolean): BaseAssetScene {
+
+/**
+ * Never let watchability metadata invalidate an otherwise renderable scene.
+ * The compiler-produced template_data is already schema-validated; if adding
+ * downstream identity/composition metadata would exceed the manifest's 8k
+ * limit, retain that validated payload rather than emitting an invalid artifact.
+ */
+export function templateDataWithinLimit(original: string | undefined, normalized: Record<string, unknown>): string | undefined {
+  const encoded = JSON.stringify(normalized);
+  if (encoded.length <= TEMPLATE_DATA_MAX_LENGTH) return encoded;
+  if (original && original.length <= TEMPLATE_DATA_MAX_LENGTH) return original;
+  return undefined;
+}
+
+function shouldPromoteToFullCanvas(plan: PlanScene | undefined, isOpening: boolean, isClosing: boolean): boolean {
+  if (isOpening || isClosing) return true;
+  // Interior bookends were another source of the audited narrow-card silhouette.
+  // Reaction compositions keep their character staging, but the renderer now
+  // gives their model substantially more room instead of converting them here.
+  return plan?.composition_mode === "bookend";
+}
+
+function normalizedMotionScene(base: BaseAssetScene, ids: string[], promoteToFullCanvas: boolean): BaseAssetScene {
   const data = parseTemplateData(base);
   if (!data) return base;
   const performance = data["rendererPerformance"] && typeof data["rendererPerformance"] === "object"
     ? data["rendererPerformance"] as Record<string, unknown> : {};
-  const normalized = {
+  const normalized: Record<string, unknown> = {
     ...data,
     entityIdentityKeys: ids,
-    ...(isOpening || isClosing ? {
-      // The audited episode starts and ends inside the same narrow two-column
-      // silhouette. Let the explanatory model own the whole canvas here; AI
-      // b-roll may still replace the opening when it is the stronger hook.
+    ...(promoteToFullCanvas ? {
       compositionMode: "full-model",
       characterCutIn: "none",
       title: "",
-      rendererPerformance: { ...performance, compositionMode: "full-model", characterCutIn: "none", watchabilityFullCanvas: true },
-    } : { rendererPerformance: performance }),
+      rendererPerformance: {
+        ...performance,
+        compositionMode: "full-model",
+        characterCutIn: "none",
+        watchabilityFullCanvas: true,
+      },
+    } : {}),
   };
-  return { ...base, template_data: JSON.stringify(normalized) };
+  const template_data = templateDataWithinLimit(base.template_data, normalized);
+  return template_data ? { ...base, template_data } : base;
 }
 
 function scoreScene(plan: PlanScene, script: ScriptScene, first: boolean, last: boolean): number {
@@ -268,10 +282,20 @@ function visibleCast(base: BaseAssetScene, script: ScriptScene, cast: CastCharac
   }
   return chosen.slice(0, 2);
 }
+function motionVisibleCharacterIds(base: BaseAssetScene, script: ScriptScene, cast: CastCharacter[]): string[] | undefined {
+  const data = parseTemplateData(base);
+  if (!data) return undefined;
+  const perf = data["rendererPerformance"] && typeof data["rendererPerformance"] === "object"
+    ? data["rendererPerformance"] as Record<string, unknown> : {};
+  const cutIn = perf["characterCutIn"] ?? data["characterCutIn"];
+  if (cutIn === "none") return [];
+  const visible = visibleCast(base, script, cast).map((character) => character.character_id);
+  if (visible.length) return visible;
+  // Missing/unknown telemetry deliberately stays undefined. QA treats that
+  // conservatively as character-visible instead of silently granting a pass.
+  return undefined;
+}
 function continuityGroup(visible: CastCharacter[], ids: string[], episodeEntity: string): string {
-  // Character continuity must not reset just because the explanation noun
-  // changes. If a recurring cast member is visible, identity follows cast;
-  // otherwise it follows the canonical semantic entity/world.
   const castIds = visible.map((c) => c.character_id).sort().join("-");
   return (castIds ? `cast:${castIds}` : `world:${ids[0] ?? episodeEntity}`).slice(0, 80);
 }
@@ -281,10 +305,10 @@ function castBible(cast: CastCharacter[]): string {
     return `${character.character_id}: ${clean(character.visual_description, 220)}${palette ? `; palette ${palette}` : ""}`;
   }).filter(Boolean).join(" | ");
 }
-function tokenPrompt(tokens: EntityVisualToken[]): string {
+function tokenPrompt(tokens: MotionEntityVisualToken[]): string {
   return tokens.map((token) => `${token.entity_id} uses ${token.color} and a ${token.shape} silhouette`).join("; ");
 }
-function shotPrompt(segment: ShotSegment, plan: PlanScene, script: ScriptScene, visible: CastCharacter[], group: string, tokens: EntityVisualToken[]): string {
+function shotPrompt(segment: ShotSegment, plan: PlanScene, script: ScriptScene, visible: CastCharacter[], group: string, tokens: MotionEntityVisualToken[]): string {
   const entities = (plan.model_elements ?? []).map((item) => clean(item, 60)).filter(Boolean).join(", ");
   const state = [clean(plan.state_before, 80), clean(plan.state_after, 80)].filter(Boolean).join(" -> ");
   const accent = STATE_ACCENT[plan.visual_state ?? "mechanism"] ?? STATE_ACCENT.mechanism;
@@ -300,7 +324,7 @@ function shotPrompt(segment: ShotSegment, plan: PlanScene, script: ScriptScene, 
   };
   return [
     HOUSE_STYLE,
-    `Style ID ${STYLE_ID}; palette ID ${PALETTE_ID}; current semantic accent ${accent}.`,
+    `Style ID ${MOTION_STYLE_ID}; palette ID ${MOTION_PALETTE_ID}; current semantic accent ${accent}.`,
     tokens.length ? `Preserve these motion-graphic entity identities in the illustration: ${tokenPrompt(tokens)}.` : "",
     `Continuity group ${group}; preserve any supplied recurring subject exactly.`,
     visible.length ? `Only these recurring characters may appear: ${castBible(visible)}.` : "No presenter character unless essential to the physical action.",
@@ -313,16 +337,25 @@ function shotPrompt(segment: ShotSegment, plan: PlanScene, script: ScriptScene, 
   ].filter(Boolean).join(" ");
 }
 async function generatePack(provider: ConsistentPackProvider, prompts: string[], seed: number, reference?: GeneratedImage): Promise<GeneratedImage[]> {
+  if (prompts.length < 1 || prompts.length > 5 || prompts.some((prompt) => !prompt.trim())) {
+    throw new Error(`invalid continuity pack prompt set (${prompts.length} prompts)`);
+  }
   if (provider.generatePack) {
     const out = await provider.generatePack({ prompts, aspect: "16:9", seed, ...(reference ? { reference } : {}) });
-    if (out.images.length === prompts.length) return out.images;
+    if (out.images.length !== prompts.length) {
+      throw new Error(`continuity pack returned ${out.images.length}/${prompts.length} requested images`);
+    }
+    return out.images;
   }
-  const images: GeneratedImage[] = [];
-  for (const prompt of prompts) {
-    const out = await provider.generate({ prompt, aspect: "16:9", count: 1 });
-    const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); images.push(image);
+  // Independent regeneration would make a multi-shot scene or recurring
+  // cross-scene subject visually drift. Fail closed to deterministic motion.
+  if (reference || prompts.length > 1) {
+    throw new Error("image provider cannot guarantee continuity-aware pack generation");
   }
-  return images;
+  const out = await provider.generate({ prompt: prompts[0]!, aspect: "16:9", count: 1 });
+  const image = out.images[0];
+  if (!image) throw new Error("image provider returned no image");
+  return [image];
 }
 function validateGenerated(images: GeneratedImage[], expected: number): void {
   if (images.length !== expected) throw new Error(`image provider returned ${images.length}/${expected} requested shots`);
@@ -350,7 +383,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
   return {
     name: "hybrid_visual_assets",
     kind: "worker",
-    version: "3",
+    version: "4",
     consumes: [
       { schema_id: "asset_manifest", range: "^1", as: "compiled" },
       { schema_id: "explanation_plan", range: "^1", as: "plan" },
@@ -376,7 +409,8 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
       const orderedPlans = [...plans].sort((a, b) => a.scene_index - b.scene_index);
       if (!orderedPlans.length || orderedPlans[0]!.scene_index !== 0) throw new Error("hybrid visual invariant failed: explanation plan must contain literal scene_index 0");
       const lastIndex = orderedPlans[orderedPlans.length - 1]!.scene_index;
-      const episodeEntity = entityIdsFor(orderedPlans[0]!)[0] ?? entityId(scripts[0]?.narration ?? "episode");
+      const openingIds = entityIdsFor(orderedPlans[0]!);
+      const episodeEntity = openingIds[0] ?? entityId(scripts[0]?.narration ?? "episode");
       const blobs: BlobRef[] = [];
       const anchors = new Map<string, GeneratedImage>();
       const scenes: HybridAssetScene[] = [];
@@ -387,15 +421,27 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
         const clip = clipBy.get(original.scene_index);
         const durationSec = typeof clip?.duration_sec === "number" && clip.duration_sec > 0 ? clip.duration_sec : estimatedDuration(script);
         const isOpening = original.scene_index === 0, isClosing = original.scene_index === lastIndex;
-        const ids = plan ? entityIdsFor(plan) : [];
-        const tokens = entityVisualTokens(ids);
-        const base = normalizedMotionScene(original, ids, isOpening, isClosing);
-        const common = { style_id: STYLE_ID, palette_id: PALETTE_ID, entity_ids: ids, entity_visual_tokens: tokens, duration_sec: Number(durationSec.toFixed(3)) };
+        // The deterministic compiler deliberately makes the closing bookend
+        // reuse the opening model. Keep those exact stable identities even if
+        // the closing plan authors unrelated recap wording.
+        const ids = isClosing ? openingIds : plan ? entityIdsFor(plan) : [];
+        const tokens = motionEntityVisualTokens(ids);
+        const promoteToFullCanvas = shouldPromoteToFullCanvas(plan, isOpening, isClosing);
+        const base = normalizedMotionScene(original, ids, promoteToFullCanvas);
+        const motionVisible = motionVisibleCharacterIds(base, script, cast);
+        const common = {
+          style_id: MOTION_STYLE_ID,
+          palette_id: MOTION_PALETTE_ID,
+          entity_ids: ids,
+          entity_visual_tokens: tokens,
+          duration_sec: Number(durationSec.toFixed(3)),
+        };
 
         if (!plan || !selected.has(base.scene_index) || script.is_outro || !provider) {
           scenes.push({
             ...base,
             ...common,
+            ...(motionVisible !== undefined ? { visible_character_ids: motionVisible } : {}),
             visual_mode: "motion_graphic",
             ...(isOpening ? { hook_strength: hookStrength(plan ?? { scene_index: 0 }, base, 0), hook_strategy: "motion_transformation" as const } : {}),
           });
@@ -407,12 +453,13 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
           try { alignment = JSON.parse(new TextDecoder().decode(await ctx.blobs.get(clip.alignment_uri))) as AlignmentData; }
           catch (error) { ctx.logger.warn(`[hybrid_visual_assets] scene ${base.scene_index} alignment unavailable; using narration segmentation: ${error instanceof Error ? error.message : String(error)}`); }
         }
-        const visible = visibleCast(base, script, cast);
+        const visible = visibleCast(original, script, cast);
+        const visibleCharacterIds = visible.map((character) => character.character_id);
         const group = continuityGroup(visible, ids, episodeEntity);
         const shots = shotTypesFor(plan, isOpening, durationSec);
         const segments = shotSegments(shots, durationSec, script, alignment);
         const prompts = segments.map((segment) => shotPrompt(segment, plan, script, visible, group, tokens));
-        const seed = stableHash(`${STYLE_ID}:${group}`) & 0x7fffffff;
+        const seed = stableHash(`${MOTION_STYLE_ID}:${group}`) & 0x7fffffff;
 
         try {
           const generated = await generatePack(provider, prompts, seed, anchors.get(group));
@@ -431,6 +478,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
             prompt: prompts.join("\n---\n").slice(0, 3000),
             ...(base.template_data ? { template_data: base.template_data } : {}),
             ...common,
+            visible_character_ids: visibleCharacterIds,
             visual_mode: "ai_broll",
             continuity_group: group,
             shot_types: shots,
@@ -442,6 +490,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
           scenes.push({
             ...base,
             ...common,
+            ...(motionVisible !== undefined ? { visible_character_ids: motionVisible } : {}),
             visual_mode: "motion_graphic",
             continuity_group: group,
             ...(isOpening ? { hook_strength: hookStrength(plan, base, 0), hook_strategy: "fallback" as const } : {}),
