@@ -7,6 +7,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("node:crypto");
 
 // We can't easily require compose.js (it starts Express),
 // so we test the color grading filter strings directly.
@@ -106,9 +107,30 @@ describe("Motion assets exist", () => {
     it("sfx directory has required sound effects", () => {
         const sfxDir = path.join(assetsDir, "sfx");
         assert.ok(fs.existsSync(sfxDir), "sfx/ directory missing");
-        assert.ok(fs.existsSync(path.join(sfxDir, "whoosh.wav")), "whoosh.wav missing");
-        assert.ok(fs.existsSync(path.join(sfxDir, "impact.wav")), "impact.wav missing");
-        assert.ok(fs.existsSync(path.join(sfxDir, "riser.wav")), "riser.wav missing");
+        // tick/pop/resolve are as required as the original three: without
+        // them compose.js's cueMap silently drops every tick/pop/resolve cue
+        // (sfxAvailable gates each push), which is exactly the "5 authored
+        // cues collapse to 2 sounds" problem they were added to fix.
+        for (const name of ["whoosh", "impact", "riser", "tick", "pop", "resolve"]) {
+            const file = path.join(sfxDir, `${name}.wav`);
+            assert.ok(fs.existsSync(file), `${name}.wav missing`);
+            assert.ok(fs.statSync(file).size > 1000, `${name}.wav is suspiciously small (truncated or silent?)`);
+        }
+    });
+
+    it("every distinct sfx cue is backed by a distinct sound file", () => {
+        // The regression this pins: before this pass, cueMap mapped tick,
+        // pop and resolve all onto impact.wav at different gains -- three
+        // "different" authored cues that a viewer heard as one sound. Hash
+        // the actual bytes so a future refactor cannot quietly re-collapse
+        // them by pointing two cue types at the same file.
+        const sfxDir = path.join(assetsDir, "sfx");
+        const digests = new Map();
+        for (const name of ["whoosh", "impact", "riser", "tick", "pop", "resolve"]) {
+            const digest = crypto.createHash("sha256").update(fs.readFileSync(path.join(sfxDir, `${name}.wav`))).digest("hex");
+            assert.ok(!digests.has(digest), `${name}.wav is byte-identical to ${digests.get(digest)}.wav`);
+            digests.set(digest, name);
+        }
     });
 
     it("backgrounds directory has required images", () => {
