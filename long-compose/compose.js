@@ -1106,6 +1106,11 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         // across scenes (a real, common variance) got a different shape --
         // "canonical reuse across the episode" broke on formatting alone.
         entityIdentityKeys: d.entityIdentityKeys || [],
+        // Real icons resolved server-side (engine/src/icon-search.ts, via
+        // Iconify's open icon search) for entities whose label matched
+        // something concrete. Keyed the same way as entityIdentityKeys;
+        // EntityMark prefers this over its hash-picked shape when present.
+        entityIcons: d.entityIcons || {},
         before: d.before,
         after: d.after,
         characterCutIn: d.characterCutIn || "none",

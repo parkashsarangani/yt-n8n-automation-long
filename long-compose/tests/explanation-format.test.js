@@ -167,9 +167,24 @@ test("middle scenes suppress slide headings and canonical entities retain identi
   // identityKeys (from entityIdentityKeys, a compiler-supplied proxy for
   // "same entity, possibly reworded") seeds EntityMark's shape/colour hash
   // ahead of the raw display label, so a mark stays visually stable within a
-  // scene even when the label wording shifts.
-  assert.match(motion, /id=\{identityKeys\[i\]\s*\|\|\s*labels\[i\]/);
+  // scene even when the label wording shifts. Extracted to a local `eid` so
+  // the same id also drives the entityIcons lookup below, rather than
+  // duplicating the identityKeys/labels fallback chain per prop.
+  assert.match(motion, /eid\s*=\s*identityKeys\[i\]\s*\|\|\s*labels\[i\]/);
   assert.match(scene, /entityIdentityKeys/);
+});
+
+test("real icons resolved server-side take priority over EntityMark's hash-picked shape", () => {
+  // entityIcons is additive to the identity/colour contract above, not a
+  // replacement: an entity with no confident icon match keeps today's
+  // arbitrary-but-stable shape exactly as before this existed.
+  assert.match(motion, /export type EntityIconMap/);
+  assert.match(motion, /icon\?\s*:\s*\{\s*viewBox:\s*string;\s*body:\s*string\s*\}/);
+  assert.match(motion, /if \(icon\) \{/);
+  assert.match(motion, /dangerouslySetInnerHTML/);
+  assert.match(motion, /entityIcons\?\.\[eid\]/);
+  assert.match(scene, /entityIcons/);
+  assert.match(compose, /entityIcons: d\.entityIcons \|\| \{\}/);
 });
 
 test("reaction panels interact with the model and payoff removes secondary copy", () => {
