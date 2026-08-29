@@ -395,7 +395,25 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
     const rightWidth=390*(operation==="scale-compare"?1+progress*.28:1);
     const inward=operation==="compress"?progress*105:0;
+    const leftX=90+inward+leftWidth/2, rightX=990-inward-rightWidth/2;
+    // Before/after is a state change of usually one entity (occasionally two
+    // being compared) -- the right icon falls back to identityKeys[0] rather
+    // than going empty, so a single-entity scene still gets its icon on both
+    // sides instead of only the left box.
+    const leftIcon=identityKeys[0]?entityIcons?.[identityKeys[0]]:undefined;
+    const rightId=identityKeys[1]||identityKeys[0];
+    const rightIcon=rightId?entityIcons?.[rightId]:undefined;
     return <><rect x={90+inward} y="100" width={leftWidth} height="290" rx="34" fill={colors.fill} stroke={colors.muted} strokeWidth="6"/><rect x={990-inward-rightWidth} y="100" width={rightWidth} height="290" rx="34" fill={colors.fill} stroke={colors.line} strokeWidth="8" opacity={.3+progress*.7}/>
+      {/* Two plain colour-filled boxes with only a text label read as inert
+          placeholders, not an illustration of anything -- real watch feedback
+          on run_ad5bd430 called this exact primitive out by name ("the boxes
+          were stupid and not matching"). EntityMark (with its real Iconify
+          icon when one resolved, falling back to its hash shape otherwise)
+          gives each box an actual picture instead of being colour + text
+          only, the same identity contract every other EntityMark call site
+          already uses. */}
+      {identityKeys[0] && <EntityMark id={identityKeys[0]} icon={leftIcon} x={leftX} y={160} size={36}/>}
+      {rightId && <EntityMark id={rightId} icon={rightIcon} x={rightX} y={160} size={36}/>}
       {/* Both Labels used to fall back to the default maxWidth (300).
           Label's own char-budget formula is `max(10, floor((maxWidth-38)/30.24))`
           -- the `max(10, ...)` floor means anything under ~340 collapses to
@@ -403,15 +421,25 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
           leftWidth/rightWidth (~280-499px) was a no-op fix the first time:
           "Compact liquid arrangement" and "Open solid arrangement" still
           truncated to "Compact liquid ar..." / "Open solid arrangeme..." on a
-          real ice-float render (run_f7167c64). Fitting a 3-word before/after
-          phrase across 2 lines without truncation needs maxChars>=15, which
-          needs maxWidth>=492 -- past what this primitive's own decorative
-          box (leftWidth/rightWidth) ever reaches on the shrinking side. A
-          fixed, generous maxWidth here (the Label pill sizes its own
-          background independently of the box drawn beside it, so this does
-          not have to track leftWidth/rightWidth) trades a little headroom
-          past the box's drawn edge for never truncating real content. */}
-      <Label text={before||labels[0]} x={90+inward+leftWidth/2} y={245} state={state} maxWidth={500}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={990-inward-rightWidth/2} y={245} active state={state} maxWidth={500}/></>;
+          real ice-float render (run_f7167c64). Raised again after
+          run_ad5bd430 showed even longer, semicolon-joined compound clauses
+          ("Whole onion beside Buddy; ...") still truncating at 500. The Label
+          pill sizes its own background independently of the box drawn beside
+          it, so this does not have to track leftWidth/rightWidth -- pushing
+          it further trades more headroom past the box's drawn edge for
+          fewer truncated real sentences.
+
+          NOT fully solved even at 560 (maxChars=17): a real test with
+          "Whole onion sits beside Buddy waiting" (38 chars, representative
+          of production's semicolon-joined state_before/state_after clauses)
+          still truncates its second line. Pushing maxWidth further starts
+          risking the pill visibly overflowing the 1080-wide canvas on both
+          sides at once. The remaining gap is better closed by constraining
+          how long state_before/state_after are AUTHORED (prompt/schema
+          level) than by continuing to inflate this box -- genuinely long
+          content still degrades gracefully to Label's own ellipsis overflow
+          rather than crashing, disappearing, or silently dropping words. */}
+      <Label text={before||labels[0]} x={leftX} y={325} state={state} maxWidth={560}/><DirectedEdge x1={490} y1={245} x2={585} y2={245} progress={progress} state={state}/><Label text={after||labels[1]} x={rightX} y={325} active state={state} maxWidth={560}/></>;
   }
   if (primitive === "map") {
     const places: Array<[number,number]>=[[130,360],[315,135],[520,305],[735,110],[950,340]];
