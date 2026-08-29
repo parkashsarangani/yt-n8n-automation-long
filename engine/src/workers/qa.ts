@@ -37,6 +37,7 @@ interface AssetScene {
   style_id?: string;
   palette_id?: string;
   entity_ids?: string[];
+  visible_character_ids?: string[];
   duration_sec?: number;
   shot_types?: string[];
   shot_segments?: ShotSegment[];
@@ -133,10 +134,9 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       }
 
       if (enforceDialogueQuality) {
-        // AI scenes retain template_data even though template_category is absent,
-        // so the denominator is based on authored explanation intent rather than
-        // renderer modality. This closes the audit bug where replacing a weak
-        // explanation scene with AI made it disappear from QA entirely.
+        // AI scenes retain deterministic template_data even though their image
+        // renderer path omits template_category. Measure authored explanatory
+        // intent rather than letting a modality switch shrink the denominator.
         const explanationScenes = visualScenes.filter((scene) => scene.template_category === "explanation" || Object.keys(performance(scene)).length > 0);
         if (explanationScenes.length > 0) {
           const perf = explanationScenes.map(performance);
@@ -144,7 +144,14 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
             if (perf[i]?.explanatoryModelVisible !== true) return false;
             return scene.visual_mode === "ai_broll" ? Boolean(scene.entity_ids?.length && validShotSemantics(scene)) : true;
           }).length;
-          const characterScenes = perf.filter((item) => item.characterCutIn !== "none" && item.characterCutIn !== undefined).length;
+          const characterScenes = explanationScenes.filter((scene, i) => {
+            // Hybrid assets explicitly report what the rendered scene is expected
+            // to show. If that telemetry is absent, retain the old conservative
+            // behavior: anything other than an explicit "none" counts against
+            // the character-restraint budget, including undefined metadata.
+            if (scene.visible_character_ids !== undefined) return scene.visible_character_ids.length > 0;
+            return perf[i]?.characterCutIn !== "none";
+          }).length;
           const changedScenes = explanationScenes.filter((scene, i) => perf[i]?.meaningfulStateChange === true && validShotSemantics(scene)).length;
           const denominator = Math.max(1, explanationScenes.length);
           const modelRatio = modelScenes / denominator, characterRatio = characterScenes / denominator, changeRatio = changedScenes / denominator;
@@ -166,6 +173,11 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         checks.push(invalid.length === 0
           ? { id: "ai_shot_semantics", status: "pass", message: ai.length ? `${ai.length} AI scenes have narration-aligned shot windows` : "0 AI scenes; deterministic fallback is active", measured: invalid.length, threshold: 0 }
           : { id: "ai_shot_semantics", status: "fail", message: `${invalid.length}/${ai.length} AI scenes have missing or discontinuous narration-shot windows`, measured: invalid.length, threshold: 0 });
+
+        const missingCharacterTelemetry = ai.filter((scene) => scene.visible_character_ids === undefined).length;
+        checks.push(missingCharacterTelemetry === 0
+          ? { id: "ai_character_visibility_telemetry", status: "pass", message: ai.length ? `${ai.length} AI scenes explicitly report visible characters` : "0 AI scenes; no AI character telemetry required", measured: 0, threshold: 0 }
+          : { id: "ai_character_visibility_telemetry", status: "fail", message: `${missingCharacterTelemetry}/${ai.length} AI scenes omit visible-character telemetry`, measured: missingCharacterTelemetry, threshold: 0 });
 
         const styles = new Set(visualScenes.map((scene) => `${scene.style_id ?? "missing"}|${scene.palette_id ?? "missing"}`));
         checks.push(styles.size === 1 && ![...styles][0]!.includes("missing")
@@ -201,10 +213,9 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
             : { id: "closing_visible_payoff", status: "fail", message: "closing scene has 0 explicit payoff transformations; minimum is 1", measured: 0, threshold: 1 });
         }
 
-        // This is deliberately only a warning. The uploaded audit episode has
-        // repeated ~0.4-0.8s inter-line gaps; visual novelty cannot fully rescue
-        // a stop-start voice track, but this heuristic must never be allowed to
-        // halt production on its own.
+        // This is deliberately only a warning. Visual novelty cannot fully
+        // rescue a stop-start voice track, but this heuristic must never be
+        // allowed to halt production on its own.
         if (script.scenes?.length && voice.clips?.length) {
           const byScript = new Map(script.scenes.map((scene) => [scene.scene_index, scene]));
           const excessive = voice.clips.filter((clip) => {
