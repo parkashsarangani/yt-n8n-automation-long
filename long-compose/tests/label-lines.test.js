@@ -74,3 +74,24 @@ test("blank input produces no lines, not a crash", () => {
   assert.deepEqual(labelLines("", 20), []);
   assert.deepEqual(labelLines("   ", 20), []);
 });
+
+test("a real before/after phrase from production does not truncate at the before-after primitive's maxWidth", () => {
+  // Real content from run_f7167c64 (ice-float episode, MotionDesignSystem.tsx
+  // "before-after" primitive). Label's char budget is
+  // `max(10, floor((maxWidth-38)/30.24))` -- the `max(10, ...)` floor meant
+  // the primitive's own box width (leftWidth/rightWidth, ~280-499px) produced
+  // the SAME 10-char budget as the unfixed 300 default, silently truncating
+  // "Compact liquid arrangement" to "Compact liquid ar...". The primitive now
+  // passes a fixed maxWidth of 500, which computes to maxChars=15 here --
+  // pin that both phrases fit in 2 lines with no ellipsis.
+  const maxChars = Math.max(10, Math.floor((500 - 38) / (54 * 0.56)));
+  assert.equal(maxChars, 15, "maxWidth=500 must clear the 15-char threshold this phrase needs");
+
+  const before = labelLines("Compact liquid arrangement", maxChars);
+  assert.deepEqual(before, ["Compact liquid", "arrangement"]);
+  assert.ok(!before.some((line) => line.includes("…")), "before phrase must not be truncated");
+
+  const after = labelLines("Open solid arrangement", maxChars);
+  assert.deepEqual(after, ["Open solid", "arrangement"]);
+  assert.ok(!after.some((line) => line.includes("…")), "after phrase must not be truncated");
+});
