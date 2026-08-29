@@ -1469,15 +1469,51 @@ async function concatScenes(scenePaths, outPath) {
     return outPath;
   }
 
-  const listPath = path.join(path.dirname(outPath), "concat_scenes.txt");
-  const listContent = scenePaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n");
-  await fsp.writeFile(listPath, listContent);
-
+  // The concat DEMUXER (-f concat, -c copy) stream-copies packets and simply
+  // offsets timestamps between segments -- it assumes every segment shares a
+  // consistent timebase. Scene segments here come from two different encode
+  // paths (Remotion's own H.264 stream, copied straight through by
+  // buildTemplateScene's "-c:v copy" branch, vs. libx264 re-encodes with
+  // setpts/tpad/crop filters from buildImageScene/buildStockVideoScene), and
+  // their timebases and SAR (sample aspect ratio) don't reliably agree --
+  // buildImageScene's scale+crop chain leaves a near-1:1-but-not-exact SAR
+  // (e.g. 28000:27999) instead of Remotion's clean 1:1. A real production
+  // render (run_9989c55b) hit this directly: every individual
+  // scene_N_final.mp4 was independently verified correct (Remotion given the
+  // right frame count, each scene's own "-t duration" mux correct, and the
+  // pipeline's own totalVideoDuration/fade-out math agreeing on ~60.7s) but
+  // the concat-demuxer output still came out to 346-374s -- several minutes
+  // of black screen with only the looped background music audible, because
+  // "-c copy" silently produced a corrupted/gapped timeline across segments
+  // it never actually validated as compatible.
+  //
+  // The concat FILTER decodes and re-times every segment before re-encoding,
+  // so it can't inherit an upstream segment's timebase quirks -- but it DOES
+  // strictly validate that every input's video parameters match, so the same
+  // SAR mismatch that "-c copy" silently ignored makes the filter graph fail
+  // outright ("Input link parameters do not match") unless every input is
+  // first normalized. scale+setsar per input does that; the CPU cost of one
+  // re-encode pass is worth never publishing this bug again.
+  const filterInputs = scenePaths
+    .map((_, i) => `[${i}:v]scale=${TARGET_W}:${TARGET_H},setsar=1,format=yuv420p[v${i}];[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`)
+    .join(";");
+  const concatInputs = scenePaths.map((_, i) => `[v${i}][a${i}]`).join("");
+  const cmd = ffmpeg();
+  for (const p of scenePaths) cmd.input(p);
   await run(
-    ffmpeg()
-      .input(listPath)
-      .inputOptions(["-f", "concat", "-safe", "0"])
-      .outputOptions(["-c", "copy"])
+    cmd
+      .complexFilter([`${filterInputs};${concatInputs}concat=n=${scenePaths.length}:v=1:a=1[cv][ca]`])
+      .outputOptions([
+        "-map", "[cv]",
+        "-map", "[ca]",
+        "-c:v", V_ENCODER,
+        "-r", String(FPS),
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+      ])
       .output(outPath)
   );
 
