@@ -2,7 +2,7 @@
   "schema_id": "asset_manifest",
   "version": "1.5.0",
   "status": "active",
-  "description": "Watchability-oriented hybrid asset manifest: bounded AI shot packs retain deterministic explanation metadata while adding voice timing, semantic shot windows, shared visual-style tokens, stable entity identities, continuity groups, and opening-hook evidence.",
+  "description": "Watchability-oriented hybrid asset manifest: bounded AI shot packs retain deterministic explanation metadata while adding voice timing, semantic shot windows, shared visual-style tokens, stable entity identities, explicit visible-character telemetry, continuity groups, and opening-hook evidence.",
   "produced_by": ["asset_collector", "cartoon_scene_compiler", "hybrid_visual_assets"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -46,6 +46,13 @@
                   "shape": { "type": "string", "enum": ["circle", "diamond", "triangle", "ring", "hexagon", "plus"] }
                 }
               }
+            },
+            "visible_character_ids": {
+              "type": "array",
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "description": "Characters actually expected to be visible in the rendered scene. AI scenes populate this from the cast supplied to the image prompt; motion scenes populate it from renderer composition metadata when known."
             },
             "duration_sec": { "type": "number", "minimum": 0 },
             "shot_types": { "type": "array", "maxItems": 5, "items": { "type": "string", "enum": ["establishing", "wide", "medium", "close-up", "detail", "reaction", "symbolic", "overhead"] } },
