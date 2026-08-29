@@ -146,10 +146,36 @@ test("sound design follows operations and preserves a restrained payoff", () => 
   assert.match(compose, /sfxEvents\.length >= 20/);
   assert.match(compose, /time - lastCueTime < 1\.3/);
   assert.match(compose, /explanationMode \? 0\.11 : 0\.15/);
-  assert.match(compose, /volume: 0\.14/);
   assert.match(compose, /operationPhase/);
   assert.match(compose, /data\.visualOperation === "payoff"/);
   assert.match(compose, /0\.74/);
+});
+
+test("each authored sound cue maps to its own sound, not one shared file at a different gain", () => {
+  // The regression this pins: cueMap previously mapped soft-hit/tick/pop/
+  // resolve ALL onto impact.wav, and both whoosh cues onto whoosh.wav --
+  // five authored cue types a viewer heard as two sounds. Parse the real
+  // cueMap out of compose.js and assert the distinct cue names resolve to
+  // distinct `type`s, rather than only checking that the strings appear.
+  const cueBlock = compose.match(/const cueMap = \{([\s\S]*?)\n {4}\};/);
+  assert.ok(cueBlock, "expected to find the cueMap literal in compose.js");
+  const types = [...cueBlock[1].matchAll(/type: "([a-z-]+)"/g)].map((m) => m[1]);
+  assert.equal(types.length, 5, "expected five authored cue types");
+  assert.equal(new Set(types).size, 5, `authored cues collapsed onto shared sounds: ${types.join(", ")}`);
+
+  // The fallback tables must not re-collapse either: before this pass every
+  // operation fell back to impact or whoosh only.
+  const opBlock = compose.match(/const operationFallback = \{([\s\S]*?)\n {4}\};/);
+  assert.ok(opBlock, "expected to find the operationFallback literal");
+  const opTypes = new Set([...opBlock[1].matchAll(/type: "([a-z-]+)"/g)].map((m) => m[1]));
+  assert.ok(opTypes.size >= 4, `operation fallbacks use only ${opTypes.size} distinct sounds: ${[...opTypes].join(", ")}`);
+
+  // Every sound any table names must actually be a file compose.js resolves,
+  // or sfxAvailable silently drops the cue at render time.
+  const declared = new Set([...compose.matchAll(/^\s{6}(\w+): path\.join\(sfxDir, "(\w+)\.wav"\)/gm)].map((m) => m[1]));
+  for (const type of [...types, ...opTypes]) {
+    assert.ok(declared.has(type), `cue type "${type}" has no entry in sfxFiles`);
+  }
 });
 
 

@@ -1782,43 +1782,61 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // ===== PHASE 4: Sound design + Audio mixing + Final composite =====
     const musicPath = pickMusicTrack(mood);
     const sfxDir = path.join(MOTION_ASSETS_DIR, "sfx");
+    // tick/pop/resolve are new (PR "sound design depth"). Before them, the 5
+    // authored cue types and 12 fallback entries all collapsed onto just
+    // impact/whoosh with only the volume differing -- so a "tick", a "pop"
+    // and a "resolve" were literally the same audio file at three gains,
+    // which is a cue TABLE, not sound design. These are synthesized with
+    // ffmpeg rather than sourced: deterministic, reproducible from the
+    // documented recipe in tests/sfx-assets.test.js, and free of the
+    // licensing questions that come with third-party audio in a monetised
+    // commercial video.
     const sfxFiles = {
       whoosh: path.join(sfxDir, "whoosh.wav"),
       impact: path.join(sfxDir, "impact.wav"),
       riser: path.join(sfxDir, "riser.wav"),
+      tick: path.join(sfxDir, "tick.wav"),
+      pop: path.join(sfxDir, "pop.wav"),
+      resolve: path.join(sfxDir, "resolve.wav"),
     };
-    const sfxAvailable = {
-      whoosh: fs.existsSync(sfxFiles.whoosh),
-      impact: fs.existsSync(sfxFiles.impact),
-      riser: fs.existsSync(sfxFiles.riser),
-    };
+    const sfxAvailable = Object.fromEntries(
+      Object.entries(sfxFiles).map(([name, file]) => [name, fs.existsSync(file)]),
+    );
 
     // Restrained operation-aware sound design. Authored transformation cues
     // punctuate visible changes, while spacing and a hard cap prevent every cut
     // from becoming noisy. The final payoff keeps its quiet riser and resolve.
     const sfxEvents = [];
+    // Each authored cue now maps to its OWN sound rather than a shared
+    // impact/whoosh at a different gain: a tick is a short high click, a pop
+    // is a rounded mid blip, a resolve is a warm two-tone chime. The planner
+    // has always been able to author these five distinct cues; until now the
+    // distinction never survived into the audio a viewer actually hears.
     const cueMap = {
       "soft-hit": { type: "impact", volume: 0.10 },
-      tick: { type: "impact", volume: 0.07 },
+      tick: { type: "tick", volume: 0.09 },
       whoosh: { type: "whoosh", volume: 0.11 },
-      pop: { type: "impact", volume: 0.09 },
-      resolve: { type: "impact", volume: 0.14 },
+      pop: { type: "pop", volume: 0.10 },
+      resolve: { type: "resolve", volume: 0.13 },
     };
     const visualStateFallback = {
       hypothesis: { type: "whoosh", volume: 0.065 },
       contradiction: { type: "impact", volume: 0.11 },
       qualification: { type: "whoosh", volume: 0.075 },
-      payoff: { type: "impact", volume: 0.14 },
+      payoff: { type: "resolve", volume: 0.13 },
     };
+    // Differentiated so the fallback path is not itself a two-sound table:
+    // discrete/placement operations tick, aggregating ones pop, continuous
+    // spatial ones whoosh, and the closing payoff resolves.
     const operationFallback = {
-      stack: { type: "impact", volume: 0.07 },
+      stack: { type: "tick", volume: 0.07 },
       compress: { type: "whoosh", volume: 0.10 },
-      group: { type: "whoosh", volume: 0.09 },
-      sort: { type: "whoosh", volume: 0.09 },
+      group: { type: "pop", volume: 0.09 },
+      sort: { type: "tick", volume: 0.08 },
       "scale-compare": { type: "impact", volume: 0.08 },
-      timeline: { type: "impact", volume: 0.055 },
-      counter: { type: "impact", volume: 0.06 },
-      payoff: { type: "impact", volume: 0.14 },
+      timeline: { type: "tick", volume: 0.06 },
+      counter: { type: "tick", volume: 0.06 },
+      payoff: { type: "resolve", volume: 0.13 },
     };
     // Retention research on what actually keeps a short-form viewer watching
     // singles out sound design as the single biggest lever, specifically "a
