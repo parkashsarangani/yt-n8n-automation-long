@@ -301,7 +301,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, before, a
   }
   if (primitive === "objects") {
     const entities = labels.slice(0,4);
-    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={identityKeys[i]||label} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={260}/> : null}</g>})}</>;
+    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={identityKeys[i]||label} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
   }
   if (primitive === "network") {
     const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
