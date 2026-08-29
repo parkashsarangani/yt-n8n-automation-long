@@ -187,6 +187,18 @@ test("real icons resolved server-side take priority over EntityMark's hash-picke
   assert.match(compose, /entityIcons: d\.entityIcons \|\| \{\}/);
 });
 
+test("before-after boxes carry an entity mark, not just colour and text", () => {
+  // The two before-after boxes were plain colour-filled rects with only a
+  // text label -- real watch feedback (run_ad5bd430) called this primitive
+  // out by name as "stupid and not matching". EntityMark gives each box an
+  // actual picture, same icon-over-hash-shape contract as every other
+  // EntityMark call site.
+  assert.match(motion, /primitive === "before-after"/);
+  assert.match(motion, /rightId\s*=\s*identityKeys\[1\]\s*\|\|\s*identityKeys\[0\]/);
+  assert.match(motion, /<EntityMark id=\{identityKeys\[0\]\} icon=\{leftIcon\}/);
+  assert.match(motion, /<EntityMark id=\{rightId\} icon=\{rightIcon\}/);
+});
+
 test("reaction panels interact with the model and payoff removes secondary copy", () => {
   assert.match(scene, /function CharacterModelInteraction/);
   assert.match(scene, /data-character-model-interaction="true"/);

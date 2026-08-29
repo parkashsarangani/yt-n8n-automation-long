@@ -95,3 +95,22 @@ test("a real before/after phrase from production does not truncate at the before
   assert.deepEqual(after, ["Open solid", "arrangement"]);
   assert.ok(!after.some((line) => line.includes("…")), "after phrase must not be truncated");
 });
+
+test("a longer compound before/after clause needed maxWidth raised past 500 to 560", () => {
+  // run_ad5bd430 (onions episode) showed "Whole onion beside Buddy;..." and
+  // "Smell path breaks; eyes r..." still truncating at maxWidth=500 -- these
+  // state_before/state_after phrases run longer than the 3-word case above.
+  // Representative phrase at the same rough length: fits clean at
+  // maxWidth=560 (maxChars=17) but still truncates at the old 500 (15),
+  // proving the second bump is the fix, not a placebo.
+  const phrase = "Whole onion sits beside Buddy";
+
+  const oldChars = Math.max(10, Math.floor((500 - 38) / (54 * 0.56)));
+  const oldResult = labelLines(phrase, oldChars);
+  assert.ok(oldResult.some((line) => line.includes("…")), "sanity check: this phrase genuinely truncated at the old maxWidth");
+
+  const newChars = Math.max(10, Math.floor((560 - 38) / (54 * 0.56)));
+  assert.equal(newChars, 17, "maxWidth=560 must compute to 17 chars/line");
+  const newResult = labelLines(phrase, newChars);
+  assert.ok(!newResult.some((line) => line.includes("…")), "the same phrase must not truncate at maxWidth=560");
+});
