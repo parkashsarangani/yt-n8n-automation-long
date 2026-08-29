@@ -3,13 +3,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  MOTION_BG,
-  MOTION_ENTITY_COLORS,
-  MOTION_ENTITY_SHAPES,
-  motionEntityHash,
-  motionEntityVisualTokens,
-} from "../src/motion-visual-identity.ts";
-import {
   TEMPLATE_DATA_MAX_LENGTH,
   templateDataWithinLimit,
 } from "../src/workers/hybrid-visual-assets.ts";
@@ -17,8 +10,12 @@ import { FalImageProvider } from "../src/providers/fal.ts";
 
 const hybridSource = readFileSync(new URL("../src/workers/hybrid-visual-assets.ts", import.meta.url), "utf8");
 const qaSource = readFileSync(new URL("../src/workers/qa.ts", import.meta.url), "utf8");
-const motionSource = readFileSync(new URL("../../long-compose/remotion/src/compositions/MotionDesignSystem.tsx", import.meta.url), "utf8");
-const explanationSource = readFileSync(new URL("../../long-compose/remotion/src/compositions/ExplanationScene.tsx", import.meta.url), "utf8");
+// This file runs inside the engine's isolated Docker test image (CI builds
+// and tests ./engine and ./long-compose as two separate contexts), which
+// never contains long-compose/. The two checks that need to read Remotion's
+// source live at contracts/motion-visual-identity.test.ts (run once on the
+// raw CI checkout, where both trees exist) and
+// long-compose/tests/explanation-composition-driven-layout.test.js instead.
 
 test("closing bookend explicitly reuses opening stable entity ids", () => {
   assert.match(hybridSource, /const ids = isClosing \? openingIds : plan \? entityIdsFor\(plan\) : \[\]/);
@@ -74,24 +71,11 @@ test("AI character visibility is explicit and missing legacy telemetry remains c
   assert.match(qaSource, /ai_character_visibility_telemetry/);
 });
 
-test("bookend and reaction spatial allocation is composition-driven, not scene-position-driven", () => {
-  assert.match(explanationSource, /function BookendComposition[\s\S]*?<ContentStage right=\{610\}/);
-  assert.match(explanationSource, /function ReactionComposition[\s\S]*?panelMode === "both" \? 610 : 380/);
+test("bookend/reaction routing keys off composition mode, not scene position (engine half)", () => {
+  // The Remotion-side half of this contract -- that BookendComposition and
+  // ReactionComposition actually give the full-model explanation the wider
+  // canvas -- lives in long-compose/tests/explanation-composition-driven-layout.test.js,
+  // which runs inside long-compose's own Docker test image where
+  // ExplanationScene.tsx exists.
   assert.match(hybridSource, /return plan\?\.composition_mode === "bookend"/);
-});
-
-test("engine AI identity tokens stay byte-for-byte compatible with Remotion EntityMark contract", () => {
-  assert.equal(MOTION_BG, "#08101E");
-  for (const color of MOTION_ENTITY_COLORS) assert.ok(motionSource.includes(color), `renderer missing ${color}`);
-  assert.match(motionSource, /hash \* 31 \+ char\.charCodeAt\(0\)/);
-  assert.match(motionSource, /2166136261/);
-  assert.match(motionSource, /const shape = Math\.floor\(hash \/ colors\.length\) % 6/);
-
-  const ids = ["entity-alpha", "entity-beta", "entity-gamma", "entity-delta"];
-  const tokens = motionEntityVisualTokens(ids);
-  for (const token of tokens) {
-    const hash = motionEntityHash(token.entity_id);
-    assert.equal(token.color, MOTION_ENTITY_COLORS[hash % MOTION_ENTITY_COLORS.length]);
-    assert.equal(token.shape, MOTION_ENTITY_SHAPES[Math.floor(hash / MOTION_ENTITY_COLORS.length) % MOTION_ENTITY_SHAPES.length]);
-  }
 });

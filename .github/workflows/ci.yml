@@ -26,6 +26,12 @@ jobs:
           cmp contracts/motion-compatibility.json engine/src/motion-compatibility.json
           cmp contracts/motion-compatibility.json long-compose/remotion/src/motion-compatibility.json
 
+      - name: Motion visual identity contract is synchronized
+        # engine/ and long-compose/ build as two separate, isolated Docker
+        # contexts below, so this cross-package check runs once here, on the
+        # raw checkout, where both trees exist side by side.
+        run: npx --yes tsx --test contracts/motion-visual-identity.test.ts
+
       - name: Compose file is valid and starts the right services
         run: |
           set -e
