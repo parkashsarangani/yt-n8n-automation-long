@@ -186,3 +186,92 @@ test("when no OPENAI_API_KEY is configured, the QA check passes through silently
     globalThis.fetch = originalFetch;
   }
 });
+
+// --- semantic (narration-contradiction) path -------------------------------
+
+// Routes the two QA questions to different answers by inspecting the prompt
+// text the module actually sends, so a test can make the TEXT check clean
+// while the SEMANTIC check flags -- proving the semantic path alone can
+// drive regeneration/fallback, not just riding on the text check.
+function fetchByQaKind(opts: { text?: boolean; semantic?: boolean | ((call: number) => boolean) }): typeof fetch {
+  let semanticCalls = 0;
+  return ((url: string, init?: { body?: string }) => {
+    if (String(url).includes("api.iconify.design")) return Promise.resolve({ ok: true, json: async () => ({ icons: [] }) } as never);
+    const body = init?.body ?? "";
+    const isSemantic = body.includes("contradicts_narration");
+    let flagged: boolean;
+    if (isSemantic) {
+      semanticCalls++;
+      flagged = typeof opts.semantic === "function" ? opts.semantic(semanticCalls) : Boolean(opts.semantic);
+      return Promise.resolve({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ contradicts_narration: flagged, reason: flagged ? "beam points into the eyes" : "fine" }) } }] }) } as never);
+    }
+    flagged = Boolean(opts.text);
+    return Promise.resolve({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ has_visible_text: flagged, reason: flagged ? "lettering" : "clean" }) } }] }) } as never);
+  }) as typeof fetch;
+}
+
+async function runWorker(provider: unknown) {
+  const worker = makeHybridVisualAssetsWorker();
+  return worker.execute(
+    {
+      compiled: { payload: { scenes: [compiledScene(0), compiledScene(1)], degraded_count: 0 } },
+      plan: { payload: { scenes: [plan(0), plan(1)] } },
+      script: { payload: { scenes: [scriptScene(0), scriptScene(1)] } },
+      cast,
+      voice,
+    } as never,
+    { ...ctx, media: { images: provider } } as never,
+  );
+}
+
+test("an image that contradicts its narration is regenerated even when it carries no text", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env["OPENAI_API_KEY"] = "test-key";
+  // Text check always clean; semantic check flags only the first attempt.
+  globalThis.fetch = fetchByQaKind({ text: false, semantic: (call) => call === 1 });
+  try {
+    let generateCalls = 0;
+    const provider = { id: "test-provider", async generate() { throw new Error("unused"); }, async generatePack() { generateCalls++; return { images: [fakeImage("A")] }; } };
+    const out = await runWorker(provider);
+    const payload = out.payload as { scenes: Array<{ scene_index: number; visual_mode?: string }> };
+    assert.equal(payload.scenes.find((s) => s.scene_index === 0)!.visual_mode, "ai_broll", "the clean retry must be accepted");
+    assert.equal(generateCalls, 2, "the semantic flag alone must trigger exactly one regeneration");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env["OPENAI_API_KEY"];
+  }
+});
+
+test("an image contradicting its narration on both attempts falls back to the motion graphic", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env["OPENAI_API_KEY"] = "test-key";
+  globalThis.fetch = fetchByQaKind({ text: false, semantic: true });
+  try {
+    let generateCalls = 0;
+    const provider = { id: "test-provider", async generate() { throw new Error("unused"); }, async generatePack() { generateCalls++; return { images: [fakeImage("A")] }; } };
+    const out = await runWorker(provider);
+    const payload = out.payload as { scenes: Array<{ scene_index: number; visual_mode?: string }> };
+    assert.equal(payload.scenes.find((s) => s.scene_index === 0)!.visual_mode, "motion_graphic", "a persistently contradictory image must never ship");
+    assert.equal(generateCalls, 2, "exactly one retry before giving up");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env["OPENAI_API_KEY"];
+  }
+});
+
+test("a semantically-fine image still ships when both checks pass", async () => {
+  const originalFetch = globalThis.fetch;
+  process.env["OPENAI_API_KEY"] = "test-key";
+  globalThis.fetch = fetchByQaKind({ text: false, semantic: false });
+  try {
+    let generateCalls = 0;
+    const provider = { id: "test-provider", async generate() { throw new Error("unused"); }, async generatePack() { generateCalls++; return { images: [fakeImage("A")] }; } };
+    const out = await runWorker(provider);
+    const payload = out.payload as { scenes: Array<{ scene_index: number; visual_mode?: string }> };
+    assert.equal(payload.scenes.find((s) => s.scene_index === 0)!.visual_mode, "ai_broll");
+    assert.equal(generateCalls, 1, "no retry when nothing is flagged");
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env["OPENAI_API_KEY"];
+  }
+});
