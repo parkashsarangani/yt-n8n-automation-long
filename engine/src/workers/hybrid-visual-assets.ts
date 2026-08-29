@@ -252,9 +252,23 @@ export function selectAiScenes(plans: PlanScene[], scripts: ScriptScene[], durat
     for (let w = 0; w < windowStarts.length; w++) {
       const wStart = windowStarts[w]!, wEnd = windowEnds[w]!;
       if (wEnd - wStart <= HARD_CEILING_SEC || selectedSec >= maxAiSec) continue;
+      // Converting a scene to ai_broll makes it count as character-visible by
+      // default (hybrid_visual_assets always resolves the speaking character
+      // for an AI shot, unlike a motion_graphic scene which can be marked
+      // character_cut_in "none"). Confirmed against two live runs this
+      // session (run_3c266ce5: cadence 23.8s->14.2s but character ratio
+      // 35%->44%; run_a53a0170: cadence ->12.0s, ratio ->38%) that the valve
+      // was pushing character_cut_in_restraint over its 35% cap. Preferring a
+      // candidate the plan never marked as a character beat keeps the forced
+      // pick's contribution to that ratio to the unavoidable minimum instead
+      // of also picking up the +1 character_cut_in bonus in scoreScene.
       const pick = scoredAll
         .filter((item) => !selected.has(item.plan.scene_index) && item.plan.scene_index !== lastIndex && !item.script.is_outro && item.start >= wStart && item.start < wEnd)
-        .sort((a, b) => b.score - a.score)[0];
+        .sort((a, b) => {
+          const aChar = a.plan.character_cut_in && a.plan.character_cut_in !== "none" ? 1 : 0;
+          const bChar = b.plan.character_cut_in && b.plan.character_cut_in !== "none" ? 1 : 0;
+          return aChar - bChar || b.score - a.score;
+        })[0];
       if (pick && selectedSec + pick.duration <= maxAiSec) { selected.add(pick.plan.scene_index); selectedSec += pick.duration; }
     }
   }
