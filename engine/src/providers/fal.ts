@@ -1,10 +1,11 @@
 /**
  * Fal image provider (RFC 0004).
  *
- * The only file that knows Fal exists. Model and request shape carried over
- * from the long-form pipeline (`fal-ai/flux/dev`, 1024x1792 for 9:16).
- *
- * NOT YET RUN AGAINST THE REAL API.
+ * FLUX.2 Pro is the production still-image source. Single-image generation
+ * implements the shared ImageProvider contract; generatePack is an optional
+ * Fal-specific extension used by the hybrid visual worker. A pack may receive
+ * a canonical reference from an earlier scene, so recurring subjects are
+ * reference-conditioned across the episode instead of merely sharing prompt text.
  */
 
 import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../provider.ts";
@@ -18,13 +19,8 @@ const SIZES: Record<Aspect, { width: number; height: number }> = {
 export interface FalOptions {
   apiKey?: string;
   model?: string;
+  editModel?: string;
   baseUrl?: string;
-  steps?: number;
-  /**
-   * Output encoding requested from Fal. long-compose's inline-image path uses
-   * PNG temp files, so PNG is the safe production default. FLUX 2 Pro otherwise
-   * defaults to JPEG, which makes ffmpeg select the PNG decoder for JPEG bytes.
-   */
   outputFormat?: "png" | "jpeg";
   /** USD per generated image, for cost accounting. */
   pricePerImage?: number;
@@ -33,14 +29,20 @@ export interface FalOptions {
 
 interface FalResponse {
   images?: Array<{ url?: string; content_type?: string }>;
+  seed?: number;
+}
+
+export interface GeneratedImage {
+  bytes: Uint8Array;
+  media_type: string;
 }
 
 export class FalImageProvider implements ImageProvider {
   readonly id: string;
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly editModel: string;
   private readonly baseUrl: string;
-  private readonly steps: number;
   private readonly outputFormat: "png" | "jpeg";
   private readonly pricePerImage: number;
   private readonly fetchImpl: typeof fetch;
@@ -50,34 +52,24 @@ export class FalImageProvider implements ImageProvider {
     if (!key) throw new ProviderError("FalImageProvider needs an API key (FAL_KEY)");
     this.apiKey = key;
     this.model = opts.model ?? "fal-ai/flux-2-pro";
+    this.editModel = opts.editModel ?? `${this.model}/edit`;
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
-    this.steps = opts.steps ?? 28;
     this.outputFormat = opts.outputFormat ?? "png";
     this.pricePerImage = opts.pricePerImage ?? 0.05;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `fal/${this.model}`;
   }
 
-  async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
-    const count = req.count ?? 1;
-    const size = SIZES[req.aspect];
-
+  private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/${this.model}`, {
+      res = await this.fetchImpl(`${this.baseUrl}/${model}`, {
         method: "POST",
         headers: {
           Authorization: `Key ${this.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          prompt: req.prompt,
-          image_size: size,
-          num_images: count,
-          num_inference_steps: this.steps,
-          enable_safety_checker: true,
-          output_format: this.outputFormat,
-        }),
+        body: JSON.stringify(input),
       });
     } catch (err) {
       throw new ProviderError(`${this.id} request failed: ${String(err)}`);
@@ -85,29 +77,53 @@ export class FalImageProvider implements ImageProvider {
 
     if (!res.ok) {
       throw new ProviderError(
-        `${this.id} returned ${res.status}: ${(await res.text()).slice(0, 300)}`,
+        `${this.id} returned ${res.status}: ${(await res.text()).slice(0, 500)}`,
       );
     }
 
     const body = (await res.json()) as FalResponse;
-    const urls = (body.images ?? []).filter((i) => i.url);
-    if (urls.length === 0) {
-      // Usually a safety-checker block. The asset worker's fallback rung
-      // handles this; it must surface as an error, not an empty success.
-      throw new ProviderError(`${this.id} returned no images (blocked or empty)`);
-    }
+    const image = (body.images ?? []).find((item) => item.url);
+    if (!image?.url) throw new ProviderError(`${this.id} returned no images (blocked or empty)`);
 
-    const images = await Promise.all(
-      urls.map(async (img) => {
-        const dl = await this.fetchImpl(img.url!);
-        if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
-        return {
-          bytes: new Uint8Array(await dl.arrayBuffer()),
-          media_type: img.content_type ?? (this.outputFormat === "png" ? "image/png" : "image/jpeg"),
-        };
-      }),
-    );
+    const dl = await this.fetchImpl(image.url);
+    if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
+    return {
+      bytes: new Uint8Array(await dl.arrayBuffer()),
+      media_type: image.content_type ?? (this.outputFormat === "png" ? "image/png" : "image/jpeg"),
+    };
+  }
 
+  private t2iInput(prompt: string, aspect: Aspect, seed?: number): Record<string, unknown> {
+    return {
+      prompt,
+      image_size: SIZES[aspect],
+      ...(seed !== undefined ? { seed } : {}),
+      safety_tolerance: "2",
+      enable_safety_checker: true,
+      output_format: this.outputFormat,
+    };
+  }
+
+  private dataUri(image: GeneratedImage): string {
+    return `data:${image.media_type};base64,${Buffer.from(image.bytes).toString("base64")}`;
+  }
+
+  private editInput(prompt: string, reference: GeneratedImage, aspect: Aspect, seed: number): Record<string, unknown> {
+    return {
+      prompt,
+      image_urls: [this.dataUri(reference)],
+      image_size: SIZES[aspect],
+      seed,
+      safety_tolerance: "2",
+      enable_safety_checker: true,
+      output_format: this.outputFormat,
+    };
+  }
+
+  async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
+    const count = Math.max(1, Math.min(5, req.count ?? 1));
+    const images: GeneratedImage[] = [];
+    for (let i = 0; i < count; i++) images.push(await this.request(this.model, this.t2iInput(req.prompt, req.aspect)));
     const usage: Usage = {
       input_tokens: 0,
       output_tokens: 0,
@@ -116,7 +132,73 @@ export class FalImageProvider implements ImageProvider {
       provider: "fal",
       model: this.model,
     };
-
     return { images, usage };
+  }
+
+  /**
+   * Build a shot pack around one anchor. This method is intentionally strict:
+   * callers author the exact temporal shot windows that the compositor will
+   * render, so silently filtering a prompt or capping the list would make the
+   * generated pack disagree with narration timing. Invalid packs fail and the
+   * hybrid worker retains the deterministic motion scene instead.
+   *
+   * When reference is supplied, the first shot is itself an edit of that
+   * earlier canonical image. Remaining shots edit the new scene anchor. This
+   * preserves recurring identity across scenes and within each shot pack.
+   */
+  async generatePack(req: {
+    prompts: string[];
+    aspect: Aspect;
+    seed: number;
+    reference?: GeneratedImage;
+  }) {
+    if (req.prompts.length < 1 || req.prompts.length > 5) {
+      throw new ProviderError(`${this.id} generatePack requires 1-5 prompts; received ${req.prompts.length}`);
+    }
+    if (req.prompts.some((prompt) => !prompt.trim())) {
+      throw new ProviderError(`${this.id} generatePack does not accept blank prompts`);
+    }
+    const prompts = req.prompts.map((prompt) => prompt.trim());
+
+    const anchor = req.reference
+      ? await this.request(
+          this.editModel,
+          this.editInput(
+            `${prompts[0]} Preserve the supplied recurring subject identity, wardrobe, proportions, palette and illustration language. Change only the requested physical action, environment state and camera framing.`,
+            req.reference,
+            req.aspect,
+            req.seed,
+          ),
+        )
+      : await this.request(this.model, this.t2iInput(prompts[0]!, req.aspect, req.seed));
+
+    const images: GeneratedImage[] = [anchor];
+    for (let i = 1; i < prompts.length; i++) {
+      images.push(await this.request(
+        this.editModel,
+        this.editInput(
+          `${prompts[i]} Keep the same characters, wardrobe, facial design, environment design, palette, line weight and illustration style as the supplied scene anchor. Change only the requested camera framing and action.`,
+          anchor,
+          req.aspect,
+          (req.seed + i) & 0x7fffffff,
+        ),
+      ));
+    }
+
+    if (images.length !== prompts.length) {
+      throw new ProviderError(`${this.id} generated ${images.length}/${prompts.length} requested pack images`);
+    }
+
+    return {
+      images,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        units: images.length,
+        cost_usd: images.length * this.pricePerImage,
+        provider: "fal",
+        model: `${this.model}+${this.editModel}`,
+      } satisfies Usage,
+    };
   }
 }

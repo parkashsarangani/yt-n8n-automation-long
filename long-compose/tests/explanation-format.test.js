@@ -62,7 +62,7 @@ test("renderer depicts semantic subjects instead of naming generic cards", () =>
   assert.match(motion, /primitive === "objects"/);
   assert.match(scene, /function PayoffResolution/);
   assert.match(scene, /visualOperation === "payoff"/);
-  assert.match(scene, /durationInFrames \* 0\.62/);
+  assert.match(scene, /durationInFrames \* 0?\.62/);
   assert.match(motion, /operation === "compress"/);
   assert.match(motion, /operation === "group"/);
   assert.match(motion, /operation === "sort"/);
@@ -72,12 +72,16 @@ test("renderer depicts semantic subjects instead of naming generic cards", () =>
 
 test("reaction characters use deliberate bust panels", () => {
   assert.match(scene, /function BustReactionPanel/);
-  assert.match(scene, /scale=\{1\.45\}/);
+  // 1.4, not 1.45: the panel is now an overlay rather than half the canvas
+  // (see the comment above BustReactionPanel), so the character is scaled
+  // down slightly to fit the narrower width without cropping.
+  assert.match(scene, /scale=\{1\.4\}/);
   assert.match(scene, /y=\{430\}/);
   assert.match(scene, /borderRadius: 38/);
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);
   assert.doesNotMatch(scene, /function CharacterRail/);
-  assert.match(scene, /fontSize: 56/);
+  // 60, not 56: the opening/closing title got a deliberate size bump.
+  assert.match(scene, /fontSize: 60/);
   assert.match(scene, /PRIMITIVE_GLOW/);
 });
 
@@ -156,7 +160,7 @@ test("motion design system implements all relationship primitives with staged ch
 });
 
 test("middle scenes suppress slide headings and canonical entities retain identity", () => {
-  assert.match(scene, /const showTitle = compositionMode === "bookend" && !isPayoff/);
+  assert.match(scene, /showTitle = compositionMode === "bookend" && !isPayoff/);
   assert.match(scene, /\{showTitle \? <Title>/);
   assert.match(motion, /const hashText/);
   assert.match(motion, /function EntityMark/);
@@ -176,7 +180,7 @@ test("reaction panels interact with the model and payoff removes secondary copy"
   // on this wrapper to hide a diagram that was still drawing its own copy of
   // the closing statement underneath -- so dimming it to near-zero is no
   // longer needed to hide leftover content.
-  assert.match(scene, /opacity: isPayoff \? 0\.22 : 1/);
+  assert.match(scene, /opacity: isPayoff \? 0?\.22 : 1/);
   const payoff = scene.slice(scene.indexOf("function PayoffResolution"), scene.indexOf("export const ExplanationScene"));
   assert.doesNotMatch(payoff, /\{before \? <div/, "payoff must not render the old hypothesis as secondary copy");
 });

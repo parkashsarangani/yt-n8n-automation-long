@@ -1,18 +1,9 @@
 /**
  * long-compose media renderer (RFC 0004).
  *
- * Wraps the existing FFmpeg/Remotion service. It is an async job service —
- * POST /compose returns a job id immediately (which is how the original
- * pipeline dodged Cloudflare's proxy timeout), then the caller polls
- * /compose-status until done.
- *
- * ANSWER TO RFC 0004'S OPEN QUESTION: polling stays an implementation detail
- * (the promise resolves when the video is ready), but the job id is surfaced
- * through `onJob` the moment it exists. Hiding the job entirely would make a
- * crashed twenty-minute render unrecoverable and untraceable; putting polling
- * in the interface would leak this service's shape into every caller.
- *
- * NOT YET RUN AGAINST THE REAL SERVICE.
+ * Wraps the async FFmpeg/Remotion service. POST /compose returns a job id;
+ * polling remains an implementation detail while onJob exposes recoverable job
+ * identity to the engine immediately.
  */
 
 import {
@@ -26,11 +17,8 @@ import {
 
 export interface ComposeRendererOptions {
   baseUrl: string;
-  /** Seconds between polls. The original pipeline used 8s for shorts, 15s long-form. */
   pollIntervalSec?: number;
-  /** Give up after this long. A 10-minute video renders in well under 30 min. */
   timeoutSec?: number;
-  /** Deterministic house CTA for the appended silent end card. */
   outroLine?: string;
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
@@ -56,19 +44,22 @@ interface ThumbnailResponse {
   error?: string;
 }
 
+type HybridScene = RenderRequest["scenes"][number] & {
+  images?: Uint8Array[];
+  visual_mode?: "motion_graphic" | "ai_broll";
+  continuity_group?: string;
+  shot_types?: string[];
+};
+
 export interface DiagnosticThumbnailResult extends ThumbnailResult {
-  /** Why supplied artwork failed when the renderer recovered with a gradient. */
   degradation_reason?: string;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function diagnosticText(text: string, limit = 1200): string {
   const clean = text.trim();
   if (clean.length <= limit) return clean;
-  // Thumbnail errors often begin with a gigantic ffmpeg command and only put
-  // the useful decoder/filter stderr at the end. Preserve both ends instead of
-  // slicing off the exact reason operators need.
   const head = Math.min(260, Math.floor(limit * 0.25));
   const tail = limit - head - 80;
   return `${clean.slice(0, head)} … [${clean.length - head - tail} chars omitted] … ${clean.slice(-tail)}`;
@@ -92,47 +83,25 @@ export class ComposeRenderer implements MediaRenderer {
     this.sleepImpl = opts.sleepImpl ?? sleep;
   }
 
-  /**
-   * Synchronous, unlike render(): compositing a still is fast enough that a job
-   * store and polling would be pure overhead.
-   *
-   * Generated artwork is valuable, but it is not allowed to make the packaging
-   * node unavailable. Some image encodings/pixel formats can exercise ffmpeg
-   * filter paths differently from the deterministic house background. If the
-   * supplied artwork render fails, retry once without the image so the renderer
-   * can still return a text-bearing gradient thumbnail. The worker records the
-   * resulting `background` value, so this degradation remains visible to QA and
-   * later CTR analysis instead of being silently hidden.
-   */
   async renderThumbnail(req: ThumbnailRequest): Promise<DiagnosticThumbnailResult> {
     try {
       return await this.renderThumbnailOnce(req, req.image);
     } catch (first) {
       if (!req.image) throw first;
-
       const firstMessage = first instanceof Error ? first.message : String(first);
       try {
         const result = await this.renderThumbnailOnce(req, undefined);
-        // The gradient fallback succeeded. Keep the original error on the
-        // returned result as well as in logs so a strict cartoon worker can
-        // surface the actual compositor failure in Studio instead of replacing
-        // it with a generic "degraded to gradient" message.
         console.warn(`[long-compose] thumbnail artwork compositing failed, degraded to gradient: ${firstMessage}`);
         return { ...result, degradation_reason: firstMessage };
       } catch (second) {
-        const secondMessage = second instanceof Error ? second.message : String(second);
         throw new ProviderError(
-          `thumbnail render failed with supplied artwork and gradient fallback; ` +
-            `artwork: ${firstMessage}; gradient: ${secondMessage}`,
+          `thumbnail render failed with supplied artwork and gradient fallback; artwork: ${firstMessage}; gradient: ${second instanceof Error ? second.message : String(second)}`,
         );
       }
     }
   }
 
-  private async renderThumbnailOnce(
-    req: ThumbnailRequest,
-    image: Uint8Array | undefined,
-  ): Promise<ThumbnailResult> {
+  private async renderThumbnailOnce(req: ThumbnailRequest, image: Uint8Array | undefined): Promise<ThumbnailResult> {
     const res = await this.fetchImpl(`${this.baseUrl}/thumbnail`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -143,23 +112,15 @@ export class ComposeRenderer implements MediaRenderer {
         accent: req.accent ?? null,
       }),
     });
-
     const text = await res.text();
-    if (!res.ok) {
-      throw new ProviderError(
-        `thumbnail render failed (${res.status}): ${diagnosticText(text)}`,
-      );
-    }
+    if (!res.ok) throw new ProviderError(`thumbnail render failed (${res.status}): ${diagnosticText(text)}`);
 
     let body: ThumbnailResponse;
     try {
       body = JSON.parse(text) as ThumbnailResponse;
     } catch {
-      throw new ProviderError(
-        `thumbnail render returned non-JSON (${res.status}): ${diagnosticText(text)}`,
-      );
+      throw new ProviderError(`thumbnail render returned non-JSON (${res.status}): ${diagnosticText(text)}`);
     }
-
     if (!body.success || !body.image_base64) {
       throw new ProviderError(`thumbnail render failed: ${body.error ?? "no image returned"}`);
     }
@@ -174,7 +135,7 @@ export class ComposeRenderer implements MediaRenderer {
         input_tokens: 0,
         output_tokens: 0,
         units: 1,
-        cost_usd: 0, // self-hosted
+        cost_usd: 0,
         provider: "long-compose",
         model: "ffmpeg-thumbnail",
       },
@@ -188,9 +149,6 @@ export class ComposeRenderer implements MediaRenderer {
     const body = {
       caption_style: req.caption_style ?? "neutral",
       comment_hook: req.comment_hook ?? null,
-      // Override long-compose's legacy "follow" CTA with YouTube-native copy.
-      // The service already owns appending the silent end card; keeping the
-      // wording here avoids teaching the dialogue model to write an outro scene.
       outro_line: this.outroLine,
       ...(req.thumbnail
         ? {
@@ -201,30 +159,32 @@ export class ComposeRenderer implements MediaRenderer {
           },
         }
         : {}),
-      data: req.scenes.map((s) => ({
-        scene_index: s.scene_index,
-        // The service accepts base64 audio; it already handled ~50 clips this
-        // way in the predecessor pipeline (its JSON limit is 50mb).
-        audio: {
-          audio_base64: toBase64(s.audio),
-          ...(s.alignment !== undefined ? { alignment: s.alignment } : {}),
-        },
-        ...(s.video
-          ? { video_base64: toBase64(s.video) }
-          : s.image
-            ? { images_base64: [toBase64(s.image)] }
-            : { _degraded: true }), // neither: renderer substitutes a placeholder
-        ...(s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
-        // Template scenes: tell long-compose to render via Remotion
-        ...(s.template_category && !s.is_outro ? {
-          visual_source: "template",
-          template_name: s.template_category,
-          template_data: s.template_data ?? {},
-        } : {}),
-        // Caption speaker attribution: who's talking in this scene, resolved
-        // engine-side from the same isSpeaking character the rig emphasis uses.
-        ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
-      })),
+      data: req.scenes.map((scene) => {
+        const s = scene as HybridScene;
+        const packedImages = s.images?.length ? s.images : s.image ? [s.image] : [];
+        return {
+          scene_index: s.scene_index,
+          audio: {
+            audio_base64: toBase64(s.audio),
+            ...(s.alignment !== undefined ? { alignment: s.alignment } : {}),
+          },
+          ...(s.video
+            ? { video_base64: toBase64(s.video) }
+            : packedImages.length
+              ? { images_base64: packedImages.map(toBase64) }
+              : { _degraded: true }),
+          ...(s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
+          ...(s.template_category && !s.is_outro ? {
+            visual_source: "template",
+            template_name: s.template_category,
+            template_data: s.template_data ?? {},
+          } : {}),
+          ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
+          ...(s.visual_mode ? { visual_mode: s.visual_mode } : {}),
+          ...(s.continuity_group ? { continuity_group: s.continuity_group } : {}),
+          ...(s.shot_types ? { shot_types: s.shot_types } : {}),
+        };
+      }),
     };
 
     const submitted = await this.post("/compose", body);
@@ -233,21 +193,16 @@ export class ComposeRenderer implements MediaRenderer {
     if (opts.onJob) await opts.onJob(jobId);
 
     const deadline = Date.now() + this.timeoutMs;
-    for (; ;) {
+    for (;;) {
       if (opts.signal?.aborted) throw new ProviderError(`${this.id} render aborted (job ${jobId})`);
       if (Date.now() > deadline) {
-        throw new ProviderError(
-          `${this.id} job ${jobId} did not finish within ${this.timeoutMs / 1000}s`,
-        );
+        throw new ProviderError(`${this.id} job ${jobId} did not finish within ${this.timeoutMs / 1000}s`);
       }
       await this.sleepImpl(this.pollIntervalMs);
-
       const status = (await this.get(`/compose-status/${jobId}`)) as ComposeStatus;
       if (status.status === "processing") continue;
       if (status.status !== "done" || status.success === false) {
-        throw new ProviderError(
-          `${this.id} job ${jobId} failed: ${status.error ?? status.status}`,
-        );
+        throw new ProviderError(`${this.id} job ${jobId} failed: ${status.error ?? status.status}`);
       }
       if (!status.output_path) {
         throw new ProviderError(`${this.id} job ${jobId} reported done with no output_path`);
@@ -255,27 +210,19 @@ export class ComposeRenderer implements MediaRenderer {
 
       const video = await this.download(status.output_path);
       const thumbnail = status.thumbnail_path
-        ? {
-          bytes: await this.download(status.thumbnail_path),
-          media_type: "image/png",
-        }
+        ? { bytes: await this.download(status.thumbnail_path), media_type: "image/png" }
         : undefined;
-
       return {
         video,
         media_type: "video/mp4",
         ...(thumbnail ? { thumbnail } : {}),
-        ...(status.render_time_sec !== undefined
-          ? { render_time_sec: status.render_time_sec }
-          : {}),
-        ...(status.degraded_scenes !== undefined
-          ? { degraded_scenes: status.degraded_scenes }
-          : {}),
+        ...(status.render_time_sec !== undefined ? { render_time_sec: status.render_time_sec } : {}),
+        ...(status.degraded_scenes !== undefined ? { degraded_scenes: status.degraded_scenes } : {}),
         usage: {
           input_tokens: 0,
           output_tokens: 0,
           units: status.render_time_sec ?? null,
-          cost_usd: 0, // self-hosted: the cost is wall clock, not a bill
+          cost_usd: 0,
           provider: "long-compose",
           model: "ffmpeg+remotion",
         },
@@ -283,14 +230,11 @@ export class ComposeRenderer implements MediaRenderer {
     }
   }
 
-  /** `/app/outputs/x.mp4` is a container path; serve it over the /outputs route. */
   private async download(outputPath: string): Promise<Uint8Array> {
     const name = outputPath.split("/").pop();
     if (!name) throw new ProviderError(`${this.id} returned an unusable path: ${outputPath}`);
     const res = await this.fetchImpl(`${this.baseUrl}/outputs/${name}`);
-    if (!res.ok) {
-      throw new ProviderError(`${this.id} download of ${name} failed: ${res.status}`);
-    }
+    if (!res.ok) throw new ProviderError(`${this.id} download of ${name} failed: ${res.status}`);
     return new Uint8Array(await res.arrayBuffer());
   }
 
@@ -301,17 +245,13 @@ export class ComposeRenderer implements MediaRenderer {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      throw new ProviderError(
-        `${this.id} POST ${pathname} returned ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      );
+      throw new ProviderError(`${this.id} POST ${pathname} returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
     }
     return res.json();
   }
 
   private async get(pathname: string): Promise<unknown> {
     const res = await this.fetchImpl(`${this.baseUrl}${pathname}`);
-    // The service returns 500 with a JSON body on a failed job; read it rather
-    // than throwing on the status alone, so the real error survives.
     const text = await res.text();
     try {
       return JSON.parse(text);
@@ -327,7 +267,5 @@ function toBase64(bytes: Uint8Array): string {
 
 function fromBase64(b64: string): Uint8Array {
   const buf = Buffer.from(b64, "base64");
-  // Zero-copy view: Buffer is a Uint8Array, but returning it directly would
-  // leak a Node type through an interface that promises Uint8Array.
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }

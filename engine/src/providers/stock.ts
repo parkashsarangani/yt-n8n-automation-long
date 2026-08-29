@@ -1,27 +1,20 @@
 /**
  * Cartoon-first image provider compatibility adapter.
  *
- * `service.ts` historically imports `StockImageProvider`. The production path
- * no longer uses stock photography: cartoon scenes are deterministic SVG
- * templates and the only generated image normally needed is episode-specific
- * thumbnail artwork. Keep the exported class name temporarily so the provider
- * wiring can migrate without changing artifact/worker interfaces, but delegate
- * all image generation to the existing Fal provider.
- *
- * The legacy Pexels/Unsplash/Pixabay credentials remain accepted in config only
- * for old/manual deployments; they do not enable this provider.
+ * The exported class name remains for compatibility with service wiring, but
+ * production image generation is Fal-backed. Hybrid scene generation may use
+ * the optional generatePack extension and pass a canonical reference image so
+ * continuity persists across scene boundaries as well as inside a shot pack.
  */
 
 import type { Aspect, ImageProvider } from "../provider.ts";
-import { FalImageProvider } from "./fal.ts";
+import { FalImageProvider, type GeneratedImage } from "./fal.ts";
 
 export interface StockImageOptions {
-  /** Preferred explicit key; otherwise FAL_KEY is read by FalImageProvider. */
   falKey?: string;
   model?: string;
+  editModel?: string;
   fetchImpl?: typeof fetch;
-  // Legacy fields retained so old construction code still type-checks while
-  // the stock pipeline is retired.
   pexelsKey?: string;
   unsplashKey?: string;
   pixabayKey?: string;
@@ -35,6 +28,7 @@ export class StockImageProvider implements ImageProvider {
     this.delegate = new FalImageProvider({
       ...(opts.falKey ? { apiKey: opts.falKey } : {}),
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.editModel ? { editModel: opts.editModel } : {}),
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     });
     this.id = `cartoon-art/${this.delegate.id}`;
@@ -42,5 +36,9 @@ export class StockImageProvider implements ImageProvider {
 
   generate(req: { prompt: string; aspect: Aspect; count?: number }) {
     return this.delegate.generate(req);
+  }
+
+  generatePack(req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) {
+    return this.delegate.generatePack(req);
   }
 }

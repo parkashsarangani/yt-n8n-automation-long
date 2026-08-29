@@ -1,9 +1,8 @@
 /**
  * What this deployment can actually do, right now, with the keys it has.
  *
- * One declaration, three consumers: `service.rebuild()` picks providers from
- * it, the UI/startup banner reports from it, and tests assert every key named
- * here is settable in the UI.
+ * One declaration, three consumers: service provider selection, UI/startup
+ * capability reporting, and credential coverage tests.
  */
 
 export interface StageSpec {
@@ -38,15 +37,13 @@ export const STAGES: StageSpec[] = [
   },
   {
     id: "images",
-    label: "Generated cartoon thumbnail artwork",
+    label: "Hybrid AI scene packs and thumbnail artwork",
     requires: [["FAL_KEY"]],
-    real: "fal/flux-2-pro",
-    fallback: "fake",
+    real: "fal/flux-2-pro + flux-2-pro/edit",
+    fallback: "deterministic motion graphics",
     consequence:
-      "cartoon scene rendering itself doesn't need this (SVG rigs/backgrounds only spend here for thumbnail " +
-      "artwork), but the legacy manual-script path (graphs/manual.json) still calls this provider for scene " +
-      "images and silently renders flat placeholder stills without it. Legacy PEXELS_API_KEY/UNSPLASH_ACCESS_KEY " +
-      "do not satisfy this stage - only FAL_KEY does.",
+      "without FAL_KEY the episode remains fully renderable using the deterministic explanation renderer, " +
+      "but AI b-roll scene packs and generated thumbnail art are unavailable; scene 0 still has a motion-graphic visual hook rather than a placeholder",
   },
   {
     id: "cast",
@@ -55,12 +52,11 @@ export const STAGES: StageSpec[] = [
     real: "cast_roster file",
     fallback: "unavailable",
     consequence:
-      "the production graph's cast_roster node (cast_loader) throws immediately and the run fails before any " +
-      "content is produced - there is no fallback cast",
+      "the production graph's cast_roster node (cast_loader) throws immediately and the run fails before any content is produced - there is no fallback cast",
   },
   {
     id: "renderer",
-    label: "Cartoon video assembly",
+    label: "Hybrid video assembly",
     requires: [["COMPOSE_URL"]],
     real: "long-compose/remotion+ffmpeg",
     fallback: "fake",
@@ -89,8 +85,7 @@ export const STAGES: StageSpec[] = [
     real: "youtube-analytics",
     fallback: "unavailable",
     consequence:
-      "no feedback loop — nothing measures whether a published episode worked, " +
-      "so packaging and topic decisions stay guesses",
+      "no feedback loop — nothing measures whether a published episode worked, so packaging and topic decisions stay guesses",
   },
 ];
 
@@ -108,10 +103,7 @@ function isSet(env: NodeJS.ProcessEnv, key: string): boolean {
   return Boolean(env[key]?.trim());
 }
 
-export function credentialsSatisfied(
-  spec: StageSpec,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -121,17 +113,12 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
     .sort((a, b) => a.length - b.length)[0] ?? [];
 }
 
-export function capabilityReport(opts: {
-  allowPublish: boolean;
-  env?: NodeJS.ProcessEnv;
-}): StageStatus[] {
+export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
   const env = opts.env ?? process.env;
-
   return STAGES.map((spec) => {
     const hasCreds = credentialsSatisfied(spec, env);
     const gateOpen = spec.gatedBy ? opts.allowPublish : true;
     const real = hasCreds && gateOpen;
-
     return {
       id: spec.id,
       label: spec.label,
@@ -139,10 +126,9 @@ export function capabilityReport(opts: {
       real,
       consequence: spec.consequence,
       missing: hasCreds ? [] : nearestMissing(spec, env),
-      blockedBy:
-        hasCreds && !gateOpen && spec.gatedBy
-          ? `${spec.gatedBy.label} is off — ${spec.gatedBy.why}`
-          : null,
+      blockedBy: hasCreds && !gateOpen && spec.gatedBy
+        ? `${spec.gatedBy.label} is off — ${spec.gatedBy.why}`
+        : null,
     };
   });
 }

@@ -1,15 +1,8 @@
 /**
  * Render worker: script + voice + asset_manifest -> rendered_video.
  *
- * The first transformation with a long-running external job. Two consequences
- * that do not apply to any earlier worker:
- *
- *  - It reports progress. The job id is written to the run log the moment the
- *    renderer hands it over, so a crashed run leaves a trace of what it had
- *    started instead of silently re-rendering twenty minutes of video.
- *  - It joins three inputs by scene_index rather than trusting array order,
- *    because three separately-produced artifacts have no shared ordering
- *    guarantee.
+ * Joins independently-produced artifacts by scene_index and resolves all blob
+ * references before handing a self-contained render request to long-compose.
  */
 
 import type { Artifact, BlobRef } from "../artifact.ts";
@@ -37,11 +30,15 @@ interface VoiceClip {
 interface AssetScene {
   scene_index: number;
   image_uri?: string;
+  image_uris?: string[];
   video_uri?: string;
   source: string;
   template_category?: string;
   /** JSON-encoded string in the artifact, parsed at read time. */
   template_data?: string;
+  visual_mode?: "motion_graphic" | "ai_broll";
+  continuity_group?: string;
+  shot_types?: string[];
 }
 interface CastCharacter {
   character_id: string;
@@ -49,10 +46,14 @@ interface CastCharacter {
   color_palette?: string[];
 }
 
-// A small, caption-readable palette for a character whose cast entry has no
-// color_palette. Picked once per character_id via a stable hash so the same
-// character keeps the same color across every scene of the episode, without
-// needing every cast fixture to supply one.
+type HybridRenderScene = RenderScene & {
+  /** Ordered same-scene shot pack. Long-compose already accepts images_base64[]. */
+  images?: Uint8Array[];
+  visual_mode?: "motion_graphic" | "ai_broll";
+  continuity_group?: string;
+  shot_types?: string[];
+};
+
 const FALLBACK_SPEAKER_COLORS = ["#7EC8E3", "#FFB86B", "#B8E986", "#FF8FA3", "#C9A6F5", "#FFE066"];
 
 function stableHash(value: string): number {
@@ -70,12 +71,6 @@ function speakerColorFor(character: CastCharacter): string {
   return FALLBACK_SPEAKER_COLORS[stableHash(character.character_id) % FALLBACK_SPEAKER_COLORS.length]!;
 }
 
-/**
- * Which cast member is speaking in this compiled cartoon scene, if any. The
- * active speaker is whichever compiled character carries isSpeaking: true -
- * the same field Character.tsx already uses for the on-screen emphasis
- * treatment, so caption color and rig emphasis always agree on who's talking.
- */
 function resolveSpeaker(
   templateData: Record<string, unknown> | undefined,
   castByActorId: Map<string, CastCharacter>,
@@ -98,7 +93,7 @@ async function buildScenes(
   inputs: Record<string, Artifact>,
   ctx: WorkerContext,
   castByActorId: Map<string, CastCharacter>,
-): Promise<RenderScene[]> {
+): Promise<HybridRenderScene[]> {
   const script = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
   const clips = (inputs["voice"]!.payload as { clips: VoiceClip[] }).clips;
   const assets = (inputs["assets"]!.payload as { scenes: AssetScene[] }).scenes;
@@ -107,16 +102,13 @@ async function buildScenes(
   const assetBy = new Map(assets.map((a) => [a.scene_index, a]));
 
   const ordered = [...script].sort((a, b) => a.scene_index - b.scene_index);
-  const scenes: RenderScene[] = [];
+  const scenes: HybridRenderScene[] = [];
 
   for (const scene of ordered) {
     const clip = clipBy.get(scene.scene_index);
     if (!clip) {
-      // Audio is not optional: a scene with no narration has no duration,
-      // so the timeline cannot be built. Fail loudly.
       throw new Error(
-        `render: no voice clip for scene ${scene.scene_index}; ` +
-        `voice and script artifacts disagree`,
+        `render: no voice clip for scene ${scene.scene_index}; voice and script artifacts disagree`,
       );
     }
     const asset = assetBy.get(scene.scene_index);
@@ -127,12 +119,13 @@ async function buildScenes(
       alignment = JSON.parse(new TextDecoder().decode(await ctx.blobs.get(clip.alignment_uri)));
     }
 
-    // A missing image is expected, not exceptional: the asset worker
-    // degrades to a placeholder rather than failing the video. Video and
-    // image are mutually exclusive — the asset collector only ever sets
-    // one per scene, video first when the stock source had real footage.
     const video = asset?.video_uri ? await ctx.blobs.get(asset.video_uri) : undefined;
-    const image = !video && asset?.image_uri ? await ctx.blobs.get(asset.image_uri) : undefined;
+    const imageUris = !video
+      ? (asset?.image_uris?.length ? asset.image_uris : asset?.image_uri ? [asset.image_uri] : [])
+      : [];
+    const images: Uint8Array[] = [];
+    for (const uri of imageUris) images.push(await ctx.blobs.get(uri));
+    const image = images[0];
     const templateData = asset?.template_data
       ? (JSON.parse(asset.template_data) as Record<string, unknown>)
       : undefined;
@@ -144,11 +137,15 @@ async function buildScenes(
       audio_media_type: "audio/mpeg",
       ...(video ? { video, video_media_type: "video/mp4" } : {}),
       ...(image ? { image, image_media_type: "image/png" } : {}),
+      ...(images.length > 1 ? { images } : {}),
       ...(alignment !== undefined ? { alignment } : {}),
       ...(scene.is_outro ? { is_outro: true } : {}),
       ...(asset?.template_category ? { template_category: asset.template_category } : {}),
       ...(templateData ? { template_data: templateData } : {}),
       ...(speaker ? { speaker_name: speaker.name, speaker_color: speaker.color } : {}),
+      ...(asset?.visual_mode ? { visual_mode: asset.visual_mode } : {}),
+      ...(asset?.continuity_group ? { continuity_group: asset.continuity_group } : {}),
+      ...(asset?.shot_types ? { shot_types: asset.shot_types } : {}),
     });
   }
 
@@ -184,9 +181,6 @@ async function executeRender(
   );
 
   if (renderer.id === "long-compose" && result.media_type === "video/mp4") {
-    // The reviewed artifact is the production object a human approves.
-    // Do not wait until upload to discover that long-compose regressed to
-    // 720p; reject the rendered_video artifact before it can be stored.
     assertYouTubeProductionGeometry(result.video);
   }
 
@@ -207,7 +201,9 @@ async function executeRender(
   }
 
   const degraded =
-    result.degraded_scenes ?? scenes.filter((s) => s.image === undefined && s.video === undefined).length;
+    result.degraded_scenes ?? scenes.filter((s) =>
+      s.image === undefined && s.video === undefined && s.template_category === undefined
+    ).length;
 
   return {
     payload: {
@@ -217,9 +213,7 @@ async function executeRender(
       scene_count: scenes.length,
       degraded_scenes: degraded,
       ...(result.duration_sec !== undefined ? { duration_sec: result.duration_sec } : {}),
-      ...(result.render_time_sec !== undefined
-        ? { render_time_sec: result.render_time_sec }
-        : {}),
+      ...(result.render_time_sec !== undefined ? { render_time_sec: result.render_time_sec } : {}),
       renderer: renderer.id,
       ...(jobId ? { job_id: jobId } : {}),
     },
@@ -229,12 +223,11 @@ async function executeRender(
 
 const NO_CAST = new Map<string, CastCharacter>();
 
-/** script + voice + asset_manifest -> rendered_video. Shared by every graph, including manual.json, which has no cast_roster - captions render without a speaker color/name here. */
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "3",
+    version: opts.version ?? "4",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -245,17 +238,11 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   };
 }
 
-/**
- * Cartoon-only variant: also consumes cast_roster so captions can carry the
- * active speaker's name/color, resolved from the same isSpeaking character
- * the on-screen rig emphasis already uses. Not wired into manual.json, which
- * has no cast_roster artifact - that graph keeps using plain "render".
- */
 export function makeCartoonRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "cartoon_render",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
