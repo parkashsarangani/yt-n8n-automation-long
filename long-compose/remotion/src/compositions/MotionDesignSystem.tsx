@@ -162,10 +162,18 @@ const MAX_LABELS = 3;
 // rather than tying a label to its operated entity: an operation like payoff
 // can move two entities to the same x, which would stack two labels exactly
 // on top of each other if the slot followed the entity instead of the row.
+//
+// The flanking slots were originally +/-270 from center (x=270/810). A real
+// "full-model" render (compositionMode zooms the whole diagram to 126%,
+// scale(compositionScale) in ExplanationScene) showed the right flanking
+// label ("softened starch") clipped at the frame edge -- content that close
+// to the unscaled viewBox edge gets pushed outside the visible canvas once
+// the 126% zoom is applied. Pulled both flanking slots in toward center for
+// margin against that zoom.
 const DENSE_SLOTS = [
   { x: 540, y: 340 },
-  { x: 270, y: 436 },
-  { x: 810, y: 436 },
+  { x: 330, y: 436 },
+  { x: 750, y: 436 },
 ] as const;
 const denseLabelSlot = (index: number) => DENSE_SLOTS[index] ?? DENSE_SLOTS[2]!;
 
