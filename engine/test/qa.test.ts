@@ -175,6 +175,32 @@ test("a healthy episode passes every check", async () => {
   assert.doesNotThrow(() => registry.validate("qa_report", "1.0.0", payload));
 });
 
+test("a hybrid episode's real check count fits qa_report 1.1.0 but not 1.0.0", async () => {
+  // Real production bug: run_9989c55b (a genuine hybrid cartoon@11 episode)
+  // hit "/checks must NOT have more than 40 items" on qa_report@1.0.0.
+  // retention_qa's real check count is 11 script-quality dimensions + 17
+  // dialogue-evidence checks + 18 base/hybrid checks = 46 once PR #164's
+  // hybrid-specific checks (explanation_model_coverage,
+  // character_cut_in_restraint, ai_shot_semantics, visual_style_continuity,
+  // visual_reset_cadence, opening_visual_hook, bookend_entity_continuity,
+  // closing_visible_payoff, ai_character_visibility_telemetry,
+  // voice_stop_start_risk) fire, which only happens for content with a real
+  // AI/motion mix -- not this file's plain HEALTHY fixture.
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const checks = Array.from({ length: 46 }, (_, i) => ({
+    id: `check_${i}`,
+    status: "pass" as const,
+    message: `synthetic check ${i} standing in for a real retention_qa check`,
+  }));
+  const payload = { verdict: "pass" as const, failed: 0, warned: 0, checks };
+
+  assert.throws(
+    () => registry.validate("qa_report", "1.0.0", payload),
+    /must NOT have more than 40 items/,
+  );
+  assert.doesNotThrow(() => registry.validate("qa_report", "1.1.0", payload));
+});
+
 // -- placeholder images -------------------------------------------------
 
 test("one placeholder scene warns but still ships", async () => {
