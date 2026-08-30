@@ -8,15 +8,24 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Three independent jobs rather than one sequential one.
+#
+# The single job ran contracts -> engine build/test -> long-compose build/test
+# end to end, 509s, and the cheap checks sat BEHIND 109s of Docker builds even
+# though they need no image at all. Two failures in one afternoon were
+# contract/source assertions that took minutes to surface when they could have
+# taken seconds.
+#
+# These three have no dependency on each other, so they run in parallel:
+# wall-clock is now the slowest one rather than the sum, and `contracts`
+# reports in well under a minute. Since the repository is public, hosted
+# runner minutes are free, so spending three runners to shorten feedback is
+# the right trade.
 jobs:
-  validate:
-    name: Build and test
-    # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
-    # images against fakes, it needs no production secrets or state. Keeping
-    # it off the self-hosted runner stops every PR push from competing with
-    # the live production engine for RAM/CPU on that box. deploy.yml stays
-    # self-hosted -- it deploys onto this exact host and a hosted runner
-    # cannot reach its Docker daemon.
+  contracts:
+    name: Contracts and compose config
+    # No Docker image needed, so this finishes long before the build jobs and
+    # is usually the first thing to tell you a cross-package contract broke.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +37,8 @@ jobs:
 
       - name: Motion visual identity contract is synchronized
         # engine/ and long-compose/ build as two separate, isolated Docker
-        # contexts below, so this cross-package check runs once here, on the
-        # raw checkout, where both trees exist side by side.
+        # contexts in the sibling jobs, so this cross-package check runs here,
+        # on the raw checkout, where both trees exist side by side.
         run: npx --yes tsx --test contracts/motion-visual-identity.test.ts
 
       - name: Compose file is valid and starts the right services
@@ -42,8 +51,31 @@ jobs:
             exit 1
           }
 
+  engine:
+    name: Engine build and test
+    # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
+    # images against fakes, it needs no production secrets or state. Keeping
+    # it off the self-hosted runner stops every PR push from competing with
+    # the live production engine for RAM/CPU on that box. deploy.yml stays
+    # self-hosted -- it deploys onto this exact host and a hosted runner
+    # cannot reach its Docker daemon.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build engine image
-        run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
+        # Layer-cached across runs through the Actions cache. The image is
+        # rebuilt from scratch on every PR push otherwise, and almost every
+        # push changes source rather than the dependency layers.
+        uses: docker/build-push-action@v6
+        with:
+          context: ./engine
+          load: true
+          tags: engine:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha,scope=engine
+          cache-to: type=gha,scope=engine,mode=max
 
       - name: Typecheck
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
@@ -51,17 +83,35 @@ jobs:
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
+  long-compose:
+    name: Long-compose build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
       - name: Build long-compose image (no push)
-        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+        uses: docker/build-push-action@v6
+        with:
+          context: ./long-compose
+          load: true
+          tags: long-compose:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha,scope=long-compose
+          cache-to: type=gha,scope=long-compose,mode=max
 
-      - name: Test long-compose
+      - name: Test long-compose (source contracts)
+        # Split out and run FIRST purely for feedback latency: these are
+        # source-text assertions that finish in seconds, while the render
+        # suites below take minutes of real Remotion bundling and ffmpeg
+        # encoding. Running them first surfaces a broken contract in ~10s
+        # instead of after five minutes of rendering. No coverage is dropped
+        # -- the render suites still run right after, in the same job.
         run: |
-          docker run --rm \
-            --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} test
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
 
-      - name: Cleanup
-        if: always()
+      - name: Test long-compose (render suites)
         run: |
-          docker rmi -f engine:pr-${{ github.event.pull_request.number }} \
-                        long-compose:pr-${{ github.event.pull_request.number }} 2>/dev/null || true
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:render
