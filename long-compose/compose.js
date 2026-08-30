@@ -2030,7 +2030,17 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // raises no licensing question in a monetised video, the same reasoning
     // as the synthesised SFX above.
     const useAmbientBed = !hasMusic && explanationMode && await supportsAmbientBed();
-    if (useAmbientBed) finalCmd.input(AMBIENT_SOURCE).inputFormat("lavfi");
+    // inputOptions, NOT inputFormat("lavfi"). fluent-ffmpeg validates
+    // .inputFormat() against the demuxer list from `ffmpeg -formats`, and
+    // lavfi is a DEVICE -- it appears under `-devices`. Some builds list it in
+    // both and some do not, so .inputFormat("lavfi") fails with "Input format
+    // lavfi is not available" on a host whose ffmpeg supports lavfi perfectly
+    // well. That is a fluent-ffmpeg check, not an ffmpeg one, which is why
+    // supportsAmbientBed() (a raw execFile) passes while the render fails.
+    // Caught in CI, where the image's ffmpeg listing differs from the local
+    // one. inputOptions is forwarded verbatim, so the render now takes exactly
+    // the invocation the probe validated.
+    if (useAmbientBed) finalCmd.input(AMBIENT_SOURCE).inputOptions(["-f", "lavfi"]);
 
     // For cartoon lip sync, keep [0:a] (the concatenated scene audio) as the
     // voice source so mouth cues and audible speech share boundaries. Every

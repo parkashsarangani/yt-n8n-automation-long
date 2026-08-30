@@ -33,14 +33,30 @@ function tone(file, freq, seconds, gain = 1) {
   return file;
 }
 
-// Reads a mono 16-bit WAV without pulling in a dependency: the header is a
-// fixed 44 bytes for everything ffmpeg writes here.
+// Reads a mono 16-bit WAV without pulling in a dependency.
+//
+// This walks the RIFF chunk list to find `data` rather than assuming the
+// canonical 44-byte header. Not pedantry: ffmpeg emits an extra LIST/INFO
+// chunk on some invocations, and reading from a fixed offset then
+// interprets header bytes as audio -- which produced a peak of 0.80 for a
+// bed whose real peak is 0.011, i.e. a completely fabricated measurement in
+// a test whose entire job is measuring levels.
 function samples(file) {
   const buf = fs.readFileSync(file);
-  const body = buf.subarray(44);
-  const values = new Array(Math.floor(body.length / 2));
-  for (let i = 0; i < values.length; i++) values[i] = body.readInt16LE(i * 2) / 32768;
-  return values;
+  assert.equal(buf.toString("ascii", 0, 4), "RIFF", `${file} is not a RIFF file`);
+  let offset = 12;
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString("ascii", offset, offset + 4);
+    const size = buf.readUInt32LE(offset + 4);
+    if (id === "data") {
+      const body = buf.subarray(offset + 8, Math.min(buf.length, offset + 8 + size));
+      const values = new Array(Math.floor(body.length / 2));
+      for (let i = 0; i < values.length; i++) values[i] = body.readInt16LE(i * 2) / 32768;
+      return values;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  throw new Error(`${file} has no data chunk`);
 }
 
 function peak(values, fromSec = 0, toSec = Infinity) {
@@ -163,7 +179,48 @@ test("the ambient bed fills silence only when there is no music at all", () => {
   assert.match(compose, /\} else if \(ambientIdx !== null\) \{/);
   // Generated from lavfi rather than shipped: no repo weight, and no
   // licensing question in a monetised video.
-  assert.match(compose, /finalCmd\.input\(AMBIENT_SOURCE\)\.inputFormat\("lavfi"\)/);
+  assert.match(compose, /finalCmd\.input\(AMBIENT_SOURCE\)\.inputOptions\(\["-f", "lavfi"\]\)/);
+  // NOT .inputFormat("lavfi"). fluent-ffmpeg validates that against the
+  // demuxer list from `ffmpeg -formats`, but lavfi is a DEVICE, listed under
+  // `-devices`. Builds differ on whether it appears in both, so
+  // .inputFormat("lavfi") fails with "Input format lavfi is not available" on
+  // a host whose ffmpeg supports lavfi perfectly well -- and because that is
+  // a fluent-ffmpeg check rather than an ffmpeg one, the raw-execFile probe
+  // passes while the render dies. This failed CI exactly that way.
+  // Anchored on the CALL, not the bare identifier -- the comment above it in
+  // compose.js explains the trap by name, and a loose match would flag that.
+  assert.doesNotMatch(compose, /finalCmd\.input\([^)]*\)\.inputFormat\(/,
+    "fluent-ffmpeg validates inputFormat against demuxers; lavfi is a device and fails that check on some builds");
+});
+
+test("the ambient probe and the ambient render use the same ffmpeg invocation", async () => {
+  // The CI failure above was a mismatch between the two: the probe validated
+  // raw `-f lavfi -i <source>` and passed, while the render went through a
+  // fluent-ffmpeg code path with its own, stricter check. A probe that
+  // validates something other than what actually runs is worse than no probe,
+  // because it reports a capability the render cannot use.
+  const ffmpegLib = require("fluent-ffmpeg");
+  ffmpegLib.setFfmpegPath(ffmpegPath);
+  const source = specFromSource("AMBIENT_SOURCE");
+  const spec = specFromSource("AMBIENT_SPEC");
+  const rendered = out("ambient.wav");
+
+  await new Promise((resolve, reject) => {
+    ffmpegLib()
+      .input(source).inputOptions(["-f", "lavfi"])
+      .duration(0.5)
+      .audioFilters(spec)
+      .on("error", reject)
+      .on("end", resolve)
+      .save(rendered);
+  });
+
+  const values = samples(rendered);
+  assert.ok(values.length > 0, "the ambient bed produced no audio");
+  // A bed you cannot hear is pointless; one you notice is hiss.
+  const level = peak(values);
+  assert.ok(level > 0.0005, `ambient bed is effectively silent (peak ${level})`);
+  assert.ok(level < 0.2, `ambient bed is too loud to sit under narration (peak ${level})`);
 });
 
 test("the SFX bus is mixed with duration=longest so late cues survive", () => {
