@@ -104,12 +104,34 @@
           },
           "allOf": [
             {
-              "if": { "required": ["representation_mode"] },
-              "then": { "required": ["representation_mode", "scene_blueprint", "visual_claim", "visual_actions"] }
+              "if": {
+                "properties": { "representation_mode": {} },
+                "required": ["representation_mode"]
+              },
+              "then": {
+                "properties": {
+                  "representation_mode": {},
+                  "scene_blueprint": {},
+                  "visual_claim": {},
+                  "visual_actions": {}
+                },
+                "required": ["representation_mode", "scene_blueprint", "visual_claim", "visual_actions"]
+              }
             },
             {
               "if": { "properties": { "composition_mode": { "enum": ["bookend", "reaction"] } }, "required": ["composition_mode"] },
-              "then": { "required": ["listener_actor_id", "speaker_emotion", "speaker_gesture", "speaker_gaze_target", "listener_emotion", "listener_gesture", "listener_gaze_target"] }
+              "then": {
+                "properties": {
+                  "listener_actor_id": {},
+                  "speaker_emotion": {},
+                  "speaker_gesture": {},
+                  "speaker_gaze_target": {},
+                  "listener_emotion": {},
+                  "listener_gesture": {},
+                  "listener_gaze_target": {}
+                },
+                "required": ["listener_actor_id", "speaker_emotion", "speaker_gesture", "speaker_gaze_target", "listener_emotion", "listener_gesture", "listener_gaze_target"]
+              }
             },
             {
               "if": { "anyOf": [
@@ -120,24 +142,24 @@
             },
             {
               "if": { "properties": { "representation_mode": { "const": "kinetic-text" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "const": "animated-statement" }, "visual_actions": { "maxItems": 0 } } },
-              "else": { "properties": { "visual_actions": { "minItems": 1 } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "animated-statement" }, "visual_actions": { "type": "array", "maxItems": 0 } } },
+              "else": { "properties": { "visual_actions": { "type": "array", "minItems": 1 } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "concrete-scene" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "enum": ["container-object", "before-after-object"] } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["container-object", "before-after-object"] } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "domain-model" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "enum": ["molecular-system", "lattice"] } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["molecular-system", "lattice"] } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "quantitative" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "const": "mass-volume-comparison" } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "mass-volume-comparison" } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "spatial" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "const": "cross-section" } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "cross-section" } } }
             }
           ]
         }

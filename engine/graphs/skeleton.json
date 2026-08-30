@@ -1,6 +1,6 @@
 {
   "graph_id": "skeleton",
-  "version": "15",
+  "version": "16",
   "description": "Default unattended semantic-first hybrid graph. The legacy `assets` compiler node name is retained for graph-contract compatibility, then semantic actions are aligned after TTS, concrete/domain scenes use semantic renderers, unsupported semantics become animated text, and selective AI editorial shots provide visual resets.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },

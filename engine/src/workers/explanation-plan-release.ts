@@ -16,8 +16,6 @@ const MODE_BLUEPRINTS: Record<string, ReadonlySet<string>> = {
   "kinetic-text": new Set(["animated-statement"]),
 };
 
-const MAX_ATTEMPTS_BEFORE_ACCEPTING = 3;
-
 interface ReviewScene {
   scene_index?: unknown;
   verdict?: unknown;
@@ -178,11 +176,7 @@ export function makeExplanationPlanReleaseWorker(): WorkerDef {
       const { failures } = assessPlanRevision(original, revised, inputs["review"]?.payload);
 
       if (failures.length > 0) {
-        if (ctx.attemptNumber >= MAX_ATTEMPTS_BEFORE_ACCEPTING) {
-          ctx.logger.warn(`[explanation_plan_release] attempt ${ctx.attemptNumber}: accepting the revision despite an unmet review rather than blocking indefinitely -- ${failures.join("; ")}`);
-        } else {
-          throw new Error(`explanation plan release blocked (attempt ${ctx.attemptNumber}/${MAX_ATTEMPTS_BEFORE_ACCEPTING}): ${failures.join("; ")}`);
-        }
+        throw new Error(`explanation plan release blocked (attempt ${ctx.attemptNumber}): ${failures.join("; ")}`);
       }
       return { payload: revised };
     },

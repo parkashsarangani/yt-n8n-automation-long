@@ -452,7 +452,7 @@ test("the shipped production graph runs unattended end to end with fake provider
     if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
     if (title.includes("CartoonCreativeDirection")) return { payload: CREATIVE_DIRECTION, confidence: { overall: 0.9 } };
     if (title.includes("ExplanationPlanReview")) return { payload: PLAN_REVIEW, confidence: { overall: 0.9 } };
-    if (title.includes("SemanticExplanationPlan")) {
+    if (title.includes("SemanticVisualPlan")) {
       const revising = req.prompt.includes("Storyboard review:");
       return { payload: revising ? REVISED_VISUAL_PLAN : VISUAL_PLAN, confidence: { overall: 0.9 } };
     }

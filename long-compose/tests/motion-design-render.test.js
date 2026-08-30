@@ -188,8 +188,8 @@ test("every production-valid motion case has isolated foreground pixels and visi
     assert.ok(signalRange(payoff) > 45, "payoff frame lacks a decisive visual resolution");
     const source = fs.readFileSync(path.join(remotionDir, "src/compositions/ExplanationScene.tsx"), "utf8");
     assert.equal((source.match(/data-payoff-copy="single"/g) || []).length, 1, "payoff copy must have one owner");
-    assert.match(source, /showTitle \? <Title>/, "only the opening bookend may own the ordinary title");
-    assert.match(source, /!isPayoff && characterDominant && keyText/, "payoff must suppress the ordinary key-text panel");
+    assert.match(source, /showTitle\s*\?\s*<Title>/, "only the opening bookend may own the ordinary title");
+    assert.match(source, /!isPayoff\s*&&\s*characterDominant\s*&&\s*keyText/, "payoff must suppress the ordinary key-text panel");
     // ...and prove it in the frame, not only in the source. If the payoff
     // overlay and the ordinary key-text panel ever render together again, the
     // closing statement appears as two separated blocks of accent copy.
