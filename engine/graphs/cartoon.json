@@ -1,7 +1,7 @@
 {
   "graph_id": "cartoon",
-  "version": "12",
-  "description": "Watchability-first hybrid explainer pipeline: deterministic motion graphics remain the explanatory backbone while voice-aligned, continuity-aware AI scene packs create timed visual resets; opening/payoff are full-canvas, QA measures every modality, and publishing remains private by default. The visual plan passes a storyboard review before anything renders: a critic judges every scene, a reviser rewrites the ones it flagged, and a deterministic release gate rejects a revision that left a flagged scene untouched.",
+  "version": "13",
+  "description": "Semantic-first hybrid explainer pipeline: reviewed plans choose concrete/domain/quantitative/spatial renderers or deliberate animated text; after TTS, semantic actions are phrase-aligned to real voice timing; hybrid AI scene packs remain selective visual resets; generic diagram geometry is retained only for legacy artifact compatibility, not as the fallback for newly authored semantic plans.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -22,7 +22,8 @@
     { "id": "plan_release", "transformation": "explanation_plan_release", "in": ["visual_plan", "plan_revision", "plan_review"] },
     { "id": "compiled_assets", "transformation": "cartoon_scene_compiler", "in": ["plan_release", "approve_script", "cast_roster"] },
     { "id": "voice", "transformation": "dialogue_voice", "in": ["approve_script", "cast_roster"] },
-    { "id": "assets", "transformation": "hybrid_visual_assets", "in": ["compiled_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
+    { "id": "semantic_assets", "transformation": "semantic_visual_assets", "in": ["compiled_assets", "plan_release", "approve_script", "voice"] },
+    { "id": "assets", "transformation": "hybrid_visual_assets", "in": ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
