@@ -101,7 +101,21 @@ export function sealArtifact<P>(
     schema_id: input.schema_id,
     schema_version: input.schema_version,
     produced_by: input.produced_by,
-    parents: input.parents ?? [],
+    // De-duplicated, order preserved. Content-addressed identity means two
+    // DIFFERENT declared inputs can legitimately resolve to the SAME
+    // artifact -- explanation_plan_release (RFC review gate) binds
+    // [visual_plan, plan_revision, plan_review]; when the reviser's genuine
+    // answer is "nothing needed changing" its output is byte-identical to
+    // visual_plan, and content addressing gives it the identical artifact
+    // id. That produced two equal entries in parents and crashed a run on a
+    // legitimate reviser no-op ("duplicate parent ids in ..."), not on any
+    // actual wiring bug. Same reasoning as the self-parent exemption in
+    // assertEnvelopeWellFormed below: a hash collision is infeasible, so
+    // equal ids here mean equal content, never corrupt provenance. Deduping
+    // loses no information -- store.lineage() already walks parents through
+    // a `seen` set, so a second identical entry was never adding anything a
+    // consumer used.
+    parents: [...new Set(input.parents ?? [])],
     confidence: input.confidence ?? null,
     created_at: now.toISOString(),
     labels: input.labels ?? {},
@@ -122,9 +136,13 @@ export function assertEnvelopeWellFormed(a: Artifact): void {
   for (const p of a.parents) {
     if (!isArtifactId(p)) throw new ArtifactError(`malformed parent id: ${p}`);
   }
-  if (new Set(a.parents).size !== a.parents.length) {
-    throw new ArtifactError(`duplicate parent ids in ${a.artifact_id}`);
-  }
+  // No duplicate-parents check here any more -- sealArtifact (the only
+  // producer of a well-formed envelope; see store.put) already de-duplicates
+  // parents, for the same content-addressing reason as the self-parent note
+  // below. A caller that somehow bypasses sealArtifact and hands this
+  // function a hand-built envelope with a literal duplicate is not sending
+  // fresh information either: two equal ids are two equal ids, deduped or
+  // not, and the store's lineage walk already treats them as one.
   // No self-parent check: artifact_id is a pure content hash of
   // {schema_id, schema_version, payload} (see computeArtifactId), never of
   // parentage. Since hash collisions are infeasible, `parents.includes(id)`
