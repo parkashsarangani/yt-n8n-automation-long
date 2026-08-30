@@ -380,7 +380,12 @@ function castBible(cast: CastCharacter[]): string {
   }).filter(Boolean).join(" | ");
 }
 function tokenPrompt(tokens: MotionEntityVisualToken[]): string {
-  return tokens.map((token) => `${token.entity_id} uses ${token.color} and a ${token.shape} silhouette`).join("; ");
+  // Colour only. This used to also demand "a ${shape} silhouette", pushing the
+  // renderer's arbitrary hash-picked polygon into the generated imagery too --
+  // so an AI shot of a thermos was asked to work a plus sign in somewhere.
+  // The motion graphic no longer draws that symbol, so the instruction now
+  // creates a mismatch instead of the continuity it was added for.
+  return tokens.map((token) => `${token.entity_id} uses ${token.color}`).join("; ");
 }
 function shotPrompt(segment: ShotSegment, plan: PlanScene, script: ScriptScene, visible: CastCharacter[], group: string, tokens: MotionEntityVisualToken[]): string {
   const entities = (plan.model_elements ?? []).map((item) => clean(item, 60)).filter(Boolean).join(", ");

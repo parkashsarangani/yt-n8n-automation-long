@@ -155,7 +155,9 @@ export const RELATION_KINDS = ["causes", "blocks", "becomes", "feeds", "contains
 // hexagon that means nothing; an entity with no confident icon match keeps
 // today's shape exactly as before, this is a strict addition, never a
 // regression on a miss.
-export function EntityMark({ id, x, y, size = 30, active = true, icon, color }: { id: string; x: number; y: number; size?: number; active?: boolean; icon?: { viewBox: string; body: string }; color?: string }) {
+export function EntityMark({ id, label, x, y, size = 30, active = true, icon, color }: { id: string; label?: string; x: number; y: number; size?: number; active?: boolean; icon?: { viewBox: string; body: string }; color?: string }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
   const hash = hashText(id || "entity");
   const colors = [ACCENT, BLUE, GREEN, "#B794F4", "#FF7D7D", "#5DE0C6"];
   // `color` overrides the hash-derived palette entirely -- used by the
@@ -172,24 +174,42 @@ export function EntityMark({ id, x, y, size = 30, active = true, icon, color }: 
       {/* Iconify's own body markup, sanitized engine-side before this ever
           reaches an artifact (icon-search.ts). fill="currentColor" in that
           markup resolves against this <g>'s color attribute, so the icon
-          picks up the same hash-derived colour the shape fallback uses. */}
+          picks up the same hash-derived colour. */}
       <g color={fill} dangerouslySetInnerHTML={{ __html: icon.body }} />
     </svg>;
   }
-  const shape = Math.floor(hash / colors.length) % 6;
-  if (shape === 0) return <circle cx={x} cy={y} r={size} fill={fill} opacity={opacity} />;
-  if (shape === 1) return <rect x={x-size} y={y-size} width={size*2} height={size*2} rx={size*.25} fill={fill} opacity={opacity} transform={`rotate(45 ${x} ${y})`} />;
-  if (shape === 2) return <polygon points={`${x},${y-size} ${x+size},${y+size*.8} ${x-size},${y+size*.8}`} fill={fill} opacity={opacity} />;
-  if (shape === 3) return <circle cx={x} cy={y} r={size} fill="none" stroke={fill} strokeWidth={Math.max(6, size*.28)} opacity={opacity} />;
-  if (shape === 4) {
-    const hexPoints = Array.from({ length: 6 }, (_, i) => {
-      const angle = Math.PI / 6 + (i * Math.PI) / 3;
-      return `${x + Math.cos(angle) * size},${y + Math.sin(angle) * size}`;
-    }).join(" ");
-    return <polygon points={hexPoints} fill={fill} opacity={opacity} />;
-  }
-  const arm = size * 0.62;
-  return <path d={`M${x-arm} ${y-size} L${x+arm} ${y-size} L${x+arm} ${y-arm} L${x+size} ${y-arm} L${x+size} ${y+arm} L${x+arm} ${y+arm} L${x+arm} ${y+size} L${x-arm} ${y+size} L${x-arm} ${y+arm} L${x-size} ${y+arm} L${x-size} ${y-arm} L${x-arm} ${y-arm} Z`} fill={fill} opacity={opacity} />;
+
+  // No icon resolved for this entity.
+  //
+  // This used to draw a hash-picked polygon -- a circle, diamond, triangle,
+  // hexagon, ring or cross, in a hash-picked colour. For a concrete noun that
+  // Iconify can match, the real icon carries meaning. For everything else
+  // ("vacuum gap", "empty separation", "heat loss") the viewer got a red
+  // cross or a purple hexagon that stood for nothing: decoration shaped like
+  // information, which is worse than drawing nothing, because it invites the
+  // viewer to decode a symbol that has no meaning to decode.
+  //
+  // The entity's own words are always relevant, so show those instead, as a
+  // mark in the entity's identity colour rather than a caption pill. The
+  // colour still comes from the same hash, so an entity keeps one consistent
+  // identity across scenes whether it resolved an icon or not.
+  const text = (label ?? "").trim();
+  if (!text) return null;
+  const enter = spring({ frame, fps, config: { damping: 18, stiffness: 110 } });
+  const lines = labelLines(text, 15);
+  const longest = Math.max(1, ...lines.map((line) => line.length));
+  const fontSize = Math.max(26, Math.min(44, size * 1.2));
+  const rule = Math.min(340, longest * fontSize * 0.56);
+  return <g transform={`translate(${x} ${y}) scale(${0.86 + enter * 0.14})`} opacity={opacity * Math.min(1, enter * 1.5)}>
+    <text textAnchor="middle" fill={fill} fontSize={fontSize} fontWeight="850">
+      {lines.map((line, index) => (
+        <tspan key={`${line}-${index}`} x="0" y={(index - (lines.length - 1) / 2) * fontSize * 1.04 + fontSize * 0.34}>{line}</tspan>
+      ))}
+    </text>
+    {/* A short rule under the words keeps the mark reading as one object in
+        the diagram rather than as loose floating text. */}
+    <rect x={-rule / 2} y={(lines.length - 1) / 2 * fontSize * 1.04 + fontSize * 0.62} width={rule * enter} height={5} rx={2.5} fill={fill} opacity={0.5} />
+  </g>;
 }
 
 // A diagram gets at most one central label plus two supporting labels. Watch
@@ -211,6 +231,13 @@ const MAX_LABELS = 3;
 // them get a visible TEXT label.
 const MULTI_ENTITY_PRIMITIVES = new Set<string>([
   "cause-chain", "timeline", "many-to-one", "one-to-many", "hierarchy", "network", "objects", "cycle",
+  // Added when these primitives learned to draw one mark per authored entity.
+  // Leaving them out capped every one of them at TWO entities, so the third
+  // entity a scene authored was discarded before Geometry ever saw it -- the
+  // new per-entity code could not have drawn it however correct it was. Found
+  // by rendering a real episode scene and noticing "heat loss" was absent
+  // from a diagram whose plan clearly named it.
+  "nested-context", "shells", "rays", "path", "facets-around-center", "overlapping-sets",
 ]);
 
 // Three fixed, non-overlapping slots -- a peak and two flanking positions --
@@ -382,6 +409,200 @@ type GeometryProps = {
   pop: (delay?: number) => number;
 };
 
+// The authored relation graph: the scene's own entities in labelled slots,
+// joined by exactly the connections the plan asserted.
+//
+// Extracted from the `network` branch so any primitive can fall back to it.
+// A composition that draws the wrong claim is worse than a plain graph that
+// draws the right one.
+function RelationGraph({ labels, identityKeys, entityIcons, relations, state, progress, living, pop }: {
+  labels: string[]; identityKeys: string[]; entityIcons?: EntityIconMap; relations: ModelRelation[];
+  state: VisualState; progress: number; living: number; pop: (delay?: number) => number;
+}) {
+  // Suppressed when the mark itself had to fall back to text -- otherwise the
+  // same phrase is printed twice, once as the mark and once as its caption.
+  const captionFor = (index: number) => {
+    const key = identityKeys[index] || labels[index] || `entity-${index}`;
+    return entityIcons?.[key] ? (labels[index] ?? "") : "";
+  };
+    const count = Math.min(labels.length, 4);
+    // Explicit slots per entity count, NOT operatePoint. A first render of
+    // this branch laid the entities on an ellipse and then passed them
+    // through operatePoint like every other primitive -- and `group`
+    // promptly relocated all of them onto its two fixed cluster centres,
+    // collapsing the authored graph into an illegible knot in the middle
+    // third of the frame. operatePoint exists to rearrange interchangeable
+    // marks; here the positions ARE the content, so the operation must not
+    // be allowed to overwrite them. Progression instead comes from the
+    // nodes easing out of the centre into their slots below, which reads as
+    // the model assembling itself.
+    //
+    // The slots are widely separated and label-aware: each has room for a
+    // caption directly beneath it without colliding with any other node,
+    // any other caption, or the 510-tall frame edge.
+    const LAYOUTS: Record<number, Point[]> = {
+      2: [[290, 215], [790, 215]],
+      3: [[540, 118], [265, 345], [815, 345]],
+      4: [[275, 118], [805, 118], [275, 345], [805, 345]],
+    };
+    const slots = LAYOUTS[count] ?? LAYOUTS[4]!;
+    // Ease from the centre outward. `settle` reaches 1 well before the
+    // scene ends so the edges are drawn against a stable graph rather than
+    // chasing moving endpoints.
+    const settle = Math.min(1, progress * 1.6);
+    const nodes: Point[] = slots.slice(0, count).map(([sx, sy]) => [
+      540 + (sx - 540) * settle,
+      245 + (sy - 245) * settle,
+    ]);
+    const nodeRadius = 52;
+    return <>
+      {relations.map((relation, i) => {
+        const from = nodes[relation.from];
+        const to = nodes[relation.to];
+        if (!from || !to) return null;
+        // Stop each edge short of both marks so the stroke -- and, for
+        // `blocks`, its bar -- never sits underneath an icon where it
+        // cannot be read.
+        const span = Math.max(1, Math.hypot(to[0] - from[0], to[1] - from[1]));
+        const ux = (to[0] - from[0]) / span;
+        const uy = (to[1] - from[1]) / span;
+        if (span <= nodeRadius * 2) return null;
+        // `contains` draws a ring AROUND its target rather than an edge
+        // that stops at it, so it needs the mark's true centre. Handing it
+        // the same inset endpoint as every other kind put the enclosure
+        // ring half a node off to one side, visibly ringing empty canvas
+        // beside the thing it was supposed to be containing (caught on a
+        // render, not from reading the code).
+        const targetInset = relation.kind === "contains" ? 0 : nodeRadius;
+        return <RelationEdge key={`${relation.from}-${relation.to}-${relation.kind}`}
+          x1={from[0] + ux * nodeRadius} y1={from[1] + uy * nodeRadius}
+          x2={to[0] - ux * targetInset} y2={to[1] - uy * targetInset}
+          progress={Math.max(0, Math.min(1, progress * 1.35 - 0.15 - i * 0.1))} state={state} kind={relation.kind} phase={living} />;
+      })}
+      {nodes.map(([x, y], i) => {
+        const eid = identityKeys[i] || labels[i] || `entity-${i}`;
+        return <EntityMark key={i} id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={40 + pop(i * .06) * 10} />;
+      })}
+      {/* Every node gets its caption, deliberately past MAX_LABELS. That
+          cap guards against captions competing for the same space, which
+          is a real risk when a primitive's label slots are fixed and its
+          marks move. Here the slots above are chosen so each caption has
+          its own reserved band -- and an unlabeled node inside a graph the
+          planner explicitly authored is a hole in the explanation, not
+          restraint. */}
+      {nodes.map(([x, y], i) => (
+        // +104, not the ~70 a caption would normally sit at. A live
+        // render showed the pill overlapping its own mark, and covering the
+        // bottom half of a `contains` ring so enclosure read as a broken
+        // arc. The offset has to clear the largest thing drawn ON a node,
+        // which is that ring, not the mark.
+        // Above the node in the upper half, below it in the lower half.
+        // Always-below put the top node's caption straight across the edges
+        // leaving that node -- a render showed a `blocks` bar sitting on top
+        // of the caption of the very entity doing the blocking.
+        <Label key={`label-${i}`} text={captionFor(i)} x={x} y={y < 245 ? y - 82 : y + 104} active={i === 0} state={state} maxWidth={300} />
+      ))}
+    </>;
+}
+
+// Kinetic typography for scenes whose entities cannot be pictured.
+//
+// A node-and-line diagram only earns its screen time when the nodes are
+// things a viewer can recognise. When every entity in a scene is an
+// abstraction -- "infrared", "vacuum gap", "heat loss" -- Iconify resolves
+// nothing, the marks fall back to text, and what is left is three words
+// joined by lines: a graph OF THE SENTENCE, which tells the viewer nothing
+// the narration did not already say. Watch feedback was blunt about it.
+//
+// So when nothing in the scene is depictable, stop pretending it is a
+// diagram and state the model as animated text instead: each entity lands in
+// turn, with the authored relation named in words between them. It reads as
+// a deliberate statement rather than a diagram that failed to find pictures,
+// and the relation word does work no arrow can -- "blocks" is unambiguous in
+// a way a barred line is not.
+function KineticStatement({ labels, relations, state, progress }: {
+  labels: string[]; relations: ModelRelation[]; state: VisualState; progress: number;
+}) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const colors = palette[state];
+  // Order the rows along the authored chain so related entities end up
+  // adjacent. Listing them in plan order left real relations undrawn: a scene
+  // relating 1->0 and 0->2 rendered 0,1,2 and could only show the 0-1 link,
+  // silently dropping "infrared feeds coffee". Following the edges instead
+  // turns the same three entities into a readable sentence.
+  const present = labels.map((label, index) => ({ label, index })).filter((row) => row.label && row.label.trim()).slice(0, 4);
+  const validIndices = new Set(present.map((row) => row.index));
+  const edges = relations.filter((relation) => validIndices.has(relation.from) && validIndices.has(relation.to));
+  const hasIncoming = new Set(edges.map((relation) => relation.to));
+  const order: number[] = [];
+  const visit = (index: number) => {
+    if (order.includes(index) || !validIndices.has(index)) return;
+    order.push(index);
+    for (const edge of edges) if (edge.from === index) visit(edge.to);
+  };
+  for (const row of present) if (!hasIncoming.has(row.index)) visit(row.index);
+  for (const row of present) visit(row.index);
+  const rowIndices = order.length ? order : present.map((row) => row.index);
+  const rows = rowIndices.map((index) => labels[index] ?? "");
+  if (rows.length === 0) return null;
+
+  // Fit the whole statement to the canvas: entity rows plus a connector band
+  // between each pair. Sizes shrink as rows are added so four entities still
+  // clear the 510-tall frame.
+  const rowGap = rows.length >= 4 ? 118 : rows.length === 3 ? 148 : 190;
+  const entitySize = rows.length >= 4 ? 50 : rows.length === 3 ? 58 : 68;
+  const top = 245 - ((rows.length - 1) * rowGap) / 2;
+
+  // The relation between two consecutive entities, in whichever direction it
+  // was authored -- a connector that ignored direction would name the right
+  // relation while pointing the wrong way.
+  const connector = (upperRow: number, lowerRow: number) => {
+    const upper = rowIndices[upperRow]!;
+    const lower = rowIndices[lowerRow]!;
+    const relation = relations.find((r) => (r.from === upper && r.to === lower) || (r.from === lower && r.to === upper));
+    if (!relation) return null;
+    return { kind: relation.kind, downward: relation.from === upper };
+  };
+
+  return <>
+    {rows.map((label, i) => {
+      const y = top + i * rowGap;
+      // Each row lands in turn, so the statement builds across the spoken
+      // line instead of appearing all at once and then holding.
+      const lands = spring({ frame: frame - i * Math.round(fps * 0.34), fps, config: { damping: 20, stiffness: 105 } });
+      const link = i < rows.length - 1 ? connector(i, i + 1) : null;
+      const linkY = y + rowGap / 2;
+      const linkLands = spring({ frame: frame - Math.round(fps * (0.34 * i + 0.2)), fps, config: { damping: 22, stiffness: 120 } });
+      const blocks = link?.kind === "blocks";
+      const linkColor = blocks ? RED : colors.line;
+      const arrowY = link?.downward ? linkY + 24 : linkY - 24;
+      return <React.Fragment key={`${label}-${i}`}>
+        <g opacity={Math.min(1, lands * 1.3)} transform={`translate(540 ${y}) scale(${0.9 + lands * 0.1})`}>
+          <text textAnchor="middle" fill={PAPER} fontSize={entitySize} fontWeight="880">
+            <tspan x="0" y={entitySize * 0.34}>{labelLines(label, 22)[0] ?? label}</tspan>
+          </text>
+        </g>
+        {link ? <g opacity={Math.min(1, linkLands * 1.4)}>
+          {/* A short stem, the relation named on it, and either an arrowhead
+              or -- for `blocks` -- a bar, so the kind reads without colour. */}
+          {/* For `blocks` the stem stops AT the bar rather than running
+              through it -- a full stem crossing a full bar renders as a plus
+              sign, which reads as "and" rather than "stopped". */}
+          <path d={blocks ? `M540 ${linkY - 32} L540 ${linkY - 4}` : `M540 ${linkY - 30} L540 ${linkY + 30}`}
+            stroke={linkColor} strokeWidth="5" strokeLinecap="round"
+            strokeDasharray="60" strokeDashoffset={60 * (1 - linkLands)} />
+          {blocks
+            ? <path d={`M498 ${linkY} L582 ${linkY}`} stroke={RED} strokeWidth="9" strokeLinecap="round" />
+            : <path d={`M528 ${arrowY} L540 ${link.downward ? arrowY + 14 : arrowY - 14} L552 ${arrowY}`}
+                fill="none" stroke={linkColor} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />}
+          <text x={608} y={linkY + 11} fill={linkColor} fontSize="32" fontWeight="820" letterSpacing="1.5">{link.kind}</text>
+        </g> : null}
+      </React.Fragment>;
+    })}
+  </>;
+}
+
 function Geometry({ primitive, operation, state, labels, identityKeys, entityIcons, before, after, keyText, numericValue, relations, progress, living, pop }: GeometryProps) {
   const colors = palette[state];
   // Only forward matches count. Reversing an edge to find a match would draw
@@ -390,6 +611,78 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
   // "causes" styling rather than borrowing the reverse edge's kind.
   const kindBetween = (from: number, to: number): string =>
     relations.find((relation) => relation.from === from && relation.to === to)?.kind ?? "causes";
+  // The authored relation between two entities REGARDLESS of which way round
+  // it was written, so a branch that has a fixed idea of which end is the
+  // "source" can still draw the claim in its true direction. kindBetween
+  // deliberately refuses to match backwards -- it returns a kind, and a kind
+  // applied to a reversed edge states the opposite claim. This returns the
+  // whole relation so the caller can orient the edge correctly instead.
+  const relationBetween = (a: number, b: number) =>
+    relations.find((relation) => (relation.from === a && relation.to === b) || (relation.from === b && relation.to === a));
+  // Every authored entity, addressable by index, with its identity key and
+  // resolved icon already paired up.
+  //
+  // Most primitives used to reach for `identityKeys[0] || labels[0]` and draw
+  // that one thing, discarding everything else the plan authored. A scene
+  // that named "vacuum gap", "conduction" and "heat loss" rendered four
+  // nested rectangles and the words "vacuum gap" -- two thirds of the model
+  // silently absent, and the same picture for every scene that happened to
+  // pick the same primitive. This makes "draw all of them" the cheap option.
+  const entityCount = Math.min(4, Math.max(labels.length, identityKeys.length));
+  // Some branches only carry an identity key. The text fallback needs the
+  // words that key stands for.
+  const labelOf = (key: string) => {
+    const index = identityKeys.indexOf(key);
+    return index >= 0 ? labels[index] : labels[labels.indexOf(key)] ?? key;
+  };
+  const entity = (index: number) => {
+    const label = labels[index] ?? "";
+    const id = identityKeys[index] || label || `entity-${index}`;
+    return { id, label, icon: entityIcons?.[id] };
+  };
+
+  // When the authored relations CONTRADICT the primitive's own composition,
+  // the relations win.
+  //
+  // nested-context, shells and overlapping-sets all draw containment or
+  // membership -- boxes inside boxes, rings inside rings, sets that overlap.
+  // That is the right picture when a scene's relations are `contains`. It is
+  // an actively WRONG picture when they are `blocks` or `causes`: a real
+  // episode (run_a41a8e2e) drew "vacuum gap BLOCKS conduction, conduction
+  // CAUSES heat loss" as three nested boxes, which asserts that heat loss
+  // contains conduction contains the vacuum gap. The exact opposite of the
+  // claim, drawn confidently, in four separate scenes that all looked alike.
+  // A viewer who reads that picture learns something false.
+  //
+  // Drawing a plain relation graph instead is less decorative and more
+  // honest: it can render a barred `blocks` edge, which is the entire point
+  // of those scenes. Scenes whose relations really are containment keep
+  // their nesting, so this narrows the vocabulary only where it was lying.
+  // Nothing in this scene resolved a real icon, so there is nothing to
+  // picture. See KineticStatement: a diagram of abstractions is a graph of
+  // the sentence. Primitives that draw a genuine subject rather than a set of
+  // labelled nodes (a wave, a spectrum, a quantity, a comparison of two
+  // states) are excluded -- those still show the viewer something.
+  const NODE_DIAGRAM_PRIMITIVES = new Set([
+    "network", "nested-context", "shells", "rays", "path", "facets-around-center",
+    "overlapping-sets", "cycle", "one-to-many", "many-to-one", "hierarchy", "cause-chain", "objects",
+  ]);
+  const anyIconResolved = Array.from({ length: entityCount }, (_, i) => entity(i).icon).some(Boolean);
+  // `counter` is excluded whatever the primitive: its whole visual is items
+  // activating one by one as the number climbs, which is a real thing to
+  // watch rather than a graph of the sentence. The render regression caught
+  // this -- counter/objects stopped visibly activating its entities once
+  // this gate took the scene over.
+  if (!anyIconResolved && entityCount >= 2 && operation !== "counter" && NODE_DIAGRAM_PRIMITIVES.has(primitive)) {
+    return <KineticStatement labels={labels} relations={relations} state={state} progress={progress} />;
+  }
+
+  const CONTAINMENT_PRIMITIVES = new Set(["nested-context", "shells", "overlapping-sets"]);
+  const hasDirectionalRelation = relations.some((relation) => relation.kind !== "contains");
+  if (hasDirectionalRelation && CONTAINMENT_PRIMITIVES.has(primitive) && entityCount >= 2) {
+    return <RelationGraph labels={labels} identityKeys={identityKeys} entityIcons={entityIcons}
+      relations={relations} state={state} progress={progress} living={living} pop={pop} />;
+  }
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
   if (primitive === "particles") {
@@ -427,13 +720,55 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
       if (provisional) {
         return <circle key={i} cx={x} cy={y} r={radius} fill="none" stroke={fill} strokeWidth="3" strokeDasharray="6 6" opacity={opacity} />;
       }
-      return <g key={i} opacity={opacity}><EntityMark id={repId} icon={repIcon} x={x} y={y} size={radius + living * 1.5} /></g>;
+      return <g key={i} opacity={opacity}><EntityMark id={repId} label={labels[0]} icon={repIcon} x={x} y={y} size={radius + living * 1.5} /></g>;
     })}</>;
   }
   if (primitive === "rays") {
+    // A source reaching named targets, when the plan named any. The old
+    // version drew one mark and six anonymous rays into empty canvas, so two
+    // rays scenes about completely different things were identical frames.
+    if (entityCount >= 2) {
+      const source = entity(0);
+      const targetSlots: Point[] = [[860, 108], [905, 245], [860, 382]];
+      const targets = Array.from({ length: entityCount - 1 }, (_, i) => i + 1);
+      const sourceX = 235;
+      return <>
+        {targets.map((entityIndex, i) => {
+          const [tx, ty] = targetSlots[targets.length === 1 ? 1 : i] ?? targetSlots[1]!;
+          const target = entity(entityIndex);
+          // A rays scene has a natural source at the centre, but the plan is
+          // free to author the relation the other way round -- "silvered wall
+          // BLOCKS infrared" runs target->source. Drawing that as a
+          // source->target arrow states the opposite of the claim, so the
+          // edge is oriented by what was actually authored.
+          const relation = relationBetween(0, entityIndex);
+          const reversed = relation ? relation.from === entityIndex : false;
+          // Both ends are inset well clear of the marks: an entity with no
+          // icon renders as WORDS, and an arrowhead landing in the middle of
+          // a word is unreadable (a render put one squarely through "silvered
+          // wall").
+          const near: Point = [sourceX + 96, 245];
+          const far: Point = [tx - 104, ty];
+          const [x1, y1] = reversed ? far : near;
+          const [x2, y2] = reversed ? near : far;
+          return <React.Fragment key={entityIndex}>
+            {/* The ray carries the authored relation: a `blocks` edge shows the
+                beam stopping short, which is the whole point of a scene about
+                something reflecting radiation back. */}
+            <RelationEdge x1={x1} y1={y1} x2={x2} y2={y2}
+              progress={Math.max(0, Math.min(1, progress * 1.3 - i * 0.12))} state={state}
+              kind={relation?.kind ?? "causes"} phase={living} />
+            <EntityMark id={target.id} label={target.label} icon={target.icon} x={tx} y={ty} size={34} />
+            <Label text={target.icon ? target.label : ""} x={tx} y={ty + 62} active={i === 0} state={state} maxWidth={260} />
+          </React.Fragment>;
+        })}
+        <EntityMark id={source.id} label={source.label} icon={source.icon} x={sourceX} y={245} size={58 + living * 3} />
+        <Label text={source.icon ? source.label : ""} x={sourceX} y={245 + 84} active state={state} maxWidth={280} />
+      </>;
+    }
     const ends: Array<[number, number]> = [[100,90],[70,245],[110,420],[970,85],[1010,245],[970,420]];
     const eid = identityKeys[0] || labels[0] || "source";
-    return <><EntityMark id={eid} icon={entityIcons?.[eid]} x={540} y={245} size={58}/>{ends.map(([x,y],i)=><DirectedEdge key={i} x1={540} y1={245} x2={x} y2={y} progress={Math.max(0,progress-i*.07)} state={state}/>)}</>;
+    return <><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={540} y={245} size={58}/>{ends.map(([x,y],i)=><DirectedEdge key={i} x1={540} y1={245} x2={x} y2={y} progress={Math.max(0,progress-i*.07)} state={state}/>)}</>;
   }
   if (primitive === "wave") {
     const amplitude = 35 + progress * 65;
@@ -442,7 +777,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
   }
   if (primitive === "horizon") {
     const eid = identityKeys[0] || labels[0] || "boundary";
-    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={540} y={245} size={30}/><path d="M90 245 H990" {...commonStroke} opacity=".55"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
+    return <><circle cx="540" cy="245" r={70+progress*130} {...commonStroke}/><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={540} y={245} size={30}/><path d="M90 245 H990" {...commonStroke} opacity=".55"/><Label text={after||labels[0]} x={540} y={445} active state={state}/></>;
   }
   if (primitive === "spectrum") {
     const comparing = operation === "scale-compare";
@@ -458,19 +793,66 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const marker = cubicPoint(curve[0], curve[1], curve[2], curve[3], progress);
     const d = `M${curve[0][0]} ${curve[0][1]} C${curve[1][0]} ${curve[1][1]} ${curve[2][0]} ${curve[2][1]} ${curve[3][0]} ${curve[3][1]}`;
     const pathEid = identityKeys[0] || labels[0] || "traveler";
+    // Waypoints, not just a traveller. A journey's authored entities are the
+    // places it passes through; drawing only the first one left three
+    // consecutive path scenes as the same dot on the same squiggle.
+    if (entityCount >= 2) {
+      const stops = Array.from({ length: entityCount }, (_, i) => {
+        const t = entityCount === 1 ? 0 : i / (entityCount - 1);
+        return { at: cubicPoint(curve[0], curve[1], curve[2], curve[3], t), reached: progress >= t - 0.04, ...entity(i) };
+      });
+      return <>
+        <path d={d} {...commonStroke} opacity=".45"/>
+        <path d={d} {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
+        {stops.map((stop, i) => (
+          <g key={i} opacity={stop.reached ? 1 : 0.35}>
+            <EntityMark id={stop.id} label={stop.label} icon={stop.icon} x={stop.at[0]} y={stop.at[1]} size={34} active={stop.reached} />
+            {/* Captions alternate above/below the curve so a stop near the
+                arc's peak does not sit on top of the stroke. */}
+            <Label text={stop.icon ? stop.label : ""} x={Math.min(940, Math.max(140, stop.at[0]))} y={stop.at[1] + (i % 2 === 0 ? 66 : -62)}
+              active={stop.reached} state={state} maxWidth={250} />
+          </g>
+        ))}
+        {/* The traveller stays: it is what makes this a journey rather than a
+            static list of stops. */}
+        <circle cx={marker[0]} cy={marker[1]} r={13} fill={ACCENT} opacity={0.85} />
+      </>;
+    }
     return <><path d={d} {...commonStroke} opacity=".45"/>
       <path d={d} {...commonStroke} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>
-      <EntityMark id={pathEid} icon={entityIcons?.[pathEid]} x={marker[0]} y={marker[1]} size={22}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
+      <EntityMark id={pathEid} label={labels[0]} icon={entityIcons?.[pathEid]} x={marker[0]} y={marker[1]} size={22}/><Label text={keyText||labels[0]} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "shells") {
     const centers=Array.from({length:4},(_,i)=>operatePoint([540,245],i,4,operation,progress));
     const coreEid = identityKeys[0] || labels[0] || "core";
+    if (entityCount >= 2) {
+      // One shell per authored layer, captioned on its own right edge.
+      // nested-context uses squares captioned on top; keeping shells on
+      // circles captioned to the side stops two different primitives from
+      // resolving to the same picture.
+      const core = entity(0);
+      const shells = entityCount - 1;
+      return <>
+        {Array.from({ length: shells }, (_, i) => {
+          const radius = (92 + i * 74) * (0.4 + progress * 0.6);
+          const layer = entity(i + 1);
+          return <React.Fragment key={i}>
+            <circle cx={540} cy={245} r={radius} fill="none" stroke={i === shells - 1 ? colors.line : colors.muted}
+              strokeWidth={i === shells - 1 ? 7 : 4} strokeDasharray={state === "hypothesis" ? "15 12" : undefined}
+              opacity={0.4 + progress * 0.6} />
+            <Label text={layer.label} x={Math.min(900, 540 + radius + 92)} y={245 - i * 62} active={i === shells - 1} state={state} maxWidth={230} />
+          </React.Fragment>;
+        })}
+        <EntityMark id={core.id} label={core.label} icon={core.icon} x={540} y={245} size={44 + living * 3} />
+        <Label text={core.icon ? core.label : ""} x={540} y={455} active state={state} maxWidth={300} />
+      </>;
+    }
     return <>{centers.map(([x,y],i)=><circle key={i} cx={x} cy={y} r={65+i*58*progress} {...commonStroke} opacity={.35+i*.15}/>)}
-      <EntityMark id={coreEid} icon={entityIcons?.[coreEid]} x={centers[0]![0]} y={centers[0]![1]} size={32}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
+      <EntityMark id={coreEid} label={labels[0]} icon={entityIcons?.[coreEid]} x={centers[0]![0]} y={centers[0]![1]} size={32}/><Label text={labels[0]||keyText} x={540} y={455} active state={state}/></>;
   }
   if (primitive === "objects") {
     const entities = labels.slice(0,4);
-    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);const eid=identityKeys[i]||label;return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
+    return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);const eid=identityKeys[i]||label;return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
   }
   if (primitive === "network") {
     // The authored path. Before model_relations existed this branch drew a
@@ -481,80 +863,8 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // the structure underneath never was, which is the single biggest
     // reason these diagrams read as decoration beside the dialogue.
     if (relations.length > 0 && labels.length >= 2) {
-      const count = Math.min(labels.length, 4);
-      // Explicit slots per entity count, NOT operatePoint. A first render of
-      // this branch laid the entities on an ellipse and then passed them
-      // through operatePoint like every other primitive -- and `group`
-      // promptly relocated all of them onto its two fixed cluster centres,
-      // collapsing the authored graph into an illegible knot in the middle
-      // third of the frame. operatePoint exists to rearrange interchangeable
-      // marks; here the positions ARE the content, so the operation must not
-      // be allowed to overwrite them. Progression instead comes from the
-      // nodes easing out of the centre into their slots below, which reads as
-      // the model assembling itself.
-      //
-      // The slots are widely separated and label-aware: each has room for a
-      // caption directly beneath it without colliding with any other node,
-      // any other caption, or the 510-tall frame edge.
-      const LAYOUTS: Record<number, Point[]> = {
-        2: [[290, 215], [790, 215]],
-        3: [[540, 118], [265, 345], [815, 345]],
-        4: [[275, 118], [805, 118], [275, 345], [805, 345]],
-      };
-      const slots = LAYOUTS[count] ?? LAYOUTS[4]!;
-      // Ease from the centre outward. `settle` reaches 1 well before the
-      // scene ends so the edges are drawn against a stable graph rather than
-      // chasing moving endpoints.
-      const settle = Math.min(1, progress * 1.6);
-      const nodes: Point[] = slots.slice(0, count).map(([sx, sy]) => [
-        540 + (sx - 540) * settle,
-        245 + (sy - 245) * settle,
-      ]);
-      const nodeRadius = 52;
-      return <>
-        {relations.map((relation, i) => {
-          const from = nodes[relation.from];
-          const to = nodes[relation.to];
-          if (!from || !to) return null;
-          // Stop each edge short of both marks so the stroke -- and, for
-          // `blocks`, its bar -- never sits underneath an icon where it
-          // cannot be read.
-          const span = Math.max(1, Math.hypot(to[0] - from[0], to[1] - from[1]));
-          const ux = (to[0] - from[0]) / span;
-          const uy = (to[1] - from[1]) / span;
-          if (span <= nodeRadius * 2) return null;
-          // `contains` draws a ring AROUND its target rather than an edge
-          // that stops at it, so it needs the mark's true centre. Handing it
-          // the same inset endpoint as every other kind put the enclosure
-          // ring half a node off to one side, visibly ringing empty canvas
-          // beside the thing it was supposed to be containing (caught on a
-          // render, not from reading the code).
-          const targetInset = relation.kind === "contains" ? 0 : nodeRadius;
-          return <RelationEdge key={`${relation.from}-${relation.to}-${relation.kind}`}
-            x1={from[0] + ux * nodeRadius} y1={from[1] + uy * nodeRadius}
-            x2={to[0] - ux * targetInset} y2={to[1] - uy * targetInset}
-            progress={Math.max(0, Math.min(1, progress * 1.35 - 0.15 - i * 0.1))} state={state} kind={relation.kind} phase={living} />;
-        })}
-        {nodes.map(([x, y], i) => {
-          const eid = identityKeys[i] || labels[i] || `entity-${i}`;
-          return <EntityMark key={i} id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={40 + pop(i * .06) * 10} />;
-        })}
-        {/* Every node gets its caption, deliberately past MAX_LABELS. That
-            cap guards against captions competing for the same space, which
-            is a real risk when a primitive's label slots are fixed and its
-            marks move. Here the slots above are chosen so each caption has
-            its own reserved band -- and an unlabeled node inside a graph the
-            planner explicitly authored is a hole in the explanation, not
-            restraint. */}
-        {nodes.map(([x, y], i) => (
-          // +104, not the ~70 a caption would normally sit at. A live
-          // render showed the pill overlapping its own mark, and covering the
-          // bottom half of a `contains` ring so enclosure read as a broken
-          // arc. The offset has to clear the largest thing drawn ON a node,
-          // which is that ring, not the mark.
-          <Label key={`label-${i}`} text={labels[i] ?? ""} x={x} y={y + 104} active={i === 0} state={state} maxWidth={300} />
-        ))}
-      </>;
+      return <RelationGraph labels={labels} identityKeys={identityKeys} entityIcons={entityIcons}
+        relations={relations} state={state} progress={progress} living={living} pop={pop} />;
     }
     // Fallback: a plan with no authored relations (or fewer than two
     // entities to connect) still renders exactly as it did before 1.5.0
@@ -575,11 +885,11 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
           Iconify to look up for them. The 4 leaves below ARE the scene's
           model_elements and get real icons. */}
       <Dot x={330} y={245} r={34} fill={BLUE}/><Dot x={750} y={245} r={34} fill={BLUE}/>
-      {children.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={25}/></React.Fragment>})}</>;
+      {children.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y} size={25}/></React.Fragment>})}</>;
   }
   if (primitive === "one-to-many") {
     const targets: Array<[number,number]>=[[850,85],[920,180],[940,300],[860,410]];
-    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={24}/></React.Fragment>})}</>;
+    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y} size={24}/></React.Fragment>})}</>;
   }
   if (primitive === "many-to-one") {
     // Redesigned from 4 static dots with straight lines to one point -- that
@@ -618,7 +928,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
         const eid = identityKeys[i] || labels[i] || `source-${i}`;
         return <g key={i} opacity={absorbed ? Math.max(0, 1 - (arrival - 0.82) * 6) : 1}>
           {arrival < 0.5 && <DirectedEdge x1={x + 26} y1={y} x2={Math.min(mouthX - 12, x + 96)} y2={y} progress={Math.min(1, arrival * 2.4)} state={state} />}
-          <EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={22} />
+          <EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y} size={22} />
         </g>;
       })}
       {/* Clear of the vessel's bottom edge -- at +45 the 2-line label box
@@ -627,6 +937,34 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     </>;
   }
   if (primitive === "facets-around-center") {
+    if (entityCount >= 2) {
+      // The facets are the authored entities, not six decorative diamonds
+      // around a captioned circle. Six anonymous facets said nothing about
+      // which viewpoints the narration was actually listing.
+      const slots: Point[] = [[540, 78], [846, 168], [846, 336], [540, 424], [234, 336], [234, 168]];
+      const centre = entity(0);
+      const facetIndices = Array.from({ length: entityCount - 1 }, (_, i) => i + 1);
+      // Spread the used facets evenly around the ring instead of clustering
+      // them at the top, so two facets do not read as a lopsided pair.
+      const step = Math.max(1, Math.floor(slots.length / facetIndices.length));
+      return <>
+        {facetIndices.map((entityIndex, i) => {
+          const [x, y] = slots[(i * step) % slots.length]!;
+          const facet = entity(entityIndex);
+          return <React.Fragment key={entityIndex}>
+            <RelationEdge x1={540} y1={245} x2={x} y2={y}
+              progress={Math.max(0, Math.min(1, progress * 1.3 - i * 0.1))} state={state}
+              kind={kindBetween(0, entityIndex)} phase={living} />
+            <EntityMark id={facet.id} label={facet.label} icon={facet.icon} x={x} y={y} size={36} />
+            <Label text={facet.icon ? facet.label : ""} x={Math.min(900, Math.max(180, x))} y={y + (y > 245 ? 64 : -58)}
+              active={i === 0} state={state} maxWidth={230} />
+          </React.Fragment>;
+        })}
+        <circle cx={540} cy={245} r={84} fill={colors.fill} stroke={colors.line} strokeWidth="8" />
+        <EntityMark id={centre.id} label={centre.label} icon={centre.icon} x={540} y={245} size={52 + living * 3} />
+        <Label text={centre.icon ? centre.label : ""} x={540} y={245 + 118} active state={state} maxWidth={280} />
+      </>;
+    }
     const facets: Array<[number,number]>=[[540,65],[820,150],[820,350],[540,430],[260,350],[260,150]];
     return <>{facets.map((base,i)=>{const [x,y]=operatePoint(base,i,facets.length,operation,progress);return <React.Fragment key={i}><path d={`M540 245 L${x} ${y}`} {...commonStroke} opacity={.4+progress*.5}/><polygon points={`${x},${y-30} ${x+34},${y} ${x},${y+30} ${x-34},${y}`} fill={i%2?BLUE:ACCENT} opacity={.68+progress*.32}/></React.Fragment>})}
       <circle cx="540" cy="245" r="84" fill={colors.fill} stroke={colors.line} strokeWidth="8"/><Label text={labels[0]||keyText} x={540} y={245} active state={state}/></>;
@@ -635,9 +973,80 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     const spread=105*(1-progress);
     const compare=operation==="scale-compare"?progress:0;
     return <><circle cx={430-spread} cy="245" r={180-compare*55} fill="#65C7F733" stroke={BLUE} strokeWidth="7"/><circle cx={650+spread} cy="245" r={180+compare*45} fill="#FFD16633" stroke={ACCENT} strokeWidth="7"/>
-      <Label text={labels[0]} x={320-spread} y={245} state={state} maxWidth={250}/><Label text={labels[1]} x={760+spread} y={245} state={state} maxWidth={250}/></>;
+      <EntityMark id={entity(0).id} label={entity(0).label} icon={entity(0).icon} x={352-spread} y={245} size={40}/>
+      <EntityMark id={entity(1).id} label={entity(1).label} icon={entity(1).icon} x={728+spread} y={245} size={40}/>
+      <Label text={labels[0]} x={252-spread} y={368} state={state} maxWidth={250}/><Label text={labels[1]} x={828+spread} y={368} state={state} maxWidth={250}/>
+      {/* The third authored entity is what the two sets SHARE -- the whole
+          reason to draw an intersection. It was previously dropped, leaving
+          the overlap an unexplained lens. */}
+      {entityCount >= 3 ? <Label text={entity(2).label} x={540} y={245} active state={state} maxWidth={210}/> : null}</>;
   }
   if (primitive === "nested-context") {
+    // The layers ARE the authored entities: entity 0 is the item, and each
+    // later entity is the wider context it sits inside. Previously this drew
+    // four fixed rectangles and captioned only the first entity, so a scene
+    // that authored "vacuum gap / conduction / heat loss" rendered as boxes
+    // labelled "vacuum gap" -- and every other nested-context scene in the
+    // episode rendered as exactly the same picture.
+    if (entityCount >= 2) {
+      // Nesting order comes from the `contains` relations, not from the order
+      // the entities happen to be listed in.
+      //
+      // A real episode authored "thermos CONTAINS vacuum gap" and this drew
+      // the thermos as the innermost core inside the vacuum gap -- the
+      // containment stated backwards, which is exactly the class of error
+      // this primitive exists to avoid. depth[] walks the contains edges so a
+      // container always encloses what it contains.
+      const depth = new Array(entityCount).fill(0);
+      for (let pass = 0; pass < entityCount; pass++) {
+        for (const relation of relations) {
+          if (relation.kind !== "contains") continue;
+          if (relation.from >= entityCount || relation.to >= entityCount) continue;
+          depth[relation.to] = Math.max(depth[relation.to]!, depth[relation.from]! + 1);
+        }
+      }
+      // Only entities actually joined by containment get drawn as layers. An
+      // entity the plan never nested is not a layer of anything, and drawing
+      // it as one invents a claim -- it is parked outside the outermost ring
+      // instead, present but visibly not part of the nesting.
+      const nestedIn = new Set<number>();
+      for (const relation of relations) {
+        if (relation.kind !== "contains") continue;
+        if (relation.from < entityCount) nestedIn.add(relation.from);
+        if (relation.to < entityCount) nestedIn.add(relation.to);
+      }
+      const chain = Array.from({ length: entityCount }, (_, i) => i)
+        .filter((i) => nestedIn.size === 0 || nestedIn.has(i))
+        .sort((a, b) => depth[a]! - depth[b]!);
+      const outside = Array.from({ length: entityCount }, (_, i) => i).filter((i) => !chain.includes(i));
+      const rings = Math.max(0, chain.length - 1);
+      const coreIndex = chain[chain.length - 1] ?? 0;
+      const core = entity(coreIndex);
+      const sizeFor = (ring: number) => 440 - ring * 150;
+      return <>
+        {Array.from({ length: rings }, (_, ring) => {
+          const size = sizeFor(ring) * (0.35 + progress * 0.65);
+          const layer = entity(chain[ring]!);
+          return <React.Fragment key={ring}>
+            <rect x={540 - size / 2} y={245 - size / 2} width={size} height={size} rx={34}
+              fill={ring === rings - 1 ? colors.fill : "none"} stroke={ring === 0 ? colors.line : colors.muted}
+              strokeWidth={ring === 0 ? 8 : 4} opacity={0.45 + progress * 0.55} />
+            <Label text={layer.label} x={540} y={245 - size / 2 + 32} active={ring === 0} state={state} maxWidth={360} />
+          </React.Fragment>;
+        })}
+        <EntityMark id={core.id} label={core.label} icon={core.icon} x={540} y={245} size={48 + living * 3} />
+        <Label text={core.icon ? core.label : ""} x={540} y={245 + 74} active state={state} maxWidth={300} />
+        {outside.map((index, i) => {
+          const stray = entity(index);
+          const x = 150;
+          const y = 120 + i * 130;
+          return <React.Fragment key={`out-${index}`}>
+            <EntityMark id={stray.id} label={stray.label} icon={stray.icon} x={x} y={y} size={30} active={false} />
+            <Label text={stray.icon ? stray.label : ""} x={x} y={y + 58} state={state} maxWidth={230} />
+          </React.Fragment>;
+        })}
+      </>;
+    }
     const sizes=[360,280,200,120];
     const centers=sizes.map((_,i)=>operatePoint([540,245],i,sizes.length,operation,progress));
     return <>{sizes.map((size,i)=>{const [x,y]=centers[i]!;return <rect key={i} x={x-size*progress/2} y={y-size*progress/2} width={size*progress} height={size*progress} rx={30+i*5} fill={i===3?colors.fill:"none"} stroke={i===0?colors.line:colors.muted} strokeWidth={i===0?8:4}/>})}
@@ -646,6 +1055,29 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
   if (primitive === "cycle") {
     const pts: Array<[number,number]>=[[540,70],[850,245],[540,420],[230,245]];
     const moved=pts.map((point,i)=>operatePoint(point,i,pts.length,operation,progress));
+    if (entityCount >= 2) {
+      // A loop of the scene's OWN entities. The plain Dots gave every cycle
+      // scene the same four anonymous blobs regardless of subject.
+      const ring: Point[] = entityCount === 2
+        ? [[300, 245], [780, 245]]
+        : [[540, 92], [830, 245], [540, 398], [250, 245]];
+      const nodes = ring.slice(0, entityCount);
+      return <>
+        {nodes.map(([x, y], i) => {
+          const next = nodes[(i + 1) % nodes.length]!;
+          return <RelationEdge key={`e${i}`} x1={x} y1={y} x2={next[0]} y2={next[1]}
+            progress={Math.max(0, progress - i * 0.12)} state={state}
+            kind={kindBetween(i, (i + 1) % nodes.length)} phase={living} />;
+        })}
+        {nodes.map(([x, y], i) => {
+          const node = entity(i);
+          return <React.Fragment key={`n${i}`}>
+            <EntityMark id={node.id} label={node.label} icon={node.icon} x={x} y={y} size={38} />
+            <Label text={node.icon ? node.label : ""} x={x} y={y + (y > 245 ? 66 : -60)} active={i === 0} state={state} maxWidth={240} />
+          </React.Fragment>;
+        })}
+      </>;
+    }
     return <>{moved.map(([x,y],i)=>{const next=moved[(i+1)%moved.length]!;return <React.Fragment key={i}><DirectedEdge x1={x} y1={y} x2={next[0]} y2={next[1]} progress={Math.max(0,progress-i*.12)} state={state} curved/><Dot x={x} y={y} r={31} fill={i%2?BLUE:ACCENT}/></React.Fragment>})}<Label text={keyText||labels[0]} x={540} y={245} active state={state}/></>;
   }
   if (primitive === "cause-chain") {
@@ -655,7 +1087,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // positions (2x2), so there is no spatial reason to label only the first
     // two of up to four accepted entities -- that left the back half of the
     // chain, where the consequence and resolution actually sit, unlabeled.
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];const eid=identityKeys[i]||labels[i]||`step-${i}`;return <React.Fragment key={i}>{next&&<RelationEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state} kind={kindBetween(i,i+1)} phase={living}/>}<EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];const eid=identityKeys[i]||labels[i]||`step-${i}`;return <React.Fragment key={i}>{next&&<RelationEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state} kind={kindBetween(i,i+1)} phase={living}/>}<EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -678,8 +1110,8 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
           gives each box an actual picture instead of being colour + text
           only, the same identity contract every other EntityMark call site
           already uses. */}
-      {identityKeys[0] && <EntityMark id={identityKeys[0]} icon={leftIcon} x={leftX} y={160} size={36}/>}
-      {rightId && <EntityMark id={rightId} icon={rightIcon} x={rightX} y={160} size={36}/>}
+      {identityKeys[0] && <EntityMark id={identityKeys[0]} label={labels[0]} icon={leftIcon} x={leftX} y={160} size={36}/>}
+      {rightId && <EntityMark id={rightId} label={labelOf(rightId)} icon={rightIcon} x={rightX} y={160} size={36}/>}
       {/* Both Labels used to fall back to the default maxWidth (300).
           Label's own char-budget formula is `max(10, floor((maxWidth-38)/30.24))`
           -- the `max(10, ...)` floor means anything under ~340 collapses to
@@ -718,7 +1150,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // Same reasoning as cause-chain: up to 4 labelled entities all have a
     // distinct, collision-free denseLabelSlot, so the back half of the
     // timeline was withheld from viewers for no spatial reason.
-    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".5"/>{points.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`moment-${i}`;return <React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*5))} state={state} maxWidth={260}/></React.Fragment>})}</>;
+    return <><path d={`M${points.map(([x,y])=>`${x} ${y}`).join(" L")}`} {...commonStroke} opacity=".5"/>{points.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`moment-${i}`;return <React.Fragment key={i}><line x1={x} y1={y-50} x2={x} y2={y+50} stroke={i/4<=progress?colors.line:colors.muted} strokeWidth="8"/><EntityMark id={eid} label={labelOf(eid)} icon={entityIcons?.[eid]} x={x} y={y} size={i/4<=progress?24:12} active={i/4<=progress}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*5))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "quantity") {
     if (numericValue === null) throw new Error("quantity primitive requires an explicit numericValue");
@@ -730,7 +1162,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // 60 different icons, and not 60 flat-colour dots either.
     const repId = identityKeys[0] || labels[0] || "unit";
     const repIcon = entityIcons?.[repId];
-    return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <g key={i} opacity={i<active?1:.25}><EntityMark id={repId} icon={repIcon} x={x} y={y} size={i<active?22:11}/></g>})}
+    return <>{Array.from({length:dots},(_,i)=>{const [x,y]=operatePoint([120+(i%10)*92,90+Math.floor(i/10)*65],i,dots,operation,progress);return <g key={i} opacity={i<active?1:.25}><EntityMark id={repId} label={labels[0]} icon={repIcon} x={x} y={y} size={i<active?22:11}/></g>})}
       <text x="540" y="430" textAnchor="middle" fill={PAPER} fontSize="92" fontWeight="900">{Math.round(target*progress).toLocaleString()}</text></>;
   }
   if (primitive === "physical-transformation") {
@@ -799,7 +1231,15 @@ function OperationStage({ operation, progress, living, state, numericValue, chil
 
 function StateDecorator({ state, consequence }: { state: VisualState; consequence: number }) {
   if (state === "hypothesis") return <g opacity={.25+consequence*.75}><rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#E8B96A" strokeWidth="5" strokeDasharray="16 14"/><circle cx="980" cy="80" r="34" fill="#3B2E22" stroke="#E8B96A" strokeWidth="5"/><text x="980" y="92" textAnchor="middle" fill={PAPER} fontSize="38" fontWeight="900">?</text></g>;
-  if (state === "contradiction") return <g opacity={consequence}><path d="M470 170 l55 55 -40 55 70 70" fill="none" stroke={RED} strokeWidth="16" strokeLinecap="round"/><path d="M610 155 l-45 70 50 45 -55 80" fill="none" stroke={RED} strokeWidth="10" strokeLinecap="round"/></g>;
+  // No contradiction overlay. This used to draw two red zigzags at fixed
+  // coordinates in the middle of the canvas, on top of whatever the diagram
+  // was -- a decorative "crack" that in practice landed across entity marks
+  // and captions and read as a stray glyph nobody could interpret. The
+  // contradiction state is already signalled where it belongs: the whole
+  // palette turns red, provisional geometry is dashed, and Geometry
+  // cross-fades the failing model into the corrected one. A slash drawn over
+  // the content adds nothing those three do not already say.
+  if (state === "contradiction") return null;
   if (state === "qualification") return <rect x="48" y="48" width="984" height="414" rx="52" fill="none" stroke="#B794F4" strokeWidth="6" strokeDasharray="18 14" opacity={.3+consequence*.65}/>;
   // No payoff ring here: ExplanationScene's own PayoffResolution overlay draws
   // the canonical unifying ring on top of everything. Both firing at once was
