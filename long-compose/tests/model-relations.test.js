@@ -107,3 +107,93 @@ test("an unauthored direction falls back to neutral styling rather than borrowin
     "matching an edge in reverse would draw the causality backwards");
   assert.match(lookup, /\?\? "causes"/);
 });
+
+test("an entity with no icon renders its own words, never an invented shape", () => {
+  // Watch feedback on run_a41a8e2e, pointing at a red cross inside a box:
+  // "what's the point of these boxes or triangles? Replace them with animated
+  // text." EntityMark used to hash the entity id into one of six polygons and
+  // one of six colours. For a concrete noun the resolved Iconify icon carries
+  // meaning; for "vacuum gap" or "heat loss" the viewer got a shape that
+  // stood for nothing -- decoration shaped like information, which invites
+  // someone to decode a symbol with nothing to decode.
+  const mark = motion.slice(motion.indexOf("export function EntityMark"), motion.indexOf("\nfunction Dot("));
+  assert.ok(mark.length > 0, "EntityMark moved");
+  for (const invented of ["<polygon", "hexPoints", "rotate(45"]) {
+    assert.ok(!mark.includes(invented), `EntityMark still invents a shape (${invented})`);
+  }
+  // The icon path stays -- a real icon is the good case, not the problem.
+  assert.match(mark, /if \(icon\)/);
+  // …and the fallback is the entity's own text, animated in.
+  assert.match(mark, /const text = \(label \?\? ""\)\.trim\(\);/);
+  assert.match(mark, /spring\(\{ frame, fps/);
+  assert.match(mark, /<tspan/);
+});
+
+test("the contradiction state no longer slashes a red mark across the diagram", () => {
+  // Same feedback. StateDecorator drew two red zigzags at fixed coordinates
+  // in the middle of the canvas, on top of whatever the diagram was, so a
+  // contradiction scene got a stray glyph over its content. The state is
+  // already carried by the palette, by dashed provisional geometry, and by
+  // Geometry cross-fading the failing model into the corrected one.
+  const decorator = motion.slice(motion.indexOf("function StateDecorator"), motion.indexOf("export function MotionDesignSystem"));
+  assert.ok(decorator.length > 0, "StateDecorator moved");
+  assert.match(decorator, /if \(state === "contradiction"\) return null;/);
+  assert.ok(!/contradiction"\) return <g/.test(decorator), "the contradiction overlay is back");
+});
+
+test("a caption is suppressed when the mark itself already renders the words", () => {
+  // Otherwise a diagram prints the same phrase twice, once as the mark and
+  // once as its caption pill.
+  assert.match(motion, /const captionFor = \(index: number\) => \{/);
+  assert.match(motion, /entityIcons\?\.\[key\] \? \(labels\[index\] \?\? ""\) : ""/);
+  // Rings and shells are the exception: they draw no mark at all, so their
+  // caption is the only thing naming them and must never be gated.
+  const nested = motion.slice(motion.indexOf('if (primitive === "nested-context")'), motion.indexOf('if (primitive === "cycle")'));
+  assert.match(nested, /<Label text=\{layer\.label\}/);
+});
+
+test("containment nests the container outside the thing it contains", () => {
+  // A real plan authored "thermos CONTAINS vacuum gap" and the renderer drew
+  // the thermos as the innermost core inside the vacuum gap -- the
+  // containment stated backwards by the one primitive whose entire job is
+  // containment.
+  const nested = motion.slice(motion.indexOf('if (primitive === "nested-context")'), motion.indexOf('if (primitive === "cycle")'));
+  assert.match(nested, /depth\[relation\.to\] = Math\.max\(depth\[relation\.to\]!, depth\[relation\.from\]! \+ 1\)/);
+  assert.match(nested, /\.sort\(\(a, b\) => depth\[a\]! - depth\[b\]!\)/);
+  // An entity the plan never nested is not a layer of anything.
+  assert.match(nested, /const outside = /);
+});
+
+test("a container primitive defers to the relation graph when its relations are directional", () => {
+  // nested-context/shells/overlapping-sets all assert containment. With
+  // `blocks` or `causes` relations that assertion is false: a real episode
+  // drew "vacuum gap BLOCKS conduction, conduction CAUSES heat loss" as three
+  // nested boxes, which says heat loss contains conduction contains the gap.
+  assert.match(motion, /const CONTAINMENT_PRIMITIVES = new Set\(\["nested-context", "shells", "overlapping-sets"\]\)/);
+  assert.match(motion, /const hasDirectionalRelation = relations\.some\(\(relation\) => relation\.kind !== "contains"\)/);
+  assert.match(motion, /if \(hasDirectionalRelation && CONTAINMENT_PRIMITIVES\.has\(primitive\) && entityCount >= 2\) \{/);
+});
+
+test("a branch with a fixed source orients its edge by the authored direction", () => {
+  // kindBetween deliberately refuses to match an edge backwards, because a
+  // kind applied to a reversed edge states the opposite claim. rays has a
+  // natural source at its centre but the plan may author "silvered wall
+  // BLOCKS infrared" the other way round, and drawing that as a
+  // source->target arrow asserts the reverse of the narration.
+  assert.match(motion, /const relationBetween = \(a: number, b: number\) =>/);
+  const rays = motion.slice(motion.indexOf('if (primitive === "rays")'), motion.indexOf('if (primitive === "wave")'));
+  assert.match(rays, /const reversed = relation \? relation\.from === entityIndex : false;/);
+  assert.match(rays, /kind=\{relation\?\.kind \?\? "causes"\}/);
+});
+
+test("every primitive that names entities draws all of them, not just the first", () => {
+  // The root cause of "the motion graphics are irrelevant": 8 of 21 scenes in
+  // a real episode drew ZERO authored entities, and most of the rest drew one
+  // of three. The cap that governs how many entities reach Geometry has to
+  // include every primitive that now draws one mark per entity, or the extra
+  // entities are discarded before the drawing code ever sees them.
+  const capped = motion.slice(motion.indexOf("const MULTI_ENTITY_PRIMITIVES"), motion.indexOf("]);", motion.indexOf("const MULTI_ENTITY_PRIMITIVES")));
+  for (const primitive of ["nested-context", "shells", "rays", "path", "facets-around-center", "overlapping-sets"]) {
+    assert.ok(capped.includes(`"${primitive}"`), `${primitive} draws per-entity marks but is still capped at two entities`);
+  }
+});

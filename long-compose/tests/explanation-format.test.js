@@ -234,8 +234,13 @@ test("before-after boxes carry an entity mark, not just colour and text", () => 
   // EntityMark call site.
   assert.match(motion, /primitive === "before-after"/);
   assert.match(motion, /rightId\s*=\s*identityKeys\[1\]\s*\|\|\s*identityKeys\[0\]/);
-  assert.match(motion, /<EntityMark id=\{identityKeys\[0\]\} icon=\{leftIcon\}/);
-  assert.match(motion, /<EntityMark id=\{rightId\} icon=\{rightIcon\}/);
+  // Each mark also carries its label now: when Iconify resolves no icon the
+  // mark renders the entity's own words instead of a hash-picked polygon, so
+  // it needs the words. Watch feedback on run_a41a8e2e was blunt about the
+  // polygons -- a red cross standing in for "vacuum gap" is decoration shaped
+  // like information.
+  assert.match(motion, /<EntityMark id=\{identityKeys\[0\]\} label=\{labels\[0\]\} icon=\{leftIcon\}/);
+  assert.match(motion, /<EntityMark id=\{rightId\} label=\{labelOf\(rightId\)\} icon=\{rightIcon\}/);
 });
 
 test("the payoff visually retraces the episode's mechanism, not just a decorative ring", () => {
