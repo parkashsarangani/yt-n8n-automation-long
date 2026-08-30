@@ -124,9 +124,6 @@ function alignedAnchorWindow(
   const endSec = alignment.character_end_times_seconds[sourceEnd];
   if (typeof startSec !== "number" || typeof endSec !== "number") return null;
 
-  // Give the explanatory change enough visible time to read, while keeping its
-  // centre anchored to the spoken phrase. The renderer interpolates inside
-  // this window rather than using one universal scene-level progress curve.
   const rawStart = startSec / durationSec - 0.035;
   const rawEnd = endSec / durationSec + 0.11;
   const minWidth = 0.14;
@@ -145,13 +142,20 @@ export function resolveActionWindows(
   const count = actions.length;
   const fallbackSpan = 0.78;
   const fallbackWidth = Math.max(0.16, Math.min(0.3, fallbackSpan / Math.max(1, count)));
+  const normalizedNarration = normaliseWithMap(narration).text;
 
   return actions.map((raw, index) => {
     const actor = clean(raw.actor, 48) || "subject";
     const action = clean(raw.action, 32) || "reveal";
     const target = clean(raw.target, 48);
     const anchor = clean(raw.anchor_phrase, 96);
-    const aligned = anchor ? alignedAnchorWindow(anchor, alignment, durationSec) : null;
+    const normalizedAnchor = normaliseWithMap(anchor).text;
+    // Refuse accidental alignment against provider text when the planner's
+    // anchor is not actually present in the authored narration. A false match
+    // is worse than deterministic fallback because it makes motion answer the
+    // wrong spoken phrase while still claiming `aligned: true`.
+    const anchorBelongsToNarration = !!normalizedAnchor && (!normalizedNarration || normalizedNarration.includes(normalizedAnchor));
+    const aligned = anchorBelongsToNarration ? alignedAnchorWindow(anchor, alignment, durationSec) : null;
     if (aligned) return { actor, action, target, ...aligned, aligned: true };
 
     // No alignment is better than false alignment. Preserve action order and
@@ -183,8 +187,8 @@ export function semanticPayload(
   const claim = clean(plan.visual_claim, 180) || clean(base["keyText"] ?? base["after"] ?? "Main idea", 180);
 
   // Fail closed to text. This is the architectural invariant this worker
-  // exists to enforce: unsupported semantic intent never falls through into
-  // generic node/box geometry.
+  // exists to enforce: unsupported, legacy-shaped, or incomplete semantic
+  // intent never falls through into generic node/box geometry in production.
   if (!mode || !blueprint || !SUPPORTED_BLUEPRINTS.has(blueprint) || !blueprintFitsMode(mode, blueprint)) {
     mode = "kinetic-text";
     blueprint = "animated-statement";
@@ -220,7 +224,7 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
   return {
     name: "semantic_visual_assets",
     kind: "worker",
-    version: "1",
+    version: "2",
     consumes: [
       { schema_id: "asset_manifest", range: "^1", as: "compiled" },
       { schema_id: "explanation_plan", range: "^1", as: "plan" },
@@ -228,7 +232,7 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
       { schema_id: "voice", range: "^1", as: "voice" },
     ],
     produces: "asset_manifest",
-    produces_version: "1.7.0",
+    produces_version: "1.8.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const compiled = inputs["compiled"]!.payload as { scenes: AssetScene[]; degraded_count?: number };
       const plans = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes ?? [];
