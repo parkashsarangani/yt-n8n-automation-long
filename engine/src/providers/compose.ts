@@ -57,6 +57,43 @@ export interface DiagnosticThumbnailResult extends ThumbnailResult {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * long-compose's historic `explanation` category deliberately whitelists
+ * renderer props instead of spreading arbitrary template_data. Keep that
+ * boundary: it owns Rhubarb lip-sync, explanation audio handling, SFX and
+ * mix shaping. Semantic representation arrived later, so carry the new fields
+ * through one reserved renderer-extension envelope inside `entityIcons`, an
+ * object the bridge already passes intact. Remotion unwraps the envelope and
+ * never presents it to icon lookup. This is preferable to switching semantic
+ * scenes to a literal composition ID, which would silently bypass all of the
+ * explanation-specific production behavior above.
+ */
+export const SEMANTIC_RENDER_EXTENSION_KEY = "__semanticRepresentationV1";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+export function bridgeSemanticTemplateData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!data || typeof data["representationMode"] !== "string") return data;
+  const existingIcons = asRecord(data["entityIcons"]) ?? {};
+  return {
+    ...data,
+    entityIcons: {
+      ...existingIcons,
+      [SEMANTIC_RENDER_EXTENSION_KEY]: {
+        representationMode: data["representationMode"],
+        sceneBlueprint: data["sceneBlueprint"],
+        visualClaim: data["visualClaim"],
+        semanticActionWindows: Array.isArray(data["semanticActionWindows"]) ? data["semanticActionWindows"] : [],
+        semanticFallback: data["semanticFallback"] === true,
+      },
+    },
+  };
+}
+
 function diagnosticText(text: string, limit = 1200): string {
   const clean = text.trim();
   if (clean.length <= limit) return clean;
@@ -162,6 +199,9 @@ export class ComposeRenderer implements MediaRenderer {
       data: req.scenes.map((scene) => {
         const s = scene as HybridScene;
         const packedImages = s.images?.length ? s.images : s.image ? [s.image] : [];
+        const bridgedTemplateData = s.template_category === "explanation"
+          ? bridgeSemanticTemplateData(s.template_data)
+          : s.template_data;
         return {
           scene_index: s.scene_index,
           audio: {
@@ -177,7 +217,7 @@ export class ComposeRenderer implements MediaRenderer {
           ...(s.template_category && !s.is_outro ? {
             visual_source: "template",
             template_name: s.template_category,
-            template_data: s.template_data ?? {},
+            template_data: bridgedTemplateData ?? {},
           } : {}),
           ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
           ...(s.visual_mode ? { visual_mode: s.visual_mode } : {}),
@@ -254,7 +294,7 @@ export class ComposeRenderer implements MediaRenderer {
     const res = await this.fetchImpl(`${this.baseUrl}${pathname}`);
     const text = await res.text();
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as unknown;
     } catch {
       throw new ProviderError(`${this.id} GET ${pathname} returned ${res.status}: ${text.slice(0, 300)}`);
     }
