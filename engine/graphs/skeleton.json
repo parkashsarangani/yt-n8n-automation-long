@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "14",
-  "description": "Default unattended production graph for the cartoon-only channel. Loads the stable recurring cast from CARTOON_CAST_PATH, writes dialogue for that cast, creates structured creative direction for character voice, callback, blocking, metaphor, and foreground-prop intent, stages every line as SVG-puppet cartoon animation, generates matching cartoon thumbnail artwork, runs deterministic QA, and uploads privately for operator review.",
+  "version": "15",
+  "description": "Default unattended production graph for the cartoon-only channel. Loads the stable recurring cast from CARTOON_CAST_PATH, writes dialogue for that cast, creates structured creative direction for character voice, callback, blocking, metaphor, and foreground-prop intent, stages every line as SVG-puppet cartoon animation, generates matching cartoon thumbnail artwork, runs deterministic QA, and uploads privately for operator review. The visual plan passes a storyboard review (critic, reviser, release gate) before any scene is compiled.",
   "nodes": [
     {
       "id": "intent",
@@ -70,10 +70,37 @@
       ]
     },
     {
+      "id": "plan_review",
+      "transformation": "explanation_plan_critic",
+      "in": [
+        "approve_script",
+        "visual_plan"
+      ]
+    },
+    {
+      "id": "plan_revision",
+      "transformation": "explanation_plan_reviser",
+      "in": [
+        "approve_script",
+        "visual_plan",
+        "plan_review",
+        "cast_roster"
+      ]
+    },
+    {
+      "id": "plan_release",
+      "transformation": "explanation_plan_release",
+      "in": [
+        "visual_plan",
+        "plan_revision",
+        "plan_review"
+      ]
+    },
+    {
       "id": "assets",
       "transformation": "cartoon_scene_compiler",
       "in": [
-        "visual_plan",
+        "plan_release",
         "approve_script",
         "cast_roster"
       ]

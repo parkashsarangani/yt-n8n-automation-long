@@ -19,6 +19,7 @@ import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeCastLoaderWorker } from "./cast.ts";
 import { makeScriptQualityReleaseWorker } from "./script-quality-release.ts";
+import { makeExplanationPlanReleaseWorker } from "./explanation-plan-release.ts";
 
 export {
   makeVoiceWorker,
@@ -33,6 +34,7 @@ export {
   makeQaWorker,
   makeCastLoaderWorker,
   makeScriptQualityReleaseWorker,
+  makeExplanationPlanReleaseWorker,
 };
 export { buildPrompt } from "./assets.ts";
 
@@ -66,6 +68,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   const workers: TransformationDef[] = [
     makeCastLoaderWorker(),
     makeScriptQualityReleaseWorker(),
+    makeExplanationPlanReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
