@@ -13,7 +13,6 @@ import { readFileSync } from "node:fs";
 import {
   MOTION_BG,
   MOTION_ENTITY_COLORS,
-  MOTION_ENTITY_SHAPES,
   motionEntityHash,
   motionEntityVisualTokens,
 } from "../engine/src/motion-visual-identity.ts";
@@ -28,13 +27,25 @@ test("engine AI identity tokens stay byte-for-byte compatible with Remotion Enti
   for (const color of MOTION_ENTITY_COLORS) assert.ok(motionSource.includes(color), `renderer missing ${color}`);
   assert.match(motionSource, /hash \* 31 \+ char\.charCodeAt\(0\)/);
   assert.match(motionSource, /2166136261/);
-  assert.match(motionSource, /const shape = Math\.floor\(hash \/ colors\.length\) % 6/);
+  // Shape is deliberately NOT part of this contract any more. The renderer
+  // used to hash an entity id into one of six polygons and the AI prompt asked
+  // for the matching silhouette. The symbol was arbitrary -- "vacuum gap"
+  // became a plus -- and EntityMark now renders the entity's own words when no
+  // real icon resolves, so there is nothing on the motion-graphics side for a
+  // silhouette to match.
+  assert.ok(!/const shape = Math\.floor\(hash \/ colors\.length\)/.test(motionSource),
+    "EntityMark is inventing hash-picked shapes again");
+  // What the two sides still share is COLOUR, and the text fallback has to use
+  // the same hash-derived fill or an entity changes identity the moment its
+  // icon lookup misses.
+  assert.match(motionSource, /const fill = color \?\? colors\[hash % colors\.length\]!;/);
+  assert.match(motionSource, /<text textAnchor="middle" fill=\{fill\}/);
 
   const ids = ["entity-alpha", "entity-beta", "entity-gamma", "entity-delta"];
   const tokens = motionEntityVisualTokens(ids);
   for (const token of tokens) {
     const hash = motionEntityHash(token.entity_id);
     assert.equal(token.color, MOTION_ENTITY_COLORS[hash % MOTION_ENTITY_COLORS.length]);
-    assert.equal(token.shape, MOTION_ENTITY_SHAPES[Math.floor(hash / MOTION_ENTITY_COLORS.length) % MOTION_ENTITY_SHAPES.length]);
+    assert.ok(!("shape" in token), "shape is no longer part of the cross-package identity contract");
   }
 });
