@@ -2030,17 +2030,37 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // raises no licensing question in a monetised video, the same reasoning
     // as the synthesised SFX above.
     const useAmbientBed = !hasMusic && explanationMode && await supportsAmbientBed();
-    // inputOptions, NOT inputFormat("lavfi"). fluent-ffmpeg validates
-    // .inputFormat() against the demuxer list from `ffmpeg -formats`, and
-    // lavfi is a DEVICE -- it appears under `-devices`. Some builds list it in
-    // both and some do not, so .inputFormat("lavfi") fails with "Input format
-    // lavfi is not available" on a host whose ffmpeg supports lavfi perfectly
-    // well. That is a fluent-ffmpeg check, not an ffmpeg one, which is why
-    // supportsAmbientBed() (a raw execFile) passes while the render fails.
-    // Caught in CI, where the image's ffmpeg listing differs from the local
-    // one. inputOptions is forwarded verbatim, so the render now takes exactly
-    // the invocation the probe validated.
-    if (useAmbientBed) finalCmd.input(AMBIENT_SOURCE).inputOptions(["-f", "lavfi"]);
+    // Rendered to a FILE by a raw ffmpeg call, then added as an ordinary
+    // input -- lavfi never goes near fluent-ffmpeg.
+    //
+    // fluent-ffmpeg's capability check reads `-f` off every input and requires
+    // that format to appear in `ffmpeg -formats` with canDemux (see
+    // lib/capabilities.js). lavfi is a DEVICE, listed under `-devices`: some
+    // builds also list it as a format and some do not, and the production
+    // image does not. So BOTH .inputFormat("lavfi") and
+    // .inputOptions(["-f","lavfi"]) fail there with "Input format lavfi is not
+    // available", while raw ffmpeg runs the identical source happily -- which
+    // is why supportsAmbientBed() passed and the render still died. Two CI
+    // runs to find; worth the comment.
+    //
+    // Generating up front also removes the need for aloop: the bed is
+    // rendered to exactly the length this episode needs, so there is no loop
+    // seam and no infinite input in the graph.
+    let ambientPath = null;
+    if (useAmbientBed) {
+      const candidate = path.join(tmpDir, "ambient_bed.wav");
+      try {
+        await execFileAsync(ffmpegPath, [
+          "-y", "-v", "error", "-f", "lavfi", "-i", AMBIENT_SOURCE,
+          "-t", String(Math.max(1, Math.ceil(totalVideoDuration))),
+          "-af", AMBIENT_SPEC, "-c:a", "pcm_s16le", candidate,
+        ], { timeout: 120000 });
+        ambientPath = candidate;
+      } catch (error) {
+        console.warn(`[audio] ambient bed generation failed, continuing without it: ${error.message}`);
+      }
+    }
+    if (ambientPath) finalCmd.input(ambientPath);
 
     // For cartoon lip sync, keep [0:a] (the concatenated scene audio) as the
     // voice source so mouth cues and audible speech share boundaries. Every
@@ -2051,7 +2071,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     const musicIdx = hasMusic ? nextIdx++ : null;
     const sfxIndices = sfxEvents.map(() => nextIdx++);
     // Added last, so it does not disturb the music/SFX index arithmetic above.
-    const ambientIdx = useAmbientBed ? nextIdx++ : null;
+    const ambientIdx = ambientPath ? nextIdx++ : null;
 
     // Build video filter: ASS caption burn-in + fade in/out
     const fadeOutStart = Math.max(0, totalVideoDuration - 0.5);
@@ -2092,12 +2112,13 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       // UNDER music buys nothing a viewer can hear and risks reading as hiss;
       // filling an otherwise silent bed so cuts do not land in dead air is a
       // real improvement with nothing to trade against it.
-      audioFilters.push(`[${ambientIdx}:a]${AMBIENT_SPEC}[ambient]`);
+      // AMBIENT_SPEC was already applied when the bed was rendered, so the
+      // input needs no shaping here -- only ducking.
       if (canSidechain) {
-        audioFilters.push(`[ambient][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=3:attack=25:release=250[duckedambient]`);
+        audioFilters.push(`[${ambientIdx}:a][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=3:attack=25:release=250[duckedambient]`);
         mixLabels.push("duckedambient");
       } else {
-        mixLabels.push("ambient");
+        mixLabels.push(`${ambientIdx}:a`);
       }
     }
 

@@ -179,41 +179,36 @@ test("the ambient bed fills silence only when there is no music at all", () => {
   assert.match(compose, /\} else if \(ambientIdx !== null\) \{/);
   // Generated from lavfi rather than shipped: no repo weight, and no
   // licensing question in a monetised video.
-  assert.match(compose, /finalCmd\.input\(AMBIENT_SOURCE\)\.inputOptions\(\["-f", "lavfi"\]\)/);
-  // NOT .inputFormat("lavfi"). fluent-ffmpeg validates that against the
-  // demuxer list from `ffmpeg -formats`, but lavfi is a DEVICE, listed under
-  // `-devices`. Builds differ on whether it appears in both, so
-  // .inputFormat("lavfi") fails with "Input format lavfi is not available" on
-  // a host whose ffmpeg supports lavfi perfectly well -- and because that is
-  // a fluent-ffmpeg check rather than an ffmpeg one, the raw-execFile probe
-  // passes while the render dies. This failed CI exactly that way.
-  // Anchored on the CALL, not the bare identifier -- the comment above it in
-  // compose.js explains the trap by name, and a loose match would flag that.
-  assert.doesNotMatch(compose, /finalCmd\.input\([^)]*\)\.inputFormat\(/,
-    "fluent-ffmpeg validates inputFormat against demuxers; lavfi is a device and fails that check on some builds");
+  //
+  // Rendered to a FILE by a raw ffmpeg call, then added as an ordinary input.
+  // lavfi must never reach fluent-ffmpeg: its capability check reads `-f` off
+  // every input and requires that format to appear in `ffmpeg -formats` with
+  // canDemux (lib/capabilities.js), and lavfi is a DEVICE listed under
+  // `-devices`. Both .inputFormat("lavfi") and .inputOptions(["-f","lavfi"])
+  // therefore fail on a build that lists it only as a device -- which the
+  // production image does, while the local one does not. Two CI runs to find.
+  assert.match(compose, /"-f", "lavfi", "-i", AMBIENT_SOURCE,/);
+  assert.match(compose, /if \(ambientPath\) finalCmd\.input\(ambientPath\);/);
+  const ambientBlock = compose.slice(
+    compose.indexOf("let ambientPath = null;"),
+    compose.indexOf("if (ambientPath) finalCmd.input(ambientPath);"),
+  );
+  assert.ok(ambientBlock.length > 0, "the ambient generation block moved");
+  assert.doesNotMatch(ambientBlock, /finalCmd\.input/,
+    "lavfi must not be handed to fluent-ffmpeg -- its capability check rejects device-only formats");
 });
 
-test("the ambient probe and the ambient render use the same ffmpeg invocation", async () => {
-  // The CI failure above was a mismatch between the two: the probe validated
-  // raw `-f lavfi -i <source>` and passed, while the render went through a
-  // fluent-ffmpeg code path with its own, stricter check. A probe that
-  // validates something other than what actually runs is worse than no probe,
-  // because it reports a capability the render cannot use.
-  const ffmpegLib = require("fluent-ffmpeg");
-  ffmpegLib.setFfmpegPath(ffmpegPath);
+test("the generated ambient bed is audible but sits well under narration", () => {
+  // The CI failure this replaces was a mismatch between the probe and the
+  // render: the probe validated raw `-f lavfi -i <source>` and passed, while
+  // the render went through fluent-ffmpeg, whose stricter check rejected it.
+  // A probe that validates something other than what actually runs is worse
+  // than no probe -- it reports a capability the render cannot use. Both take
+  // the raw path now, which is exactly what this exercises.
   const source = specFromSource("AMBIENT_SOURCE");
   const spec = specFromSource("AMBIENT_SPEC");
   const rendered = out("ambient.wav");
-
-  await new Promise((resolve, reject) => {
-    ffmpegLib()
-      .input(source).inputOptions(["-f", "lavfi"])
-      .duration(0.5)
-      .audioFilters(spec)
-      .on("error", reject)
-      .on("end", resolve)
-      .save(rendered);
-  });
+  ffmpeg(["-f", "lavfi", "-i", source, "-t", "1", "-af", spec, "-c:a", "pcm_s16le", rendered]);
 
   const values = samples(rendered);
   assert.ok(values.length > 0, "the ambient bed produced no audio");
