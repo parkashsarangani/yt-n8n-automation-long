@@ -60,6 +60,7 @@ interface ExplanationPlanScene {
   composition_mode?: "bookend" | "full-model" | "reaction" | string;
   explanation_title?: string;
   model_elements?: string[];
+  model_relations?: unknown;
   numeric_value?: number | null;
   state_before?: string;
   state_after?: string;
@@ -85,20 +86,92 @@ function cleanText(value: unknown, max = 80): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+// Cleans model_elements AND reports where each ORIGINAL index ended up.
+//
+// model_relations (explanation_plan@1.5.0) addresses entities by their index
+// in the plan's raw model_elements array, but this function trims, truncates,
+// de-duplicates and caps at 4 -- so raw index 3 can easily become cleaned
+// index 1, or disappear entirely. Returning only the cleaned array and
+// letting the caller reuse the plan's indices against it would silently
+// re-point edges at the wrong entities, drawing a claim the plan never made.
+// A wrong edge is worse than a missing one, so the mapping is built here,
+// beside the cleaning that causes the drift, rather than reconstructed later.
+function cleanElementsWithIndexMap(value: unknown): { elements: string[]; indexMap: Map<number, number> } {
+  const indexMap = new Map<number, number>();
+  const elements: string[] = [];
+  if (!Array.isArray(value)) return { elements, indexMap };
+  const slotByLabel = new Map<string, number>();
+  for (let raw = 0; raw < value.length; raw++) {
+    const item = value[raw];
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed.length === 0) continue;
+    // Truncate long elements rather than dropping them. A resumed 1.2.0 plan
+    // (deprecated but still valid, per the versioned-artifact contract) allows
+    // elements up to 44 chars against 1.3.0's tighter 32 -- filtering those out
+    // silently deleted labels the plan had explicitly authored, on top of the
+    // renderer doing the same thing on overflow (see labelLines in
+    // MotionDesignSystem.tsx). Neither layer should make content disappear.
+    const label = trimmed.length <= 32 ? trimmed : `${trimmed.slice(0, 31).trimEnd()}…`;
+    const existing = slotByLabel.get(label);
+    if (existing !== undefined) {
+      // A duplicate label is the same entity said twice: point the raw index
+      // at the surviving slot instead of dropping any edge that used it.
+      indexMap.set(raw, existing);
+      continue;
+    }
+    if (elements.length >= 4) continue;
+    slotByLabel.set(label, elements.length);
+    indexMap.set(raw, elements.length);
+    elements.push(label);
+  }
+  return { elements, indexMap };
+}
+
 function cleanElements(value: unknown): string[] {
+  return cleanElementsWithIndexMap(value).elements;
+}
+
+const RELATION_KINDS = new Set(["causes", "blocks", "becomes", "feeds", "contains"]);
+const MAX_RELATIONS = 6;
+
+export interface ModelRelation {
+  from: number;
+  to: number;
+  kind: string;
+}
+
+// Every rejection here is silent by design: an unusable edge must degrade to
+// "this diagram has one fewer connection", never to a thrown error that fails
+// the whole episode. The renderer falls back to its previous fixed topology
+// when the relation list comes back empty, so dropping every edge of a
+// malformed plan lands exactly on the pre-1.5.0 behaviour.
+function cleanRelations(value: unknown, indexMap: Map<number, number>, elementCount: number): ModelRelation[] {
   if (!Array.isArray(value)) return [];
-  // Truncate long elements rather than dropping them. A resumed 1.2.0 plan
-  // (deprecated but still valid, per the versioned-artifact contract) allows
-  // elements up to 44 chars against 1.3.0's tighter 32 -- filtering those out
-  // silently deleted labels the plan had explicitly authored, on top of the
-  // renderer doing the same thing on overflow (see labelLines in
-  // MotionDesignSystem.tsx). Neither layer should make content disappear.
-  return [...new Set(value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-    .map((item) => (item.length <= 32 ? item : `${item.slice(0, 31).trimEnd()}…`)))]
-    .slice(0, 4);
+  const relations: ModelRelation[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const record = asRecord(raw);
+    if (!record) continue;
+    const rawFrom = record["from_element"];
+    const rawTo = record["to_element"];
+    if (!Number.isInteger(rawFrom) || !Number.isInteger(rawTo)) continue;
+    const from = indexMap.get(rawFrom as number);
+    const to = indexMap.get(rawTo as number);
+    // undefined = the plan referenced an entity that cleaning removed, or one
+    // that never existed. from === to = a self-loop, which no primitive can
+    // draw as anything a viewer would read as a relationship.
+    if (from === undefined || to === undefined || from === to) continue;
+    if (from >= elementCount || to >= elementCount) continue;
+    const kind = typeof record["kind"] === "string" ? record["kind"] : "";
+    if (!RELATION_KINDS.has(kind)) continue;
+    const key = `${from}>${to}:${kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    relations.push({ from, to, kind });
+    if (relations.length >= MAX_RELATIONS) break;
+  }
+  return relations;
 }
 
 function cleanPayoff(value: unknown): string {
@@ -168,7 +241,13 @@ export function applyExplanationFormat(
   const openingIndex = openingPlan?.scene_index;
   const closingIndex = closingPlan?.scene_index;
   const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";
-  const openingElements = cleanElements(openingPlan?.model_elements);
+  const openingCleaned = cleanElementsWithIndexMap(openingPlan?.model_elements);
+  const openingElements = openingCleaned.elements;
+  // The closing scene replaces its own entities with the opening's (below).
+  // Its authored relations index into the entities it just lost, so they have
+  // to be replaced too -- reusing them against a different entity list is
+  // exactly the mis-pointing cleanElementsWithIndexMap exists to prevent.
+  const openingRelations = cleanRelations(openingPlan?.model_relations, openingCleaned.indexMap, openingElements.length);
 
   return entries.map((entry) => {
     const plan = byIndex.get(entry.scene_index);
@@ -228,10 +307,13 @@ export function applyExplanationFormat(
     // Closing continuity is deterministic, not a prompt wish: reconstruct the
     // exact entities introduced by the hook so stable renderer identity
     // survives even when a preserved plan authored unrelated recap labels.
-    const plannedElements = cleanElements(plan.model_elements);
-    const elements = entry.scene_index === closingIndex && openingElements.length
-      ? openingElements
-      : plannedElements;
+    const planned = cleanElementsWithIndexMap(plan.model_elements);
+    const plannedElements = planned.elements;
+    const reuseOpening = entry.scene_index === closingIndex && openingElements.length > 0;
+    const elements = reuseOpening ? openingElements : plannedElements;
+    const modelRelations = reuseOpening
+      ? openingRelations
+      : cleanRelations(plan.model_relations, planned.indexMap, plannedElements.length);
     const payload = {
       formatVersion: 4,
       role,
@@ -245,6 +327,10 @@ export function applyExplanationFormat(
       keyText: entry.scene_index === closingIndex ? cleanPayoff(plan.key_text || plan.state_after) : cleanText(plan.key_text, 72),
       elements,
       entityIdentityKeys: elements.map((element) => element.toLocaleLowerCase()),
+      // The authored topology between those entities, as cleaned indices into
+      // `elements` above. Before this every relationship primitive drew a
+      // fixed graph, and only the labels sitting on it varied by episode.
+      modelRelations,
       numericValue,
       before: entry.scene_index === closingIndex ? "" : cleanText(plan.state_before, 44),
       after: cleanText(plan.state_after, 44),
