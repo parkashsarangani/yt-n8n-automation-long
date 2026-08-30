@@ -11,6 +11,7 @@ import { makeVoiceWorker, type VoiceWorkerOptions, makeDialogueVoiceWorker, type
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeCartoonSceneCompilerWorker as makeV15CartoonSceneCompilerWorker } from "./cartoon-scenes-v15.ts";
 import { makeCartoonSceneCompilerWorker as makeV16CartoonSceneCompilerWorker } from "./cartoon-scenes-v16.ts";
+import { makeSemanticVisualAssetsWorker } from "./semantic-visual-assets.ts";
 import { makeHybridVisualAssetsWorker } from "./hybrid-visual-assets.ts";
 import { makeRenderWorker, makeCartoonRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
@@ -25,6 +26,7 @@ export {
   makeVoiceWorker,
   makeDialogueVoiceWorker,
   makeAssetWorker,
+  makeSemanticVisualAssetsWorker,
   makeHybridVisualAssetsWorker,
   makeRenderWorker,
   makeCartoonRenderWorker,
@@ -40,10 +42,9 @@ export { buildPrompt } from "./assets.ts";
 
 /**
  * Compatibility factory for focused unit tests that exercise the compiler
- * outside the production graph. The shipped graph still routes the explanation-first v16
- * worker, including creative_direction as a first-class dependency, taste
- * gates as hard production checks, renderer-facing performance signals, and
- * post-v13 doorway staging corrections.
+ * outside the production graph. The shipped graph routes the explanation-first
+ * v16 worker; semantic representation is added after voice generation by
+ * semantic_visual_assets so phrase timing can use real TTS alignment.
  */
 export function makeCartoonSceneCompilerWorker(): WorkerDef {
   const worker = makeV15CartoonSceneCompilerWorker();
@@ -73,6 +74,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
     makeV16CartoonSceneCompilerWorker(),
+    makeSemanticVisualAssetsWorker(),
     makeHybridVisualAssetsWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
