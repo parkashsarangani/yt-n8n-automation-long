@@ -2,11 +2,11 @@
   "schema_id": "explanation_plan",
   "version": "1.6.0",
   "status": "active",
-  "description": "Semantic-representation plan. New scenes choose a concrete/domain/quantitative/spatial renderer or explicit animated text; generic diagram geometry is no longer the fallback for newly-authored plans. Legacy primitive/operation metadata remains for compatibility and ancillary selection logic.",
+  "description": "Semantic-representation plan. Newly-authored scenes choose a concrete/domain/quantitative/spatial renderer or explicit animated text; generic diagram geometry is no longer the fallback. Semantic fields are conditionally required when representation_mode is present so old resumed plan payloads can cross the version boundary and deterministically degrade to animated text instead of failing before render.",
   "produced_by": ["explanation_visual_planner", "explanation_plan_reviser", "explanation_plan_release"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "SemanticExplanationPlan",
+    "title": "SemanticVisualPlanArtifact",
     "type": "object",
     "additionalProperties": false,
     "required": ["scenes"],
@@ -21,8 +21,7 @@
           "required": [
             "scene_index", "template_category", "scene_role", "visual_operation", "visual_primitive",
             "visual_state", "composition_mode", "explanation_title", "model_elements", "model_relations",
-            "state_before", "state_after", "key_text", "character_cut_in", "sound_cue",
-            "representation_mode", "scene_blueprint", "visual_claim", "visual_actions"
+            "state_before", "state_after", "key_text", "character_cut_in", "sound_cue"
           ],
           "properties": {
             "scene_index": { "type": "integer", "minimum": 0 },
@@ -38,7 +37,7 @@
             "visual_primitive": {
               "type": "string",
               "enum": ["particles", "rays", "wave", "horizon", "spectrum", "path", "shells", "objects", "network", "hierarchy", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "cycle", "cause-chain", "before-after", "map", "timeline", "quantity", "physical-transformation"],
-              "description": "Compatibility/selection metadata. For 1.6.0 production rendering, representation_mode + scene_blueprint own the visual."
+              "description": "Compatibility/selection metadata. For semantic 1.6.0 scenes, representation_mode + scene_blueprint own production rendering."
             },
             "visual_state": { "type": "string", "enum": ["hypothesis", "contradiction", "mechanism", "qualification", "payoff"] },
             "composition_mode": { "type": "string", "enum": ["bookend", "full-model", "reaction"] },
@@ -65,16 +64,15 @@
             "key_text": { "type": "string", "maxLength": 48 },
             "character_cut_in": { "type": "string", "enum": ["none", "speaker", "listener", "both"] },
             "sound_cue": { "type": "string", "enum": ["none", "soft-hit", "tick", "whoosh", "pop", "resolve"] },
-
             "representation_mode": {
               "type": "string",
               "enum": ["concrete-scene", "domain-model", "quantitative", "spatial", "kinetic-text"],
-              "description": "Viewer-facing representation class. New plans never use a generic diagram as a fallback."
+              "description": "Viewer-facing representation class. Newly-authored plans must supply this field."
             },
             "scene_blueprint": {
               "type": "string",
               "enum": ["container-object", "molecular-system", "lattice", "cross-section", "mass-volume-comparison", "before-after-object", "animated-statement"],
-              "description": "Reusable semantic renderer family. Unknown concepts must use animated-statement rather than arbitrary geometry."
+              "description": "Reusable semantic renderer family. Unsupported concepts use animated-statement, never arbitrary geometry."
             },
             "visual_claim": {
               "type": "string", "minLength": 4, "maxLength": 180,
@@ -96,7 +94,6 @@
                 }
               }
             },
-
             "listener_actor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 40 },
             "speaker_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
             "speaker_gesture": { "type": "string", "enum": ["idle", "explain", "point-left", "point-right", "shrug", "hands-open", "surprised", "thinking", "facepalm", "celebrate"] },
@@ -106,6 +103,10 @@
             "listener_gaze_target": { "type": "string", "enum": ["auto", "camera", "left", "right", "up", "down", "away"] }
           },
           "allOf": [
+            {
+              "if": { "required": ["representation_mode"] },
+              "then": { "required": ["representation_mode", "scene_blueprint", "visual_claim", "visual_actions"] }
+            },
             {
               "if": { "properties": { "composition_mode": { "enum": ["bookend", "reaction"] } }, "required": ["composition_mode"] },
               "then": { "required": ["listener_actor_id", "speaker_emotion", "speaker_gesture", "speaker_gaze_target", "listener_emotion", "listener_gesture", "listener_gaze_target"] }
