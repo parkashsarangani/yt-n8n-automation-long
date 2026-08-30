@@ -1,9 +1,10 @@
 {
   "name": "explanation_plan_critic",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "episode_visual_model", "range": "^1", "as": "visual_model" },
     { "schema_id": "explanation_plan", "range": "^1", "as": "plan" }
   ],
   "produces": "explanation_plan_review",

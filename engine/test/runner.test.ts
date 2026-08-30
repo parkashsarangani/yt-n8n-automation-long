@@ -119,6 +119,7 @@ test("the catalog loads every agent as pure data", async () => {
       "dialogue_script_writer",
       "discovery",
       "emotional_entertainment_editor",
+      "episode_visual_modeler",
       "explanation_plan_critic",
       "explanation_plan_reviser",
       "explanation_visual_planner",

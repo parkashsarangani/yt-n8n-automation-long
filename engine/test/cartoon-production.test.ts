@@ -55,10 +55,11 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "16");
+  assert.equal(graph.version, "17");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
   assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "explanation_visual_planner");
+  assert.equal((byId.get("visual_model") as { transformation?: string })?.transformation, "episode_visual_modeler");
   assert.equal((byId.get("voice") as { transformation?: string })?.transformation, "dialogue_voice");
   assert.equal((byId.get("thumbnail_brief") as { transformation?: string })?.transformation, "cartoon_thumbnail_designer");
   assert.equal((byId.get("render") as { transformation?: string })?.transformation, "cartoon_render");
@@ -71,7 +72,7 @@ test("default production graph is cartoon-first", async () => {
   // compiler output directly, would make the semantic architecture advisory.
   assert.deepEqual((byId.get("assets") as { in?: string[] })?.in, ["plan_release", "approve_script", "cast_roster"]);
   assert.equal((byId.get("semantic_assets") as { transformation?: string })?.transformation, "semantic_visual_assets");
-  assert.deepEqual((byId.get("semantic_assets") as { in?: string[] })?.in, ["assets", "plan_release", "approve_script", "voice"]);
+  assert.deepEqual((byId.get("semantic_assets") as { in?: string[] })?.in, ["assets", "plan_release", "approve_script", "voice", "visual_model"]);
   assert.equal((byId.get("hybrid_assets") as { transformation?: string })?.transformation, "hybrid_visual_assets");
   assert.deepEqual((byId.get("hybrid_assets") as { in?: string[] })?.in, ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"]);
   assert.ok((byId.get("render") as { in?: string[] })?.in?.includes("hybrid_assets"));
@@ -396,6 +397,13 @@ test("the shipped production graph runs unattended end to end with fake provider
       },
     ],
   };
+  const VISUAL_MODEL = {
+    style_id: "semantic-navy-editorial-v1",
+    entities: [
+      { entity_id: "locker", label: "locker", aliases: ["school locker"], depiction: { kind: "solid-object", appearance: "blue metal school locker", color: "#4C89C6", shape: "tall rectangle", material: "metal" } },
+      { entity_id: "host", label: "Host", aliases: ["speaker"], depiction: { kind: "abstract-subject", appearance: "recurring cartoon host", color: "#FFD166" } },
+    ],
+  };
 
   const SEO = {
     title: "The Locker That Hums Every Night",
@@ -439,6 +447,7 @@ test("the shipped production graph runs unattended end to end with fake provider
         scene_blueprint: "before-after-object",
         visual_claim: "The closed humming locker becomes visibly open as the answer lands.",
         visual_actions: [{ actor: "locker", action: "transform", target: "open locker", anchor_phrase: "It was waiting" }],
+        entity_refs: ["locker"],
       }
       : scene)),
   };
@@ -450,6 +459,7 @@ test("the shipped production graph runs unattended end to end with fake provider
     if (title.includes("ChannelInsights")) return { payload: INSIGHTS, confidence: { overall: 0.9 } };
     if (title.includes("Story")) return { payload: STORY, confidence: { overall: 0.9 } };
     if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
+    if (title.includes("EpisodeVisualModel")) return { payload: VISUAL_MODEL, confidence: { overall: 0.9 } };
     if (title.includes("CartoonCreativeDirection")) return { payload: CREATIVE_DIRECTION, confidence: { overall: 0.9 } };
     if (title.includes("ExplanationPlanReview")) return { payload: PLAN_REVIEW, confidence: { overall: 0.9 } };
     if (title.includes("SemanticVisualPlan")) {

@@ -18,8 +18,12 @@ test("semantic representation mode only accepts its supported renderer family", 
   assert.equal(blueprintFitsMode("concrete-scene", "before-after-object"), true);
   assert.equal(blueprintFitsMode("domain-model", "molecular-system"), true);
   assert.equal(blueprintFitsMode("domain-model", "lattice"), true);
+  assert.equal(blueprintFitsMode("domain-model", "particle-system"), true);
+  assert.equal(blueprintFitsMode("domain-model", "flow-system"), true);
   assert.equal(blueprintFitsMode("quantitative", "mass-volume-comparison"), true);
   assert.equal(blueprintFitsMode("spatial", "cross-section"), true);
+  assert.equal(blueprintFitsMode("spatial", "map"), true);
+  assert.equal(blueprintFitsMode("temporal", "timeline"), true);
   assert.equal(blueprintFitsMode("kinetic-text", "animated-statement"), true);
   assert.equal(blueprintFitsMode("domain-model", "before-after-object"), false);
   assert.equal(blueprintFitsMode("quantitative", "lattice"), false);
@@ -111,6 +115,17 @@ test("supported concrete intent keeps its causal action windows", () => {
   assert.deepEqual(payload["semanticActionWindows"], windows);
 });
 
+test("semantic payload carries stable ontology ids and depiction metadata", () => {
+  const entities = [{ entity_id: "ice-cube", label: "ice cube", aliases: ["ice"], depiction: { kind: "solid-object", appearance: "translucent cube", color: "#65C7F7" } }];
+  const payload = semanticPayload({}, {
+    scene_index: 0, representation_mode: "concrete-scene", scene_blueprint: "container-object",
+    visual_claim: "The ice cube rises.", entity_refs: ["ice-cube"],
+    visual_actions: [{ actor: "ice-cube", action: "rise", target: "surface", anchor_phrase: "rises" }],
+  }, [{ actor: "ice-cube", action: "rise", target: "surface", startRatio: .2, endRatio: .6, aligned: true }], entities);
+  assert.deepEqual(payload["entityIdentityKeys"], ["ice-cube"]);
+  assert.deepEqual(payload["semanticEntities"], entities);
+});
+
 test("long-compose bridge carries semantic metadata through the existing explanation whitelist", () => {
   const originalIcon = { viewBox: "0 0 24 24", body: "<path />" };
   const bridged = bridgeSemanticTemplateData({
@@ -119,6 +134,7 @@ test("long-compose bridge carries semantic metadata through the existing explana
     sceneBlueprint: "container-object",
     visualClaim: "Ice rises to the surface.",
     semanticActionWindows: [{ actor: "ice", action: "rise", target: "surface", startRatio: 0.2, endRatio: 0.5, aligned: true }],
+    semanticEntities: [],
     semanticFallback: false,
   });
 
@@ -130,6 +146,7 @@ test("long-compose bridge carries semantic metadata through the existing explana
     sceneBlueprint: "container-object",
     visualClaim: "Ice rises to the surface.",
     semanticActionWindows: [{ actor: "ice", action: "rise", target: "surface", startRatio: 0.2, endRatio: 0.5, aligned: true }],
+    semanticEntities: [],
     semanticFallback: false,
   });
 });

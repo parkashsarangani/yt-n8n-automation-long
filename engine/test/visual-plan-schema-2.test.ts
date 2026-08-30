@@ -13,8 +13,8 @@ const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md"
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
-test("explanation planner v5 emits semantic explanation_plan 1.6", () => {
-  assert.equal(agent.version, "5");
+test("explanation planner v6 emits semantic explanation_plan 1.6", () => {
+  assert.equal(agent.version, "6");
   assert.equal(agent.produces, "explanation_plan");
   assert.equal(agent.produces_version, "1.6.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
@@ -49,8 +49,8 @@ test("explanation planner v5 emits semantic explanation_plan 1.6", () => {
     assert.ok(semanticRule.then.required.includes(field), field);
   }
 
-  assert.deepEqual(props.representation_mode.enum, ["concrete-scene", "domain-model", "quantitative", "spatial", "kinetic-text"]);
-  for (const blueprint of ["container-object", "molecular-system", "lattice", "cross-section", "mass-volume-comparison", "before-after-object", "animated-statement"]) {
+  assert.deepEqual(props.representation_mode.enum, ["concrete-scene", "domain-model", "quantitative", "spatial", "temporal", "kinetic-text"]);
+  for (const blueprint of ["container-object", "molecular-system", "lattice", "particle-system", "flow-system", "cross-section", "mass-volume-comparison", "scale-comparison", "before-after-object", "map", "timeline", "animated-statement"]) {
     assert.ok(props.scene_blueprint.enum.includes(blueprint), blueprint);
   }
   assert.equal(props.visual_claim.maxLength, 180);
@@ -58,6 +58,7 @@ test("explanation planner v5 emits semantic explanation_plan 1.6", () => {
   assert.ok(props.visual_actions.items.properties.action.enum.includes("rearrange"));
   assert.ok(props.visual_actions.items.properties.action.enum.includes("bond"));
   assert.ok(props.visual_actions.items.required.includes("anchor_phrase"));
+  assert.equal(props.entity_refs.items.pattern, "^[a-z][a-z0-9-]{0,63}$");
 
   const kineticRule = scene.allOf.find((rule: { if?: { properties?: { representation_mode?: { const?: string } } } }) =>
     rule.if?.properties?.representation_mode?.const === "kinetic-text");
@@ -66,7 +67,7 @@ test("explanation planner v5 emits semantic explanation_plan 1.6", () => {
 
   const numericRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("numeric_value"));
   assert.equal(numericRule?.then?.properties?.numeric_value?.type, "number");
-  assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["script", "cast_roster"]);
+  assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["script", "visual_model", "cast_roster"]);
 });
 
 test("planner explicitly prefers semantic depiction and animated text over fake diagrams", () => {

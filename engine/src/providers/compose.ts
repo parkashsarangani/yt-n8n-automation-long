@@ -88,6 +88,7 @@ export function bridgeSemanticTemplateData(data: Record<string, unknown> | undef
         sceneBlueprint: data["sceneBlueprint"],
         visualClaim: data["visualClaim"],
         semanticActionWindows: Array.isArray(data["semanticActionWindows"]) ? data["semanticActionWindows"] : [],
+        semanticEntities: Array.isArray(data["semanticEntities"]) ? data["semanticEntities"] : [],
         semanticFallback: data["semanticFallback"] === true,
       },
     },

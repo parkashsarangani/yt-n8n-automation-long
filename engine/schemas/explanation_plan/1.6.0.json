@@ -66,12 +66,12 @@
             "sound_cue": { "type": "string", "enum": ["none", "soft-hit", "tick", "whoosh", "pop", "resolve"] },
             "representation_mode": {
               "type": "string",
-              "enum": ["concrete-scene", "domain-model", "quantitative", "spatial", "kinetic-text"],
+              "enum": ["concrete-scene", "domain-model", "quantitative", "spatial", "temporal", "kinetic-text"],
               "description": "Viewer-facing representation class. Newly-authored plans must supply this field."
             },
             "scene_blueprint": {
               "type": "string",
-              "enum": ["container-object", "molecular-system", "lattice", "cross-section", "mass-volume-comparison", "before-after-object", "animated-statement"],
+              "enum": ["container-object", "molecular-system", "lattice", "particle-system", "flow-system", "cross-section", "mass-volume-comparison", "scale-comparison", "before-after-object", "map", "timeline", "animated-statement"],
               "description": "Reusable semantic renderer family. Unsupported concepts use animated-statement, never arbitrary geometry."
             },
             "visual_claim": {
@@ -93,6 +93,11 @@
                   "anchor_phrase": { "type": "string", "minLength": 1, "maxLength": 96 }
                 }
               }
+            },
+            "entity_refs": {
+              "type": "array", "maxItems": 4, "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+              "description": "Stable episode_visual_model entity ids in the same order as model_elements. Optional only for resumed pre-ontology plans."
             },
             "listener_actor_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$", "maxLength": 40 },
             "speaker_emotion": { "type": "string", "enum": ["neutral", "happy", "amused", "skeptical", "confused", "concerned", "sad", "angry", "surprised", "scared", "thinking", "annoyed"] },
@@ -151,15 +156,19 @@
             },
             {
               "if": { "properties": { "representation_mode": { "const": "domain-model" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["molecular-system", "lattice"] } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["molecular-system", "lattice", "particle-system", "flow-system"] } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "quantitative" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "mass-volume-comparison" } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["mass-volume-comparison", "scale-comparison"] } } }
             },
             {
               "if": { "properties": { "representation_mode": { "const": "spatial" } }, "required": ["representation_mode"] },
-              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "cross-section" } } }
+              "then": { "properties": { "scene_blueprint": { "type": "string", "enum": ["cross-section", "map"] } } }
+            },
+            {
+              "if": { "properties": { "representation_mode": { "const": "temporal" } }, "required": ["representation_mode"] },
+              "then": { "properties": { "scene_blueprint": { "type": "string", "const": "timeline" } } }
             }
           ]
         }

@@ -10,7 +10,8 @@
  */
 
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
+import { reviewSemanticMotion } from "./semantic-motion-qa.mjs";
 import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
@@ -216,6 +217,10 @@ async function main() {
     composition.fps = fps;
     composition.width = 1920;
     composition.height = 1080;
+
+    // Release gate for semantic scenes: inspect the actual rendered pixels at
+    // 20%, 55%, and 85% before spending time on the full scene encode.
+    await reviewSemanticMotion({composition,serveUrl:bundleLocation,inputProps,renderStill});
 
     console.log(`[remotion] Rendering ${durationInFrames} frames (${durationSec}s)...`);
     await renderMedia({

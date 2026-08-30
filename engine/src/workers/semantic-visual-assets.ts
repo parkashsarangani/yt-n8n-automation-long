@@ -1,15 +1,35 @@
 import type { Artifact } from "../artifact.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
-export type RepresentationMode = "concrete-scene" | "domain-model" | "quantitative" | "spatial" | "kinetic-text";
+export type RepresentationMode = "concrete-scene" | "domain-model" | "quantitative" | "spatial" | "temporal" | "kinetic-text";
 export type SceneBlueprint =
   | "container-object"
   | "molecular-system"
   | "lattice"
+  | "particle-system"
+  | "flow-system"
   | "cross-section"
   | "mass-volume-comparison"
+  | "scale-comparison"
   | "before-after-object"
+  | "map"
+  | "timeline"
   | "animated-statement";
+
+export interface SemanticEntity {
+  entity_id: string;
+  label: string;
+  aliases?: string[];
+  depiction: {
+    kind: string;
+    appearance: string;
+    color: string;
+    shape?: string;
+    material?: string;
+    formula?: string;
+    geometry?: string;
+  };
+}
 
 export interface SemanticAction {
   actor: string;
@@ -33,7 +53,9 @@ interface PlanScene {
   scene_blueprint?: SceneBlueprint;
   visual_claim?: string;
   visual_actions?: SemanticAction[];
+  entity_refs?: string[];
 }
+interface EpisodeVisualModel { entities?: SemanticEntity[] }
 
 interface ScriptScene { scene_index: number; narration?: string }
 interface VoiceClip { scene_index: number; alignment_uri?: string; duration_sec?: number }
@@ -52,17 +74,23 @@ export const SUPPORTED_BLUEPRINTS = new Set<SceneBlueprint>([
   "container-object",
   "molecular-system",
   "lattice",
+  "particle-system",
+  "flow-system",
   "cross-section",
   "mass-volume-comparison",
+  "scale-comparison",
   "before-after-object",
+  "map",
+  "timeline",
   "animated-statement",
 ]);
 
 export function blueprintFitsMode(mode: RepresentationMode, blueprint: SceneBlueprint): boolean {
   if (mode === "concrete-scene") return blueprint === "container-object" || blueprint === "before-after-object";
-  if (mode === "domain-model") return blueprint === "molecular-system" || blueprint === "lattice";
-  if (mode === "quantitative") return blueprint === "mass-volume-comparison";
-  if (mode === "spatial") return blueprint === "cross-section";
+  if (mode === "domain-model") return ["molecular-system", "lattice", "particle-system", "flow-system"].includes(blueprint);
+  if (mode === "quantitative") return blueprint === "mass-volume-comparison" || blueprint === "scale-comparison";
+  if (mode === "spatial") return blueprint === "cross-section" || blueprint === "map";
+  if (mode === "temporal") return blueprint === "timeline";
   return blueprint === "animated-statement";
 }
 
@@ -181,6 +209,7 @@ export function semanticPayload(
   base: Record<string, unknown>,
   plan: PlanScene,
   windows: SemanticActionWindow[],
+  semanticEntities: SemanticEntity[] = [],
 ): Record<string, unknown> {
   let mode = plan.representation_mode;
   let blueprint = plan.scene_blueprint;
@@ -208,6 +237,8 @@ export function semanticPayload(
     sceneBlueprint: blueprint,
     visualClaim: claim,
     semanticActionWindows: windows,
+    semanticEntities,
+    ...(plan.entity_refs?.length ? { entityIdentityKeys: plan.entity_refs.slice(0, 4) } : {}),
     semanticFallback: mode === "kinetic-text",
     rendererPerformance: {
       ...performance,
@@ -230,6 +261,7 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
       { schema_id: "explanation_plan", range: "^1", as: "plan" },
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
+      { schema_id: "episode_visual_model", range: "^1", as: "visual_model" },
     ],
     produces: "asset_manifest",
     produces_version: "1.8.0",
@@ -238,6 +270,8 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
       const plans = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes ?? [];
       const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes ?? [];
       const clips = (inputs["voice"]!.payload as { clips: VoiceClip[] }).clips ?? [];
+      const visualModel = inputs["visual_model"]!.payload as EpisodeVisualModel;
+      const ontologyById = new Map((visualModel.entities ?? []).map((entity) => [entity.entity_id, entity]));
       const planBy = new Map(plans.map((scene) => [scene.scene_index, scene]));
       const scriptBy = new Map(scripts.map((scene) => [scene.scene_index, scene]));
       const clipBy = new Map(clips.map((clip) => [clip.scene_index, clip]));
@@ -259,7 +293,8 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
         }
         const actions = Array.isArray(plan.visual_actions) ? plan.visual_actions : [];
         const windows = resolveActionWindows(actions, script.narration ?? "", alignment, durationSec);
-        const payload = semanticPayload(parseTemplateData(scene), plan, windows);
+        const semanticEntities = (plan.entity_refs ?? []).map((id) => ontologyById.get(id)).filter((entity): entity is SemanticEntity => !!entity).slice(0, 4);
+        const payload = semanticPayload(parseTemplateData(scene), plan, windows, semanticEntities);
         const encoded = JSON.stringify(payload);
         if (encoded.length > 8000) {
           throw new Error(`semantic visual scene ${scene.scene_index} template_data exceeds 8000 characters after semantic metadata (${encoded.length})`);
