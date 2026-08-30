@@ -1,0 +1,140 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  blueprintFitsMode,
+  normaliseWithMap,
+  resolveActionWindows,
+  semanticPayload,
+  type SemanticAction,
+} from "../src/workers/semantic-visual-assets.ts";
+import {
+  bridgeSemanticTemplateData,
+  SEMANTIC_RENDER_EXTENSION_KEY,
+} from "../src/providers/compose.ts";
+
+test("semantic representation mode only accepts its supported renderer family", () => {
+  assert.equal(blueprintFitsMode("concrete-scene", "container-object"), true);
+  assert.equal(blueprintFitsMode("concrete-scene", "before-after-object"), true);
+  assert.equal(blueprintFitsMode("domain-model", "molecular-system"), true);
+  assert.equal(blueprintFitsMode("domain-model", "lattice"), true);
+  assert.equal(blueprintFitsMode("quantitative", "mass-volume-comparison"), true);
+  assert.equal(blueprintFitsMode("spatial", "cross-section"), true);
+  assert.equal(blueprintFitsMode("kinetic-text", "animated-statement"), true);
+  assert.equal(blueprintFitsMode("domain-model", "before-after-object"), false);
+  assert.equal(blueprintFitsMode("quantitative", "lattice"), false);
+});
+
+test("phrase normalization keeps source offsets while ignoring case and punctuation", () => {
+  const normalized = normaliseWithMap("Fine.  IT was—waiting!");
+  assert.equal(normalized.text, "fine it was waiting");
+  assert.equal(normalized.sourceIndex.length, normalized.text.length);
+  assert.equal("Fine.  IT was—waiting!"[normalized.sourceIndex[0]!], "F");
+  assert.equal("Fine.  IT was—waiting!"[normalized.sourceIndex.at(-1)!], "g");
+});
+
+test("semantic actions align to the spoken phrase instead of a scene-level clock", () => {
+  const narration = "Fine. It was waiting.";
+  const characters = [...narration];
+  const alignment = {
+    characters,
+    character_start_times_seconds: characters.map((_, i) => i * 0.08),
+    character_end_times_seconds: characters.map((_, i) => i * 0.08 + 0.07),
+  };
+  const actions: SemanticAction[] = [
+    { actor: "locker", action: "transform", target: "open locker", anchor_phrase: "IT WAS WAITING" },
+  ];
+
+  const [window] = resolveActionWindows(actions, narration, alignment, 2);
+  assert.ok(window);
+  assert.equal(window!.aligned, true);
+  assert.ok(window!.startRatio > 0.1, `unexpected start ${window!.startRatio}`);
+  assert.ok(window!.endRatio > window!.startRatio);
+  assert.ok(window!.endRatio <= 0.96);
+});
+
+test("missing or mismatched alignment falls back deterministically and preserves action order", () => {
+  const actions: SemanticAction[] = [
+    { actor: "water", action: "cool", target: "water", anchor_phrase: "not in narration" },
+    { actor: "ice", action: "rise", target: "surface", anchor_phrase: "also absent" },
+    { actor: "ice", action: "settle", target: "surface", anchor_phrase: "still absent" },
+  ];
+
+  const windows = resolveActionWindows(actions, "A different spoken sentence.", null, 4);
+  assert.equal(windows.length, 3);
+  assert.ok(windows.every((window) => window.aligned === false));
+  assert.ok(windows[0]!.startRatio < windows[1]!.startRatio);
+  assert.ok(windows[1]!.startRatio < windows[2]!.startRatio);
+  assert.ok(windows.every((window) => window.endRatio > window.startRatio));
+});
+
+test("unsupported or incomplete semantic intent fails closed to animated explanatory text", () => {
+  const base = {
+    keyText: "Density changes",
+    rendererPerformance: { meaningfulStateChange: false },
+  };
+  const payload = semanticPayload(base, {
+    scene_index: 0,
+    representation_mode: "domain-model",
+    // Deliberately mismatched: before-after-object is not a domain-model family.
+    scene_blueprint: "before-after-object",
+    visual_claim: "Water molecules form an open lattice.",
+    visual_actions: [],
+  }, []);
+
+  assert.equal(payload["representationMode"], "kinetic-text");
+  assert.equal(payload["sceneBlueprint"], "animated-statement");
+  assert.equal(payload["semanticFallback"], true);
+  assert.deepEqual(payload["semanticActionWindows"], []);
+});
+
+test("supported concrete intent keeps its causal action windows", () => {
+  const windows = [{
+    actor: "ice cube",
+    action: "rise",
+    target: "surface",
+    startRatio: 0.34,
+    endRatio: 0.56,
+    aligned: true,
+  }];
+  const payload = semanticPayload({}, {
+    scene_index: 0,
+    representation_mode: "concrete-scene",
+    scene_blueprint: "container-object",
+    visual_claim: "The ice cube rises until part of it sits above the waterline.",
+    visual_actions: [{ actor: "ice cube", action: "rise", target: "surface", anchor_phrase: "rises" }],
+  }, windows);
+
+  assert.equal(payload["representationMode"], "concrete-scene");
+  assert.equal(payload["sceneBlueprint"], "container-object");
+  assert.equal(payload["semanticFallback"], false);
+  assert.deepEqual(payload["semanticActionWindows"], windows);
+});
+
+test("long-compose bridge carries semantic metadata through the existing explanation whitelist", () => {
+  const originalIcon = { viewBox: "0 0 24 24", body: "<path />" };
+  const bridged = bridgeSemanticTemplateData({
+    entityIcons: { "entity-ice": originalIcon },
+    representationMode: "concrete-scene",
+    sceneBlueprint: "container-object",
+    visualClaim: "Ice rises to the surface.",
+    semanticActionWindows: [{ actor: "ice", action: "rise", target: "surface", startRatio: 0.2, endRatio: 0.5, aligned: true }],
+    semanticFallback: false,
+  });
+
+  assert.ok(bridged);
+  const icons = bridged!["entityIcons"] as Record<string, unknown>;
+  assert.deepEqual(icons["entity-ice"], originalIcon);
+  assert.deepEqual(icons[SEMANTIC_RENDER_EXTENSION_KEY], {
+    representationMode: "concrete-scene",
+    sceneBlueprint: "container-object",
+    visualClaim: "Ice rises to the surface.",
+    semanticActionWindows: [{ actor: "ice", action: "rise", target: "surface", startRatio: 0.2, endRatio: 0.5, aligned: true }],
+    semanticFallback: false,
+  });
+});
+
+test("non-semantic explanation data is not altered by the renderer bridge", () => {
+  const legacy = { keyText: "legacy", entityIcons: {} };
+  assert.equal(bridgeSemanticTemplateData(legacy), legacy);
+});
