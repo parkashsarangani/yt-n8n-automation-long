@@ -369,6 +369,111 @@ function textFfmpegPath() {
   return _textFfmpeg;
 }
 
+// ---------------------------------------------------------------------------
+// Audio-filter capability probing.
+//
+// hasDrawtext above proves a filter EXISTS by name. That is not enough for
+// the mix: a wrong OPTION name fails filtergraph parsing just as hard as a
+// missing filter, and either one takes the whole render down with it --
+// turning a mix refinement into a total outage on any host whose ffmpeg is
+// built differently. Reduced-filter builds are not hypothetical: Remotion
+// ships an ffmpeg compiled with --disable-filters and a small allowlist that
+// has neither sidechaincompress nor alimiter.
+//
+// So each candidate is RUN, exactly as it will be used, against a fraction of
+// a second of silence. A capability that does not survive that probe is
+// dropped from the mix instead of failing the episode.
+// ---------------------------------------------------------------------------
+const _audioFilterSupport = new Map();
+async function supportsFfmpegArgs(key, args) {
+  if (_audioFilterSupport.has(key)) return _audioFilterSupport.get(key);
+  let ok = false;
+  try {
+    await execFileAsync(ffmpegPath, args, { timeout: 20000 });
+    ok = true;
+  } catch (error) {
+    const detail = String(error?.stderr || error?.message || "").split("\n").filter(Boolean).pop() || "unknown";
+    console.warn(`[audio] "${key}" unsupported by this ffmpeg; the mix degrades without it -- ${detail}`);
+  }
+  _audioFilterSupport.set(key, ok);
+  return ok;
+}
+
+const LIMITER_SPEC = "alimiter=limit=0.94:level=0";
+// Sidechain ducking needs two inputs, so it cannot be probed through -af.
+const SIDECHAIN_SPEC = "sidechaincompress=threshold=0.05:ratio=3:attack=8:release=180";
+// A brown-noise floor rolled off to a low rumble. Used ONLY when no music
+// track exists at all -- see the mix below for why it is not layered under
+// music.
+const AMBIENT_SOURCE = "anoisesrc=color=brown:amplitude=0.5:sample_rate=44100";
+const AMBIENT_SPEC = "lowpass=f=170,highpass=f=40,volume=0.05";
+
+const silentIn = ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1"];
+const supportsLimiter = () => supportsFfmpegArgs(LIMITER_SPEC, [
+  "-v", "error", ...silentIn, "-af", LIMITER_SPEC, "-f", "null", "-",
+]);
+const supportsSidechain = () => supportsFfmpegArgs(SIDECHAIN_SPEC, [
+  "-v", "error", ...silentIn, ...silentIn,
+  "-filter_complex", `[0:a][1:a]${SIDECHAIN_SPEC}[out]`, "-map", "[out]", "-f", "null", "-",
+]);
+const supportsAmbientBed = () => supportsFfmpegArgs(AMBIENT_SOURCE, [
+  "-v", "error", "-f", "lavfi", "-i", AMBIENT_SOURCE, "-t", "0.1",
+  "-af", AMBIENT_SPEC, "-f", "null", "-",
+]);
+
+// Music gain multipliers per visual state.
+//
+// Until now the bed sat at ONE constant level for an entire episode, so the
+// densest explanatory passage and the final payoff were mixed identically.
+// Shaping it is the cheapest real dynamics available here: pull the bed down
+// under the passages carrying the actual explanation so speech has room, and
+// lift it where the episode is meant to feel like something is landing.
+const MUSIC_STATE_GAIN = {
+  hypothesis: 1.0,
+  contradiction: 1.2,
+  mechanism: 0.7,
+  qualification: 0.85,
+  payoff: 1.35,
+};
+
+/**
+ * Builds an ffmpeg `volume` expression that steps the music bed per scene.
+ *
+ * Commas are escaped as `\,` because this string is embedded in a
+ * filtergraph, where a bare comma separates filters -- an unescaped
+ * `between(t,a,b)` silently cuts the graph in half. Verified against a real
+ * ffmpeg render: the segment gain ratios come out exactly as authored.
+ *
+ * Returns null when no scene carries a usable state, so the caller keeps the
+ * previous single constant rather than emitting a degenerate expression.
+ */
+function buildMusicVolumeExpression(baseVolume, spans) {
+  const usable = spans.filter((span) => span.gain !== undefined && span.end > span.start);
+  if (usable.length === 0) return null;
+
+  // Merge abutting spans of equal gain. Consecutive `mechanism` scenes are
+  // the common case, and one merged branch per run keeps the expression far
+  // shorter than one per scene.
+  const merged = [];
+  for (const span of usable) {
+    const last = merged[merged.length - 1];
+    if (last && Math.abs(last.gain - span.gain) < 1e-6 && Math.abs(last.end - span.start) < 0.05) {
+      last.end = span.end;
+    } else {
+      merged.push({ ...span });
+    }
+  }
+  if (merged.length === 1 && Math.abs(merged[0].gain - 1) < 1e-6) return null;
+
+  const gainAt = (gain) => (baseVolume * gain).toFixed(4);
+  let expr = gainAt(1);
+  for (let i = merged.length - 1; i >= 0; i--) {
+    const span = merged[i];
+    expr = `if(between(t\,${span.start.toFixed(2)}\,${span.end.toFixed(2)})\,${gainAt(span.gain)}\,${expr})`;
+  }
+  return expr;
+}
+
 // Thumbnail result metadata is returned from buildThumbnail() per request.
 // Do not store it in process globals: concurrent /thumbnail calls otherwise race.
 
@@ -1865,6 +1970,17 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         lastCueTime = time;
       }
     });
+    // Per-scene music gain spans, gathered from the same walk the cues use.
+    // The bed follows the explanation's own shape rather than sitting at one
+    // level for the whole episode.
+    const musicGainSpans = scenes.map((scene, index) => {
+      if (scene?.template_name !== "explanation" || isOutroScene(scene)) return null;
+      const start = offsets[index];
+      const duration = durations[index];
+      if (!(start >= 0) || !(duration > 0)) return null;
+      return { start, end: start + duration, gain: MUSIC_STATE_GAIN[sceneTemplateData(scene).visualState] };
+    }).filter(Boolean);
+
     const emphasisOffset = offsets[emphasisIdx];
     if (emphasisIdx >= 1 && emphasisOffset != null) {
       if (sfxAvailable.riser) sfxEvents.push({ type: "riser", time: Math.max(0, emphasisOffset - 1.3), volume: 0.14 });
@@ -1910,6 +2026,11 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     }
     if (hasMusic) finalCmd.input(musicPath);
     sfxEvents.forEach((ev) => finalCmd.input(sfxFiles[ev.type]));
+    // Generated, not shipped: a synthesised bed costs nothing in the repo and
+    // raises no licensing question in a monetised video, the same reasoning
+    // as the synthesised SFX above.
+    const useAmbientBed = !hasMusic && explanationMode && await supportsAmbientBed();
+    if (useAmbientBed) finalCmd.input(AMBIENT_SOURCE).inputFormat("lavfi");
 
     // For cartoon lip sync, keep [0:a] (the concatenated scene audio) as the
     // voice source so mouth cues and audible speech share boundaries. Every
@@ -1919,6 +2040,8 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     let nextIdx = preserveSceneAudioForLipSync ? 1 : 2;
     const musicIdx = hasMusic ? nextIdx++ : null;
     const sfxIndices = sfxEvents.map(() => nextIdx++);
+    // Added last, so it does not disturb the music/SFX index arithmetic above.
+    const ambientIdx = useAmbientBed ? nextIdx++ : null;
 
     // Build video filter: ASS caption burn-in + fade in/out
     const fadeOutStart = Math.max(0, totalVideoDuration - 0.5);
@@ -1927,29 +2050,82 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
       : `[0:v]fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOutStart.toFixed(2)}:d=0.5[final_v]`;
 
     // Build audio filter: voice (gapless [1:a], or scene-timed [0:a] for
-    // cartoon lip sync) + ducked music
+    // cartoon lip sync) + a shaped, ducked music bed + a ducked SFX bus.
+    //
+    // Every capability below is probed against this host's actual ffmpeg
+    // first. Anything unsupported is dropped from the graph rather than
+    // failing the render -- an episode with a flatter mix beats no episode.
     const audioFilters = [];
     const mixLabels = [voiceLabel];
+    const canSidechain = await supportsSidechain();
+    const canLimit = await supportsLimiter();
 
     if (hasMusic) {
       // Explanation renders use a quieter bed so speech and transformation cues
       // stay in front; legacy formats preserve their established balance.
       const musicVolume = explanationMode ? 0.11 : 0.15;
-      audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,volume=${musicVolume}[music]`);
-      audioFilters.push(`[music][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);
-      mixLabels.push("duckedmusic");
+      const musicExpression = buildMusicVolumeExpression(musicVolume, musicGainSpans);
+      // A stepped envelope where the plan gives us states to step on, the
+      // previous single constant otherwise.
+      const musicGain = musicExpression
+        ? `volume=volume='${musicExpression}':eval=frame`
+        : `volume=${musicVolume}`;
+      audioFilters.push(`[${musicIdx}:a]aloop=loop=-1:size=2e9,${musicGain}[music]`);
+      if (canSidechain) {
+        audioFilters.push(`[music][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=4:attack=20:release=200[duckedmusic]`);
+        mixLabels.push("duckedmusic");
+      } else {
+        mixLabels.push("music");
+      }
+    } else if (ambientIdx !== null) {
+      // Only when there is no music track at all. Layering a noise floor
+      // UNDER music buys nothing a viewer can hear and risks reading as hiss;
+      // filling an otherwise silent bed so cuts do not land in dead air is a
+      // real improvement with nothing to trade against it.
+      audioFilters.push(`[${ambientIdx}:a]${AMBIENT_SPEC}[ambient]`);
+      if (canSidechain) {
+        audioFilters.push(`[ambient][${voiceLabel}]sidechaincompress=threshold=0.04:ratio=3:attack=25:release=250[duckedambient]`);
+        mixLabels.push("duckedambient");
+      } else {
+        mixLabels.push("ambient");
+      }
     }
 
+    const sfxLabels = [];
     sfxEvents.forEach((ev, idx) => {
       const inputIdx = sfxIndices[idx];
       const ms = Math.round(ev.time * 1000);
       const label = `sfx${idx}`;
       audioFilters.push(`[${inputIdx}:a]volume=${ev.volume},adelay=${ms}|${ms}[${label}]`);
-      mixLabels.push(label);
+      sfxLabels.push(label);
     });
 
+    if (sfxLabels.length > 0 && canSidechain) {
+      // Cues were previously summed straight into the final mix at a fixed
+      // gain, so one landing mid-word competed with the narration at full
+      // level. Collapsing them onto one bus and ducking that bus against the
+      // voice keeps a cue audible in a gap and out of the way under speech --
+      // duration=longest because each cue is offset by its own adelay, and
+      // `first` would truncate the bus at the earliest one.
+      audioFilters.push(`[${sfxLabels.join("][")}]amix=inputs=${sfxLabels.length}:duration=longest:normalize=0[sfxbus]`);
+      audioFilters.push(`[sfxbus][${voiceLabel}]${SIDECHAIN_SPEC}[duckedsfx]`);
+      mixLabels.push("duckedsfx");
+    } else {
+      mixLabels.push(...sfxLabels);
+    }
+
+    // normalize=0 means amix SUMS its inputs. With voice, a bed and up to 22
+    // cues on the bus that sum can exceed full scale and clip -- audible as
+    // crackle on exactly the loudest, most important moments. A limiter on
+    // the output bus is the missing safety net.
+    let finalAudioLabel = voiceLabel;
+    const limiter = canLimit ? `,${LIMITER_SPEC}` : "";
     if (mixLabels.length > 1) {
-      audioFilters.push(`[${mixLabels.join("][")}]amix=inputs=${mixLabels.length}:duration=first:normalize=0[final_a]`);
+      audioFilters.push(`[${mixLabels.join("][")}]amix=inputs=${mixLabels.length}:duration=first:normalize=0${limiter}[final_a]`);
+      finalAudioLabel = "[final_a]";
+    } else if (canLimit) {
+      audioFilters.push(`[${voiceLabel}]${LIMITER_SPEC}[final_a]`);
+      finalAudioLabel = "[final_a]";
     }
 
     const allFilters = [videoFilter, ...audioFilters];
@@ -1961,7 +2137,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // - High profile for maximum quality at 1080p30
     finalCmd.outputOptions([
       "-map", "[final_v]",
-      "-map", mixLabels.length > 1 ? "[final_a]" : voiceLabel,
+      "-map", finalAudioLabel,
       "-c:v", V_ENCODER,
       "-preset", "medium",
       "-crf", "16",
