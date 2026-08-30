@@ -1,7 +1,7 @@
 {
   "graph_id": "skeleton",
-  "version": "16",
-  "description": "Default unattended semantic-first hybrid graph. Storyboard-reviewed plans compile stable cast/acting data, semantic actions are aligned after TTS, concrete/domain motion scenes use semantic renderers, unsupported semantics fall back to animated text, and selective AI editorial shots provide visual resets before render/publish.",
+  "version": "15",
+  "description": "Default unattended semantic-first hybrid graph. The legacy `assets` compiler node name is retained for graph-contract compatibility, then semantic actions are aligned after TTS, concrete/domain scenes use semantic renderers, unsupported semantics become animated text, and selective AI editorial shots provide visual resets.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -15,15 +15,15 @@
     { "id": "plan_review", "transformation": "explanation_plan_critic", "in": ["approve_script", "visual_plan"] },
     { "id": "plan_revision", "transformation": "explanation_plan_reviser", "in": ["approve_script", "visual_plan", "plan_review", "cast_roster"] },
     { "id": "plan_release", "transformation": "explanation_plan_release", "in": ["visual_plan", "plan_revision", "plan_review"] },
-    { "id": "compiled_assets", "transformation": "cartoon_scene_compiler", "in": ["plan_release", "approve_script", "cast_roster"] },
+    { "id": "assets", "transformation": "cartoon_scene_compiler", "in": ["plan_release", "approve_script", "cast_roster"] },
     { "id": "voice", "transformation": "dialogue_voice", "in": ["approve_script", "cast_roster"] },
-    { "id": "semantic_assets", "transformation": "semantic_visual_assets", "in": ["compiled_assets", "plan_release", "approve_script", "voice"] },
-    { "id": "assets", "transformation": "hybrid_visual_assets", "in": ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
+    { "id": "semantic_assets", "transformation": "semantic_visual_assets", "in": ["assets", "plan_release", "approve_script", "voice"] },
+    { "id": "hybrid_assets", "transformation": "hybrid_visual_assets", "in": ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "cartoon_render", "in": ["script", "voice", "assets", "cast_roster"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
+    { "id": "render", "transformation": "cartoon_render", "in": ["script", "voice", "hybrid_assets", "cast_roster"] },
+    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "hybrid_assets", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
   ]
