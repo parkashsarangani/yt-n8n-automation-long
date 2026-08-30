@@ -521,7 +521,7 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
   return {
     name: "hybrid_visual_assets",
     kind: "worker",
-    version: "4",
+    version: "5",
     consumes: [
       { schema_id: "asset_manifest", range: "^1", as: "compiled" },
       { schema_id: "explanation_plan", range: "^1", as: "plan" },
@@ -530,7 +530,13 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
       { schema_id: "voice", range: "^1", as: "voice" },
     ],
     produces: "asset_manifest",
-    produces_version: "1.6.0",
+    // 1.6.0 required entity_visual_tokens[].shape, which motionEntityVisualTokens
+    // stopped emitting once EntityMark stopped drawing hash-picked polygons --
+    // every production run past that renderer change failed asset validation
+    // outright (caught live: run_0bde4bab, "must have required property 'shape'"
+    // repeated once per entity per scene). asset_manifest@1.7.0 drops shape from
+    // the schema to match what the producer actually emits.
+    produces_version: "1.7.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const compiled = inputs["compiled"]!.payload as { scenes: BaseAssetScene[]; degraded_count?: number };
       const plans = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;

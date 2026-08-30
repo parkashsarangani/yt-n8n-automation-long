@@ -1,8 +1,8 @@
 {
   "schema_id": "asset_manifest",
-  "version": "1.6.0",
-  "status": "deprecated",
-  "description": "Adds entity_icons: an optional, real icon (fetched from Iconify's open icon search) per labeled entity, additive to entity_visual_tokens' hash-picked color/shape. The Remotion EntityMark renderer prefers the icon when present and falls back to the existing shape otherwise -- entity_visual_tokens keeps governing AI-generated imagery prompts unchanged, so a cut between a motion-graphic scene and an AI scene still shares a color/shape identity contract; entity_icons only makes the motion-graphic side more specific.",
+  "version": "1.7.0",
+  "status": "active",
+  "description": "1.6.0 minus entity_visual_tokens.shape. The Remotion EntityMark renderer no longer draws a hash-picked polygon when an entity has no resolved icon -- it renders the entity's own words instead (watch feedback: the shapes read as meaningless decoration, e.g. a red cross for \"vacuum gap\"). There is no symbol on the motion-graphics side left for shape to keep in sync with, so asking the image model for a matching silhouette would create a mismatch instead of the continuity this field existed for. color is unaffected: it still keeps an entity's identity consistent between a motion-graphic cut and an AI-generated one.",
   "produced_by": [
     "asset_collector",
     "cartoon_scene_compiler",
@@ -110,8 +110,7 @@
                 "additionalProperties": false,
                 "required": [
                   "entity_id",
-                  "color",
-                  "shape"
+                  "color"
                 ],
                 "properties": {
                   "entity_id": {
@@ -121,17 +120,6 @@
                   "color": {
                     "type": "string",
                     "pattern": "^#[0-9A-Fa-f]{6}$"
-                  },
-                  "shape": {
-                    "type": "string",
-                    "enum": [
-                      "circle",
-                      "diamond",
-                      "triangle",
-                      "ring",
-                      "hexagon",
-                      "plus"
-                    ]
                   }
                 }
               }
