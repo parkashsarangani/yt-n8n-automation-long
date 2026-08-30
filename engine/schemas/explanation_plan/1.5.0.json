@@ -4,7 +4,9 @@
   "status": "active",
   "description": "1.4.0 plus model_relations: the authored topology between a scene's model_elements. Until now every relationship-shaped primitive drew a FIXED graph -- `network` always rendered the same 7 nodes and same 10 links, `hierarchy` always a root with 2 branches and 4 leaves -- no matter what the episode was about. The labels and icons on those nodes were topic-specific but the structure never was, which is what makes the diagrams read as generic decoration next to the dialogue. Relations are index-based (into model_elements) rather than free text so an edge can never dangle, and `kind` lets a diagram express opposition and supply, not just undifferentiated connection -- 'A blocks B' was previously undrawable. An empty array is valid and expected for subject-shaped primitives; the renderer falls back to its previous fixed topology when relations are absent.",
   "produced_by": [
-    "explanation_visual_planner"
+    "explanation_visual_planner",
+    "explanation_plan_reviser",
+    "explanation_plan_release"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

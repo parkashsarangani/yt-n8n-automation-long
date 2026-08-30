@@ -1,0 +1,90 @@
+{
+  "schema_id": "explanation_plan_review",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "A per-scene critique of an explanation_plan, produced BEFORE anything renders. The pipeline's only prior visual review was checkGeneratedImageMatchesNarration, which runs after generation, judges one AI image at a time, and deliberately flags only active contradiction -- it cannot see the plan as a whole and by design says nothing about a scene that is merely weak, generic, static, or a repeat of its neighbour. Those are the defects that actually cost watchability, and they are all visible in the plan, where fixing one costs a revision rather than a re-render. This is the storyboard/animatic review step that hand-animated explainer production runs before committing to animation.",
+  "produced_by": [
+    "explanation_plan_critic"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ExplanationPlanReview",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "overall_verdict",
+      "episode_note",
+      "scenes"
+    ],
+    "properties": {
+      "overall_verdict": {
+        "type": "string",
+        "enum": [
+          "ship",
+          "revise"
+        ],
+        "description": "`revise` whenever any scene is judged weak. `ship` means every scene is at least adequate and the episode's visuals earn their screen time."
+      },
+      "episode_note": {
+        "type": "string",
+        "maxLength": 400,
+        "description": "One or two sentences on the episode's visual arc as a whole -- repetition across scenes, a dead stretch, a payoff that does not land. Concerns that belong to no single scene."
+      },
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "verdict",
+            "failure_mode",
+            "note",
+            "suggested_fix"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The scene being judged, matching the plan's own scene_index."
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "strong",
+                "adequate",
+                "weak"
+              ],
+              "description": "`weak` means this scene's visual does not earn its seconds and must be revised. `adequate` means it works but is not doing anything special. Reserve `strong` for scenes where the visual genuinely adds something the narration alone does not."
+            },
+            "failure_mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "generic-visual",
+                "claim-mismatch",
+                "static",
+                "repeats-neighbour",
+                "unauthored-structure",
+                "overfull-label"
+              ],
+              "description": "none: the scene is fine. generic-visual: the graphic would suit almost any topic. claim-mismatch: the graphic asserts something other than what the line says, including a reversed direction. static: nothing meaningfully changes across the scene's duration. repeats-neighbour: near-identical to the scene before or after, so the frame reads as frozen. unauthored-structure: a relationship primitive with no model_relations, which falls back to a fixed topology unrelated to this episode. overfull-label: text authored longer than its box can render."
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 240,
+              "description": "What is actually wrong, in terms of what a viewer would see. Empty for a scene with no problem."
+            },
+            "suggested_fix": {
+              "type": "string",
+              "maxLength": 240,
+              "description": "The concrete change to make: which field to alter and to what. Empty for a scene with no problem."
+            }
+          }
+        }
+      }
+    }
+  }
+}
