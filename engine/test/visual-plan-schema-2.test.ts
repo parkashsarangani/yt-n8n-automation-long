@@ -4,93 +4,78 @@ import { readFileSync } from "node:fs";
 
 const agent = JSON.parse(readFileSync(new URL("../agents/explanation_visual_planner.json", import.meta.url), "utf8"));
 const legacySchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.0.0.json", import.meta.url), "utf8"));
-const semanticSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.1.0.json", import.meta.url), "utf8"));
-const priorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
-const priorPriorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
-const labelLimitSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.4.0.json", import.meta.url), "utf8"));
-const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.5.0.json", import.meta.url), "utf8"));
+const prior12 = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
+const prior13 = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
+const prior14 = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.4.0.json", import.meta.url), "utf8"));
+const prior15 = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.5.0.json", import.meta.url), "utf8"));
+const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.6.0.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
-const legacyScene = legacySchema.json_schema.properties.scenes.items;
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
-test("explanation planner v4 emits required motion-design explanation_plan 1.5", () => {
-  assert.equal(agent.version, "4");
+test("explanation planner v5 emits semantic explanation_plan 1.6", () => {
+  assert.equal(agent.version, "5");
   assert.equal(agent.produces, "explanation_plan");
-  assert.equal(agent.produces_version, "1.5.0");
+  assert.equal(agent.produces_version, "1.6.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
   assert.equal(schema.status, "active");
-  assert.equal(legacySchema.status, "deprecated");
-  assert.equal(semanticSchema.status, "deprecated");
-  // 1.2.0/1.3.0 are deprecated, not retired: an episode paused on a stored
-  // 1.2.0 or 1.3.0 explanation_plan must still validate and resume against
-  // its own schema. Retired versions fail even an exact-version read (see
-  // registry.ts), which is exactly the resumability break the
-  // versioned-artifact contract exists to prevent -- so tightening the
-  // limits had to land as a new version rather than mutating an old one in
-  // place, both times.
-  assert.equal(priorSchema.status, "deprecated");
-  assert.equal(priorSchema.json_schema.properties.scenes.items.properties.explanation_title.maxLength, 80);
-  assert.equal(priorPriorSchema.status, "deprecated");
-  // run_ad5bd430 showed the before-after primitive's 2-line box truncating
-  // even at a much wider renderer maxWidth, because 1.3.0 still let the
-  // planner author up to 64/72 chars for fields that render in a fixed-size
-  // box -- roughly double what a legible 2-line label can hold.
-  assert.equal(priorPriorSchema.json_schema.properties.scenes.items.properties.state_before.maxLength, 64);
-  // 1.4.0 joins them: model_relations had to land as 1.5.0 rather than being
-  // added to 1.4.0 in place, for the same resumability reason.
-  assert.equal(labelLimitSchema.status, "deprecated");
-  assert.equal(labelLimitSchema.json_schema.properties.scenes.items.properties.state_before.maxLength, 32);
+
+  // Never retire resumable versions merely because a stronger representation
+  // contract landed. A paused episode must still validate against the exact
+  // schema that produced it.
+  for (const old of [legacySchema, prior12, prior13, prior14, prior15]) {
+    assert.notEqual(old.status, "retired");
+  }
+  assert.equal(prior12.json_schema.properties.scenes.items.properties.explanation_title.maxLength, 80);
+  assert.equal(prior13.json_schema.properties.scenes.items.properties.state_before.maxLength, 64);
+  assert.equal(prior14.json_schema.properties.scenes.items.properties.state_before.maxLength, 32);
+  assert.equal(prior15.json_schema.properties.scenes.items.properties.state_before.maxLength, 32);
+
   assert.equal(props.state_before.maxLength, 32);
   assert.equal(props.state_after.maxLength, 32);
   assert.equal(props.key_text.maxLength, 48);
   assert.ok(scene.required.includes("visual_operation"));
   assert.ok(scene.required.includes("visual_primitive"));
-  assert.ok(scene.required.includes("visual_state"));
-  assert.ok(scene.required.includes("composition_mode"));
-  // Required, not optional. A relation list the planner is free to omit is a
-  // relation list it will omit, and every relationship primitive would keep
-  // falling back to the fixed topology 1.5.0 exists to replace. An empty
-  // array is the valid answer for a scene with nothing to connect.
   assert.ok(scene.required.includes("model_relations"));
-  assert.equal(scene.required.includes("numeric_value"), false);
-  const characterRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("speaker_emotion"));
-  assert.ok(characterRule?.then.required.includes("listener_gesture"));
-  const numericRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("numeric_value"));
-  assert.equal(numericRule?.then.properties.numeric_value.type, "number");
-  for (const discarded of ["background_location", "background_variant", "background_tone", "framing", "camera_motion", "visual_event", "ambient_motion", "speaker_emphasis", "cutaway_label"]) {
-    assert.equal(scene.required.includes(discarded), false, discarded);
+
+  // Semantic fields are conditionally required rather than globally required:
+  // the agent always emits them, but a resumed pre-1.6 payload is still legal
+  // and semantic_visual_assets deterministically converts it to animated text.
+  assert.equal(scene.required.includes("representation_mode"), false);
+  const semanticRule = scene.allOf.find((rule: { then?: { required?: string[] } }) =>
+    rule.then?.required?.includes("representation_mode"));
+  assert.ok(semanticRule, "semantic fields have a conditional required rule");
+  for (const field of ["representation_mode", "scene_blueprint", "visual_claim", "visual_actions"]) {
+    assert.ok(semanticRule.then.required.includes(field), field);
   }
-  assert.equal(legacyScene.required.includes("visual_primitive"), false);
+
+  assert.deepEqual(props.representation_mode.enum, ["concrete-scene", "domain-model", "quantitative", "spatial", "kinetic-text"]);
+  for (const blueprint of ["container-object", "molecular-system", "lattice", "cross-section", "mass-volume-comparison", "before-after-object", "animated-statement"]) {
+    assert.ok(props.scene_blueprint.enum.includes(blueprint), blueprint);
+  }
+  assert.equal(props.visual_claim.maxLength, 180);
+  assert.equal(props.visual_actions.maxItems, 6);
+  assert.ok(props.visual_actions.items.properties.action.enum.includes("rearrange"));
+  assert.ok(props.visual_actions.items.properties.action.enum.includes("bond"));
+  assert.ok(props.visual_actions.items.required.includes("anchor_phrase"));
+
+  const kineticRule = scene.allOf.find((rule: { if?: { properties?: { representation_mode?: { const?: string } } } }) =>
+    rule.if?.properties?.representation_mode?.const === "kinetic-text");
+  assert.equal(kineticRule?.then?.properties?.scene_blueprint?.const, "animated-statement");
+  assert.equal(kineticRule?.then?.properties?.visual_actions?.maxItems, 0);
+
+  const numericRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("numeric_value"));
+  assert.equal(numericRule?.then?.properties?.numeric_value?.type, "number");
   assert.deepEqual(agent.consumes.map((input: { as: string }) => input.as), ["script", "cast_roster"]);
 });
 
-test("explanation plan encodes frame ownership and meaningful change", () => {
-  assert.deepEqual(props.template_category.enum, ["explanation"]);
-  assert.ok(props.scene_role.enum.includes("diagram-build"));
-  assert.ok(props.scene_role.enum.includes("object-state-change"));
-  assert.ok(props.character_cut_in.enum.includes("none"));
-  for (const primitive of ["particles", "rays", "network", "hierarchy", "one-to-many", "many-to-one", "facets-around-center", "overlapping-sets", "nested-context", "cycle", "cause-chain", "before-after", "map", "timeline", "quantity", "spectrum", "physical-transformation"]) {
-    assert.ok(props.visual_primitive.enum.includes(primitive), primitive);
-  }
-  assert.deepEqual(props.visual_state.enum, ["hypothesis", "contradiction", "mechanism", "qualification", "payoff"]);
-  assert.deepEqual(props.composition_mode.enum, ["bookend", "full-model", "reaction"]);
-  assert.match(prompt, /60-80%/);
-  assert.match(prompt, /at most 35%/);
-  assert.match(prompt, /sound muted/);
-  assert.match(prompt, /visual sentence/i);
-  assert.match(prompt, /relationship primitives/i);
-  assert.match(prompt, /no more than two visible labels/i);
-  assert.match(prompt, /canonical entities/i);
-  assert.match(prompt, /at least half of explanatory scenes must reuse/i);
-  assert.match(prompt, /primitive defines what exists/i);
-  assert.match(prompt, /Do not emit or optimize legacy background/i);
-  assert.match(prompt, /well under 32 characters/i);
-  assert.match(prompt, /never a clause or sentence/i);
-  // Diagram specificity: bias primitive selection toward the ones the
-  // renderer actually gives real per-entity icons (objects/before-after/
-  // cause-chain/network/timeline), as a tiebreaker only -- correctness must
-  // still come first, never distorted to chase an icon.
-  assert.match(prompt, /Correctness always wins first/i);
-  assert.match(prompt, /prefer `objects`, `before-after`, `cause-chain`, `network`, or `timeline`/);
+test("planner explicitly prefers semantic depiction and animated text over fake diagrams", () => {
+  assert.match(prompt, /show the thing or mechanism before abstracting/i);
+  assert.match(prompt, /generic node\/box\/arrow diagram is not an acceptable fallback/i);
+  assert.match(prompt, /animated-statement/i);
+  assert.match(prompt, /anchor_phrase/i);
+  assert.match(prompt, /could this same visual work for an unrelated topic/i);
+  assert.match(prompt, /at least half of explanatory scenes should reuse/i);
+  assert.match(prompt, /animate the mechanism/i);
+  assert.match(prompt, /never distort `representation_mode` or `scene_blueprint`/i);
 });
