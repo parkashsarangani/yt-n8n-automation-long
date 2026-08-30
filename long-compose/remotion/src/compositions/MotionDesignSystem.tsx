@@ -127,6 +127,19 @@ const hashText = (text: string) => Array.from(text).reduce((hash, char) => ((has
 // see the entityIcons prop threaded down from MotionDesignSystem below.
 export type EntityIconMap = Record<string, { viewBox: string; body: string }>;
 
+// The authored topology between a scene's entities (explanation_plan@1.5.0
+// model_relations, compiled by cartoon-scenes-v16). `from`/`to` are indices
+// into the scene's `elements` array as the COMPILER cleaned it -- the
+// renderer caps and de-duplicates that list again for display, so indices
+// are remapped once more before they reach Geometry (see visibleRelations).
+export interface ModelRelation {
+  from: number;
+  to: number;
+  kind: string;
+}
+
+export const RELATION_KINDS = ["causes", "blocks", "becomes", "feeds", "contains"] as const;
+
 // Six silhouettes (not four) so a viewer tracking several entities across a
 // crowded network/timeline sees genuinely distinct marks rather than the same
 // four shapes repeating and reading as generic "pills and nodes". Hexagon and
@@ -231,6 +244,88 @@ function DirectedEdge({ x1, y1, x2, y2, progress, state, curved = false }: {
     strokeDasharray={dash} strokeDashoffset={offset} markerEnd="url(#motion-arrow)" opacity={0.22 + progress * 0.78} />;
 }
 
+// A connection that says WHAT it asserts, not merely that two things touch.
+//
+// Every relationship primitive previously drew one undifferentiated
+// DirectedEdge for every connection, so "the valve blocks backflow" and "the
+// pump drives backflow" rendered as the identical arrow. Opposition in
+// particular was undrawable: the diagram asserted the opposite of the
+// narration. Each kind below is separated STRUCTURALLY (where the stroke
+// stops, whether it carries an arrowhead, whether it keeps moving), not by
+// colour alone, so the distinction survives the muted/greyscale palettes and
+// a viewer who is not studying the frame.
+function RelationEdge({ x1, y1, x2, y2, progress, state, kind, phase = 0 }: {
+  x1: number; y1: number; x2: number; y2: number; progress: number; state: VisualState; kind: string; phase?: number;
+}) {
+  const colors = palette[state];
+  const length = Math.max(1, Math.hypot(x2 - x1, y2 - y1));
+  const ux = (x2 - x1) / length;
+  const uy = (y2 - y1) / length;
+
+  if (kind === "blocks") {
+    // The stroke stops short and is barred. An edge that lands on the target
+    // with an arrowhead would state that the target IS reached -- exactly
+    // backwards. The remainder continues as a faint dashed ghost so the
+    // viewer can still see what was being reached for.
+    const stopX = x1 + ux * length * 0.6;
+    const stopY = y1 + uy * length * 0.6;
+    return <g>
+      <path d={`M${x1} ${y1} L${stopX} ${stopY}`} fill="none" stroke={RED} strokeWidth="6" strokeLinecap="round"
+        strokeDasharray={`${length}`} strokeDashoffset={length * (1 - progress)} opacity={0.3 + progress * 0.7} />
+      <path d={`M${stopX + ux * 34} ${stopY + uy * 34} L${x2} ${y2}`} fill="none" stroke={colors.muted} strokeWidth="5"
+        strokeLinecap="round" strokeDasharray="7 13" opacity={0.34 * progress} />
+      <path d={`M${stopX - uy * 27} ${stopY + ux * 27} L${stopX + uy * 27} ${stopY - ux * 27}`} stroke={RED}
+        strokeWidth="10" strokeLinecap="round" opacity={progress} />
+    </g>;
+  }
+
+  if (kind === "contains") {
+    // Containment is not travel between two points. An arrow would read as
+    // "A causes B"; a ring drawn around the target, tethered to the source,
+    // reads as enclosure.
+    const radius = 54 + progress * 5;
+    return <g opacity={0.28 + progress * 0.72}>
+      <circle cx={x2} cy={y2} r={radius} fill="none" stroke={colors.line} strokeWidth="5" strokeDasharray="4 10" />
+      <path d={`M${x1} ${y1} L${x2 - ux * radius} ${y2 - uy * radius}`} fill="none" stroke={colors.muted} strokeWidth="5"
+        strokeLinecap="round" strokeDasharray={`${length}`} strokeDashoffset={length * (1 - progress)} />
+    </g>;
+  }
+
+  if (kind === "feeds") {
+    // Continuous supply rather than a single event. `phase` is driven by the
+    // living clock, so this is the one edge kind still visibly moving after
+    // progress reaches 1 -- which is precisely the difference between
+    // "feeds" and "causes", and it also keeps the frame alive during the
+    // hold instead of freezing into a slide.
+    return <g>
+      <path d={`M${x1} ${y1} L${x2} ${y2}`} fill="none" stroke={colors.line} strokeWidth="5" strokeLinecap="round"
+        strokeDasharray={`${length}`} strokeDashoffset={length * (1 - progress)} opacity={0.22 + progress * 0.5} />
+      {[0, 0.34, 0.68].map((offset, i) => {
+        const t = (phase + offset) % 1;
+        return <circle key={i} cx={x1 + ux * length * t} cy={y1 + uy * length * t} r={9} fill={ACCENT}
+          opacity={progress * (0.3 + 0.7 * Math.sin(t * Math.PI))} />;
+      })}
+    </g>;
+  }
+
+  if (kind === "becomes") {
+    // The same thing at two times, so the edge itself shows a transition:
+    // the source half stays provisional (dashed), the target half is drawn
+    // as asserted. A plain arrow would read as transfer between two separate
+    // entities instead of one entity changing.
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const half = length / 2;
+    return <g opacity={0.25 + progress * 0.75}>
+      <path d={`M${x1} ${y1} L${midX} ${midY}`} fill="none" stroke={colors.muted} strokeWidth="6" strokeLinecap="round" strokeDasharray="10 10" />
+      <path d={`M${midX} ${midY} L${x2} ${y2}`} fill="none" stroke={colors.line} strokeWidth="7" strokeLinecap="round"
+        strokeDasharray={`${half}`} strokeDashoffset={half * (1 - progress)} markerEnd="url(#motion-arrow)" />
+    </g>;
+  }
+
+  return <DirectedEdge x1={x1} y1={y1} x2={x2} y2={y2} progress={progress} state={state} />;
+}
+
 function Dot({ x, y, r = 28, fill = BLUE, opacity = 1 }: { x: number; y: number; r?: number; fill?: string; opacity?: number }) {
   return <circle cx={x} cy={y} r={r} fill={fill} opacity={opacity} />;
 }
@@ -281,13 +376,20 @@ type GeometryProps = {
   after: string;
   keyText: string;
   numericValue: number | null;
+  relations: ModelRelation[];
   progress: number;
   living: number;
   pop: (delay?: number) => number;
 };
 
-function Geometry({ primitive, operation, state, labels, identityKeys, entityIcons, before, after, keyText, numericValue, progress, living, pop }: GeometryProps) {
+function Geometry({ primitive, operation, state, labels, identityKeys, entityIcons, before, after, keyText, numericValue, relations, progress, living, pop }: GeometryProps) {
   const colors = palette[state];
+  // Only forward matches count. Reversing an edge to find a match would draw
+  // the causality backwards, which misinforms the viewer more thoroughly than
+  // drawing nothing -- so an unauthored direction falls back to the neutral
+  // "causes" styling rather than borrowing the reverse edge's kind.
+  const kindBetween = (from: number, to: number): string =>
+    relations.find((relation) => relation.from === from && relation.to === to)?.kind ?? "causes";
   const commonStroke = { fill: "none", stroke: colors.line, strokeWidth: 7, strokeLinecap: "round" as const, strokeDasharray: state === "hypothesis" ? "15 12" : undefined };
 
   if (primitive === "particles") {
@@ -371,6 +473,92 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     return <>{entities.map((label,i)=>{const total=Math.max(1,entities.length);const [x,y]=operatePoint([190+(i%2)*700,145+Math.floor(i/2)*210],i,total,operation,progress);const activated=operation!=="counter"||i<Math.ceil(total*progress);const eid=identityKeys[i]||label;return <g key={`${label}-${i}`} opacity={activated?1:.16}><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y-22} size={46 + living * 2} active={activated}/>{i<2 ? <Label text={label} x={x} y={y+70} active={activated&&i===Math.floor(progress*total)} state={state} maxWidth={340}/> : null}</g>})}</>;
   }
   if (primitive === "network") {
+    // The authored path. Before model_relations existed this branch drew a
+    // FIXED seven-node, ten-link graph for every episode: three of those
+    // nodes were always unlabeled filler (a scene may author at most four
+    // entities), and none of the ten links corresponded to anything the
+    // narration claimed. The labels and icons on top were topic-specific;
+    // the structure underneath never was, which is the single biggest
+    // reason these diagrams read as decoration beside the dialogue.
+    if (relations.length > 0 && labels.length >= 2) {
+      const count = Math.min(labels.length, 4);
+      // Explicit slots per entity count, NOT operatePoint. A first render of
+      // this branch laid the entities on an ellipse and then passed them
+      // through operatePoint like every other primitive -- and `group`
+      // promptly relocated all of them onto its two fixed cluster centres,
+      // collapsing the authored graph into an illegible knot in the middle
+      // third of the frame. operatePoint exists to rearrange interchangeable
+      // marks; here the positions ARE the content, so the operation must not
+      // be allowed to overwrite them. Progression instead comes from the
+      // nodes easing out of the centre into their slots below, which reads as
+      // the model assembling itself.
+      //
+      // The slots are widely separated and label-aware: each has room for a
+      // caption directly beneath it without colliding with any other node,
+      // any other caption, or the 510-tall frame edge.
+      const LAYOUTS: Record<number, Point[]> = {
+        2: [[290, 215], [790, 215]],
+        3: [[540, 118], [265, 345], [815, 345]],
+        4: [[275, 118], [805, 118], [275, 345], [805, 345]],
+      };
+      const slots = LAYOUTS[count] ?? LAYOUTS[4]!;
+      // Ease from the centre outward. `settle` reaches 1 well before the
+      // scene ends so the edges are drawn against a stable graph rather than
+      // chasing moving endpoints.
+      const settle = Math.min(1, progress * 1.6);
+      const nodes: Point[] = slots.slice(0, count).map(([sx, sy]) => [
+        540 + (sx - 540) * settle,
+        245 + (sy - 245) * settle,
+      ]);
+      const nodeRadius = 52;
+      return <>
+        {relations.map((relation, i) => {
+          const from = nodes[relation.from];
+          const to = nodes[relation.to];
+          if (!from || !to) return null;
+          // Stop each edge short of both marks so the stroke -- and, for
+          // `blocks`, its bar -- never sits underneath an icon where it
+          // cannot be read.
+          const span = Math.max(1, Math.hypot(to[0] - from[0], to[1] - from[1]));
+          const ux = (to[0] - from[0]) / span;
+          const uy = (to[1] - from[1]) / span;
+          if (span <= nodeRadius * 2) return null;
+          // `contains` draws a ring AROUND its target rather than an edge
+          // that stops at it, so it needs the mark's true centre. Handing it
+          // the same inset endpoint as every other kind put the enclosure
+          // ring half a node off to one side, visibly ringing empty canvas
+          // beside the thing it was supposed to be containing (caught on a
+          // render, not from reading the code).
+          const targetInset = relation.kind === "contains" ? 0 : nodeRadius;
+          return <RelationEdge key={`${relation.from}-${relation.to}-${relation.kind}`}
+            x1={from[0] + ux * nodeRadius} y1={from[1] + uy * nodeRadius}
+            x2={to[0] - ux * targetInset} y2={to[1] - uy * targetInset}
+            progress={Math.max(0, Math.min(1, progress * 1.35 - 0.15 - i * 0.1))} state={state} kind={relation.kind} phase={living} />;
+        })}
+        {nodes.map(([x, y], i) => {
+          const eid = identityKeys[i] || labels[i] || `entity-${i}`;
+          return <EntityMark key={i} id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={40 + pop(i * .06) * 10} />;
+        })}
+        {/* Every node gets its caption, deliberately past MAX_LABELS. That
+            cap guards against captions competing for the same space, which
+            is a real risk when a primitive's label slots are fixed and its
+            marks move. Here the slots above are chosen so each caption has
+            its own reserved band -- and an unlabeled node inside a graph the
+            planner explicitly authored is a hole in the explanation, not
+            restraint. */}
+        {nodes.map(([x, y], i) => (
+          // +104, not the ~70 a caption would normally sit at. A live
+          // render showed the pill overlapping its own mark, and covering the
+          // bottom half of a `contains` ring so enclosure read as a broken
+          // arc. The offset has to clear the largest thing drawn ON a node,
+          // which is that ring, not the mark.
+          <Label key={`label-${i}`} text={labels[i] ?? ""} x={x} y={y + 104} active={i === 0} state={state} maxWidth={300} />
+        ))}
+      </>;
+    }
+    // Fallback: a plan with no authored relations (or fewer than two
+    // entities to connect) still renders exactly as it did before 1.5.0
+    // rather than degrading to a blank frame.
     const bases: Point[]=[[160,125],[390,80],[700,105],[925,210],[780,400],[470,385],[150,325]];
     const nodes = bases.map((point, i) => operatePoint(point, i, bases.length, operation, progress));
     const links: Array<[number,number]>=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0],[1,5],[2,4],[0,5]];
@@ -387,11 +575,11 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
           Iconify to look up for them. The 4 leaves below ARE the scene's
           model_elements and get real icons. */}
       <Dot x={330} y={245} r={34} fill={BLUE}/><Dot x={750} y={245} r={34} fill={BLUE}/>
-      {children.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><DirectedEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={25}/></React.Fragment>})}</>;
+      {children.map(([x,y],i)=>{const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={i<2?330:750} y1={270} x2={x} y2={y-25} progress={Math.max(0,progress-.18)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={25}/></React.Fragment>})}</>;
   }
   if (primitive === "one-to-many") {
     const targets: Array<[number,number]>=[[850,85],[920,180],[940,300],[860,410]];
-    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><DirectedEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={24}/></React.Fragment>})}</>;
+    return <><Label text={labels[0]||before} x={220} y={245} active state={state}/>{targets.map((base,i)=>{const [x,y]=operatePoint(base,i,targets.length,operation,progress);const eid=identityKeys[i]||labels[i]||`branch-${i}`;return <React.Fragment key={i}><RelationEdge x1={352} y1={245} x2={x-30} y2={y} progress={Math.max(0,progress-i*.08)} state={state} kind={kindBetween(0,i)} phase={living}/><EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={24}/></React.Fragment>})}</>;
   }
   if (primitive === "many-to-one") {
     // Redesigned from 4 static dots with straight lines to one point -- that
@@ -467,7 +655,7 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
     // positions (2x2), so there is no spatial reason to label only the first
     // two of up to four accepted entities -- that left the back half of the
     // chain, where the consequence and resolution actually sit, unlabeled.
-    return <>{points.map(([x,y],i)=>{const next=points[i+1];const eid=identityKeys[i]||labels[i]||`step-${i}`;return <React.Fragment key={i}>{next&&<DirectedEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state}/>}<EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
+    return <>{points.map(([x,y],i)=>{const next=points[i+1];const eid=identityKeys[i]||labels[i]||`step-${i}`;return <React.Fragment key={i}>{next&&<RelationEdge x1={x+40} y1={y} x2={next[0]-40} y2={next[1]} progress={Math.max(0,progress-i*.16)} state={state} kind={kindBetween(i,i+1)} phase={living}/>}<EntityMark id={eid} icon={entityIcons?.[eid]} x={x} y={y} size={30+pop(i*.12)*10}/><Label text={labels[i]} {...denseLabelSlot(i)} active={i===Math.min(MAX_LABELS-1,Math.floor(progress*4))} state={state} maxWidth={260}/></React.Fragment>})}</>;
   }
   if (primitive === "before-after") {
     const leftWidth=390*(operation==="scale-compare"?1-progress*.28:1);
@@ -621,8 +809,8 @@ function StateDecorator({ state, consequence }: { state: VisualState; consequenc
   return null;
 }
 
-export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], entityIdentityKeys = [], entityIcons = {}, before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
-  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; entityIdentityKeys?: string[]; entityIcons?: EntityIconMap; before?: string; after?: string; keyText?: string;
+export function MotionDesignSystem({ primitive, operation = "timeline", state = "mechanism", numericValue = null, elements = [], entityIdentityKeys = [], entityIcons = {}, modelRelations = [], before = "", after = "", keyText = "", diagnosticMode = "normal" }: {
+  primitive: VisualPrimitive; operation?: VisualOperation; state?: VisualState; numericValue?: number | null; elements?: string[]; entityIdentityKeys?: string[]; entityIcons?: EntityIconMap; modelRelations?: ModelRelation[]; before?: string; after?: string; keyText?: string;
   diagnosticMode?: "normal" | "foreground-only" | "background-only";
 }) {
   const { setup, transform, consequence, hold, living, pop } = useProgress();
@@ -662,6 +850,28 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
   })();
   const labels = visibleEntities.map((e) => e.label);
   const identityKeys = visibleEntities.map((e) => e.identity);
+  // modelRelations indexes `elements` as the COMPILER cleaned it, but
+  // visibleEntities de-duplicates and re-caps that list (to 2 for
+  // single-pair primitives, 4 otherwise) -- so a relation's index can point
+  // at a different entity here than it did upstream, or at one that is no
+  // longer drawn. Remap through the display list and drop the rest; an edge
+  // pointing at the wrong mark states a claim the plan never made, which is
+  // worse for the viewer than one fewer connection.
+  const visibleRelations = (() => {
+    const slotByLabel = new Map<string, number>();
+    visibleEntities.forEach((entity, index) => slotByLabel.set(entity.label, index));
+    const remapped: ModelRelation[] = [];
+    for (const relation of modelRelations) {
+      const fromLabel = elements[relation.from];
+      const toLabel = elements[relation.to];
+      if (fromLabel === undefined || toLabel === undefined) continue;
+      const from = slotByLabel.get(fromLabel);
+      const to = slotByLabel.get(toLabel);
+      if (from === undefined || to === undefined || from === to) continue;
+      remapped.push({ from, to, kind: relation.kind });
+    }
+    return remapped;
+  })();
   // Several Geometry branches fall back to keyText/before/after when their
   // own labels array is empty (`labels[0] || keyText`, and similar) -- exactly
   // what payoff leaves empty. Left unguarded, the model kept drawing its own
@@ -685,9 +895,9 @@ export function MotionDesignSystem({ primitive, operation = "timeline", state = 
       {backgroundVisible ? <rect x="12" y="12" width="1056" height="486" rx="34" fill={BG} stroke={colors.muted} strokeWidth="2" opacity="0.96" /> : null}
       {foregroundVisible ? <OperationStage operation={operation} progress={transform} living={living} state={state} numericValue={numericValue}>
         {state === "contradiction" ? <>
-          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
-          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/></g>
-        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={geometryBefore} after={geometryAfter} keyText={geometryKeyText} numericValue={numericValue} progress={transform} living={living} pop={pop}/>}
+          <g opacity={1-consequence}><Geometry primitive={primitive} operation={operation} state="hypothesis" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} relations={visibleRelations} progress={transform} living={living} pop={pop}/></g>
+          <g opacity={consequence}><Geometry primitive={primitive} operation={operation} state="contradiction" labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={before} after={after} keyText={keyText} numericValue={numericValue} relations={visibleRelations} progress={transform} living={living} pop={pop}/></g>
+        </> : <Geometry primitive={primitive} operation={operation} state={state} labels={labels} identityKeys={identityKeys} entityIcons={entityIcons} before={geometryBefore} after={geometryAfter} keyText={geometryKeyText} numericValue={numericValue} relations={visibleRelations} progress={transform} living={living} pop={pop}/>}
       </OperationStage> : null}
       {foregroundVisible ? <StateDecorator state={state} consequence={consequence}/> : null}
     </svg>

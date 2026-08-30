@@ -7,16 +7,17 @@ const legacySchema = JSON.parse(readFileSync(new URL("../schemas/explanation_pla
 const semanticSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.1.0.json", import.meta.url), "utf8"));
 const priorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.2.0.json", import.meta.url), "utf8"));
 const priorPriorSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.3.0.json", import.meta.url), "utf8"));
-const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.4.0.json", import.meta.url), "utf8"));
+const labelLimitSchema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.4.0.json", import.meta.url), "utf8"));
+const schema = JSON.parse(readFileSync(new URL("../schemas/explanation_plan/1.5.0.json", import.meta.url), "utf8"));
 const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
 const legacyScene = legacySchema.json_schema.properties.scenes.items;
 const scene = schema.json_schema.properties.scenes.items;
 const props = scene.properties;
 
-test("explanation planner v3 emits required motion-design explanation_plan 1.4", () => {
-  assert.equal(agent.version, "3");
+test("explanation planner v4 emits required motion-design explanation_plan 1.5", () => {
+  assert.equal(agent.version, "4");
   assert.equal(agent.produces, "explanation_plan");
-  assert.equal(agent.produces_version, "1.4.0");
+  assert.equal(agent.produces_version, "1.5.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
   assert.equal(schema.status, "active");
   assert.equal(legacySchema.status, "deprecated");
@@ -36,6 +37,10 @@ test("explanation planner v3 emits required motion-design explanation_plan 1.4",
   // planner author up to 64/72 chars for fields that render in a fixed-size
   // box -- roughly double what a legible 2-line label can hold.
   assert.equal(priorPriorSchema.json_schema.properties.scenes.items.properties.state_before.maxLength, 64);
+  // 1.4.0 joins them: model_relations had to land as 1.5.0 rather than being
+  // added to 1.4.0 in place, for the same resumability reason.
+  assert.equal(labelLimitSchema.status, "deprecated");
+  assert.equal(labelLimitSchema.json_schema.properties.scenes.items.properties.state_before.maxLength, 32);
   assert.equal(props.state_before.maxLength, 32);
   assert.equal(props.state_after.maxLength, 32);
   assert.equal(props.key_text.maxLength, 48);
@@ -43,6 +48,11 @@ test("explanation planner v3 emits required motion-design explanation_plan 1.4",
   assert.ok(scene.required.includes("visual_primitive"));
   assert.ok(scene.required.includes("visual_state"));
   assert.ok(scene.required.includes("composition_mode"));
+  // Required, not optional. A relation list the planner is free to omit is a
+  // relation list it will omit, and every relationship primitive would keep
+  // falling back to the fixed topology 1.5.0 exists to replace. An empty
+  // array is the valid answer for a scene with nothing to connect.
+  assert.ok(scene.required.includes("model_relations"));
   assert.equal(scene.required.includes("numeric_value"), false);
   const characterRule = scene.allOf.find((rule: { then?: { required?: string[] } }) => rule.then?.required?.includes("speaker_emotion"));
   assert.ok(characterRule?.then.required.includes("listener_gesture"));

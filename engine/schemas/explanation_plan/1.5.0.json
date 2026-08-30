@@ -1,8 +1,8 @@
 {
   "schema_id": "explanation_plan",
-  "version": "1.4.0",
-  "status": "deprecated",
-  "description": "1.3.0 plus tighter state_before/state_after/key_text limits. A real production render (run_ad5bd430) showed the before-after primitive's 2-line label box truncating even after two rounds of renderer-side maxWidth increases, because nothing constrained how long the planner was allowed to author these fields in the first place -- 64/72 chars is roughly double what a 2-line box at legible font size can hold. Renderer maxWidth tuning alone cannot fix content the schema still permits to be too long.",
+  "version": "1.5.0",
+  "status": "active",
+  "description": "1.4.0 plus model_relations: the authored topology between a scene's model_elements. Until now every relationship-shaped primitive drew a FIXED graph -- `network` always rendered the same 7 nodes and same 10 links, `hierarchy` always a root with 2 branches and 4 leaves -- no matter what the episode was about. The labels and icons on those nodes were topic-specific but the structure never was, which is what makes the diagrams read as generic decoration next to the dialogue. Relations are index-based (into model_elements) rather than free text so an edge can never dangle, and `kind` lets a diagram express opposition and supply, not just undifferentiated connection -- 'A blocks B' was previously undrawable. An empty array is valid and expected for subject-shaped primitives; the renderer falls back to its previous fixed topology when relations are absent.",
   "produced_by": [
     "explanation_visual_planner"
   ],
@@ -36,7 +36,8 @@
             "state_after",
             "key_text",
             "character_cut_in",
-            "sound_cue"
+            "sound_cue",
+            "model_relations"
           ],
           "properties": {
             "scene_index": {
@@ -412,6 +413,45 @@
                 "null"
               ],
               "description": "Optional authored quantity used by counter and quantity graphics; null when the scene has no numeric value."
+            },
+            "model_relations": {
+              "type": "array",
+              "maxItems": 6,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from_element",
+                  "to_element",
+                  "kind"
+                ],
+                "properties": {
+                  "from_element": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "description": "Zero-based index into this scene's model_elements. The source end of the relation."
+                  },
+                  "to_element": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "description": "Zero-based index into this scene's model_elements. The target end of the relation. Must differ from from_element."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "causes",
+                      "blocks",
+                      "becomes",
+                      "feeds",
+                      "contains"
+                    ],
+                    "description": "What the connection asserts. causes: the source produces the target. blocks: the source prevents or opposes the target. becomes: the source turns into the target. feeds: the source continuously supplies the target. contains: the target sits inside the source."
+                  }
+                }
+              },
+              "description": "The connections between this scene's model_elements, as the explanation actually asserts them. Empty for scenes whose visual is a subject (particles, wave, horizon) rather than a relationship between named things."
             }
           },
           "allOf": [
