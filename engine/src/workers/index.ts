@@ -66,6 +66,17 @@ export interface WorkerSetOptions {
 }
 
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
+  // hybrid_visual_assets predates semantic_visual_assets and its standalone
+  // factory still declares 1.7.0 for backwards-compatible focused tests.
+  // Production registration upgrades only the declared output version; the
+  // payload shape is identical, and 1.8.0's producer allowlist explicitly
+  // includes hybrid_visual_assets. This prevents the semantic 1.8 artifact
+  // from being version-downgraded again on the final hybrid stage.
+  const productionHybrid: TransformationDef = {
+    ...makeHybridVisualAssetsWorker(),
+    produces_version: "1.8.0",
+  };
+
   const workers: TransformationDef[] = [
     makeCastLoaderWorker(),
     makeScriptQualityReleaseWorker(),
@@ -75,7 +86,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeAssetWorker(opts.assets ?? {}),
     makeV16CartoonSceneCompilerWorker(),
     makeSemanticVisualAssetsWorker(),
-    makeHybridVisualAssetsWorker(),
+    productionHybrid,
     makeRenderWorker(opts.render ?? {}),
     makeCartoonRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
