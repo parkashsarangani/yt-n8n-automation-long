@@ -55,13 +55,24 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "14");
+  assert.equal(graph.version, "15");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
   assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "explanation_visual_planner");
   assert.equal((byId.get("voice") as { transformation?: string })?.transformation, "dialogue_voice");
   assert.equal((byId.get("thumbnail_brief") as { transformation?: string })?.transformation, "cartoon_thumbnail_designer");
   assert.equal((byId.get("render") as { transformation?: string })?.transformation, "cartoon_render");
+  // The storyboard review has to sit on the DEFAULT graph, not only on
+  // cartoon.json. POST /api/runs resolves skeleton, so a review wired only
+  // into the other graph would never run on an ordinary episode -- the same
+  // footgun that left the hybrid pipeline unexercised by the default path.
+  assert.equal((byId.get("plan_review") as { transformation?: string })?.transformation, "explanation_plan_critic");
+  assert.equal((byId.get("plan_revision") as { transformation?: string })?.transformation, "explanation_plan_reviser");
+  assert.equal((byId.get("plan_release") as { transformation?: string })?.transformation, "explanation_plan_release");
+  // And every downstream consumer must read the RELEASED plan; if the
+  // compiler still read visual_plan the review would be advisory and the
+  // render would use the unrevised version.
+  assert.deepEqual((byId.get("assets") as { in?: string[] })?.in, ["plan_release", "approve_script", "cast_roster"]);
 });
 
 test("cartoon thumbnail brief schema requires artwork separate from compositor text", async () => {
@@ -310,7 +321,10 @@ test("the shipped production graph runs unattended end to end with fake provider
       composition_mode: i === 1 ? "full-model" : "bookend",
       explanation_title: i === 0 ? "The mystery" : i === 1 ? "The choice" : "The answer",
       model_elements: i === 0 ? ["humming locker", "Host notices"] : ["closed locker", "open locker"],
-      model_relations: i === 1 ? [{ from_element: 0, to_element: 1, kind: "becomes" }] : [],
+      // Scene 0 is a cause-chain, a relationship primitive: leaving it with no
+      // relations is exactly what explanation_plan_release rejects, since the
+      // renderer would fall back to a topology unrelated to this episode.
+      model_relations: i === 2 ? [] : [{ from_element: 0, to_element: 1, kind: i === 0 ? "causes" : "becomes" }],
       numeric_value: null,
       state_before: i === 1 ? "closed and humming" : "",
       state_after: i === 1 ? "open and louder" : "",
@@ -356,6 +370,28 @@ test("the shipped production graph runs unattended end to end with fake provider
     preferred_text_side: "left",
     rationale: "The face carries the reaction; the glow supplies the unanswered question.",
   };
+  const PLAN_REVIEW = {
+    overall_verdict: "revise",
+    episode_note: "The middle scene carries the whole mechanism and should not read as a static comparison.",
+    scenes: [0, 1, 2].map((i) => (i === 1
+      ? {
+        scene_index: i,
+        verdict: "weak",
+        failure_mode: "unauthored-structure",
+        note: "The compress operation draws the fallback topology because no relations are authored.",
+        suggested_fix: "Author model_relations so the two locker states connect as becomes.",
+      }
+      : { scene_index: i, verdict: "adequate", failure_mode: "none", note: "", suggested_fix: "" })),
+  };
+  // The revision the fake reviser returns. Scene 1 -- the one the review
+  // flagged -- must come back visibly different, or explanation_plan_release
+  // rejects the whole revision. That is the behaviour under test here, not an
+  // incidental fixture detail.
+  const REVISED_VISUAL_PLAN = {
+    scenes: VISUAL_PLAN.scenes.map((scene) => (scene.scene_index === 1
+      ? { ...scene, key_text: "It was already open", model_relations: [{ from_element: 0, to_element: 1, kind: "becomes" }] }
+      : scene)),
+  };
   const INSIGHTS = { sample_size: 0, confidence_note: "Nothing measured yet; no guidance can be supported.", guidance: [] };
 
   const provider = new FakeProvider((req: CompletionRequest) => {
@@ -365,7 +401,14 @@ test("the shipped production graph runs unattended end to end with fake provider
     if (title.includes("Story")) return { payload: STORY, confidence: { overall: 0.9 } };
     if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
     if (title.includes("CartoonCreativeDirection")) return { payload: CREATIVE_DIRECTION, confidence: { overall: 0.9 } };
-    if (title.includes("VisualPlan")) return { payload: VISUAL_PLAN, confidence: { overall: 0.9 } };
+    if (title.includes("ExplanationPlanReview")) return { payload: PLAN_REVIEW, confidence: { overall: 0.9 } };
+    // Ordering matters: the reviser and the planner both produce a
+    // CartoonVisualPlanArtifact, so they are told apart by which prompt is
+    // being run rather than by output schema.
+    if (title.includes("VisualPlan")) {
+      const revising = req.prompt.includes("Storyboard review:");
+      return { payload: revising ? REVISED_VISUAL_PLAN : VISUAL_PLAN, confidence: { overall: 0.9 } };
+    }
     if (title.includes("Seo")) return { payload: SEO, confidence: { overall: 0.9 } };
     if (title.includes("ThumbnailBrief")) return { payload: THUMBNAIL_BRIEF, confidence: { overall: 0.9 } };
     throw new Error(`no fake response configured for output schema "${title}"`);
@@ -414,7 +457,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
       [],
     );
-    for (const nodeId of ["story", "script", "visual_plan", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
+    for (const nodeId of ["story", "script", "visual_plan", "plan_review", "plan_revision", "plan_release", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
       assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
     }
     assert.notEqual(result.status, "blocked");
