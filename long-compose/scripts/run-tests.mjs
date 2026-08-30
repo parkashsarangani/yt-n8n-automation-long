@@ -26,9 +26,15 @@ const RENDER_SUITES = new Set([
   "output-quality.test.js",
 ]);
 
+// `contracts` = everything fast, `render` = both slow suites, or name one
+// slow suite to run it alone. CI runs the two slow suites as separate
+// parallel jobs on separate runners: they are CPU-bound renders, so splitting
+// them across machines actually halves the tail, where splitting them within
+// one runner does not (node --test already spreads files across its cores).
 const mode = process.argv[2];
-if (mode !== "render" && mode !== "contracts") {
-  console.error("usage: run-tests.mjs <render|contracts>");
+const single = RENDER_SUITES.has(mode) ? mode : null;
+if (!single && mode !== "render" && mode !== "contracts") {
+  console.error(`usage: run-tests.mjs <contracts|render|${[...RENDER_SUITES].join("|")}>`);
   process.exit(2);
 }
 
@@ -41,7 +47,9 @@ if (missing.length > 0) {
   process.exit(2);
 }
 
-const selected = all.filter((name) => (mode === "render" ? RENDER_SUITES.has(name) : !RENDER_SUITES.has(name)));
+const selected = single
+  ? all.filter((name) => name === single)
+  : all.filter((name) => (mode === "render" ? RENDER_SUITES.has(name) : !RENDER_SUITES.has(name)));
 if (selected.length === 0) {
   console.error(`run-tests.mjs: no test files matched mode "${mode}"`);
   process.exit(2);

@@ -8,24 +8,32 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Three independent jobs rather than one sequential one.
+# Four independent jobs, no `needs` between any of them, so wall clock is the
+# slowest one rather than the sum. Measured on real runs, not guessed:
 #
-# The single job ran contracts -> engine build/test -> long-compose build/test
-# end to end, 509s, and the cheap checks sat BEHIND 109s of Docker builds even
-# though they need no image at all. Two failures in one afternoon were
-# contract/source assertions that took minutes to surface when they could have
-# taken seconds.
+#   one sequential job                          509s
+#   three parallel jobs + buildx layer cache    398s
 #
-# These three have no dependency on each other, so they run in parallel:
-# wall-clock is now the slowest one rather than the sum, and `contracts`
-# reports in well under a minute. Since the repository is public, hosted
-# runner minutes are free, so spending three runners to shorten feedback is
-# the right trade.
+# Two lessons are baked in here.
+#
+# 1. The buildx GHA layer cache made builds SLOWER, not faster: engine
+#    36s -> 87s, long-compose 73s -> 194s. `cache-to: mode=max` exports every
+#    layer, and this image carries a ~200MB apt layer (chromium + ffmpeg) plus
+#    two node_modules trees, so the export cost more than the build it saved.
+#    Reverted to plain `docker build`.
+#
+# 2. The two render suites are CPU-bound. Splitting them across two RUNNERS
+#    halves the tail; splitting them inside one runner does not, because
+#    node --test already spreads files across that runner's cores. They pay
+#    for it with a duplicated image build, which is the right trade only
+#    because hosted minutes are free on a public repository -- revisit if this
+#    ever goes private again.
 jobs:
   contracts:
     name: Contracts and compose config
-    # No Docker image needed, so this finishes long before the build jobs and
-    # is usually the first thing to tell you a cross-package contract broke.
+    # Needs no image at all, so it reports in ~20s. Every cross-package
+    # contract break this session surfaced here; keeping it off the build path
+    # is the single biggest improvement to feedback latency.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,19 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
       - name: Build engine image
-        # Layer-cached across runs through the Actions cache. The image is
-        # rebuilt from scratch on every PR push otherwise, and almost every
-        # push changes source rather than the dependency layers.
-        uses: docker/build-push-action@v6
-        with:
-          context: ./engine
-          load: true
-          tags: engine:pr-${{ github.event.pull_request.number }}
-          cache-from: type=gha,scope=engine
-          cache-to: type=gha,scope=engine,mode=max
+        run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
 
       - name: Typecheck
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
@@ -83,35 +80,40 @@ jobs:
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
-  long-compose:
-    name: Long-compose build and test
+  long-compose-motion:
+    name: Long-compose contracts and motion render
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
       - name: Build long-compose image (no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./long-compose
-          load: true
-          tags: long-compose:pr-${{ github.event.pull_request.number }}
-          cache-from: type=gha,scope=long-compose
-          cache-to: type=gha,scope=long-compose,mode=max
+        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
 
-      - name: Test long-compose (source contracts)
-        # Split out and run FIRST purely for feedback latency: these are
-        # source-text assertions that finish in seconds, while the render
-        # suites below take minutes of real Remotion bundling and ffmpeg
-        # encoding. Running them first surfaces a broken contract in ~10s
-        # instead of after five minutes of rendering. No coverage is dropped
-        # -- the render suites still run right after, in the same job.
+      - name: Source contracts
+        # 19 files, ~1s: pure source-text assertions. Run before the render
+        # suite so a broken contract reports immediately rather than after
+        # minutes of Remotion bundling.
         run: |
           docker run --rm --entrypoint npm \
             long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
 
-      - name: Test long-compose (render suites)
+      - name: Motion render regression
         run: |
           docker run --rm --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} run test:render
+            long-compose:pr-${{ github.event.pull_request.number }} run test:render:motion
+
+  long-compose-output:
+    name: Long-compose output quality
+    # The heaviest suite: real ffmpeg encodes end to end. On its own runner so
+    # it runs alongside the motion render matrix instead of after it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build long-compose image (no push)
+        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+
+      - name: Output quality
+        run: |
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:render:output
