@@ -27,6 +27,13 @@ describe("compose cartoon render routing", () => {
     // syntax can't produce.
     assert.match(source, /sidechaincompress/);
     assert.match(source, /\[music\]\[\$\{voiceLabel\}\]sidechaincompress/);
-    assert.match(source, /"-map", mixLabels\.length > 1 \? "\[final_a\]" : voiceLabel/);
+    // The final map used to inline this decision as a ternary on
+    // mixLabels.length. It is now a variable, because the limiter can build
+    // [final_a] even when the voice is the only thing in the mix -- the
+    // ternary would then have mapped the raw voice and silently dropped the
+    // limiter. Same guarantee, expressed where every branch can set it.
+    assert.match(source, /let finalAudioLabel = voiceLabel;/);
+    assert.match(source, /"-map", finalAudioLabel,/);
+    assert.match(source, /finalAudioLabel = "\[final_a\]";/);
   });
 });
