@@ -197,3 +197,42 @@ test("every primitive that names entities draws all of them, not just the first"
     assert.ok(capped.includes(`"${primitive}"`), `${primitive} draws per-entity marks but is still capped at two entities`);
   }
 });
+
+test("a scene with nothing depictable states its model as animated text, not a graph", () => {
+  // Watch feedback on the rays frame: "does this make sense? I would prefer a
+  // broll or animated text instead." It did not make sense. When no entity in
+  // a scene resolves an icon -- "infrared", "vacuum gap", "heat loss" are
+  // abstractions -- every mark falls back to text and the diagram becomes
+  // three words joined by lines: a graph OF THE SENTENCE, which tells a
+  // viewer nothing the narration did not.
+  assert.match(motion, /function KineticStatement\(/);
+  assert.match(motion, /const anyIconResolved = /);
+  // `counter` is excluded whatever the primitive: its visual is items
+  // activating one by one as the number climbs, which is a real thing to
+  // watch. The render regression caught counter/objects going static when
+  // this gate first took it over.
+  assert.match(motion, /if \(!anyIconResolved && entityCount >= 2 && operation !== "counter" && NODE_DIAGRAM_PRIMITIVES\.has\(primitive\)\) \{/);
+  // Primitives that draw a real subject rather than labelled nodes keep their
+  // own composition -- a wave or a quantity still shows the viewer something.
+  const gate = motion.slice(motion.indexOf("const NODE_DIAGRAM_PRIMITIVES"), motion.indexOf("const anyIconResolved"));
+  for (const subject of ["wave", "spectrum", "quantity", "before-after", "horizon"]) {
+    assert.ok(!gate.includes(`"${subject}"`), `${subject} draws a real subject and must keep its own composition`);
+  }
+});
+
+test("the kinetic statement names the relation in words and orders rows along the chain", () => {
+  const kinetic = motion.slice(motion.indexOf("function KineticStatement("), motion.indexOf("function Geometry("));
+  // The relation word does work no arrow can: "blocks" is unambiguous where a
+  // barred line is not.
+  assert.match(kinetic, /\{link\.kind\}<\/text>/);
+  // Rows follow the authored edges so related entities land adjacent.
+  // Listing them in plan order dropped real relations: a scene relating 1->0
+  // and 0->2 could only ever show the 0-1 link.
+  assert.match(kinetic, /for \(const row of present\) if \(!hasIncoming\.has\(row\.index\)\) visit\(row\.index\);/);
+  assert.match(kinetic, /const rowIndices = order\.length \? order : present\.map\(\(row\) => row\.index\);/);
+  // A `blocks` stem stops at the bar; a full stem through a full bar renders
+  // as a plus sign, which reads as "and" rather than "stopped".
+  assert.match(kinetic, /blocks \? `M540 \$\{linkY - 32\} L540 \$\{linkY - 4\}`/);
+  // Rows land in sequence rather than all at once.
+  assert.match(kinetic, /frame: frame - i \* Math\.round\(fps \* 0\.34\)/);
+});

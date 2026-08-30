@@ -505,6 +505,104 @@ function RelationGraph({ labels, identityKeys, entityIcons, relations, state, pr
     </>;
 }
 
+// Kinetic typography for scenes whose entities cannot be pictured.
+//
+// A node-and-line diagram only earns its screen time when the nodes are
+// things a viewer can recognise. When every entity in a scene is an
+// abstraction -- "infrared", "vacuum gap", "heat loss" -- Iconify resolves
+// nothing, the marks fall back to text, and what is left is three words
+// joined by lines: a graph OF THE SENTENCE, which tells the viewer nothing
+// the narration did not already say. Watch feedback was blunt about it.
+//
+// So when nothing in the scene is depictable, stop pretending it is a
+// diagram and state the model as animated text instead: each entity lands in
+// turn, with the authored relation named in words between them. It reads as
+// a deliberate statement rather than a diagram that failed to find pictures,
+// and the relation word does work no arrow can -- "blocks" is unambiguous in
+// a way a barred line is not.
+function KineticStatement({ labels, relations, state, progress }: {
+  labels: string[]; relations: ModelRelation[]; state: VisualState; progress: number;
+}) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const colors = palette[state];
+  // Order the rows along the authored chain so related entities end up
+  // adjacent. Listing them in plan order left real relations undrawn: a scene
+  // relating 1->0 and 0->2 rendered 0,1,2 and could only show the 0-1 link,
+  // silently dropping "infrared feeds coffee". Following the edges instead
+  // turns the same three entities into a readable sentence.
+  const present = labels.map((label, index) => ({ label, index })).filter((row) => row.label && row.label.trim()).slice(0, 4);
+  const validIndices = new Set(present.map((row) => row.index));
+  const edges = relations.filter((relation) => validIndices.has(relation.from) && validIndices.has(relation.to));
+  const hasIncoming = new Set(edges.map((relation) => relation.to));
+  const order: number[] = [];
+  const visit = (index: number) => {
+    if (order.includes(index) || !validIndices.has(index)) return;
+    order.push(index);
+    for (const edge of edges) if (edge.from === index) visit(edge.to);
+  };
+  for (const row of present) if (!hasIncoming.has(row.index)) visit(row.index);
+  for (const row of present) visit(row.index);
+  const rowIndices = order.length ? order : present.map((row) => row.index);
+  const rows = rowIndices.map((index) => labels[index] ?? "");
+  if (rows.length === 0) return null;
+
+  // Fit the whole statement to the canvas: entity rows plus a connector band
+  // between each pair. Sizes shrink as rows are added so four entities still
+  // clear the 510-tall frame.
+  const rowGap = rows.length >= 4 ? 118 : rows.length === 3 ? 148 : 190;
+  const entitySize = rows.length >= 4 ? 50 : rows.length === 3 ? 58 : 68;
+  const top = 245 - ((rows.length - 1) * rowGap) / 2;
+
+  // The relation between two consecutive entities, in whichever direction it
+  // was authored -- a connector that ignored direction would name the right
+  // relation while pointing the wrong way.
+  const connector = (upperRow: number, lowerRow: number) => {
+    const upper = rowIndices[upperRow]!;
+    const lower = rowIndices[lowerRow]!;
+    const relation = relations.find((r) => (r.from === upper && r.to === lower) || (r.from === lower && r.to === upper));
+    if (!relation) return null;
+    return { kind: relation.kind, downward: relation.from === upper };
+  };
+
+  return <>
+    {rows.map((label, i) => {
+      const y = top + i * rowGap;
+      // Each row lands in turn, so the statement builds across the spoken
+      // line instead of appearing all at once and then holding.
+      const lands = spring({ frame: frame - i * Math.round(fps * 0.34), fps, config: { damping: 20, stiffness: 105 } });
+      const link = i < rows.length - 1 ? connector(i, i + 1) : null;
+      const linkY = y + rowGap / 2;
+      const linkLands = spring({ frame: frame - Math.round(fps * (0.34 * i + 0.2)), fps, config: { damping: 22, stiffness: 120 } });
+      const blocks = link?.kind === "blocks";
+      const linkColor = blocks ? RED : colors.line;
+      const arrowY = link?.downward ? linkY + 24 : linkY - 24;
+      return <React.Fragment key={`${label}-${i}`}>
+        <g opacity={Math.min(1, lands * 1.3)} transform={`translate(540 ${y}) scale(${0.9 + lands * 0.1})`}>
+          <text textAnchor="middle" fill={PAPER} fontSize={entitySize} fontWeight="880">
+            <tspan x="0" y={entitySize * 0.34}>{labelLines(label, 22)[0] ?? label}</tspan>
+          </text>
+        </g>
+        {link ? <g opacity={Math.min(1, linkLands * 1.4)}>
+          {/* A short stem, the relation named on it, and either an arrowhead
+              or -- for `blocks` -- a bar, so the kind reads without colour. */}
+          {/* For `blocks` the stem stops AT the bar rather than running
+              through it -- a full stem crossing a full bar renders as a plus
+              sign, which reads as "and" rather than "stopped". */}
+          <path d={blocks ? `M540 ${linkY - 32} L540 ${linkY - 4}` : `M540 ${linkY - 30} L540 ${linkY + 30}`}
+            stroke={linkColor} strokeWidth="5" strokeLinecap="round"
+            strokeDasharray="60" strokeDashoffset={60 * (1 - linkLands)} />
+          {blocks
+            ? <path d={`M498 ${linkY} L582 ${linkY}`} stroke={RED} strokeWidth="9" strokeLinecap="round" />
+            : <path d={`M528 ${arrowY} L540 ${link.downward ? arrowY + 14 : arrowY - 14} L552 ${arrowY}`}
+                fill="none" stroke={linkColor} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />}
+          <text x={608} y={linkY + 11} fill={linkColor} fontSize="32" fontWeight="820" letterSpacing="1.5">{link.kind}</text>
+        </g> : null}
+      </React.Fragment>;
+    })}
+  </>;
+}
+
 function Geometry({ primitive, operation, state, labels, identityKeys, entityIcons, before, after, keyText, numericValue, relations, progress, living, pop }: GeometryProps) {
   const colors = palette[state];
   // Only forward matches count. Reversing an edge to find a match would draw
@@ -560,6 +658,25 @@ function Geometry({ primitive, operation, state, labels, identityKeys, entityIco
   // honest: it can render a barred `blocks` edge, which is the entire point
   // of those scenes. Scenes whose relations really are containment keep
   // their nesting, so this narrows the vocabulary only where it was lying.
+  // Nothing in this scene resolved a real icon, so there is nothing to
+  // picture. See KineticStatement: a diagram of abstractions is a graph of
+  // the sentence. Primitives that draw a genuine subject rather than a set of
+  // labelled nodes (a wave, a spectrum, a quantity, a comparison of two
+  // states) are excluded -- those still show the viewer something.
+  const NODE_DIAGRAM_PRIMITIVES = new Set([
+    "network", "nested-context", "shells", "rays", "path", "facets-around-center",
+    "overlapping-sets", "cycle", "one-to-many", "many-to-one", "hierarchy", "cause-chain", "objects",
+  ]);
+  const anyIconResolved = Array.from({ length: entityCount }, (_, i) => entity(i).icon).some(Boolean);
+  // `counter` is excluded whatever the primitive: its whole visual is items
+  // activating one by one as the number climbs, which is a real thing to
+  // watch rather than a graph of the sentence. The render regression caught
+  // this -- counter/objects stopped visibly activating its entities once
+  // this gate took the scene over.
+  if (!anyIconResolved && entityCount >= 2 && operation !== "counter" && NODE_DIAGRAM_PRIMITIVES.has(primitive)) {
+    return <KineticStatement labels={labels} relations={relations} state={state} progress={progress} />;
+  }
+
   const CONTAINMENT_PRIMITIVES = new Set(["nested-context", "shells", "overlapping-sets"]);
   const hasDirectionalRelation = relations.some((relation) => relation.kind !== "contains");
   if (hasDirectionalRelation && CONTAINMENT_PRIMITIVES.has(primitive) && entityCount >= 2) {
