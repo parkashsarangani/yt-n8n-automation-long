@@ -1,4 +1,4 @@
-import contract from "../../contracts/semantic-representation.json" with { type: "json" };
+import contract from "./semantic-representation.json" with { type: "json" };
 export type RepresentationMode = keyof typeof contract;
 export type SceneBlueprint = (typeof contract)[RepresentationMode][number];
 export const SEMANTIC_REPRESENTATION_CONTRACT: Readonly<Record<RepresentationMode, readonly SceneBlueprint[]>> = contract;

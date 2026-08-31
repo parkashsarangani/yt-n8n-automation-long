@@ -68,9 +68,11 @@ function schemaBlueprintMap(schemaFile: Record<string, unknown>): Record<string,
 
 test("semantic representation compatibility stays synchronized across schema, engine, and renderer", () => {
   const canonical = JSON.parse(readFileSync(new URL("./semantic-representation.json", import.meta.url), "utf8"));
+  const engine = JSON.parse(readFileSync(new URL("../engine/src/semantic-representation.json", import.meta.url), "utf8"));
   const renderer = JSON.parse(readFileSync(new URL("../long-compose/remotion/src/semantic/semantic-representation.json", import.meta.url), "utf8"));
   const schema = JSON.parse(readFileSync(new URL("../engine/schemas/explanation_plan/1.6.0.json", import.meta.url), "utf8"));
 
+  assert.deepEqual(engine, canonical);
   assert.deepEqual(renderer, canonical);
   assert.deepEqual(schemaBlueprintMap(schema), canonical);
 });
