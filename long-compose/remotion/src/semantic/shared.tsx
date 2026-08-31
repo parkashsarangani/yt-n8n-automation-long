@@ -22,7 +22,20 @@ export function ratio(){const f=useCurrentFrame(),{durationInFrames}=useVideoCon
 // that isn't there -- amplitude is small and constant-speed (independent
 // of scene length, like MotionDesignSystem's), so it reads as "the canvas
 // is alive" rather than as a second authored action.
-export function breathe(){const f=useCurrentFrame(),{fps}=useVideoConfig();return Math.sin(f/Math.max(1,fps)*Math.PI*2)*0.5+0.5}
+// Two incommensurate frequencies (golden-ratio apart), not one pure sine.
+// A real render showed why a single period is fragile: scene4 passed
+// isolated verification (differences=0.0086) but failed in the actual
+// episode by a hair (0.0021 vs the 0.0025 threshold) -- its real duration
+// happened to put the QA sample frames near the same phase of a 1-second
+// cycle, and that's deterministic (the render pulls the same cached plan
+// every retry), so retrying could never have fixed it. No short scene
+// length can zero out BOTH terms of this sum at once the way one sine can.
+// Extracted as pure math (breathePhase) so this specific bug class -- an
+// ambient signal that's accidentally near-flat for a particular frame
+// count -- gets fast, deterministic unit coverage across many durations,
+// instead of relying only on a full Remotion render to catch it.
+export function breathePhase(frame:number,fps:number):number{const t=frame/Math.max(1,fps);return (Math.sin(t*Math.PI*2)+Math.sin(t*Math.PI*2*1.618))*0.25+0.5}
+export function breathe(){const f=useCurrentFrame(),{fps}=useVideoConfig();return breathePhase(f,fps)}
 // `names` is a hand-picked vocabulary per call site (e.g. ["drop","enter"]),
 // but the planner authors free-form verbs per topic ("scatter", "compare",
 // "rotate", "exit"...) with no constraint to match any renderer's list. A
