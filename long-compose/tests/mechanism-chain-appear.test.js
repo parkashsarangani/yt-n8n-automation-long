@@ -11,12 +11,10 @@ const source = fs.readFileSync(
   path.join(__dirname, "../remotion/src/compositions/ExplanationScene.tsx"),
   "utf8",
 );
-const start = source.indexOf("export function mechanismChainAppearAt");
-assert.ok(start >= 0, "expected to find the mechanismChainAppearAt export");
-const end = source.indexOf("\n}", start) + "\n}".length;
-const body = source
-  .slice(start, end)
-  .replace("export function mechanismChainAppearAt(resolve: number, i: number): number ", "function mechanismChainAppearAt(resolve, i) ");
+const exported = source.match(/export function mechanismChainAppearAt\(resolve\s*:\s*number\s*,\s*i\s*:\s*number\s*\)(?:\s*:\s*number)?\s*\{[^}]+\}/);
+assert.ok(exported, "expected to find the mechanismChainAppearAt export");
+const body = exported[0]
+  .replace(/export function mechanismChainAppearAt\(resolve\s*:\s*number\s*,\s*i\s*:\s*number\s*\)(?:\s*:\s*number)?/, "function mechanismChainAppearAt(resolve, i)");
 // eslint-disable-next-line no-new-func
 const mechanismChainAppearAt = new Function(`${body}; return mechanismChainAppearAt;`)();
 

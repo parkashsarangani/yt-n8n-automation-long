@@ -1216,6 +1216,7 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         // something concrete. Keyed the same way as entityIdentityKeys;
         // EntityMark prefers this over its hash-picked shape when present.
         entityIcons: d.entityIcons || {},
+        semanticRepresentation: d.semanticRepresentation,
         // The authored connections between those entities (their `kind` is
         // what lets a diagram draw "A blocks B" rather than an arrow that
         // says the opposite). Indices address `elements` above. An absent or

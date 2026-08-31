@@ -1,0 +1,8 @@
+{
+  "concrete-scene": ["container-object", "before-after-object"],
+  "domain-model": ["molecular-system", "lattice", "particle-system", "flow-system"],
+  "quantitative": ["mass-volume-comparison", "scale-comparison"],
+  "spatial": ["cross-section", "map"],
+  "temporal": ["timeline"],
+  "kinetic-text": ["animated-statement"]
+}

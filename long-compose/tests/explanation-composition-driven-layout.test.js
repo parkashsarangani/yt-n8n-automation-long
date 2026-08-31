@@ -15,5 +15,5 @@ test("bookend/reaction spatial allocation is composition-driven, not scene-posit
   // the engine-side half of this contract (which composition_mode routes to
   // "bookend") lives in engine/test/hybrid-audit-regressions.test.ts.
   assert.match(explanationSource, /function BookendComposition[\s\S]*?<ContentStage right=\{610\}/);
-  assert.match(explanationSource, /function ReactionComposition[\s\S]*?panelMode === "both" \? 610 : 380/);
+  assert.match(explanationSource, /function ReactionComposition[\s\S]*?right=\{(?:panelMode|m)\s*===\s*"both"\s*\?\s*610\s*:\s*380\}/);
 });

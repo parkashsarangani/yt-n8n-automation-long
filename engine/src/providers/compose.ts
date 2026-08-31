@@ -57,6 +57,21 @@ export interface DiagnosticThumbnailResult extends ThumbnailResult {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+export function bridgeSemanticTemplateData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!data || typeof data["representationMode"] !== "string") return data;
+  return {
+    ...data,
+    semanticRepresentation: {
+      representationMode: data["representationMode"],
+      sceneBlueprint: data["sceneBlueprint"],
+      visualClaim: data["visualClaim"],
+      semanticActionWindows: Array.isArray(data["semanticActionWindows"]) ? data["semanticActionWindows"] : [],
+      semanticEntities: Array.isArray(data["semanticEntities"]) ? data["semanticEntities"] : [],
+      semanticFallback: data["semanticFallback"] === true,
+    },
+  };
+}
+
 function diagnosticText(text: string, limit = 1200): string {
   const clean = text.trim();
   if (clean.length <= limit) return clean;
@@ -162,6 +177,9 @@ export class ComposeRenderer implements MediaRenderer {
       data: req.scenes.map((scene) => {
         const s = scene as HybridScene;
         const packedImages = s.images?.length ? s.images : s.image ? [s.image] : [];
+        const bridgedTemplateData = s.template_category === "explanation"
+          ? bridgeSemanticTemplateData(s.template_data)
+          : s.template_data;
         return {
           scene_index: s.scene_index,
           audio: {
@@ -177,7 +195,7 @@ export class ComposeRenderer implements MediaRenderer {
           ...(s.template_category && !s.is_outro ? {
             visual_source: "template",
             template_name: s.template_category,
-            template_data: s.template_data ?? {},
+            template_data: bridgedTemplateData ?? {},
           } : {}),
           ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
           ...(s.visual_mode ? { visual_mode: s.visual_mode } : {}),
@@ -254,7 +272,7 @@ export class ComposeRenderer implements MediaRenderer {
     const res = await this.fetchImpl(`${this.baseUrl}${pathname}`);
     const text = await res.text();
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as unknown;
     } catch {
       throw new ProviderError(`${this.id} GET ${pathname} returned ${res.status}: ${text.slice(0, 300)}`);
     }

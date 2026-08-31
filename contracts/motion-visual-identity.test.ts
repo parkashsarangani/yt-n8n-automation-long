@@ -49,3 +49,30 @@ test("engine AI identity tokens stay byte-for-byte compatible with Remotion Enti
     assert.ok(!("shape" in token), "shape is no longer part of the cross-package identity contract");
   }
 });
+
+function schemaBlueprintMap(schemaFile: Record<string, unknown>): Record<string, string[]> {
+  const schema = schemaFile.json_schema as Record<string, unknown>;
+  const itemSchema = ((schema.properties as Record<string, unknown>).scenes as Record<string, unknown>).items as Record<string, unknown>;
+  const allOf = itemSchema.allOf as Array<Record<string, unknown>>;
+  const result: Record<string, string[]> = {};
+  for (const conditional of allOf) {
+    const mode = ((((conditional.if as Record<string, unknown>)?.properties as Record<string, unknown>)?.representation_mode as Record<string, unknown>)?.const);
+    if (typeof mode !== "string") continue;
+    const sceneBlueprint = (((conditional.then as Record<string, unknown>)?.properties as Record<string, unknown>)?.scene_blueprint as Record<string, unknown>);
+    if (!sceneBlueprint) continue;
+    if (typeof sceneBlueprint.const === "string") result[mode] = [sceneBlueprint.const];
+    if (Array.isArray(sceneBlueprint.enum)) result[mode] = sceneBlueprint.enum as string[];
+  }
+  return result;
+}
+
+test("semantic representation compatibility stays synchronized across schema, engine, and renderer", () => {
+  const canonical = JSON.parse(readFileSync(new URL("./semantic-representation.json", import.meta.url), "utf8"));
+  const engine = JSON.parse(readFileSync(new URL("../engine/src/semantic-representation.json", import.meta.url), "utf8"));
+  const renderer = JSON.parse(readFileSync(new URL("../long-compose/remotion/src/semantic/semantic-representation.json", import.meta.url), "utf8"));
+  const schema = JSON.parse(readFileSync(new URL("../engine/schemas/explanation_plan/1.6.0.json", import.meta.url), "utf8"));
+
+  assert.deepEqual(engine, canonical);
+  assert.deepEqual(renderer, canonical);
+  assert.deepEqual(schemaBlueprintMap(schema), canonical);
+});

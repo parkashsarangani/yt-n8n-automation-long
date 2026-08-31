@@ -61,8 +61,8 @@ test("renderer depicts semantic subjects instead of naming generic cards", () =>
   assert.match(motion, /primitive === "shells"/);
   assert.match(motion, /primitive === "objects"/);
   assert.match(scene, /function PayoffResolution/);
-  assert.match(scene, /visualOperation === "payoff"/);
-  assert.match(scene, /durationInFrames \* 0?\.62/);
+  assert.match(scene, /visualOperation\s*===\s*"payoff"/);
+  assert.match(scene, /durationInFrames\s*\*\s*0?\.62/);
   assert.match(motion, /operation === "compress"/);
   assert.match(motion, /operation === "group"/);
   assert.match(motion, /operation === "sort"/);
@@ -77,11 +77,11 @@ test("reaction characters use deliberate bust panels", () => {
   // down slightly to fit the narrower width without cropping.
   assert.match(scene, /scale=\{1\.4\}/);
   assert.match(scene, /y=\{430\}/);
-  assert.match(scene, /borderRadius: 38/);
+  assert.match(scene, /borderRadius:\s*38/);
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);
   assert.doesNotMatch(scene, /function CharacterRail/);
   // 60, not 56: the opening/closing title got a deliberate size bump.
-  assert.match(scene, /fontSize: 60/);
+  assert.match(scene, /fontSize:\s*60/);
   assert.match(scene, /PRIMITIVE_GLOW/);
 });
 
@@ -199,8 +199,8 @@ test("motion design system implements all relationship primitives with staged ch
 });
 
 test("middle scenes suppress slide headings and canonical entities retain identity", () => {
-  assert.match(scene, /showTitle = compositionMode === "bookend" && !isPayoff/);
-  assert.match(scene, /\{showTitle \? <Title>/);
+  assert.match(scene, /showTitle\s*=\s*compositionMode\s*===\s*"bookend"\s*&&\s*!isPayoff/);
+  assert.match(scene, /\{showTitle\s*\?\s*<Title>/);
   assert.match(motion, /const hashText/);
   assert.match(motion, /function EntityMark/);
   // identityKeys (from entityIdentityKeys, a compiler-supplied proxy for
@@ -251,8 +251,8 @@ test("the payoff visually retraces the episode's mechanism, not just a decorativ
   // entities (elements/entityIdentityKeys/entityIcons), not a fixed prop.
   assert.match(motion, /export function EntityMark/);
   assert.match(scene, /function MechanismChain/);
-  assert.match(scene, /entities\.length < 2\) return null/);
-  assert.match(scene, /<PayoffResolution before=\{before\} after=\{after\} keyText=\{keyText\} elements=\{elements\} entityIdentityKeys=\{entityIdentityKeys\} entityIcons=\{entityIcons\}/);
+  assert.match(scene, /entities\.length\s*<\s*2\)\s*return null/);
+  assert.match(scene, /<PayoffResolution\s+after=\{after\}\s+keyText=\{keyText\}\s+elements=\{elements\}\s+entityIdentityKeys=\{entityIdentityKeys\}\s+entityIcons=\{entityIcons\}/);
   // Payoff-state geometry is established as always green (see the
   // accentCopyBlocks regression test) -- a chain icon landing on the same
   // hash-derived accent gold as the closing text purely by coincidence would
@@ -270,7 +270,7 @@ test("reaction panels interact with the model and payoff removes secondary copy"
   // on this wrapper to hide a diagram that was still drawing its own copy of
   // the closing statement underneath -- so dimming it to near-zero is no
   // longer needed to hide leftover content.
-  assert.match(scene, /opacity: isPayoff \? 0?\.22 : 1/);
+  assert.match(scene, /opacity:\s*isPayoff\s*\?\s*0?\.22\s*:\s*1/);
   const payoff = scene.slice(scene.indexOf("function PayoffResolution"), scene.indexOf("export const ExplanationScene"));
   assert.doesNotMatch(payoff, /\{before \? <div/, "payoff must not render the old hypothesis as secondary copy");
 });

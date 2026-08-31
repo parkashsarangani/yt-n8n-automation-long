@@ -55,24 +55,43 @@ test("default production graph is cartoon-first", async () => {
   const graph = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  assert.equal(graph.version, "15");
+  assert.equal(graph.version, "17");
   assert.equal((byId.get("cast_roster") as { transformation?: string })?.transformation, "cast_loader");
   assert.equal((byId.get("script") as { transformation?: string })?.transformation, "dialogue_script_writer");
   assert.equal((byId.get("visual_plan") as { transformation?: string })?.transformation, "explanation_visual_planner");
+  assert.equal((byId.get("visual_model") as { transformation?: string })?.transformation, "episode_visual_modeler");
   assert.equal((byId.get("voice") as { transformation?: string })?.transformation, "dialogue_voice");
   assert.equal((byId.get("thumbnail_brief") as { transformation?: string })?.transformation, "cartoon_thumbnail_designer");
   assert.equal((byId.get("render") as { transformation?: string })?.transformation, "cartoon_render");
-  // The storyboard review has to sit on the DEFAULT graph, not only on
-  // cartoon.json. POST /api/runs resolves skeleton, so a review wired only
-  // into the other graph would never run on an ordinary episode -- the same
-  // footgun that left the hybrid pipeline unexercised by the default path.
   assert.equal((byId.get("plan_review") as { transformation?: string })?.transformation, "explanation_plan_critic");
   assert.equal((byId.get("plan_revision") as { transformation?: string })?.transformation, "explanation_plan_reviser");
   assert.equal((byId.get("plan_release") as { transformation?: string })?.transformation, "explanation_plan_release");
-  // And every downstream consumer must read the RELEASED plan; if the
-  // compiler still read visual_plan the review would be advisory and the
-  // render would use the unrevised version.
+
+  // The default production path must exercise the entire semantic/hybrid chain.
+  // A review wired only into cartoon.json, or a renderer still consuming the
+  // compiler output directly, would make the semantic architecture advisory.
   assert.deepEqual((byId.get("assets") as { in?: string[] })?.in, ["plan_release", "approve_script", "cast_roster"]);
+  assert.equal((byId.get("semantic_assets") as { transformation?: string })?.transformation, "semantic_visual_assets");
+  assert.deepEqual((byId.get("semantic_assets") as { in?: string[] })?.in, ["assets", "plan_release", "approve_script", "voice", "visual_model"]);
+  assert.equal((byId.get("hybrid_assets") as { transformation?: string })?.transformation, "hybrid_visual_assets");
+  assert.deepEqual((byId.get("hybrid_assets") as { in?: string[] })?.in, ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"]);
+  assert.ok((byId.get("render") as { in?: string[] })?.in?.includes("hybrid_assets"));
+  assert.ok((byId.get("qa") as { in?: string[] })?.in?.includes("hybrid_assets"));
+});
+
+test("cartoon graph keeps semantic visual assets ahead of hybrid assets", async () => {
+  const graph = await loadGraph(path.join(ROOT, "graphs", "cartoon.json"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  assert.equal(graph.version, "15");
+  assert.deepEqual((byId.get("compiled_assets") as { in?: string[] })?.in, ["plan_release", "approve_script", "cast_roster"]);
+  assert.equal((byId.get("semantic_assets") as { transformation?: string })?.transformation, "semantic_visual_assets");
+  assert.deepEqual((byId.get("semantic_assets") as { in?: string[] })?.in, ["compiled_assets", "plan_release", "approve_script", "voice", "visual_model"]);
+  assert.equal((byId.get("hybrid_assets") as { transformation?: string })?.transformation, "hybrid_visual_assets");
+  assert.deepEqual((byId.get("hybrid_assets") as { in?: string[] })?.in, ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"]);
+  assert.ok((byId.get("render") as { in?: string[] })?.in?.includes("hybrid_assets"));
+  assert.ok((byId.get("qa") as { in?: string[] })?.in?.includes("hybrid_assets"));
+  assert.equal(byId.has("assets"), false);
 });
 
 test("cartoon thumbnail brief schema requires artwork separate from compositor text", async () => {
@@ -310,45 +329,97 @@ test("the shipped production graph runs unattended end to end with fake provider
           : "Let the final line land as reluctant acceptance",
     })),
   };
+
+  const characterPerformance = (emotion: "neutral" | "scared" | "surprised") => ({
+    listener_actor_id: "host",
+    speaker_emotion: emotion,
+    speaker_gesture: emotion === "neutral" ? "idle" : "explain",
+    speaker_gaze_target: "auto",
+    listener_emotion: "neutral",
+    listener_gesture: "idle",
+    listener_gaze_target: "auto",
+  });
+
   const VISUAL_PLAN = {
-    scenes: [0, 1, 2].map((i) => ({
-      scene_index: i,
-      template_category: "explanation",
-      scene_role: i === 0 ? "character-hook" : i === 1 ? "object-state-change" : "recap",
-      visual_operation: i === 0 ? "timeline" : i === 1 ? "compress" : "payoff",
-      visual_primitive: i === 0 ? "cause-chain" : "physical-transformation",
-      visual_state: i === 0 ? "hypothesis" : i === 1 ? "mechanism" : "payoff",
-      composition_mode: i === 1 ? "full-model" : "bookend",
-      explanation_title: i === 0 ? "The mystery" : i === 1 ? "The choice" : "The answer",
-      model_elements: i === 0 ? ["humming locker", "Host notices"] : ["closed locker", "open locker"],
-      // Scene 0 is a cause-chain, a relationship primitive: leaving it with no
-      // relations is exactly what explanation_plan_release rejects, since the
-      // renderer would fall back to a topology unrelated to this episode.
-      model_relations: i === 2 ? [] : [{ from_element: 0, to_element: 1, kind: i === 0 ? "causes" : "becomes" }],
-      numeric_value: null,
-      state_before: i === 1 ? "closed and humming" : "",
-      state_after: i === 1 ? "open and louder" : "",
-      key_text: i === 2 ? "It was waiting" : "",
-      character_cut_in: i === 0 ? "both" : "none",
-      sound_cue: i === 1 ? "soft-hit" : "none",
-      background_location: "school-hallway",
-      background_variant: "normal",
-      background_tone: "neutral",
-      framing: i === 0 ? "two-shot" : "speaker-closeup",
-      camera_motion: i === 0 ? "static" : "push-in",
-      listener_actor_id: "host",
-      speaker_emotion: i === 0 ? "neutral" : "surprised",
-      speaker_gesture: i === 0 ? "idle" : "explain",
-      speaker_gaze_target: "auto",
-      listener_emotion: "neutral",
-      listener_gesture: "idle",
-      listener_gaze_target: "auto",
-      visual_event: i === 0 ? "screen-change" : i === 1 ? "prop-tremble" : "callback-card",
-      ambient_motion: "subtle-parallax",
-      speaker_emphasis: "scale-pop",
-      cutaway_label: i === 2 ? "THE HUM ANSWERS" : "",
-    })),
+    scenes: [
+      {
+        scene_index: 0,
+        template_category: "explanation",
+        scene_role: "character-hook",
+        visual_operation: "timeline",
+        visual_primitive: "cause-chain",
+        visual_state: "hypothesis",
+        composition_mode: "bookend",
+        explanation_title: "The mystery",
+        model_elements: ["humming locker", "Host notices"],
+        model_relations: [{ from_element: 0, to_element: 1, kind: "causes" }],
+        numeric_value: null,
+        state_before: "",
+        state_after: "",
+        key_text: "Why is it humming?",
+        character_cut_in: "both",
+        sound_cue: "none",
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "The locker is already humming before Host touches it.",
+        visual_actions: [],
+        ...characterPerformance("neutral"),
+      },
+      {
+        scene_index: 1,
+        template_category: "explanation",
+        scene_role: "character-reaction",
+        visual_operation: "compress",
+        visual_primitive: "physical-transformation",
+        visual_state: "mechanism",
+        composition_mode: "full-model",
+        explanation_title: "The choice",
+        model_elements: ["Host", "locker handle"],
+        model_relations: [{ from_element: 0, to_element: 1, kind: "feeds" }],
+        numeric_value: null,
+        state_before: "reaching",
+        state_after: "pulls back",
+        key_text: "It sounds patient",
+        character_cut_in: "none",
+        sound_cue: "soft-hit",
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "Host hesitates because the hum feels unnervingly patient.",
+        visual_actions: [],
+      },
+      {
+        scene_index: 2,
+        template_category: "explanation",
+        scene_role: "recap",
+        visual_operation: "payoff",
+        visual_primitive: "before-after",
+        visual_state: "payoff",
+        composition_mode: "bookend",
+        explanation_title: "The answer",
+        model_elements: ["closed locker", "open locker"],
+        model_relations: [{ from_element: 0, to_element: 1, kind: "becomes" }],
+        numeric_value: null,
+        state_before: "closed and humming",
+        state_after: "open and louder",
+        key_text: "It was waiting",
+        character_cut_in: "both",
+        sound_cue: "resolve",
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "Opening the locker resolves the setup instead of merely restating it.",
+        visual_actions: [],
+        ...characterPerformance("surprised"),
+      },
+    ],
   };
+  const VISUAL_MODEL = {
+    style_id: "semantic-navy-editorial-v1",
+    entities: [
+      { entity_id: "locker", label: "locker", aliases: ["school locker"], depiction: { kind: "solid-object", appearance: "blue metal school locker", color: "#4C89C6", shape: "tall rectangle", material: "metal" } },
+      { entity_id: "host", label: "Host", aliases: ["speaker"], depiction: { kind: "abstract-subject", appearance: "recurring cartoon host", color: "#FFD166" } },
+    ],
+  };
+
   const SEO = {
     title: "The Locker That Hums Every Night",
     description: "A".repeat(60),
@@ -372,24 +443,27 @@ test("the shipped production graph runs unattended end to end with fake provider
   };
   const PLAN_REVIEW = {
     overall_verdict: "revise",
-    episode_note: "The middle scene carries the whole mechanism and should not read as a static comparison.",
-    scenes: [0, 1, 2].map((i) => (i === 1
+    episode_note: "The payoff should visibly transform the locker rather than remain a statement card.",
+    scenes: [0, 1, 2].map((i) => (i === 2
       ? {
         scene_index: i,
         verdict: "weak",
-        failure_mode: "unauthored-structure",
-        note: "The compress operation draws the fallback topology because no relations are authored.",
-        suggested_fix: "Author model_relations so the two locker states connect as becomes.",
+        failure_mode: "wrong-representation",
+        note: "The payoff is concrete and state-changing, but the plan uses kinetic text.",
+        suggested_fix: "Use concrete-scene + before-after-object and transform the closed locker into the open locker on the payoff phrase.",
       }
       : { scene_index: i, verdict: "adequate", failure_mode: "none", note: "", suggested_fix: "" })),
   };
-  // The revision the fake reviser returns. Scene 1 -- the one the review
-  // flagged -- must come back visibly different, or explanation_plan_release
-  // rejects the whole revision. That is the behaviour under test here, not an
-  // incidental fixture detail.
   const REVISED_VISUAL_PLAN = {
-    scenes: VISUAL_PLAN.scenes.map((scene) => (scene.scene_index === 1
-      ? { ...scene, key_text: "It was already open", model_relations: [{ from_element: 0, to_element: 1, kind: "becomes" }] }
+    scenes: VISUAL_PLAN.scenes.map((scene) => (scene.scene_index === 2
+      ? {
+        ...scene,
+        representation_mode: "concrete-scene",
+        scene_blueprint: "before-after-object",
+        visual_claim: "The closed humming locker becomes visibly open as the answer lands.",
+        visual_actions: [{ actor: "locker", action: "transform", target: "open locker", anchor_phrase: "It was waiting" }],
+        entity_refs: ["locker"],
+      }
       : scene)),
   };
   const INSIGHTS = { sample_size: 0, confidence_note: "Nothing measured yet; no guidance can be supported.", guidance: [] };
@@ -400,12 +474,10 @@ test("the shipped production graph runs unattended end to end with fake provider
     if (title.includes("ChannelInsights")) return { payload: INSIGHTS, confidence: { overall: 0.9 } };
     if (title.includes("Story")) return { payload: STORY, confidence: { overall: 0.9 } };
     if (title.includes("Script")) return { payload: SCRIPT, confidence: { overall: 0.9 } };
+    if (title.includes("EpisodeVisualModel")) return { payload: VISUAL_MODEL, confidence: { overall: 0.9 } };
     if (title.includes("CartoonCreativeDirection")) return { payload: CREATIVE_DIRECTION, confidence: { overall: 0.9 } };
     if (title.includes("ExplanationPlanReview")) return { payload: PLAN_REVIEW, confidence: { overall: 0.9 } };
-    // Ordering matters: the reviser and the planner both produce a
-    // CartoonVisualPlanArtifact, so they are told apart by which prompt is
-    // being run rather than by output schema.
-    if (title.includes("VisualPlan")) {
+    if (title.includes("SemanticVisualPlan")) {
       const revising = req.prompt.includes("Storyboard review:");
       return { payload: revising ? REVISED_VISUAL_PLAN : VISUAL_PLAN, confidence: { overall: 0.9 } };
     }
@@ -457,7 +529,7 @@ test("the shipped production graph runs unattended end to end with fake provider
       result.waiting.map((w) => w.node_id).filter((id) => id === "approve_story" || id === "approve_script"),
       [],
     );
-    for (const nodeId of ["story", "script", "visual_plan", "plan_review", "plan_revision", "plan_release", "assets", "voice", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
+    for (const nodeId of ["story", "script", "visual_plan", "plan_review", "plan_revision", "plan_release", "assets", "voice", "semantic_assets", "hybrid_assets", "seo", "thumbnail_brief", "thumbnail", "render", "qa"]) {
       assert.ok(result.outputs[nodeId], `node "${nodeId}" produced no output`);
     }
     assert.notEqual(result.status, "blocked");

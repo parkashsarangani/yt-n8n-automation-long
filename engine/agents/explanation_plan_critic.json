@@ -1,32 +1,16 @@
 {
   "name": "explanation_plan_critic",
   "kind": "agent",
-  "version": "1",
+  "version": "3",
   "consumes": [
-    {
-      "schema_id": "script",
-      "range": "^1",
-      "as": "script"
-    },
-    {
-      "schema_id": "explanation_plan",
-      "range": "^1",
-      "as": "plan"
-    }
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "episode_visual_model", "range": "^1", "as": "visual_model" },
+    { "schema_id": "explanation_plan", "range": "^1", "as": "plan" }
   ],
   "produces": "explanation_plan_review",
-  "produces_version": "1.0.0",
+  "produces_version": "1.1.0",
   "prompt": "explanation_plan_critic@1",
-  "model": {
-    "capability": "reasoning_high",
-    "max_output_tokens": 16000,
-    "effort": "high"
-  },
-  "confidence_dimensions": [
-    "evaluation_reliability",
-    "evidence_coverage"
-  ],
-  "retry": {
-    "max_attempts": 2
-  }
+  "model": { "capability": "reasoning_high", "max_output_tokens": 18000, "effort": "high" },
+  "confidence_dimensions": ["evaluation_reliability", "evidence_coverage"],
+  "retry": { "max_attempts": 2 }
 }

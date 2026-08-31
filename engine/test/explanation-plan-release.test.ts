@@ -131,7 +131,28 @@ test("subject primitives are never asked for relations", () => {
   assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
 });
 
-test("the worker blocks early attempts and accepts the last one rather than stalling a run", async () => {
+test("semantic release gate accepts every canonical mode-blueprint family used by benchmarks", () => {
+  const cases = [
+    ["domain-model", "flow-system"],
+    ["domain-model", "particle-system"],
+    ["quantitative", "scale-comparison"],
+    ["spatial", "map"],
+    ["temporal", "timeline"],
+  ];
+  const plan = {
+    scenes: cases.map(([representation_mode, scene_blueprint], scene_index) => scene({
+      scene_index,
+      representation_mode,
+      scene_blueprint,
+      visual_claim: `${representation_mode} ${scene_blueprint}`,
+      visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+    })),
+  };
+
+  assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
+});
+
+test("the worker never releases an invalid revision, including on later attempts", async () => {
   const worker = makeExplanationPlanReleaseWorker();
   const plan = { scenes: [scene({ scene_index: 0 })] };
   const inputs = {
@@ -142,14 +163,15 @@ test("the worker blocks early attempts and accepts the last one rather than stal
 
   await assert.rejects(
     () => worker.execute(inputs, fakeCtx(1)),
-    /explanation plan release blocked \(attempt 1\/3\)/,
+    /explanation plan release blocked \(attempt 1\)/,
   );
 
   const ctx = fakeCtx(3);
-  const out = await worker.execute(inputs, ctx);
-  assert.equal(out.payload, plan, "the last attempt is released rather than blocking the run forever");
-  assert.equal(ctx.warnings.length, 1);
-  assert.match(ctx.warnings[0]!, /accepting the revision despite an unmet review/);
+  await assert.rejects(
+    () => worker.execute(inputs, ctx),
+    /explanation plan release blocked \(attempt 3\)/,
+  );
+  assert.equal(ctx.warnings.length, 0);
 });
 
 test("the released payload is the revision, never the plan that was criticised", async () => {

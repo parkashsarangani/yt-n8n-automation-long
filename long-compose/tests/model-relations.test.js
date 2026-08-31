@@ -23,8 +23,8 @@ function relationBranch(kind) {
 
 test("authored relations are wired from the compose bridge through to the renderer", () => {
   assert.match(compose, /modelRelations: Array\.isArray\(d\.modelRelations\) \? d\.modelRelations : \[\]/);
-  assert.match(scene, /modelRelations\?: ModelRelation\[\]/);
-  assert.match(scene, /modelRelations = \[\]/);
+  assert.match(scene, /modelRelations\?\s*:\s*ModelRelation\[\]/);
+  assert.match(scene, /modelRelations\s*=\s*\[\]/);
   assert.match(scene, /modelRelations=\{modelRelations\}/);
   assert.match(motion, /modelRelations\?: ModelRelation\[\]/);
   // Geometry must receive the REMAPPED list, never the raw prop: the display

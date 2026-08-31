@@ -89,6 +89,19 @@ jobs:
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
 
+      - name: Typecheck Remotion
+        # long-compose's root tests are plain JavaScript, so nothing else in
+        # this job would catch a broken TSX composition -- it would only
+        # surface later, when a real episode asks Remotion to bundle it.
+        # Placed before the source-contracts/render steps below since it's a
+        # pure typecheck: fastest possible signal if a composition doesn't
+        # compile at all.
+        run: |
+          docker run --rm \
+            --entrypoint sh \
+            long-compose:pr-${{ github.event.pull_request.number }} \
+            -lc 'cd /app/remotion && npx tsc --noEmit'
+
       - name: Source contracts
         # 19 files, ~1s: pure source-text assertions. Run before the render
         # suite so a broken contract reports immediately rather than after

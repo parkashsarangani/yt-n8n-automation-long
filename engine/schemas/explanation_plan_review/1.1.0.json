@@ -1,0 +1,38 @@
+{
+  "schema_id": "explanation_plan_review",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "Storyboard review extended for semantic representation quality: over-abstraction, label dependence, missing causal action, wrong representation class, and motion that adds no information.",
+  "produced_by": ["explanation_plan_critic"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SemanticExplanationPlanReview",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["overall_verdict", "episode_note", "scenes"],
+    "properties": {
+      "overall_verdict": { "type": "string", "enum": ["ship", "revise"] },
+      "episode_note": { "type": "string", "maxLength": 500 },
+      "scenes": {
+        "type": "array", "minItems": 1, "maxItems": 200,
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["scene_index", "verdict", "failure_mode", "note", "suggested_fix"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "verdict": { "type": "string", "enum": ["strong", "adequate", "weak"] },
+            "failure_mode": {
+              "type": "string",
+              "enum": [
+                "none", "generic-visual", "claim-mismatch", "static", "repeats-neighbour", "unauthored-structure", "overfull-label",
+                "over-abstracted", "label-dependent", "missing-causal-action", "wrong-representation", "motion-without-information"
+              ]
+            },
+            "note": { "type": "string", "maxLength": 280 },
+            "suggested_fix": { "type": "string", "maxLength": 320 }
+          }
+        }
+      }
+    }
+  }
+}

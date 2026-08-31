@@ -1,43 +1,18 @@
 {
   "name": "explanation_plan_reviser",
   "kind": "agent",
-  "version": "1",
+  "version": "3",
   "consumes": [
-    {
-      "schema_id": "script",
-      "range": "^1",
-      "as": "script"
-    },
-    {
-      "schema_id": "explanation_plan",
-      "range": "^1",
-      "as": "plan"
-    },
-    {
-      "schema_id": "explanation_plan_review",
-      "range": "^1",
-      "as": "review"
-    },
-    {
-      "schema_id": "cast_roster",
-      "range": "^1",
-      "as": "cast_roster"
-    }
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "episode_visual_model", "range": "^1", "as": "visual_model" },
+    { "schema_id": "explanation_plan", "range": "^1", "as": "plan" },
+    { "schema_id": "explanation_plan_review", "range": "^1", "as": "review" },
+    { "schema_id": "cast_roster", "range": "^1", "as": "cast_roster" }
   ],
   "produces": "explanation_plan",
-  "produces_version": "1.5.0",
+  "produces_version": "1.6.0",
   "prompt": "explanation_plan_reviser@1",
-  "model": {
-    "capability": "reasoning_high",
-    "max_output_tokens": 20000,
-    "effort": "high"
-  },
-  "confidence_dimensions": [
-    "revision_fidelity",
-    "explanatory_clarity",
-    "dialogue_visual_alignment"
-  ],
-  "retry": {
-    "max_attempts": 3
-  }
+  "model": { "capability": "reasoning_high", "max_output_tokens": 22000, "effort": "high" },
+  "confidence_dimensions": ["revision_fidelity", "explanatory_clarity", "dialogue_visual_alignment"],
+  "retry": { "max_attempts": 3 }
 }
