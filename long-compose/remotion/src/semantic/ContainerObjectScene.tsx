@@ -1,27 +1,36 @@
-import type { SemanticSceneProps, SemanticActionWindow } from "./types";
+import type { SemanticSceneProps } from "./types";
 import {
   ACCENT,
   BLUE,
   GREEN,
   RED,
   TEAL,
-  actionProgress,
+  actionSlot,
   entityColor,
   entityLabel,
   ratio,
 } from "./shared";
 
-function hasDropAction(actions: SemanticActionWindow[] = []): boolean {
-  return actions.some((window) => window.action === "drop" || window.action === "enter");
-}
-
 export function ContainerObjectScene(x: SemanticSceneProps) {
   const r = ratio();
   const a = x.semanticActionWindows;
-  const drop = actionProgress(r, a, ["drop", "enter"]);
-  const rise = actionProgress(r, a, ["rise"]);
-  const sink = actionProgress(r, a, ["sink"]);
-  const y = 75 + 205 * (hasDropAction(a) ? drop : 1) - 130 * rise + 135 * sink;
+  // hasDropAction used to gate `drop` to a hardcoded 1 (fully settled)
+  // whenever the plan didn't author a literal "drop"/"enter" verb -- which
+  // was the majority of real plans (see actionSlot's comment in shared.tsx).
+  // Falling to a constant 1 instead of animating was the same "renders
+  // static" bug as the other two slots; actionSlot covers all three
+  // uniformly now, so the object animates using whatever verbs were
+  // actually authored instead of only ever settling instantly.
+  const drop = actionSlot(r, a, ["drop", "enter"]);
+  const rise = actionSlot(r, a, ["rise"]);
+  // skew=1.8: rise and sink push the object in opposite directions with
+  // near-equal magnitude (-130*rise, +135*sink below); when neither verb was
+  // authored, both would otherwise ramp through the exact same fallback
+  // span in lockstep and nearly cancel out (see actionSlot's comment in
+  // shared.tsx). The skew keeps sink smooth and monotonic but desyncs it
+  // from rise enough that their combined effect on `y` is actually visible.
+  const sink = actionSlot(r, a, ["sink"], 1.8);
+  const y = 75 + 205 * drop - 130 * rise + 135 * sink;
 
   return (
     <svg
