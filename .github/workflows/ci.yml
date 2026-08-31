@@ -8,15 +8,32 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Four independent jobs, no `needs` between any of them, so wall clock is the
+# slowest one rather than the sum. Measured on real runs, not guessed:
+#
+#   one sequential job                          509s
+#   three parallel jobs + buildx layer cache    398s
+#
+# Two lessons are baked in here.
+#
+# 1. The buildx GHA layer cache made builds SLOWER, not faster: engine
+#    36s -> 87s, long-compose 73s -> 194s. `cache-to: mode=max` exports every
+#    layer, and this image carries a ~200MB apt layer (chromium + ffmpeg) plus
+#    two node_modules trees, so the export cost more than the build it saved.
+#    Reverted to plain `docker build`.
+#
+# 2. The two render suites are CPU-bound. Splitting them across two RUNNERS
+#    halves the tail; splitting them inside one runner does not, because
+#    node --test already spreads files across that runner's cores. They pay
+#    for it with a duplicated image build, which is the right trade only
+#    because hosted minutes are free on a public repository -- revisit if this
+#    ever goes private again.
 jobs:
-  validate:
-    name: Build and test
-    # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
-    # images against fakes, it needs no production secrets or state. Keeping
-    # it off the self-hosted runner stops every PR push from competing with
-    # the live production engine for RAM/CPU on that box. deploy.yml stays
-    # self-hosted -- it deploys onto this exact host and a hosted runner
-    # cannot reach its Docker daemon.
+  contracts:
+    name: Contracts and compose config
+    # Needs no image at all, so it reports in ~20s. Every cross-package
+    # contract break this session surfaced here; keeping it off the build path
+    # is the single biggest improvement to feedback latency.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +45,8 @@ jobs:
 
       - name: Motion visual identity contract is synchronized
         # engine/ and long-compose/ build as two separate, isolated Docker
-        # contexts below, so this cross-package check runs once here, on the
-        # raw checkout, where both trees exist side by side.
+        # contexts in the sibling jobs, so this cross-package check runs here,
+        # on the raw checkout, where both trees exist side by side.
         run: npx --yes tsx --test contracts/motion-visual-identity.test.ts
 
       - name: Compose file is valid and starts the right services
@@ -42,6 +59,18 @@ jobs:
             exit 1
           }
 
+  engine:
+    name: Engine build and test
+    # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
+    # images against fakes, it needs no production secrets or state. Keeping
+    # it off the self-hosted runner stops every PR push from competing with
+    # the live production engine for RAM/CPU on that box. deploy.yml stays
+    # self-hosted -- it deploys onto this exact host and a hosted runner
+    # cannot reach its Docker daemon.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Build engine image
         run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
 
@@ -51,17 +80,40 @@ jobs:
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
+  long-compose-motion:
+    name: Long-compose contracts and motion render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
 
-      - name: Test long-compose
+      - name: Source contracts
+        # 19 files, ~1s: pure source-text assertions. Run before the render
+        # suite so a broken contract reports immediately rather than after
+        # minutes of Remotion bundling.
         run: |
-          docker run --rm \
-            --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} test
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
 
-      - name: Cleanup
-        if: always()
+      - name: Motion render regression
         run: |
-          docker rmi -f engine:pr-${{ github.event.pull_request.number }} \
-                        long-compose:pr-${{ github.event.pull_request.number }} 2>/dev/null || true
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:render:motion
+
+  long-compose-output:
+    name: Long-compose output quality
+    # The heaviest suite: real ffmpeg encodes end to end. On its own runner so
+    # it runs alongside the motion render matrix instead of after it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build long-compose image (no push)
+        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
+
+      - name: Output quality
+        run: |
+          docker run --rm --entrypoint npm \
+            long-compose:pr-${{ github.event.pull_request.number }} run test:render:output
