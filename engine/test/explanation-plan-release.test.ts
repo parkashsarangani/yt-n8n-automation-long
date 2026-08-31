@@ -131,6 +131,27 @@ test("subject primitives are never asked for relations", () => {
   assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
 });
 
+test("semantic release gate accepts every canonical mode-blueprint family used by benchmarks", () => {
+  const cases = [
+    ["domain-model", "flow-system"],
+    ["domain-model", "particle-system"],
+    ["quantitative", "scale-comparison"],
+    ["spatial", "map"],
+    ["temporal", "timeline"],
+  ];
+  const plan = {
+    scenes: cases.map(([representation_mode, scene_blueprint], scene_index) => scene({
+      scene_index,
+      representation_mode,
+      scene_blueprint,
+      visual_claim: `${representation_mode} ${scene_blueprint}`,
+      visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+    })),
+  };
+
+  assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
+});
+
 test("the worker never releases an invalid revision, including on later attempts", async () => {
   const worker = makeExplanationPlanReleaseWorker();
   const plan = { scenes: [scene({ scene_index: 0 })] };

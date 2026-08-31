@@ -1,5 +1,7 @@
 import type { Artifact } from "../artifact.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { semanticBlueprintFitsMode } from "../semantic-representation.ts";
+import { templateDataWithinLimit } from "./hybrid-visual-assets.ts";
 
 export type RepresentationMode = "concrete-scene" | "domain-model" | "quantitative" | "spatial" | "temporal" | "kinetic-text";
 export type SceneBlueprint =
@@ -86,12 +88,7 @@ export const SUPPORTED_BLUEPRINTS = new Set<SceneBlueprint>([
 ]);
 
 export function blueprintFitsMode(mode: RepresentationMode, blueprint: SceneBlueprint): boolean {
-  if (mode === "concrete-scene") return blueprint === "container-object" || blueprint === "before-after-object";
-  if (mode === "domain-model") return ["molecular-system", "lattice", "particle-system", "flow-system"].includes(blueprint);
-  if (mode === "quantitative") return blueprint === "mass-volume-comparison" || blueprint === "scale-comparison";
-  if (mode === "spatial") return blueprint === "cross-section" || blueprint === "map";
-  if (mode === "temporal") return blueprint === "timeline";
-  return blueprint === "animated-statement";
+  return semanticBlueprintFitsMode(mode, blueprint);
 }
 
 function clean(value: unknown, max = 180): string {
@@ -255,7 +252,7 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
   return {
     name: "semantic_visual_assets",
     kind: "worker",
-    version: "2",
+    version: "3",
     consumes: [
       { schema_id: "asset_manifest", range: "^1", as: "compiled" },
       { schema_id: "explanation_plan", range: "^1", as: "plan" },
@@ -280,6 +277,10 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
       for (const scene of compiled.scenes) {
         const plan = planBy.get(scene.scene_index);
         if (!plan) { scenes.push(scene); continue; }
+        // Preserve authored primitive/relation rendering for resumed pre-1.6
+        // plans. Only a plan that opted into the semantic contract may be
+        // converted to the deliberate animated-text fallback.
+        if (!plan.representation_mode) { scenes.push(scene); continue; }
         const script = scriptBy.get(scene.scene_index) ?? { scene_index: scene.scene_index, narration: "" };
         const clip = clipBy.get(scene.scene_index);
         const durationSec = typeof clip?.duration_sec === "number" && clip.duration_sec > 0 ? clip.duration_sec : 1;
@@ -295,11 +296,16 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
         const windows = resolveActionWindows(actions, script.narration ?? "", alignment, durationSec);
         const semanticEntities = (plan.entity_refs ?? []).map((id) => ontologyById.get(id)).filter((entity): entity is SemanticEntity => !!entity).slice(0, 4);
         const payload = semanticPayload(parseTemplateData(scene), plan, windows, semanticEntities);
-        const encoded = JSON.stringify(payload);
-        if (encoded.length > 8000) {
-          throw new Error(`semantic visual scene ${scene.scene_index} template_data exceeds 8000 characters after semantic metadata (${encoded.length})`);
-        }
-        scenes.push({ ...scene, template_data: encoded });
+        const compactFallback = JSON.stringify({
+          representationMode: "kinetic-text",
+          sceneBlueprint: "animated-statement",
+          visualClaim: String(payload["visualClaim"] ?? "Main idea").slice(0, 180),
+          semanticActionWindows: [],
+          semanticEntities: [],
+          semanticFallback: true,
+        });
+        const template_data = templateDataWithinLimit(compactFallback, payload);
+        scenes.push({ ...scene, ...(template_data ? { template_data } : {}) });
       }
 
       return { payload: { scenes, degraded_count: compiled.degraded_count ?? 0 } };

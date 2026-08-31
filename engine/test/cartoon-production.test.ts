@@ -79,6 +79,21 @@ test("default production graph is cartoon-first", async () => {
   assert.ok((byId.get("qa") as { in?: string[] })?.in?.includes("hybrid_assets"));
 });
 
+test("cartoon graph keeps semantic visual assets ahead of hybrid assets", async () => {
+  const graph = await loadGraph(path.join(ROOT, "graphs", "cartoon.json"));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  assert.equal(graph.version, "15");
+  assert.deepEqual((byId.get("compiled_assets") as { in?: string[] })?.in, ["plan_release", "approve_script", "cast_roster"]);
+  assert.equal((byId.get("semantic_assets") as { transformation?: string })?.transformation, "semantic_visual_assets");
+  assert.deepEqual((byId.get("semantic_assets") as { in?: string[] })?.in, ["compiled_assets", "plan_release", "approve_script", "voice", "visual_model"]);
+  assert.equal((byId.get("hybrid_assets") as { transformation?: string })?.transformation, "hybrid_visual_assets");
+  assert.deepEqual((byId.get("hybrid_assets") as { in?: string[] })?.in, ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"]);
+  assert.ok((byId.get("render") as { in?: string[] })?.in?.includes("hybrid_assets"));
+  assert.ok((byId.get("qa") as { in?: string[] })?.in?.includes("hybrid_assets"));
+  assert.equal(byId.has("assets"), false);
+});
+
 test("cartoon thumbnail brief schema requires artwork separate from compositor text", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   assert.equal(registry.resolveVersion("thumbnail_brief"), "1.2.0");

@@ -6,12 +6,26 @@ import {
   normaliseWithMap,
   resolveActionWindows,
   semanticPayload,
+  makeSemanticVisualAssetsWorker,
   type SemanticAction,
 } from "../src/workers/semantic-visual-assets.ts";
-import {
-  bridgeSemanticTemplateData,
-  SEMANTIC_RENDER_EXTENSION_KEY,
-} from "../src/providers/compose.ts";
+import { bridgeSemanticTemplateData } from "../src/providers/compose.ts";
+import type { Artifact } from "../src/artifact.ts";
+import type { WorkerContext } from "../src/runner.ts";
+
+function fakeCtx(): WorkerContext {
+  return {
+    attemptNumber: 1,
+    logger: { log: () => {}, warn: () => {}, error: () => {} },
+    blobs: {
+      get: async () => new Uint8Array(),
+      put: async () => "blob://unused",
+      has: async () => false,
+    } as unknown as WorkerContext["blobs"],
+    media: {},
+    progress: async () => {},
+  };
+}
 
 test("semantic representation mode only accepts its supported renderer family", () => {
   assert.equal(blueprintFitsMode("concrete-scene", "container-object"), true);
@@ -141,7 +155,8 @@ test("long-compose bridge carries semantic metadata through the existing explana
   assert.ok(bridged);
   const icons = bridged!["entityIcons"] as Record<string, unknown>;
   assert.deepEqual(icons["entity-ice"], originalIcon);
-  assert.deepEqual(icons[SEMANTIC_RENDER_EXTENSION_KEY], {
+  assert.equal(icons["__semanticRepresentationV1"], undefined);
+  assert.deepEqual(bridged!["semanticRepresentation"], {
     representationMode: "concrete-scene",
     sceneBlueprint: "container-object",
     visualClaim: "Ice rises to the surface.",
@@ -154,4 +169,52 @@ test("long-compose bridge carries semantic metadata through the existing explana
 test("non-semantic explanation data is not altered by the renderer bridge", () => {
   const legacy = { keyText: "legacy", entityIcons: {} };
   assert.equal(bridgeSemanticTemplateData(legacy), legacy);
+});
+
+test("semantic worker preserves resumed legacy diagram template data", async () => {
+  const worker = makeSemanticVisualAssetsWorker();
+  const legacyTemplate = JSON.stringify({
+    keyText: "legacy diagram",
+    visualPrimitive: "network",
+    modelRelations: [{ from_element: 0, to_element: 1, kind: "causes" }],
+  });
+  const out = await worker.execute({
+    compiled: { payload: { scenes: [{ scene_index: 0, template_category: "explanation", template_data: legacyTemplate }] } } as unknown as Artifact,
+    plan: { payload: { scenes: [{ scene_index: 0, visual_primitive: "network", model_elements: ["a", "b"], model_relations: [{ from_element: 0, to_element: 1, kind: "causes" }] }] } } as unknown as Artifact,
+    script: { payload: { scenes: [{ scene_index: 0, narration: "A causes B." }] } } as unknown as Artifact,
+    voice: { payload: { clips: [] } } as unknown as Artifact,
+    visual_model: { payload: { entities: [] } } as unknown as Artifact,
+  }, fakeCtx());
+
+  const scenes = (out.payload as { scenes: Array<{ template_data?: string }> }).scenes;
+  assert.equal(scenes[0]!.template_data, legacyTemplate);
+});
+
+test("semantic worker compacts oversized semantic metadata instead of throwing", async () => {
+  const worker = makeSemanticVisualAssetsWorker();
+  const hugeTemplate = JSON.stringify({
+    keyText: "compact me",
+    padding: "x".repeat(9000),
+  });
+  const out = await worker.execute({
+    compiled: { payload: { scenes: [{ scene_index: 0, template_category: "explanation", template_data: hugeTemplate }] } } as unknown as Artifact,
+    plan: { payload: { scenes: [{
+      scene_index: 0,
+      representation_mode: "concrete-scene",
+      scene_blueprint: "container-object",
+      visual_claim: "The object rises.",
+      visual_actions: [{ actor: "object", action: "rise", target: "surface", anchor_phrase: "rises" }],
+    }] } } as unknown as Artifact,
+    script: { payload: { scenes: [{ scene_index: 0, narration: "The object rises." }] } } as unknown as Artifact,
+    voice: { payload: { clips: [{ scene_index: 0, duration_sec: 2 }] } } as unknown as Artifact,
+    visual_model: { payload: { entities: [] } } as unknown as Artifact,
+  }, fakeCtx());
+
+  const [scene] = (out.payload as { scenes: Array<{ template_data?: string }> }).scenes;
+  assert.ok(scene!.template_data);
+  assert.ok(scene!.template_data!.length < 8000);
+  const payload = JSON.parse(scene!.template_data!);
+  assert.equal(payload.representationMode, "kinetic-text");
+  assert.equal(payload.sceneBlueprint, "animated-statement");
+  assert.equal(payload.semanticFallback, true);
 });

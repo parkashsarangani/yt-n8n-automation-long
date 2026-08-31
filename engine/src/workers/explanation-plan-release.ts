@@ -1,4 +1,5 @@
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
+import { SEMANTIC_REPRESENTATION_CONTRACT, semanticBlueprintFitsMode } from "../semantic-representation.ts";
 
 // Deterministic half of the storyboard review gate. Semantic-plan structural
 // invariants are facts rather than taste, so they are enforced here in
@@ -7,14 +8,6 @@ import type { WorkerDef, WorkerOutput } from "../runner.ts";
 const RELATIONSHIP_PRIMITIVES = new Set([
   "network", "hierarchy", "one-to-many", "many-to-one", "cause-chain",
 ]);
-
-const MODE_BLUEPRINTS: Record<string, ReadonlySet<string>> = {
-  "concrete-scene": new Set(["container-object", "before-after-object"]),
-  "domain-model": new Set(["molecular-system", "lattice"]),
-  quantitative: new Set(["mass-volume-comparison"]),
-  spatial: new Set(["cross-section"]),
-  "kinetic-text": new Set(["animated-statement"]),
-};
 
 interface ReviewScene {
   scene_index?: unknown;
@@ -69,12 +62,12 @@ function validateSemanticScene(scene: Scene, index: number, failures: string[]):
   const claim = scene["visual_claim"];
   const actions = Array.isArray(scene["visual_actions"]) ? scene["visual_actions"] : [];
 
-  const allowed = MODE_BLUEPRINTS[mode];
+  const allowed = SEMANTIC_REPRESENTATION_CONTRACT[mode as keyof typeof SEMANTIC_REPRESENTATION_CONTRACT];
   if (!allowed) {
     failures.push(`scene ${index} has unsupported representation_mode ${JSON.stringify(mode)}`);
     return true;
   }
-  if (typeof blueprint !== "string" || !allowed.has(blueprint)) {
+  if (typeof blueprint !== "string" || !semanticBlueprintFitsMode(mode, blueprint)) {
     failures.push(`scene ${index} representation_mode ${mode} cannot use scene_blueprint ${JSON.stringify(blueprint)}`);
   }
   if (typeof claim !== "string" || claim.trim().length < 4) {
@@ -162,7 +155,7 @@ export function makeExplanationPlanReleaseWorker(): WorkerDef {
   return {
     name: "explanation_plan_release",
     kind: "worker",
-    version: "2",
+    version: "3",
     consumes: [
       { schema_id: "explanation_plan", range: "^1", as: "original" },
       { schema_id: "explanation_plan", range: "^1", as: "revised" },

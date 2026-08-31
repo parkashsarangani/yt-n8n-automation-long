@@ -1,6 +1,6 @@
 {
   "graph_id": "cartoon",
-  "version": "14",
+  "version": "15",
   "description": "Semantic-first hybrid explainer pipeline: reviewed plans choose concrete/domain/quantitative/spatial renderers or deliberate animated text; after TTS, semantic actions are phrase-aligned to real voice timing; hybrid AI scene packs remain selective visual resets; generic diagram geometry is retained only for legacy artifact compatibility, not as the fallback for newly authored semantic plans.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
@@ -24,12 +24,12 @@
     { "id": "compiled_assets", "transformation": "cartoon_scene_compiler", "in": ["plan_release", "approve_script", "cast_roster"] },
     { "id": "voice", "transformation": "dialogue_voice", "in": ["approve_script", "cast_roster"] },
     { "id": "semantic_assets", "transformation": "semantic_visual_assets", "in": ["compiled_assets", "plan_release", "approve_script", "voice", "visual_model"] },
-    { "id": "assets", "transformation": "hybrid_visual_assets", "in": ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
+    { "id": "hybrid_assets", "transformation": "hybrid_visual_assets", "in": ["semantic_assets", "plan_release", "approve_script", "cast_roster", "voice"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "cartoon_thumbnail_designer", "in": ["approve_story", "approve_script", "cast_roster"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "cartoon_render", "in": ["approve_script", "voice", "assets", "cast_roster"] },
-    { "id": "qa", "transformation": "retention_qa", "in": ["intent", "approve_script", "quality_final", "assets", "voice", "render", "thumbnail", "seo"] },
+    { "id": "render", "transformation": "cartoon_render", "in": ["approve_script", "voice", "hybrid_assets", "cast_roster"] },
+    { "id": "qa", "transformation": "retention_qa", "in": ["intent", "approve_script", "quality_final", "hybrid_assets", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "always" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
   ]
