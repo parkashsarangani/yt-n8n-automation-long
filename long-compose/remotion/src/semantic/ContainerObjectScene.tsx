@@ -6,6 +6,7 @@ import {
   RED,
   TEAL,
   actionSlot,
+  breathe,
   entityColor,
   entityLabel,
   ratio,
@@ -31,6 +32,11 @@ export function ContainerObjectScene(x: SemanticSceneProps) {
   // from rise enough that their combined effect on `y` is actually visible.
   const sink = actionSlot(r, a, ["sink"], 1.8);
   const y = 75 + 205 * drop - 130 * rise + 135 * sink;
+  // The medium's surface line was perfectly static regardless of drop/rise/
+  // sink -- same dead-zone issue as the other components' fixed elements
+  // (see breathe's comment in shared.tsx). A gentle ripple is also just a
+  // more honest depiction of a liquid/gas surface than a rigid line.
+  const surfaceRipple = breathe() * 6;
 
   return (
     <svg
@@ -46,7 +52,7 @@ export function ContainerObjectScene(x: SemanticSceneProps) {
       />
       <path d="M315 190 H785 L752 450 H348 Z" fill={entityColor(x, 1, "#163A5C")} />
       <path
-        d="M315 190 Q450 178 550 190 T785 190"
+        d={`M315 ${190 + surfaceRipple} Q450 ${178 + surfaceRipple} 550 ${190 + surfaceRipple} T785 ${190 + surfaceRipple}`}
         fill="none"
         stroke={TEAL}
         strokeWidth="7"
