@@ -2,8 +2,23 @@ import type {SemanticSceneProps} from "./types";import {ACCENT,BLUE,GREEN,PAPER,
 export function QuantityComparisonScene(x:SemanticSceneProps){
   const r=ratio(),a=x.semanticActionWindows,e=actionSlot(r,a,["expand","compare","rearrange"]),scale=x.sceneBlueprint==="scale-comparison"?1+e*1.2:1+e*.35;
   return <svg data-semantic-blueprint={x.sceneBlueprint} viewBox="0 0 1100 520" style={{width:"100%"}}>
-    <rect x="110" y="145" width="300" height="260" rx="28" fill="#0C1C31" stroke={BLUE} strokeWidth="7"/>
-    <rect x={700-150*scale} y={275-130*scale} width={300*scale} height={260*scale} rx="28" fill="#0C1C31" stroke={GREEN} strokeWidth="7"/>
+    {/* Box fill was #0C1C31 -- only 35 of luminosity distance from the
+        #08101E canvas background, under the 55 threshold the QA gate's
+        deterministic occupancy check uses to count a pixel as "foreground".
+        A real render (scene11) showed exactly this: the boxes were
+        geometrically large enough (occupancy would have easily cleared
+        15%), but their interior fill was invisible to the metric -- only
+        the stroke outlines and the 12 accent dots ever counted, which
+        wasn't enough on their own. A first attempt at #132B4A (82 of
+        distance) technically cleared the threshold but by 0.00004 of
+        occupancy ratio -- noise, not a real margin. #1C3A63 (131 of
+        distance) still reads as a dark navy fitting the house palette,
+        with real margin this time. Scoped to this
+        component only -- ContainerObjectScene/BeforeAfterObjectScene reuse
+        the darker fill but their boxes are proportionally larger and never
+        failed this check. */}
+    <rect x="110" y="145" width="300" height="260" rx="28" fill="#1C3A63" stroke={BLUE} strokeWidth="7"/>
+    <rect x={700-150*scale} y={275-130*scale} width={300*scale} height={260*scale} rx="28" fill="#1C3A63" stroke={GREEN} strokeWidth="7"/>
     {/* A small constant-amplitude jitter on the reference dots, independent
         of `e` (matches ParticleSystemScene's own established pattern) --
         this box never grows and its dots never move on their own, so a
