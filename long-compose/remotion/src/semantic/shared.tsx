@@ -1,6 +1,28 @@
 import {useCurrentFrame,useVideoConfig} from "remotion";import type {SemanticActionWindow,SemanticSceneProps} from "./types";
 export const BG="#08101E",PAPER="#F7F4EA",ACCENT="#FFD166",GREEN="#7DE2A8",BLUE="#65C7F7",TEAL="#56D6C9",RED="#FF7D7D";
 export function ratio(){const f=useCurrentFrame(),{durationInFrames}=useVideoConfig();return Math.max(0,Math.min(1,f/Math.max(1,durationInFrames-1)))}
+
+// A real render (run_bd3de54c) showed a second, distinct failure pattern
+// after actionSlot fixed the pure vocabulary-mismatch case: a scene whose
+// authored window doesn't span the WHOLE scene -- starts late (nothing has
+// happened yet), or ends early (its one beat already resolved) -- is
+// legitimately, perfectly frozen outside that window, and a QA sample pair
+// that falls entirely inside that dead stretch fails. Scaling or padding
+// the window itself would be dishonest -- it would make the object move
+// before/after the narration actually describes anything happening.
+//
+// The existing, working precedent for this is MotionDesignSystem.tsx's
+// `living` value ("keep a low-amplitude living hold after the main
+// transformation so a diagram never becomes a frozen slide"), and this
+// module's own MoleculeSystemScene/ParticleSystemScene, which layer a
+// continuous ambient jitter under their verb-driven motion and are the
+// only components that never failed this QA check on the same render.
+// `breathe` is the same idea, extracted so any semantic scene can add a
+// touch of it to a size/position/opacity term without inventing motion
+// that isn't there -- amplitude is small and constant-speed (independent
+// of scene length, like MotionDesignSystem's), so it reads as "the canvas
+// is alive" rather than as a second authored action.
+export function breathe(){const f=useCurrentFrame(),{fps}=useVideoConfig();return Math.sin(f/Math.max(1,fps)*Math.PI*2)*0.5+0.5}
 // `names` is a hand-picked vocabulary per call site (e.g. ["drop","enter"]),
 // but the planner authors free-form verbs per topic ("scatter", "compare",
 // "rotate", "exit"...) with no constraint to match any renderer's list. A
