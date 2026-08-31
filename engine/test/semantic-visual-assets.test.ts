@@ -217,4 +217,39 @@ test("semantic worker compacts oversized semantic metadata instead of throwing",
   assert.equal(payload.representationMode, "kinetic-text");
   assert.equal(payload.sceneBlueprint, "animated-statement");
   assert.equal(payload.semanticFallback, true);
+  // retention_qa's visual_assets_renderable check reads degraded_count to
+  // warn on episodes with too much fallback content. A scene compacted down
+  // to bare kinetic-text lost its intended concrete representation just as
+  // surely as a placeholder image did -- QA must be able to see that.
+  assert.equal((out.payload as { degraded_count: number }).degraded_count, 1);
+});
+
+test("semantic worker counts a scene forced to kinetic-text by an unsupported combo as degraded", async () => {
+  const worker = makeSemanticVisualAssetsWorker();
+  const out = await worker.execute({
+    compiled: { payload: { scenes: [{ scene_index: 0, template_category: "explanation", template_data: "{}" }], degraded_count: 2 } } as unknown as Artifact,
+    plan: { payload: { scenes: [{
+      // No renderer component exists for this combo, so semanticPayload's
+      // own fail-closed path forces kinetic-text/animated-statement --
+      // the size limit is never involved here, only the mode/blueprint
+      // mismatch itself.
+      scene_index: 0,
+      representation_mode: "domain-model",
+      scene_blueprint: "before-after-object",
+      visual_claim: "The object rises.",
+      visual_actions: [],
+    }] } } as unknown as Artifact,
+    script: { payload: { scenes: [{ scene_index: 0, narration: "The object rises." }] } } as unknown as Artifact,
+    voice: { payload: { clips: [{ scene_index: 0, duration_sec: 2 }] } } as unknown as Artifact,
+    visual_model: { payload: { entities: [] } } as unknown as Artifact,
+  }, fakeCtx());
+
+  const [scene] = (out.payload as { scenes: Array<{ template_data?: string }> }).scenes;
+  const payload = JSON.parse(scene!.template_data!);
+  assert.equal(payload.representationMode, "kinetic-text");
+  // The upstream compiler's own degraded_count (2, from a placeholder image
+  // elsewhere in the episode) must be preserved and added to, not replaced --
+  // this worker runs downstream of asset compilation and both counts are
+  // real degradations the same QA check reads.
+  assert.equal((out.payload as { degraded_count: number }).degraded_count, 3);
 });

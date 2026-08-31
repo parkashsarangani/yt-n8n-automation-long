@@ -274,6 +274,16 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
       const clipBy = new Map(clips.map((clip) => [clip.scene_index, clip]));
 
       const scenes: AssetScene[] = [];
+      // Counts scenes that reach the viewer as plain kinetic-text instead of
+      // their intended concrete/domain/quantitative representation -- either
+      // because the authored representation_mode/scene_blueprint combo
+      // wasn't supported (semanticPayload's own fail-closed path) or because
+      // the full semantic payload didn't fit the manifest size limit and had
+      // to be compacted. retention_qa's visual_assets_renderable check reads
+      // this to warn on episodes with too much degraded fallback content --
+      // without counting these two paths, a scene that silently lost its
+      // concrete visual made the episode look fully non-degraded to QA.
+      let semanticDegradedCount = 0;
       for (const scene of compiled.scenes) {
         const plan = planBy.get(scene.scene_index);
         if (!plan) { scenes.push(scene); continue; }
@@ -305,10 +315,22 @@ export function makeSemanticVisualAssetsWorker(): WorkerDef {
           semanticFallback: true,
         });
         const template_data = templateDataWithinLimit(compactFallback, payload);
+        // Three ways a scene can end up degraded here: (1) semanticPayload
+        // already fell back to kinetic-text because the authored combo
+        // wasn't supported -- payload.semanticFallback is true; (2) the full
+        // payload was too large and templateDataWithinLimit chose the
+        // compact fallback instead; (3) even the compact fallback didn't fit
+        // (compactFallback is capped well under the limit, so this is
+        // unreachable in practice, but silently keeping the scene's
+        // pre-semantic template_data in that case would be a degradation
+        // too, so it counts).
+        if (payload["semanticFallback"] === true || template_data === compactFallback || !template_data) {
+          semanticDegradedCount++;
+        }
         scenes.push({ ...scene, ...(template_data ? { template_data } : {}) });
       }
 
-      return { payload: { scenes, degraded_count: compiled.degraded_count ?? 0 } };
+      return { payload: { scenes, degraded_count: (compiled.degraded_count ?? 0) + semanticDegradedCount } };
     },
   };
 }

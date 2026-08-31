@@ -1,3 +1,9 @@
+// semantic-representation.json has two other copies: engine/src/semantic-representation.json
+// and the canonical contracts/semantic-representation.json. All three must stay byte-for-byte
+// identical -- engine and this package build as separate, isolated Docker contexts, so neither
+// can import the other's copy at build time. contracts/motion-visual-identity.test.ts asserts
+// all three match on every PR, in the fast contracts CI job. Edit contracts/semantic-representation.json
+// first, then copy it here and to engine's copy -- editing this file alone will fail that check.
 import type {SceneBlueprint,SemanticSceneProps} from "./types";import {BG} from "./shared";import {semanticRegistry} from "./semantic-registry";import semanticContract from "./semantic-representation.json";
 export * from "./types";
 export const SUPPORTED_SEMANTIC_BLUEPRINTS=new Set<SceneBlueprint>(Object.keys(semanticRegistry) as SceneBlueprint[]);
