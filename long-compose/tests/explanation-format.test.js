@@ -74,8 +74,12 @@ test("reaction characters use deliberate bust panels", () => {
   assert.match(scene, /function BustReactionPanel/);
   // 1.4, not 1.45: the panel is now an overlay rather than half the canvas
   // (see the comment above BustReactionPanel), so the character is scaled
-  // down slightly to fit the narrower width without cropping.
-  assert.match(scene, /scale=\{1\.4\}/);
+  // down slightly to fit the narrower width without cropping. Reaction mode
+  // still gets 1.4 by default -- scale became a parameter (default 1.4) so
+  // BookendComposition can pass a smaller value instead, without touching
+  // reaction's own proportions.
+  assert.match(scene, /function BustReactionPanel\([^)]*scale=1\.4/);
+  assert.match(scene, /scale=\{scale\}/);
   assert.match(scene, /y=\{430\}/);
   assert.match(scene, /borderRadius:\s*38/);
   assert.doesNotMatch(scene, /scale=\{0\.58\}/);

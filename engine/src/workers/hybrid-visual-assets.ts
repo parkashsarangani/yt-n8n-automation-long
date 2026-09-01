@@ -145,41 +145,36 @@ export function templateDataWithinLimit(original: string | undefined, normalized
   return undefined;
 }
 
-function shouldPromoteToFullCanvas(plan: PlanScene | undefined, isOpening: boolean, isClosing: boolean): boolean {
-  if (isOpening || isClosing) return true;
-  // Interior bookends were another source of the audited narrow-card silhouette.
-  // Reaction compositions keep their character staging, but the renderer now
-  // gives their model substantially more room instead of converting them here.
-  return plan?.composition_mode === "bookend";
-}
-
+// A previous watchability pass found bookend scenes' diagrams looked
+// cramped (the ContentStage next to a full character panel leaves the
+// diagram noticeably less room than full-model gets) and "fixed" it by
+// promoting scene 0 and the closing scene to full-model, which unconditionally
+// set characterCutIn:"none" -- silently stripping the ONLY two scenes the
+// bookend format guarantees will show both Host and Buddy. Since
+// composition_mode:"bookend" is authored ONLY for those two scenes (see the
+// planner prompt's "Character bookends and restraint" section), this meant
+// every episode's characters were suppressed on every single scene, every
+// time -- confirmed against a real published episode, where neither
+// character appears anywhere in the final video.
+//
+// The right fix is at the actual source of the cramped feeling -- the
+// bookend layout's proportions in ExplanationScene.tsx (BustReactionPanel
+// width, ContentStage margin, compositionScale) -- not eliminating the
+// characters the format exists to show. See that file's BookendComposition
+// for the corresponding layout widening.
 function normalizedMotionScene(
   base: BaseAssetScene,
   ids: string[],
-  promoteToFullCanvas: boolean,
   icons: Array<{ entity_id: string; icon_id: string; view_box: string; body: string }> = [],
 ): BaseAssetScene {
   const data = parseTemplateData(base);
   if (!data) return base;
-  const performance = data["rendererPerformance"] && typeof data["rendererPerformance"] === "object"
-    ? data["rendererPerformance"] as Record<string, unknown> : {};
   const normalized: Record<string, unknown> = {
     ...data,
     entityIdentityKeys: ids,
     // Parallel to entityIdentityKeys, keyed the same way: EntityMark prefers
     // this real icon over its hash-picked geometric shape when an id has one.
     ...(icons.length ? { entityIcons: Object.fromEntries(icons.map((icon) => [icon.entity_id, { viewBox: icon.view_box, body: icon.body }])) } : {}),
-    ...(promoteToFullCanvas ? {
-      compositionMode: "full-model",
-      characterCutIn: "none",
-      title: "",
-      rendererPerformance: {
-        ...performance,
-        compositionMode: "full-model",
-        characterCutIn: "none",
-        watchabilityFullCanvas: true,
-      },
-    } : {}),
   };
   const template_data = templateDataWithinLimit(base.template_data, normalized);
   return template_data ? { ...base, template_data } : base;
@@ -588,12 +583,11 @@ export function makeHybridVisualAssetsWorker(): WorkerDef {
         const icons = ids
           .map((id) => { const icon = resolvedIcons.get(id); return icon ? { entity_id: id, icon_id: icon.iconId, view_box: icon.viewBox, body: icon.body } : null; })
           .filter((entry): entry is { entity_id: string; icon_id: string; view_box: string; body: string } => entry !== null);
-        const promoteToFullCanvas = shouldPromoteToFullCanvas(plan, isOpening, isClosing);
         // Motion-graphic scenes render entirely from template_data (see
         // compose.js's explanation.buildProps), so the Remotion renderer never
         // sees this scene's top-level entity_icons field at all unless the
         // same data is also embedded here, mirroring entityIdentityKeys.
-        const base = normalizedMotionScene(original, ids, promoteToFullCanvas, icons);
+        const base = normalizedMotionScene(original, ids, icons);
         const motionVisible = motionVisibleCharacterIds(base, script, cast);
         const common = {
           style_id: MOTION_STYLE_ID,
