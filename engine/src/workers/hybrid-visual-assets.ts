@@ -181,7 +181,11 @@ function normalizedMotionScene(
 }
 
 function scoreScene(plan: PlanScene, script: ScriptScene, first: boolean, last: boolean): number {
-  if (last || script.is_outro) return -100;
+  // A character-room scene is a full-screen cinematic-puppet performance
+  // (see cartoon-scenes-v16.ts's applyExplanationFormat), not a diagram --
+  // an AI still image would either duplicate what the characters are already
+  // doing or contradict it. It must never be swapped for one.
+  if (last || script.is_outro || plan.composition_mode === "character-room") return -100;
   let score = first ? 4 : 0;
   if (plan.scene_role === "character-reaction") score += 5;
   if (plan.scene_role === "kinetic-emphasis") score += 5;

@@ -1,4 +1,4 @@
-import type {SemanticSceneProps} from "./types";import {ACCENT,BLUE,GREEN,PAPER,actionSlot,breathe,ratio,sceneClaim} from "./shared";
+import type {SemanticSceneProps} from "./types";import {ACCENT,BLUE,GREEN,PAPER,actionSlot,breathe,entityColor,entityLabel,ratio,sceneClaim} from "./shared";
 export function QuantityComparisonScene(x:SemanticSceneProps){
   const r=ratio(),a=x.semanticActionWindows,e=actionSlot(r,a,["expand","compare","rearrange"]),scale=x.sceneBlueprint==="scale-comparison"?1+e*1.2:1+e*.35;
   return <svg data-semantic-blueprint={x.sceneBlueprint} viewBox="0 0 1100 520" style={{width:"100%"}}>
@@ -38,13 +38,42 @@ export function BeforeAfterObjectScene(x:SemanticSceneProps){
     // breathing radius keeps it feeling present/alive throughout, which is
     // also just a more honest depiction of "the before state" than a
     // perfectly frozen circle.
-    life=breathe();
+    life=breathe(),
+    // This component used to draw two identical solid circles with only a
+    // text label distinguishing them -- a real render (the soda-can
+    // episode, "the opened cold soda loses visible fizz within a ten-minute
+    // interval") showed exactly why that's not a depiction: two colored
+    // dots don't show a can *losing fizz*, they show two colored dots. Real
+    // per-entity color/label now come from semanticEntities (like
+    // ContainerObjectScene already does), and a cluster of particles
+    // visibly thins out and escapes upward from the "after" object as `t`
+    // advances -- a generic-enough dissolve/depart motion to stand for "a
+    // property is leaving/diminishing" across topics (gas escaping, heat
+    // loss, melting, decay), not just this one soda scene.
+    beforeColor=entityColor(x,0,BLUE),afterColor=entityColor(x,1,GREEN),
+    particleCount=8,survivors=Math.max(0,Math.round(particleCount*(1-t))),escaped=particleCount-survivors;
   return <svg data-semantic-blueprint="before-after-object" viewBox="0 0 1100 520" style={{width:"100%"}}>
-    <rect x="70" y="90" width="410" height="350" rx="32" fill="#0C1C31" stroke={BLUE} strokeWidth="7"/>
-    <rect x="620" y="90" width="410" height="350" rx="32" fill="#0C1C31" stroke={GREEN} strokeWidth="7" opacity={.3+.7*t}/>
-    <circle cx="275" cy="250" r={90+life*4} fill="#65C7F733" stroke={BLUE} strokeWidth="8"/>
-    <circle cx="825" cy="250" r={82+25*t} fill="#7DE2A833" stroke={GREEN} strokeWidth="8"/>
-    <text x="275" y="410" fill={PAPER} fontSize="36" fontWeight="850" textAnchor="middle">{x.before||x.elements?.[0]||"before"}</text>
-    <text x="825" y="410" fill={PAPER} fontSize="36" fontWeight="850" textAnchor="middle">{x.after||x.elements?.[1]||"after"}</text>
+    <rect x="70" y="90" width="410" height="350" rx="32" fill="#0C1C31" stroke={beforeColor} strokeWidth="7"/>
+    <rect x="620" y="90" width="410" height="350" rx="32" fill="#0C1C31" stroke={afterColor} strokeWidth="7" opacity={.3+.7*t}/>
+    <circle cx="275" cy="250" r={90+life*4} fill={`${beforeColor}33`} stroke={beforeColor} strokeWidth="8"/>
+    <circle cx="825" cy="250" r={82+25*t} fill={`${afterColor}33`} stroke={afterColor} strokeWidth="8"/>
+    {Array.from({length:particleCount},(_,i)=>{
+      const angle=(i/particleCount)*Math.PI*2+life*.4,rad=48+Math.sin(life*20+i)*6;
+      return <circle key={`b${i}`} cx={275+Math.cos(angle)*rad} cy={250+Math.sin(angle)*rad} r="7" fill={beforeColor}/>;
+    })}
+    {Array.from({length:survivors},(_,i)=>{
+      const angle=(i/particleCount)*Math.PI*2+life*.4,rad=40+Math.sin(life*20+i)*6;
+      return <circle key={`s${i}`} cx={825+Math.cos(angle)*rad} cy={250+Math.sin(angle)*rad} r="7" fill={afterColor}/>;
+    })}
+    {Array.from({length:escaped},(_,i)=>{
+      // Particles that already left the survivor cluster rise out of the
+      // box and fade -- the visible act of the attribute departing, not
+      // just a shrinking circle.
+      const escapeT=Math.min(1,t*1.6),y=250-100*escapeT-i*16;
+      return <circle key={`e${i}`} cx={800+i*10} cy={y} r="6" fill={afterColor} opacity={Math.max(0,.85-escapeT)}/>;
+    })}
+    <path d="M500 250 L600 250 M578 232 L602 250 L578 268" fill="none" stroke={ACCENT} strokeWidth="8" opacity={.4+.6*t}/>
+    <text x="275" y="410" fill={PAPER} fontSize="36" fontWeight="850" textAnchor="middle">{x.before||entityLabel(x,0,"before")}</text>
+    <text x="825" y="410" fill={PAPER} fontSize="36" fontWeight="850" textAnchor="middle">{x.after||entityLabel(x,1,"after")}</text>
   </svg>;
 }

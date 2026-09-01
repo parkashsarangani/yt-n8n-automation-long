@@ -209,6 +209,32 @@ test("kinetic-text is still allowed on a non-opening scene", () => {
   assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
 });
 
+test("a character-room scene must show both characters", () => {
+  // character-room drops the diagram entirely and stages both characters
+  // full-screen -- a scene claiming that mode with character_cut_in anything
+  // other than "both" isn't actually a character-room scene, it's a
+  // half-authored one the schema's own conditional const would also catch.
+  const plan = {
+    scenes: [
+      scene({ scene_index: 0, composition_mode: "bookend", character_cut_in: "both" }),
+      scene({ scene_index: 1, composition_mode: "character-room", character_cut_in: "speaker" }),
+    ],
+  };
+  const { failures } = assessPlanRevision(plan, plan, review([]));
+  assert.equal(failures.length, 1);
+  assert.match(failures[0]!, /scene 1 uses composition_mode "character-room" but character_cut_in is "speaker"/);
+});
+
+test("a character-room scene with both characters passes", () => {
+  const plan = {
+    scenes: [
+      scene({ scene_index: 0, composition_mode: "bookend", character_cut_in: "both" }),
+      scene({ scene_index: 1, composition_mode: "character-room", character_cut_in: "both" }),
+    ],
+  };
+  assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
+});
+
 test("the opening scene is whichever scene has the lowest scene_index, not literally scene_index 0", () => {
   // Matches the openingIndex convention already used elsewhere
   // (cartoon-scenes-v16.ts): a resumed or renumbered plan is not
