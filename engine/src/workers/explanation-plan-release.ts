@@ -156,6 +156,17 @@ export function assessPlanRevision(original: unknown, revised: unknown, review: 
       }
     }
 
+    // character-room drops the diagram and stages both characters full-screen
+    // in a real room (see cartoon-scenes-v16.ts's applyExplanationFormat,
+    // which passes these scenes through to the cinematic-puppet compiler
+    // unchanged instead of building a semantic/diagram payload for them).
+    // The schema already forces character_cut_in to "both" for this mode via
+    // its own conditional; this is the plain-language failure a JSON Schema
+    // const mismatch doesn't produce, for the same invariant.
+    if (scene["composition_mode"] === "character-room" && scene["character_cut_in"] !== "both") {
+      failures.push(`scene ${index} uses composition_mode "character-room" but character_cut_in is ${JSON.stringify(scene["character_cut_in"])}; character-room scenes must show both characters`);
+    }
+
     // New semantic plans never depend on a fixed-topology diagram fallback.
     // The legacy majority rule remains only for resumed pre-1.6 artifacts.
     if (validateSemanticScene(scene, index, index === openingIndex, failures)) continue;
@@ -177,14 +188,14 @@ export function makeExplanationPlanReleaseWorker(): WorkerDef {
   return {
     name: "explanation_plan_release",
     kind: "worker",
-    version: "3",
+    version: "4",
     consumes: [
       { schema_id: "explanation_plan", range: "^1", as: "original" },
       { schema_id: "explanation_plan", range: "^1", as: "revised" },
       { schema_id: "explanation_plan_review", range: "^1", as: "review" },
     ],
     produces: "explanation_plan",
-    produces_version: "1.6.0",
+    produces_version: "1.7.0",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const original = inputs["original"]?.payload;
       const revised = inputs["revised"]?.payload;

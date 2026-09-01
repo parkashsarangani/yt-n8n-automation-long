@@ -191,6 +191,45 @@ test("legacy plans remain backward compatible", () => {
   assert.deepEqual(applyExplanationFormat(entries, [{ scene_index: 0 }]), entries);
 });
 
+test("character-room scenes pass through the full cartoon payload untouched", () => {
+  // A character-room scene has no diagram at all: the v1-v15 cinematic-puppet
+  // compiler already built a complete CartoonScene payload (background,
+  // camera, both characters gestured/gazed per the plan) for this scene --
+  // applyExplanationFormat must not overwrite it with a diagram-shaped
+  // explanation payload the way it does for every other composition_mode.
+  const entries = [{
+    scene_index: 1,
+    source: "template" as const,
+    template_category: "cartoon",
+    template_data: JSON.stringify({
+      background: { location: "kitchen", variant: "day" },
+      camera: { type: "static" },
+      characters: [
+        { characterId: "host", isSpeaking: true },
+        { characterId: "buddy", isSpeaking: false },
+      ],
+    }),
+  }];
+  const plans = [
+    { scene_index: 0, scene_role: "character-hook" as const, visual_operation: "timeline" as const },
+    {
+      scene_index: 1,
+      scene_role: "character-reaction" as const,
+      visual_operation: "payoff" as const,
+      visual_primitive: "objects" as const,
+      composition_mode: "character-room" as const,
+      character_cut_in: "both" as const,
+    },
+    { scene_index: 2, scene_role: "recap" as const, visual_operation: "payoff" as const },
+  ];
+  const [scene] = applyExplanationFormat(entries, plans);
+  assert.equal(scene, entries[0], "character-room scene must be returned byte-identical, not reformatted");
+  assert.equal(scene?.template_category, "cartoon");
+  const data = JSON.parse(scene!.template_data);
+  assert.equal(data.background.location, "kitchen");
+  assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
+});
+
 test("only explanation plans bypass legacy puppet staging gates", () => {
   assert.equal(shouldEnforceLegacyStagingGates("explanation_plan"), false);
   assert.equal(shouldEnforceLegacyStagingGates("visual_plan"), true);

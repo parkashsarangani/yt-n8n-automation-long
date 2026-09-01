@@ -21,6 +21,23 @@ test("hybrid selector protects deterministic explanation scenes and never replac
   assert.ok(selected.has(0) || selected.has(2) || selected.has(4), "at least one AI-friendly reset should be selected");
 });
 
+test("a character-room scene is never swapped for an AI still, even when it would otherwise score high", () => {
+  // character-room is a full-screen cinematic-puppet performance (see
+  // cartoon-scenes-v16.ts), not a diagram -- an AI still image would either
+  // duplicate or contradict what the characters are already doing on
+  // screen. character-hook/object-state-change/character_cut_in "both" are
+  // exactly the scoring signals that otherwise make a scene a strong AI
+  // candidate, so this scene would be selected if the exclusion were missing.
+  const plans = [
+    { scene_index: 0, scene_role: "character-hook", visual_operation: "timeline", visual_primitive: "cause-chain", composition_mode: "bookend" },
+    { scene_index: 1, scene_role: "object-state-change", visual_operation: "compress", visual_primitive: "objects", composition_mode: "character-room", character_cut_in: "both" },
+    { scene_index: 2, scene_role: "recap", visual_operation: "payoff", visual_primitive: "cause-chain", composition_mode: "bookend" },
+  ];
+  const scripts = plans.map((scene) => ({ scene_index: scene.scene_index, narration: "A short spoken visual beat for deterministic timing." }));
+  const selected = selectAiScenes(plans, scripts, new Map(plans.map((scene) => [scene.scene_index, 4])));
+  assert.equal(selected.has(1), false, "character-room scenes must never be selected for an AI still");
+});
+
 test("hybrid selector uses elapsed time rather than a fixed percentage of scene count", () => {
   const plans = Array.from({ length: 9 }, (_, scene_index) => ({
     scene_index,

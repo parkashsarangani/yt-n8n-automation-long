@@ -253,6 +253,19 @@ export function applyExplanationFormat(
     const plan = byIndex.get(entry.scene_index);
     if (!plan?.scene_role) return entry;
 
+    // character-room scenes have no diagram at all -- the v1-v15
+    // cinematic-puppet compiler above already built a complete, correct
+    // CartoonScene payload for this scene (background, camera, both
+    // characters positioned/gestured/gazing per the plan's speaker_*/
+    // listener_*/background_location fields, mouth-cue wiring downstream in
+    // compose.js keyed off template_category==="cartoon"). Everything below
+    // this point exists to REPLACE that payload with a diagram-shaped
+    // explanation one; a character-room scene wants the opposite, so it
+    // passes through untouched with its template_category still "cartoon"
+    // rather than being reformatted into a diagram it was never meant to
+    // have.
+    if (plan.composition_mode === "character-room") return entry;
+
     const legacy = JSON.parse(entry.template_data) as Record<string, unknown>;
     const characters = Array.isArray(legacy.characters) ? legacy.characters : [];
     const authoredRole = plan.scene_role as ExplanationRole;
