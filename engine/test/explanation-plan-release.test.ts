@@ -296,3 +296,71 @@ test("the released payload is the revision, never the plan that was criticised",
   }, fakeCtx(1));
   assert.equal(out.payload, after);
 });
+
+function semanticScene(scene_index: number, scene_blueprint: string, representation_mode = "concrete-scene") {
+  return scene({
+    scene_index,
+    representation_mode,
+    scene_blueprint,
+    visual_claim: `${scene_blueprint} claim ${scene_index}`,
+    visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+  });
+}
+
+test("before-after-object used twice is rejected, even when each use is individually valid", () => {
+  // Real production failure (run_05ab92ef, a figure-skater episode): 37 of
+  // 44 scenes used before-after-object because each one honestly fit its
+  // own scene in isolation -- exactly what the per-scene semantic checks
+  // verify. Nothing checked the episode as a whole, so a viewer saw the
+  // identical two-box shape for nearly the entire runtime. Hard cap: at
+  // most one use per episode.
+  const plan = {
+    scenes: [
+      semanticScene(0, "before-after-object"),
+      semanticScene(1, "container-object"),
+      semanticScene(2, "before-after-object"),
+    ],
+  };
+  const { failures } = assessPlanRevision(plan, plan, review([]));
+  assert.ok(failures.some((failure) => /before-after-object is used 2 times; it may be used at most once/.test(failure)));
+});
+
+test("before-after-object used once is fine", () => {
+  const plan = {
+    scenes: [
+      semanticScene(0, "before-after-object"),
+      semanticScene(1, "container-object"),
+      semanticScene(2, "molecular-system", "domain-model"),
+    ],
+  };
+  assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
+});
+
+test("a single blueprint covering more than half a 10+ scene episode is rejected", () => {
+  const scenes = Array.from({ length: 10 }, (_, i) =>
+    semanticScene(i, i < 6 ? "container-object" : "molecular-system", i < 6 ? "concrete-scene" : "domain-model"));
+  const { failures } = assessPlanRevision({ scenes }, { scenes }, review([]));
+  assert.ok(failures.some((failure) => /"container-object" is used in 6\/10 scenes; no single blueprint may cover more than half/.test(failure)));
+});
+
+test("the same blueprint repeated more than 3 scenes in a row is rejected", () => {
+  const scenes = [
+    semanticScene(0, "container-object"),
+    semanticScene(1, "container-object"),
+    semanticScene(2, "container-object"),
+    semanticScene(3, "container-object"),
+    semanticScene(4, "molecular-system", "domain-model"),
+  ];
+  const { failures } = assessPlanRevision({ scenes }, { scenes }, review([]));
+  assert.ok(failures.some((failure) => /"container-object" repeats identically for more than 3 consecutive scenes/.test(failure)));
+});
+
+test("a genuinely varied episode with fewer than 10 scenes is not penalized by the majority-share rule", () => {
+  const scenes = [
+    semanticScene(0, "before-after-object"),
+    semanticScene(1, "container-object"),
+    semanticScene(2, "container-object"),
+    semanticScene(3, "molecular-system", "domain-model"),
+  ];
+  assert.deepEqual(assessPlanRevision({ scenes }, { scenes }, review([])).failures, []);
+});

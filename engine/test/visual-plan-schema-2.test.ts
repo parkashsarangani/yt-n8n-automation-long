@@ -17,7 +17,7 @@ test("explanation planner v6 emits semantic explanation_plan 1.6", () => {
   // The agent now produces 1.7.0 (adds composition_mode "character-room"),
   // but 1.6.0 -- what this test otherwise exercises -- must remain resumable
   // exactly as before: nothing in this file's assertions changed shape.
-  assert.equal(agent.version, "8");
+  assert.equal(agent.version, "9");
   assert.equal(agent.produces, "explanation_plan");
   assert.equal(agent.produces_version, "1.7.0");
   assert.equal(agent.prompt, "explanation_visual_planner@1");
