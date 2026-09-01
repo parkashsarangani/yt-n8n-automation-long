@@ -191,12 +191,36 @@ export class ComposeRenderer implements MediaRenderer {
             : packedImages.length
               ? { images_base64: packedImages.map(toBase64) }
               : { _degraded: true }),
-          ...(s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
-          ...(s.template_category && !s.is_outro ? {
+          // A real spoken outro scene (dialogue_script_writer authoring
+          // is_outro:true, per the "spoken outro/CTA" feature) already has
+          // real template_category content -- the character-room compiler
+          // bypass gives it a full CartoonScene payload exactly like any
+          // other cartoon scene. That real content must win. This used to
+          // unconditionally force template_name to "kinetic_text" whenever
+          // is_outro was true and explicitly EXCLUDE template_category in
+          // that case (`s.template_category && !s.is_outro`), which was
+          // correct back when is_outro only ever marked the old synthetic
+          // silent-card placeholder with no real content of its own -- but
+          // it now silently discards a genuine authored scene's
+          // template_data, rendering a blank kinetic-text card instead
+          // (confirmed live, run_41601d4a: scene 32's real CartoonScene
+          // outro rendered as an empty "KineticText props keys: mood" card,
+          // and compose.js's own is_outro detection then injected a SECOND,
+          // generic fallback card after it since it never recognized the
+          // first one as the real outro). The kinetic_text fallback is now
+          // reserved for the genuinely rare case of an is_outro scene with
+          // no real template content at all -- an old/resumed artifact from
+          // before this feature existed.
+          ...(s.template_category ? {
             visual_source: "template",
             template_name: s.template_category,
-            template_data: bridgedTemplateData ?? {},
-          } : {}),
+            // compose.js's own duplicate-outro detection (isOutroScene)
+            // looks for is_outro:true INSIDE template_data, not as a
+            // sibling field -- without merging it in here, a real outro
+            // scene's own is_outro flag never reaches that check, and
+            // compose.js appends a second, generic fallback card after it.
+            template_data: s.is_outro ? { ...(bridgedTemplateData ?? {}), is_outro: true } : (bridgedTemplateData ?? {}),
+          } : s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
           ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
           ...(s.visual_mode ? { visual_mode: s.visual_mode } : {}),
           ...(s.continuity_group ? { continuity_group: s.continuity_group } : {}),
