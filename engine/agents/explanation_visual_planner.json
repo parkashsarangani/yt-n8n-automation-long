@@ -1,7 +1,7 @@
 {
   "name": "explanation_visual_planner",
   "kind": "agent",
-  "version": "9",
+  "version": "10",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
     { "schema_id": "episode_visual_model", "range": "^1", "as": "visual_model" },
