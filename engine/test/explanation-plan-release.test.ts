@@ -364,3 +364,35 @@ test("a genuinely varied episode with fewer than 10 scenes is not penalized by t
   ];
   assert.deepEqual(assessPlanRevision({ scenes }, { scenes }, review([])).failures, []);
 });
+
+test("characters absent for more than 5 consecutive scenes is rejected", () => {
+  // Real production failure (run_cb0de4ec, a 17-scene episode): characters
+  // appeared only in the opening hook and closing recap/outro. All 14
+  // scenes between them ran character_cut_in:"none" back to back -- well
+  // under the existing <=35% ceiling, which bounds overuse, not absence.
+  const blueprints = ["container-object", "molecular-system", "scale-comparison", "cross-section", "container-object", "molecular-system", "scale-comparison"];
+  const scenes = blueprints.map((blueprint, i) => scene({
+    scene_index: i,
+    representation_mode: blueprint === "molecular-system" ? "domain-model" : blueprint === "scale-comparison" ? "quantitative" : blueprint === "cross-section" ? "spatial" : "concrete-scene",
+    scene_blueprint: blueprint,
+    visual_claim: `claim ${i}`,
+    visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+    character_cut_in: "none",
+  }));
+  const { failures } = assessPlanRevision({ scenes }, { scenes }, review([]));
+  assert.ok(failures.some((failure) => /7 consecutive scenes run with character_cut_in "none"/.test(failure)));
+});
+
+test("a character reappearance every few scenes satisfies the floor", () => {
+  const blueprints = ["container-object", "molecular-system", "scale-comparison", "cross-section", "container-object", "molecular-system", "scale-comparison"];
+  const scenes = blueprints.map((blueprint, i) => scene({
+    scene_index: i,
+    representation_mode: blueprint === "molecular-system" ? "domain-model" : blueprint === "scale-comparison" ? "quantitative" : blueprint === "cross-section" ? "spatial" : "concrete-scene",
+    scene_blueprint: blueprint,
+    visual_claim: `claim ${i}`,
+    visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+    character_cut_in: i === 3 ? "both" : "none",
+  }));
+  const { failures } = assessPlanRevision({ scenes }, { scenes }, review([]));
+  assert.ok(!failures.some((failure) => /consecutive scenes run with character_cut_in/.test(failure)));
+});

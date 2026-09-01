@@ -1,7 +1,7 @@
 {
   "name": "explanation_plan_reviser",
   "kind": "agent",
-  "version": "6",
+  "version": "7",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
     { "schema_id": "episode_visual_model", "range": "^1", "as": "visual_model" },

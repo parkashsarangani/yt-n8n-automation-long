@@ -219,6 +219,27 @@ export function assessPlanRevision(original: unknown, revised: unknown, review: 
     }
   }
 
+  // Character reappearance floor. Real production evidence (run_cb0de4ec, a
+  // 17-scene episode): characters appeared only in the opening hook and the
+  // closing recap/outro -- all 14 scenes between them ran character-free,
+  // which is well under the existing <=35% ceiling but reads as narration
+  // over a slideshow, not two hosts walking the viewer through an idea. The
+  // <=35% rule bounds character OVERuse; nothing bounded character absence
+  // until now.
+  const orderedScenes = [...revisedScenes].sort(
+    (a, b) => (typeof a["scene_index"] === "number" ? a["scene_index"] as number : 0) - (typeof b["scene_index"] === "number" ? b["scene_index"] as number : 0),
+  );
+  let noCharacterRun = 0;
+  let maxNoCharacterRun = 0;
+  for (const sceneEntry of orderedScenes) {
+    const hasCharacter = typeof sceneEntry["character_cut_in"] === "string" && sceneEntry["character_cut_in"] !== "none";
+    noCharacterRun = hasCharacter ? 0 : noCharacterRun + 1;
+    maxNoCharacterRun = Math.max(maxNoCharacterRun, noCharacterRun);
+  }
+  if (maxNoCharacterRun > 5) {
+    failures.push(`${maxNoCharacterRun} consecutive scenes run with character_cut_in "none"; characters must reappear at least every 5 scenes so the episode doesn't read as narration over a slideshow`);
+  }
+
   return { failures };
 }
 
@@ -226,7 +247,7 @@ export function makeExplanationPlanReleaseWorker(): WorkerDef {
   return {
     name: "explanation_plan_release",
     kind: "worker",
-    version: "5",
+    version: "6",
     consumes: [
       { schema_id: "explanation_plan", range: "^1", as: "original" },
       { schema_id: "explanation_plan", range: "^1", as: "revised" },
