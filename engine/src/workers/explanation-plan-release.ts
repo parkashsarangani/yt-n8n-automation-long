@@ -181,6 +181,44 @@ export function assessPlanRevision(original: unknown, revised: unknown, review: 
     failures.push(`${legacyUnauthored} of ${legacyRelationshipScenes} relationship-primitive scenes authored no model_relations, so most of this legacy episode's diagrams would render the fixed fallback topology`);
   }
 
+  // Episode-level blueprint variety. Real production evidence (run_05ab92ef,
+  // a figure-skater episode): 37 of 44 scenes (84%) used before-after-object
+  // -- two paired boxes with a before/after label -- because each one
+  // honestly fit the individual scene in isolation, which is exactly what
+  // the per-scene checks above verify. Nothing checked the EPISODE as a
+  // whole, so a viewer saw the identical two-box shape for nearly the entire
+  // runtime. Prompt guidance alone has already proven insufficient for this
+  // class of mistake this session (see the outro-scene checks above); this
+  // is the deterministic backstop.
+  const blueprintByScene = [...revisedScenes]
+    .sort((a, b) => (typeof a["scene_index"] === "number" ? a["scene_index"] as number : 0) - (typeof b["scene_index"] === "number" ? b["scene_index"] as number : 0))
+    .map((scene) => (typeof scene["scene_blueprint"] === "string" ? scene["scene_blueprint"] : undefined))
+    .filter((value): value is string => value !== undefined);
+
+  const beforeAfterCount = blueprintByScene.filter((value) => value === "before-after-object").length;
+  if (beforeAfterCount > 1) {
+    failures.push(`before-after-object is used ${beforeAfterCount} times; it may be used at most once per episode -- the identical two-box shape repeated reads as generic filler, not a distinct explanation each time`);
+  }
+
+  if (blueprintByScene.length >= 10) {
+    const counts = new Map<string, number>();
+    for (const value of blueprintByScene) counts.set(value, (counts.get(value) ?? 0) + 1);
+    for (const [blueprint, count] of counts) {
+      if (count * 2 > blueprintByScene.length) {
+        failures.push(`scene_blueprint "${blueprint}" is used in ${count}/${blueprintByScene.length} scenes; no single blueprint may cover more than half the episode`);
+      }
+    }
+  }
+
+  let run = 1;
+  for (let i = 1; i < blueprintByScene.length; i++) {
+    run = blueprintByScene[i] === blueprintByScene[i - 1] ? run + 1 : 1;
+    if (run > 3) {
+      failures.push(`scene_blueprint "${blueprintByScene[i]}" repeats identically for more than 3 consecutive scenes (ending at scene position ${i})`);
+      break;
+    }
+  }
+
   return { failures };
 }
 
@@ -188,7 +226,7 @@ export function makeExplanationPlanReleaseWorker(): WorkerDef {
   return {
     name: "explanation_plan_release",
     kind: "worker",
-    version: "4",
+    version: "5",
     consumes: [
       { schema_id: "explanation_plan", range: "^1", as: "original" },
       { schema_id: "explanation_plan", range: "^1", as: "revised" },
