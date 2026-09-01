@@ -83,7 +83,7 @@ test("dialogue gate catches a non-payoff ending at the writer stage, not just th
 });
 
 test("a trailing is_outro scene is exempt from the final-scene payoff/resolution check", () => {
-  // dialogue_script_writer@15 now authors a real spoken outro/CTA scene
+  // dialogue_script_writer@16 now authors a real spoken outro/CTA scene
   // after the recap. Its point text is a sign-off (function=outro), not a
   // payoff/resolution beat, and must never trip this gate -- the check
   // should still apply to the real recap scene right before it.
@@ -99,6 +99,42 @@ test("a trailing is_outro scene is exempt from the final-scene payoff/resolution
   );
 
   assert.equal(errors.length, 0, `expected no errors, got: ${errors.join("; ")}`);
+});
+
+test("an outro split across two scenes, only one flagged is_outro, is caught at the writer stage", () => {
+  // Real production failure (run_8945ec99): the writer wrote the outro as a
+  // two-scene "exchange" and only flagged the last one is_outro:true. The
+  // unflagged CTA-only scene then silently became "the last content scene"
+  // for every downstream is_outro-aware check and failed final_teach_back
+  // three attempts later at quality_release, with no indication of the real
+  // cause. This must be caught here instead, with retry feedback.
+  const errors = agentSemanticValidationErrors(
+    DIALOGUE_DEF,
+    { scenes: [
+      scriptScene(0, "Wait, why does ice float?", "action=Host holds up a floating ice cube, confused; prop=ice cube; function=opening_problem; value=the puzzle is visible immediately"),
+      scriptScene(1, "It's frozen, so it should be denser.", "action=Buddy taps the cube; prop=ice cube; function=compact_fact; value=the assumption gets challenged"),
+      scriptScene(2, "So freezing doesn't always pack things tighter.", "action=Host points at the floating cube while pointing at the protected pond model; prop=ice cube; function=recap confirms_understanding; value=the puzzle resolves"),
+      scriptScene(3, "Know someone who thinks freezing always packs things tighter? Send them this.", "action=Both turn toward camera; prop=ice cube; function=outro; value=the episode closes with a genuine reason to subscribe"),
+      { ...scriptScene(4, "Follow along for more everyday physics hiding in plain sight.", "action=Host gives a warm nod; prop=ice cube; function=outro; value=the episode closes with a genuine reason to subscribe"), is_outro: true },
+    ] },
+    {},
+  );
+
+  assert.match(errors.join("\n"), /use function=outro in point but are not flagged is_outro:true/);
+});
+
+test("more than one is_outro scene is rejected", () => {
+  const errors = agentSemanticValidationErrors(
+    DIALOGUE_DEF,
+    { scenes: [
+      scriptScene(0, "Wait, why does ice float?", "action=Host holds up a floating ice cube, confused; prop=ice cube; function=opening_problem; value=the puzzle is visible immediately"),
+      { ...scriptScene(1, "Send this to someone.", "action=Both turn toward camera; prop=ice cube; function=outro; value=closes with a subscribe ask"), is_outro: true },
+      { ...scriptScene(2, "Follow for more.", "action=Host nods; prop=ice cube; function=outro; value=closes with a subscribe ask"), is_outro: true },
+    ] },
+    {},
+  );
+
+  assert.match(errors.join("\n"), /2 scenes are flagged is_outro:true/);
 });
 
 function visualScene(scene_index: number, overrides: Record<string, unknown> = {}) {
