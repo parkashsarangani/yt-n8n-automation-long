@@ -2036,7 +2036,20 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
     // Generated, not shipped: a synthesised bed costs nothing in the repo and
     // raises no licensing question in a monetised video, the same reasoning
     // as the synthesised SFX above.
-    const useAmbientBed = !hasMusic && explanationMode && await supportsAmbientBed();
+    //
+    // Disabled by operator decision (not removed -- expected to be
+    // reactivated/retuned later): user-reported "weird and noisy" audio,
+    // confirmed as a constant background hiss. The sidechain ducking
+    // (AMBIENT_SPEC below) only attenuates this bed WHILE the voice is
+    // speaking; between lines -- exactly when a listener's attention is
+    // free to notice it -- it plays at its full designed volume. Filtered
+    // brown noise at any audible level reads as hiss/static in the gaps,
+    // which is what got reported. Left `false` unconditionally rather than
+    // just lowering AMBIENT_SPEC's volume, since the real problem is the
+    // un-ducked-between-lines design, not the gain alone -- a real fix needs
+    // either much stronger gating in silence or dropping the noise floor by
+    // an order of magnitude, not a quick trim.
+    const useAmbientBed = false && !hasMusic && explanationMode && await supportsAmbientBed();
     // Rendered to a FILE by a raw ffmpeg call, then added as an ordinary
     // input -- lavfi never goes near fluent-ffmpeg.
     //
