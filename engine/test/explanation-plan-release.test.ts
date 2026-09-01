@@ -152,6 +152,91 @@ test("semantic release gate accepts every canonical mode-blueprint family used b
   assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
 });
 
+test("the opening scene may not fall back to kinetic-text, even when otherwise valid", () => {
+  // A real render showed exactly this failure mode was possible: the hook
+  // scene -- the single scene most responsible for whether a viewer keeps
+  // watching -- degrading to plain animated text because no supported
+  // blueprint happened to fit the concept the planner picked. kinetic-text
+  // is a legitimate escape hatch deep in an episode; it must never be the
+  // first thing a viewer sees.
+  const plan = {
+    scenes: [
+      scene({
+        scene_index: 0,
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "a claim with no concrete depiction",
+        visual_actions: [],
+      }),
+      scene({
+        scene_index: 1,
+        representation_mode: "domain-model",
+        scene_blueprint: "molecular-system",
+        visual_claim: "a real concrete claim",
+        visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+      }),
+    ],
+  };
+
+  const { failures } = assessPlanRevision(plan, plan, review([]));
+  assert.equal(failures.length, 1);
+  assert.match(failures[0]!, /scene 0 is the opening scene and must not use the kinetic-text\/animated-statement fallback/);
+});
+
+test("kinetic-text is still allowed on a non-opening scene", () => {
+  // The opening-scene rule must not turn into a blanket ban on the
+  // fallback -- kinetic-text stays legitimate for a genuinely unsupported
+  // concept deeper in the episode.
+  const plan = {
+    scenes: [
+      scene({
+        scene_index: 0,
+        representation_mode: "domain-model",
+        scene_blueprint: "molecular-system",
+        visual_claim: "a real concrete claim",
+        visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+      }),
+      scene({
+        scene_index: 1,
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "a claim with no concrete depiction",
+        visual_actions: [],
+      }),
+    ],
+  };
+
+  assert.deepEqual(assessPlanRevision(plan, plan, review([])).failures, []);
+});
+
+test("the opening scene is whichever scene has the lowest scene_index, not literally scene_index 0", () => {
+  // Matches the openingIndex convention already used elsewhere
+  // (cartoon-scenes-v16.ts): a resumed or renumbered plan is not
+  // guaranteed to start at a literal 0.
+  const plan = {
+    scenes: [
+      scene({
+        scene_index: 3,
+        representation_mode: "kinetic-text",
+        scene_blueprint: "animated-statement",
+        visual_claim: "a claim with no concrete depiction",
+        visual_actions: [],
+      }),
+      scene({
+        scene_index: 4,
+        representation_mode: "domain-model",
+        scene_blueprint: "molecular-system",
+        visual_claim: "a real concrete claim",
+        visual_actions: [{ actor: "subject", action: "reveal", target: "result", anchor_phrase: "result" }],
+      }),
+    ],
+  };
+
+  const { failures } = assessPlanRevision(plan, plan, review([]));
+  assert.equal(failures.length, 1);
+  assert.match(failures[0]!, /scene 3 is the opening scene and must not use the kinetic-text\/animated-statement fallback/);
+});
+
 test("the worker never releases an invalid revision, including on later attempts", async () => {
   const worker = makeExplanationPlanReleaseWorker();
   const plan = { scenes: [scene({ scene_index: 0 })] };
