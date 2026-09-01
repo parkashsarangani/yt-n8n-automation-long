@@ -71,11 +71,21 @@ test("AI character visibility is explicit and missing legacy telemetry remains c
   assert.match(qaSource, /ai_character_visibility_telemetry/);
 });
 
-test("bookend/reaction routing keys off composition mode, not scene position (engine half)", () => {
-  // The Remotion-side half of this contract -- that BookendComposition and
-  // ReactionComposition actually give the full-model explanation the wider
-  // canvas -- lives in long-compose/tests/explanation-composition-driven-layout.test.js,
-  // which runs inside long-compose's own Docker test image where
-  // ExplanationScene.tsx exists.
-  assert.match(hybridSource, /return plan\?\.composition_mode === "bookend"/);
+test("bookend scenes are never silently rewritten to full-model, stripping characters", () => {
+  // A prior watchability pass found bookend diagrams looked cramped and
+  // "fixed" it by promoting scene 0 and the closing scene to full-model,
+  // which unconditionally set characterCutIn:"none". Since composition_mode
+  // :"bookend" is authored ONLY for those two scenes, this stripped
+  // characters from every episode's bookends, always -- confirmed against a
+  // real published episode where neither character ever appeared. The
+  // mechanism (shouldPromoteToFullCanvas / the promoteToFullCanvas
+  // parameter) was removed entirely rather than special-cased, since the
+  // actual cramped-layout problem is fixed at its source in
+  // ExplanationScene.tsx's BookendComposition instead (see
+  // long-compose/tests/explanation-composition-driven-layout.test.js, which
+  // runs inside long-compose's own Docker test image where that file
+  // exists).
+  assert.doesNotMatch(hybridSource, /shouldPromoteToFullCanvas/);
+  assert.doesNotMatch(hybridSource, /promoteToFullCanvas/);
+  assert.doesNotMatch(hybridSource, /watchabilityFullCanvas/);
 });
