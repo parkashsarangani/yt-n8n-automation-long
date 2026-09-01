@@ -218,9 +218,18 @@ async function main() {
     composition.width = 1920;
     composition.height = 1080;
 
-    // Release gate for semantic scenes: inspect the actual rendered pixels at
+    // Motion QA for semantic scenes: inspect the actual rendered pixels at
     // 20%, 55%, and 85% before spending time on the full scene encode.
-    await reviewSemanticMotion({composition,serveUrl:bundleLocation,inputProps,renderStill});
+    // Non-blocking by design (operator decision) -- a failure here means a
+    // scene is likely frozen/static or otherwise visually weak, which is
+    // worth knowing about, but production runs must not stop on it. Log the
+    // full failure (metrics included) so a frozen scene is still visible in
+    // the render logs, then keep going.
+    try {
+        await reviewSemanticMotion({composition,serveUrl:bundleLocation,inputProps,renderStill});
+    } catch (error) {
+        console.warn(`[remotion] motion visual QA would have failed (non-blocking): ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     console.log(`[remotion] Rendering ${durationInFrames} frames (${durationSec}s)...`);
     await renderMedia({
