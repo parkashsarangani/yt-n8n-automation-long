@@ -230,6 +230,50 @@ test("character-room scenes pass through the full cartoon payload untouched", ()
   assert.deepEqual(data.characters.map((c: { characterId: string }) => c.characterId), ["host", "buddy"]);
 });
 
+test("a trailing character-room outro scene does not steal the closing bookend from the real recap", () => {
+  // Real bug this guards: the outro scene (the spoken CTA, always the
+  // literal last scene when the script authors one) used to be
+  // orderedPlans[orderedPlans.length - 1] for computing which scene "is
+  // closing" -- which forced the recap scene right before it to be treated
+  // as an ordinary middle scene (no bookend, no reused opening entities),
+  // silently dropping the show's own closing-bookend guarantee the moment
+  // an outro scene existed.
+  const entries = [0, 1, 2].map((scene_index) => ({
+    scene_index,
+    source: "template" as const,
+    template_category: "cartoon" as const,
+    template_data: JSON.stringify({
+      characters: [
+        { characterId: "buddy", isSpeaking: scene_index !== 1 },
+        { characterId: "host", isSpeaking: scene_index === 1 },
+      ],
+    }),
+  }));
+  const plans = [
+    {
+      scene_index: 0, scene_role: "character-hook" as const, visual_operation: "timeline" as const,
+      visual_primitive: "cause-chain" as const, model_elements: ["Widget"],
+      state_before: "unknown", state_after: "understood", key_text: "hook", character_cut_in: "both" as const,
+    },
+    {
+      scene_index: 1, scene_role: "recap" as const, visual_operation: "payoff" as const,
+      visual_primitive: "cause-chain" as const, model_elements: ["Different Widget"],
+      state_before: "before", state_after: "after", key_text: "recap", character_cut_in: "both" as const,
+    },
+    {
+      scene_index: 2, scene_role: "character-reaction" as const, visual_operation: "payoff" as const,
+      composition_mode: "character-room" as const, character_cut_in: "both" as const,
+    },
+  ];
+  const scenes = applyExplanationFormat(entries, plans);
+  const recap = JSON.parse(scenes[1]!.template_data);
+  const outro = scenes[2]!;
+
+  assert.equal(recap.compositionMode, "bookend", "the real recap scene must still get the closing bookend treatment");
+  assert.deepEqual(recap.elements, ["Widget"], "the recap must reuse the opening's entities, not its own authored ones");
+  assert.equal(outro.template_category, "cartoon", "the outro scene passes through untouched via the character-room bypass");
+});
+
 test("only explanation plans bypass legacy puppet staging gates", () => {
   assert.equal(shouldEnforceLegacyStagingGates("explanation_plan"), false);
   assert.equal(shouldEnforceLegacyStagingGates("visual_plan"), true);

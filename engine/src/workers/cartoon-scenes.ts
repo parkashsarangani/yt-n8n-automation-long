@@ -653,7 +653,14 @@ function assertV3ScriptContract(scenes: ScriptScene[]): void {
   const ordered = scenes.slice().sort((a, b) => a.scene_index - b.scene_index);
   const estimatedDurationSec = ordered.reduce((sum, scene) => sum + wordCount(scene.narration), 0) / WORDS_PER_SECOND;
   const pointLines = ordered.map((scene) => (scene.point ?? "").toLowerCase());
-  const finalPoint = pointLines[pointLines.length - 1] ?? "";
+  // The recap/payoff scene -- what this check actually validates -- is the
+  // last CONTENT scene, not necessarily the literal last array entry: a
+  // genuine spoken outro/CTA scene (is_outro: true) now legitimately follows
+  // it (see assertActionQualityContract above, already outro-aware the same
+  // way). Falling back to the raw last entry keeps old scripts with no outro
+  // scene validating exactly as before.
+  const contentPointLines = ordered.filter((scene) => !scene.is_outro).map((scene) => (scene.point ?? "").toLowerCase());
+  const finalPoint = contentPointLines[contentPointLines.length - 1] ?? pointLines[pointLines.length - 1] ?? "";
 
   // "changed_behavior"/"habit"/"confirm*" cover writers that close on a
   // behavioral beat after the payoff scene (e.g. payoff_resolution -> a short
