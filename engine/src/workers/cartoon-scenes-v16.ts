@@ -237,7 +237,16 @@ export function applyExplanationFormat(
   const byIndex = new Map(plans.map((scene) => [scene.scene_index, scene]));
   const orderedPlans = [...plans].sort((a, b) => a.scene_index - b.scene_index);
   const openingPlan = orderedPlans[0];
-  const closingPlan = orderedPlans[orderedPlans.length - 1];
+  // A trailing character-room scene (the spoken outro/CTA, always the
+  // literal last scene when the script authors one -- see
+  // explanation_visual_planner's "The outro scene" section) has no diagram
+  // and reuses no entities, so it must never be treated as "the closing
+  // scene" for the reuse-opening-entities bookend logic below: that belongs
+  // to the actual recap/teach-back scene right before it. Falling back to
+  // the literal last scene when nothing is filtered keeps old plans with no
+  // outro scene behaving exactly as before.
+  const closingCandidates = orderedPlans.filter((scene) => scene.composition_mode !== "character-room");
+  const closingPlan = closingCandidates[closingCandidates.length - 1] ?? orderedPlans[orderedPlans.length - 1];
   const openingIndex = openingPlan?.scene_index;
   const closingIndex = closingPlan?.scene_index;
   const openingPrimitive = openingPlan ? inferVisualPrimitive(openingPlan) : "objects";

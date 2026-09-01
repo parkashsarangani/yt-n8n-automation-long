@@ -82,6 +82,25 @@ test("dialogue gate catches a non-payoff ending at the writer stage, not just th
   assert.match(errors.join("\n"), /final scene point must mark a payoff\/resolution/);
 });
 
+test("a trailing is_outro scene is exempt from the final-scene payoff/resolution check", () => {
+  // dialogue_script_writer@15 now authors a real spoken outro/CTA scene
+  // after the recap. Its point text is a sign-off (function=outro), not a
+  // payoff/resolution beat, and must never trip this gate -- the check
+  // should still apply to the real recap scene right before it.
+  const errors = agentSemanticValidationErrors(
+    DIALOGUE_DEF,
+    { scenes: [
+      scriptScene(0, "Wait, why am I so tired?", "action=Host yawns over cold coffee; prop=coffee; function=opening_problem; value=the tiredness is visible immediately"),
+      scriptScene(1, "You slept eight hours.", "action=Buddy circles the eight-hour total on the calendar; prop=calendar; function=compact_fact; value=the assumption gets challenged"),
+      scriptScene(2, "So it wasn't about the hours at all.", "action=Host repeats the corrected idea while pointing at the calendar; prop=calendar; function=recap confirms_understanding; value=the payoff resolution lands"),
+      { ...scriptScene(3, "If you've ever blamed a full night's sleep, this is why.", "action=Buddy waves at the camera; prop=none; function=outro; value=the episode closes with a subscribe ask"), is_outro: true },
+    ] },
+    {},
+  );
+
+  assert.equal(errors.length, 0, `expected no errors, got: ${errors.join("; ")}`);
+});
+
 function visualScene(scene_index: number, overrides: Record<string, unknown> = {}) {
   return {
     scene_index,

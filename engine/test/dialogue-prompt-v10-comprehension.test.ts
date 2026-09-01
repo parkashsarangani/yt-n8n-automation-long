@@ -42,15 +42,21 @@ const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", impo
 // prose, widens the emotion vocabulary from 6 to the 12 values visual_plan
 // already supports, and reorders story/cast_roster to the end of the prompt
 // for prefix-cache-friendliness -- the comprehension-structure vocabulary
-// these tests actually check is unchanged from v10.
-const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/14.md", import.meta.url), "utf8");
+// these tests actually check is unchanged from v10. v15 reverses the
+// long-standing "do not write an outro scene" instruction: the writer now
+// authors one real is_outro:true scene after the recap (the spoken CTA/
+// sign-off), which is exempt from the eight-function vocabulary these tests
+// check (script-dialogue-evidence.ts and cartoon-scenes.ts's
+// assertV3ScriptContract both filter is_outro scenes out before applying
+// any of the regexes below), so it needs no new vocabulary here.
+const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/15.md", import.meta.url), "utf8");
 
-test("dialogue_script_writer agent is pinned to the comprehension prompt v14", () => {
-  assert.match(agent, /"version":\s*"14"/);
-  assert.match(agent, /"prompt":\s*"dialogue_script_writer@14"/);
+test("dialogue_script_writer agent is pinned to the comprehension prompt v15", () => {
+  assert.match(agent, /"version":\s*"15"/);
+  assert.match(agent, /"prompt":\s*"dialogue_script_writer@15"/);
 });
 
-test("v14's required function vocabulary satisfies the compiler's hard gates", () => {
+test("v15's required function vocabulary satisfies the compiler's hard gates", () => {
   const requiredFunctions = [
     "hook",
     "intuitive_answer",
@@ -85,4 +91,15 @@ test("v14 no longer teaches the retired topic-specific prop contract", () => {
   // topics) doesn't generalize to arbitrary complex-concept episodes and was
   // deliberately dropped in the comprehension-structure rewrite.
   assert.doesNotMatch(prompt, /Topic-specific prop contract/);
+});
+
+test("v15 teaches a real spoken outro scene instead of forbidding one", () => {
+  // Real production evidence (traced against a live run): story.outro_line
+  // was never wired to the renderer and every prompt touching the script
+  // forbade authoring an outro scene, so every episode's "outro" was a
+  // silent generated card under a hardcoded default line. Fixed at the
+  // source: the writer now authors the real scene.
+  assert.doesNotMatch(prompt, /Do not write an outro scene/);
+  assert.match(prompt, /is_outro.*true/s);
+  assert.match(prompt, /outro_line/);
 });

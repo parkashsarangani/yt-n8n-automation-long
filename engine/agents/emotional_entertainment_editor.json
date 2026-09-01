@@ -1,7 +1,7 @@
 {
   "name": "emotional_entertainment_editor",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [
     {
       "schema_id": "story",
@@ -21,7 +21,7 @@
   ],
   "produces": "script",
   "produces_version": "1.6.0",
-  "prompt": "emotional_entertainment_editor@1",
+  "prompt": "emotional_entertainment_editor@2",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 18000,
