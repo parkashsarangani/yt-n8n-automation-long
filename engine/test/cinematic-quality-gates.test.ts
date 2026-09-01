@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentSemanticValidationErrors } from "../src/agent-validators.ts";
+import { agentSemanticValidationErrors, hasHardSemanticError } from "../src/agent-validators.ts";
 import type { AgentDef } from "../src/runner.ts";
 import type { Artifact } from "../src/artifact.ts";
 
@@ -121,6 +121,11 @@ test("an outro split across two scenes, only one flagged is_outro, is caught at 
   );
 
   assert.match(errors.join("\n"), /use function=outro in point but are not flagged is_outro:true/);
+  // This must be a hard gate, not a soft one: runner.ts accepts a soft
+  // gate's failure on the last attempt rather than blocking, which for this
+  // exact defect meant a broken script got stored and only failed later at
+  // quality_release with a confusing, unrelated-looking error.
+  assert.equal(hasHardSemanticError(errors), true);
 });
 
 test("more than one is_outro scene is rejected", () => {
@@ -135,6 +140,26 @@ test("more than one is_outro scene is rejected", () => {
   );
 
   assert.match(errors.join("\n"), /2 scenes are flagged is_outro:true/);
+  assert.equal(hasHardSemanticError(errors), true);
+});
+
+test("a script with no outro scene at all is not penalized by the outro gate", () => {
+  // Deliberate: this function is shared by every script-producing agent,
+  // including fixtures/tests written long before the outro feature existed
+  // and any resumed pre-outro script mid-pipeline. A missing outro degrades
+  // gracefully downstream (compose.js's silent fallback card) rather than
+  // hard-failing a render, unlike the malformed cases above -- so it must
+  // never be required here.
+  const errors = agentSemanticValidationErrors(
+    DIALOGUE_DEF,
+    { scenes: [
+      scriptScene(0, "Wait, why does ice float?", "action=Host holds up a floating ice cube, confused; prop=ice cube; function=opening_problem; value=the puzzle is visible immediately"),
+      scriptScene(1, "So freezing doesn't always pack things tighter.", "action=Host points at the floating cube; prop=ice cube; function=recap confirms_understanding; value=the puzzle resolves"),
+    ] },
+    {},
+  );
+
+  assert.doesNotMatch(errors.join("\n"), /outro gate failed/);
 });
 
 function visualScene(scene_index: number, overrides: Record<string, unknown> = {}) {
