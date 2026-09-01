@@ -175,7 +175,16 @@ test("an unsupported filter degrades the mix rather than failing the render", ()
 test("the ambient bed fills silence only when there is no music at all", () => {
   // Layering a noise floor under music buys nothing audible and risks
   // reading as hiss; filling an otherwise silent bed is a clear win.
-  assert.match(compose, /const useAmbientBed = !hasMusic && explanationMode && await supportsAmbientBed\(\);/);
+  //
+  // Currently force-disabled (`false &&` prefix) by operator decision, not
+  // removed: real user report of "weird and noisy" audio, confirmed as a
+  // constant background hiss. The sidechain ducking only attenuates this
+  // bed WHILE the voice is speaking, so it plays at full designed volume
+  // in every gap between lines -- exactly where a listener notices it. The
+  // machinery below (generation, wiring, lavfi handling) is untouched and
+  // still exercised by these tests so it stays correct for whenever this
+  // is retuned and re-enabled.
+  assert.match(compose, /const useAmbientBed = false && !hasMusic && explanationMode && await supportsAmbientBed\(\);/);
   assert.match(compose, /\} else if \(ambientIdx !== null\) \{/);
   // Generated from lavfi rather than shipped: no repo weight, and no
   // licensing question in a monetised video.
