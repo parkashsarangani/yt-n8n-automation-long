@@ -48,15 +48,22 @@ const agent = readFileSync(new URL("../agents/dialogue_script_writer.json", impo
 // sign-off), which is exempt from the eight-function vocabulary these tests
 // check (script-dialogue-evidence.ts and cartoon-scenes.ts's
 // assertV3ScriptContract both filter is_outro scenes out before applying
-// any of the regexes below), so it needs no new vocabulary here.
-const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/15.md", import.meta.url), "utf8");
+// any of the regexes below), so it needs no new vocabulary here. v16 fixes
+// a real production failure (run_8945ec99) v15 shipped with: the writer
+// read "1-2 short exchanges" as license to split the outro across two
+// scene objects and only flagged the last one is_outro:true, so the
+// unflagged CTA-only scene silently became "the last content scene" and
+// failed final_teach_back for not being a real recap. v16 makes it
+// unambiguous -- exactly one scene, one speaker -- and agent-validators.ts
+// now catches the split mechanically if a model does it anyway.
+const prompt = readFileSync(new URL("../prompts/dialogue_script_writer/16.md", import.meta.url), "utf8");
 
-test("dialogue_script_writer agent is pinned to the comprehension prompt v15", () => {
-  assert.match(agent, /"version":\s*"15"/);
-  assert.match(agent, /"prompt":\s*"dialogue_script_writer@15"/);
+test("dialogue_script_writer agent is pinned to the comprehension prompt v16", () => {
+  assert.match(agent, /"version":\s*"16"/);
+  assert.match(agent, /"prompt":\s*"dialogue_script_writer@16"/);
 });
 
-test("v15's required function vocabulary satisfies the compiler's hard gates", () => {
+test("v16's required function vocabulary satisfies the compiler's hard gates", () => {
   const requiredFunctions = [
     "hook",
     "intuitive_answer",
@@ -93,7 +100,7 @@ test("v14 no longer teaches the retired topic-specific prop contract", () => {
   assert.doesNotMatch(prompt, /Topic-specific prop contract/);
 });
 
-test("v15 teaches a real spoken outro scene instead of forbidding one", () => {
+test("v16 teaches a real spoken outro scene instead of forbidding one", () => {
   // Real production evidence (traced against a live run): story.outro_line
   // was never wired to the renderer and every prompt touching the script
   // forbade authoring an outro scene, so every episode's "outro" was a
@@ -102,4 +109,12 @@ test("v15 teaches a real spoken outro scene instead of forbidding one", () => {
   assert.doesNotMatch(prompt, /Do not write an outro scene/);
   assert.match(prompt, /is_outro.*true/s);
   assert.match(prompt, /outro_line/);
+});
+
+test("v16 makes the outro unambiguously one scene, not a split exchange", () => {
+  // The exact production failure v16 fixes: v15 said "1-2 short exchanges
+  // (both characters ideally get a line)", which read as license to split
+  // the outro across two scene objects.
+  assert.match(prompt, /exactly ONE additional final scene object/);
+  assert.match(prompt, /single `speaker` and a single `narration` string/);
 });

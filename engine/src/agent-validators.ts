@@ -199,10 +199,31 @@ function roboticDialogueFailures(scenes: ScriptScene[]): string[] {
 }
 
 function validateDialogueScript(payload: unknown, def: AgentDef): string[] {
-  const contentScenes = scenesFromPayload(payload).filter((scene) => !scene.is_outro).sort((a, b) => a.scene_index - b.scene_index);
+  const allScenes = scenesFromPayload(payload).sort((a, b) => a.scene_index - b.scene_index);
+  const contentScenes = allScenes.filter((scene) => !scene.is_outro);
   if (contentScenes.length === 0) return [];
   const errors: string[] = [];
   const failures: string[] = [];
+
+  // Real production failure (run_8945ec99): dialogue_script_writer@15 wrote
+  // the outro as two scene objects (a back-and-forth "exchange") but only
+  // flagged the last one is_outro:true. The unflagged one then silently
+  // became "the last content scene" for every is_outro-aware check
+  // downstream (script-dialogue-evidence.ts's final_teach_back among them)
+  // and failed for not being a real recap/teach-back, since it was actually
+  // CTA content. Catching the structural mistake here, with retry feedback,
+  // is far cheaper than failing three attempts later at quality_release on
+  // a content-quality message that never explains the real cause.
+  const outroScenes = allScenes.filter((scene) => scene.is_outro === true);
+  if (outroScenes.length > 1) {
+    errors.push(`${def.name}@${def.version ?? "1"} outro gate failed: ${outroScenes.length} scenes are flagged is_outro:true (scenes ${outroScenes.map((s) => s.scene_index).join(", ")}); the outro must be exactly one scene.`);
+  } else if (outroScenes.length === 1 && outroScenes[0] !== allScenes[allScenes.length - 1]) {
+    errors.push(`${def.name}@${def.version ?? "1"} outro gate failed: the is_outro:true scene (scene_index ${outroScenes[0]!.scene_index}) is not the literal last scene in the episode.`);
+  }
+  const unflaggedOutro = allScenes.filter((scene) => !scene.is_outro && /function\s*=\s*outro\b/i.test(scene.point ?? ""));
+  if (unflaggedOutro.length > 0) {
+    errors.push(`${def.name}@${def.version ?? "1"} outro gate failed: scene(s) ${unflaggedOutro.map((s) => s.scene_index).join(", ")} use function=outro in point but are not flagged is_outro:true. The outro is exactly one scene object carrying both the is_outro flag and its content -- never split the sign-off across two scenes, even if it reads like a back-and-forth exchange. Pick one character to deliver the whole line.`);
+  }
 
   const shortLineCount = contentScenes.filter((scene) => wordCount(scene.narration) <= SHORT_DIALOGUE_WORD_LIMIT).length;
   const requiredShortLines = Math.ceil(contentScenes.length / 2);
