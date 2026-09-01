@@ -359,10 +359,15 @@ test("the shipped production graph runs unattended end to end with fake provider
         key_text: "Why is it humming?",
         character_cut_in: "both",
         sound_cue: "none",
-        representation_mode: "kinetic-text",
-        scene_blueprint: "animated-statement",
+        // The opening scene may never fall back to kinetic-text -- see
+        // explanation-plan-release.ts's opening-scene check -- so this uses
+        // a real concrete depiction (a physical object making noise inside
+        // a container) instead of the plain-text fallback the other two
+        // fixture scenes still use.
+        representation_mode: "concrete-scene",
+        scene_blueprint: "container-object",
         visual_claim: "The locker is already humming before Host touches it.",
-        visual_actions: [],
+        visual_actions: [{ actor: "hum", action: "rise", target: "locker interior", anchor_phrase: "Why is it humming?" }],
         ...characterPerformance("neutral"),
       },
       {

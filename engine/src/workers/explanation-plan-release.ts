@@ -55,7 +55,7 @@ export function flaggedSceneIndices(review: unknown): number[] {
   return [...new Set(flagged)].sort((a, b) => a - b);
 }
 
-function validateSemanticScene(scene: Scene, index: number, failures: string[]): boolean {
+function validateSemanticScene(scene: Scene, index: number, isOpening: boolean, failures: string[]): boolean {
   const mode = scene["representation_mode"];
   if (typeof mode !== "string") return false; // legacy plan: handled below.
   const blueprint = scene["scene_blueprint"];
@@ -72,6 +72,19 @@ function validateSemanticScene(scene: Scene, index: number, failures: string[]):
   }
   if (typeof claim !== "string" || claim.trim().length < 4) {
     failures.push(`scene ${index} has no usable visual_claim`);
+  }
+
+  // The opening scene is the hook: the single scene most responsible for
+  // whether a viewer keeps watching. kinetic-text/animated-statement is the
+  // deliberate "nothing concrete was authored" fallback (see the module
+  // comment at the top of this file and semantic-visual-assets.ts's
+  // semanticPayload) -- correct as a rare escape hatch deep in an episode,
+  // but the opening scene falling back to plain animated text is a content
+  // defect, not a schema violation, so it needs its own explicit check
+  // rather than silently passing every other structural rule kinetic-text
+  // scenes are allowed to satisfy.
+  if (isOpening && mode === "kinetic-text") {
+    failures.push(`scene ${index} is the opening scene and must not use the kinetic-text/animated-statement fallback; author a concrete/domain/quantitative/spatial representation for the hook`);
   }
 
   if (mode === "kinetic-text") {
@@ -118,6 +131,15 @@ export function assessPlanRevision(original: unknown, revised: unknown, review: 
   let legacyRelationshipScenes = 0;
   let legacyUnauthored = 0;
 
+  // The opening scene is whichever scene has the LOWEST scene_index, matching
+  // the convention already used elsewhere (cartoon-scenes-v16.ts's
+  // openingIndex) -- not a literal scene_index of 0, since a resumed or
+  // partially-renumbered plan is not guaranteed to start there.
+  const sceneIndices = revisedScenes
+    .map((scene) => scene["scene_index"])
+    .filter((value): value is number => typeof value === "number" && Number.isInteger(value));
+  const openingIndex = sceneIndices.length ? Math.min(...sceneIndices) : undefined;
+
   for (const scene of revisedScenes) {
     const index = typeof scene["scene_index"] === "number" ? scene["scene_index"] : -1;
     const elements = Array.isArray(scene["model_elements"]) ? scene["model_elements"] : [];
@@ -136,7 +158,7 @@ export function assessPlanRevision(original: unknown, revised: unknown, review: 
 
     // New semantic plans never depend on a fixed-topology diagram fallback.
     // The legacy majority rule remains only for resumed pre-1.6 artifacts.
-    if (validateSemanticScene(scene, index, failures)) continue;
+    if (validateSemanticScene(scene, index, index === openingIndex, failures)) continue;
 
     const primitive = typeof scene["visual_primitive"] === "string" ? scene["visual_primitive"] : "";
     if (!RELATIONSHIP_PRIMITIVES.has(primitive)) continue;
