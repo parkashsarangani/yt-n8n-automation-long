@@ -12,6 +12,7 @@ import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
 import { repairMotionCompatibility, repairOverlongLabels } from "./motion-contract.ts";
+import { repairMissingOutroFlag } from "./script-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
   ProviderError,
@@ -319,13 +320,30 @@ export class Runner {
       // retry attempt on it" reasoning as the operation/primitive repair
       // above, for explanation_plan@1.4.0's tightened state_before/
       // state_after/key_text limits -- see repairOverlongLabels' own comment.
-      const { data: payload, repairs: labelRepairs } = def.produces === "explanation_plan"
+      const { data: labelsRepaired, repairs: labelRepairs } = def.produces === "explanation_plan"
         ? repairOverlongLabels(compatibilityRepaired)
         : { data: compatibilityRepaired, repairs: [] };
       if (labelRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-clamped ${labelRepairs.length} overlong label(s): ` +
             labelRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
+        );
+      }
+      // Same "fix what the system already knows how to fix, don't spend a
+      // retry attempt on it" reasoning as the repairs above, for the one
+      // real production mistake dialogue_script_writer/emotional_
+      // entertainment_editor/script_quality_reviser keep making: writing
+      // the outro scene's real content in the correct final position and
+      // simply omitting is_outro:true. See repairMissingOutroFlag's own
+      // comment for the production evidence and why the repair stays
+      // conservative.
+      const { data: payload, repairs: outroRepairs } = def.produces === "script"
+        ? repairMissingOutroFlag(labelsRepaired)
+        : { data: labelsRepaired, repairs: [] };
+      if (outroRepairs.length > 0) {
+        this.deps.logger?.warn(
+          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +
+            outroRepairs.map((r) => `${r.path}: ${r.from} -> ${r.to}`).join("; "),
         );
       }
 
