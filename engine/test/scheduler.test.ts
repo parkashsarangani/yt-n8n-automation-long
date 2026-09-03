@@ -84,6 +84,55 @@ test("with no history to seed from, a job stays due on the very first tick as be
   assert.equal(runs, 1, "no seed -- unknown last run, so it's due immediately, exactly like a fresh channel's first day");
 });
 
+test("targetHourUtc pins a job to one daily slot instead of an interval since it last ran", async () => {
+  // Real request: the daily production episode should publish at a good time
+  // for a US audience (early-mid afternoon Eastern), not "whenever the last
+  // run happened to finish" -- everyHours drifts with render time and has no
+  // notion of time-of-day at all.
+  const start = Date.UTC(2026, 0, 1, 10, 0, 0); // 10:00 UTC, before the slot
+  const c = clock(start);
+  let runs = 0;
+  const s = new Scheduler({
+    jobs: [job({ id: "produce", targetHourUtc: 19, run: async () => { runs += 1; } })],
+    now: c.now,
+    logger: silent(),
+  });
+
+  await s.tick();
+  assert.equal(runs, 0, "not the target hour yet");
+
+  c.advance(9 * HOUR); // now 19:00 UTC -- the slot
+  await s.tick();
+  assert.equal(runs, 1, "the slot arrived");
+
+  c.advance(4 * HOUR); // 23:00 UTC, same day
+  await s.tick();
+  assert.equal(runs, 1, "already ran today -- must not fire again the same day");
+
+  c.advance(20 * HOUR); // next day, 19:00 UTC again
+  await s.tick();
+  assert.equal(runs, 2, "tomorrow's slot");
+});
+
+test("targetHourUtc combined with seedLastRun: a deploy at any time of day still waits for the real slot", async () => {
+  const start = Date.UTC(2026, 0, 2, 8, 0, 0); // day 2, 08:00 UTC (a deploy)
+  const seededLastRun = Date.UTC(2026, 0, 1, 19, 0, 0); // day 1's real 19:00 run
+  const c = clock(start);
+  let runs = 0;
+  const s = new Scheduler({
+    jobs: [job({ id: "produce", targetHourUtc: 19, seedLastRun: seededLastRun, run: async () => { runs += 1; } })],
+    now: c.now,
+    logger: silent(),
+  });
+
+  await s.tick();
+  assert.equal(runs, 0, "seeded from yesterday's slot -- today's hasn't arrived yet, a redeploy must not fire it early");
+
+  c.advance(11 * HOUR); // day 2, 19:00 UTC
+  await s.tick();
+  assert.equal(runs, 1);
+});
+
 test("a disabled job never fires but is still reported", async () => {
   // Visible rather than absent: a job you cannot see is a job you forget you
   // turned off.

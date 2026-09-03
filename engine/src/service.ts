@@ -1113,6 +1113,12 @@ export class VidGenService {
       const n = Number(raw);
       return Number.isFinite(n) && n > 0 ? n : null;
     };
+    const hour = (key: string, fallback: number): number => {
+      const raw = process.env[key]?.trim();
+      if (!raw) return fallback;
+      const n = Number(raw);
+      return Number.isInteger(n) && n >= 0 && n <= 23 ? n : fallback;
+    };
 
     // A restart must not make "produce" immediately due again -- production
     // deploys several times a day now that it defaults to enabled, and each
@@ -1148,15 +1154,25 @@ export class VidGenService {
       },
       {
         id: "produce",
-        description: "Pick the top discovery candidate, produce it and publish it — fully automated, one episode per tick",
+        description: `Pick the top discovery candidate, produce it and publish it — one episode a day, timed for a US audience (~${hour("SCHEDULE_PRODUCE_HOUR_UTC", 19)}:00 UTC)`,
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
+        // Pinned to a daily US-afternoon slot (default 19:00 UTC = ~3pm ET /
+        // ~noon PT -- live before the evening viewing surge across US time
+        // zones) rather than "every 24h since it last finished", which drifts
+        // with render time and carries no notion of when in the day is good
+        // to publish. Override with SCHEDULE_PRODUCE_HOUR_UTC (0-23); unset
+        // SCHEDULE_PRODUCE_HOURS still controls the fallback cadence for a
+        // manual runNow() and for jobs that don't set targetHourUtc.
+        targetHourUtc: hour("SCHEDULE_PRODUCE_HOUR_UTC", 19),
         ...(Number.isFinite(lastProduceAt) ? { seedLastRun: lastProduceAt } : {}),
         // ON by default (once a day): every human_gate in illustrated_story.json
-        // is `auto_pass_if: always`, so a started run drives itself all the way
-        // to a public publish with no human step left to skip. Set
-        // SCHEDULE_PRODUCE_HOURS=0 to turn this off; the operator can still use
-        // the UI's "Create episode" to start additional episodes any time —
-        // this job only decides the topic for the *scheduled* one.
+        // auto-passes except approve_publish, which gates on the qa verdict --
+        // a started run drives itself unattended either to a public publish or
+        // to a self-healing retry (see driveUnattended), with no other human
+        // step left to skip. Set SCHEDULE_PRODUCE_HOURS=0 to turn this off;
+        // the operator can still use the UI's "Create episode" to start
+        // additional episodes any time — this job only decides the topic and
+        // timing for the *scheduled* one.
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
