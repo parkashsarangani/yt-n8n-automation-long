@@ -50,6 +50,40 @@ test("a job runs on the first tick, then not again until it is due", async () =>
   assert.equal(runs, 2, "now due");
 });
 
+test("seedLastRun stops a restart from making an already-run-today job immediately due — real production bug", async () => {
+  // Confirmed live: with production defaulting to enabled and deploys
+  // happening several times a day, every restart used to reset "produce"'s
+  // in-memory last-run to null, firing a brand new public episode on every
+  // deploy regardless of when one actually last ran.
+  const c = clock(10 * HOUR);
+  let runs = 0;
+  const s = new Scheduler({
+    jobs: [job({ id: "produce", everyHours: 24, seedLastRun: 2 * HOUR, run: async () => { runs += 1; } })],
+    now: c.now,
+    logger: silent(),
+  });
+
+  await s.tick();
+  assert.equal(runs, 0, "seeded 8h ago against a 24h cadence -- not due yet");
+
+  c.advance(16 * HOUR); // now at 26h; seeded run was at 2h -> 24h have passed
+  await s.tick();
+  assert.equal(runs, 1, "now due, and the seed is reflected in status()");
+});
+
+test("with no history to seed from, a job stays due on the very first tick as before", async () => {
+  const c = clock(10 * HOUR);
+  let runs = 0;
+  const s = new Scheduler({
+    jobs: [job({ id: "produce", everyHours: 24, run: async () => { runs += 1; } })],
+    now: c.now,
+    logger: silent(),
+  });
+
+  await s.tick();
+  assert.equal(runs, 1, "no seed -- unknown last run, so it's due immediately, exactly like a fresh channel's first day");
+});
+
 test("a disabled job never fires but is still reported", async () => {
   // Visible rather than absent: a job you cannot see is a job you forget you
   // turned off.
