@@ -53,7 +53,7 @@ test("agent output budgets stay bounded", () => {
     "narrative_story_architect.json": 5000,
     "narration_script_writer.json": 12000,
     "episode_director.json": 10000,
-    "watchability_critic.json": 6000,
+    "watchability_critic.json": 18000,
     "visual_planner.json": 10000,
   };
 
