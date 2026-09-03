@@ -75,6 +75,18 @@ export interface WorkerContext {
    * upstream instead.
    */
   attemptNumber: number;
+  /**
+   * This node's own most recent successful artifact from an earlier attempt
+   * in the SAME run, if one exists (undefined on a node's first attempt). A
+   * plain re-execution regenerates everything from zero, which is correct
+   * for most workers -- but one that did expensive, mostly-successful work
+   * (e.g. illustrated_scene_assets generating 27 images, 26 of them fine)
+   * can use this to redo only the part that needs it instead of paying for
+   * and re-rolling everything, including the parts that were already good.
+   * Set by the executor's regenerateNode() (GraphExecutor), which invalidates
+   * this node's completion without touching what it actually produced.
+   */
+  priorArtifact?: Artifact;
 }
 
 export interface WorkerOutput {
@@ -467,17 +479,24 @@ export class Runner {
       throw new RunnerError(`worker "${def.name}" needs a blob store; construct the Runner with { blobs }`);
     }
 
-    const priorFailures = opts.nodeId
-      ? (await this.deps.runLog.all()).filter(
-          (r) => r.run_id === runId && r.node_id === opts.nodeId && r.status === "failed",
-        ).length
-      : 0;
+    const nodeRecords = opts.nodeId
+      ? (await this.deps.runLog.all()).filter((r) => r.run_id === runId && r.node_id === opts.nodeId)
+      : [];
+    const priorFailures = nodeRecords.filter((r) => r.status === "failed").length;
+    // Most recent earlier success for this exact node in this run, if any --
+    // still present in the log even after a "retry" record invalidates it
+    // for deriveCompleted()'s purposes (see regenerateNode()/pruneIncompleteDependencies).
+    const priorSuccess = nodeRecords
+      .filter((r) => r.output && (r.status === "ok" || r.status === "cache_hit" || r.status === "accepted_below_quality_bar"))
+      .at(-1);
+    const priorArtifact = priorSuccess ? await this.deps.store.get(priorSuccess.output!) : null;
 
     const ctx: WorkerContext = {
       logger: this.deps.logger ?? console,
       blobs: this.deps.blobs,
       media: this.deps.media ?? {},
       attemptNumber: priorFailures + 1,
+      ...(priorArtifact ? { priorArtifact } : {}),
       progress: async (note) => {
         await this.deps.runLog.record({
           run_id: runId,

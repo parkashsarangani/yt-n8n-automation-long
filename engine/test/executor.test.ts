@@ -175,3 +175,56 @@ test("ExecutorError is thrown for a missing seed", async () => {
 
   await assert.rejects(() => t.executor.start(graph, {}), ExecutorError);
 });
+
+test("regenerateNode() forces one node to re-run on the next resume(), and cascades to everything downstream of it", async () => {
+  // Real production use: VidGenService.driveUnattended() calls this on
+  // "assets" after a qa_report flags blank scenes, to force just that node
+  // (and render/qa/publish, which consumed its now-superseded artifact)
+  // to re-run -- without disturbing anything the qa report didn't flag.
+  const t = await tempSetup();
+  let calls = 0;
+  t.transformations.set("counting", {
+    name: "counting",
+    kind: "worker",
+    consumes: [{ schema_id: "a", range: "^1", as: "x" }],
+    produces: "b",
+    async execute(inputs) {
+      calls++;
+      return { payload: { v: `call${calls}:${(inputs["x"]!.payload as { v: string }).v}` } };
+    },
+  });
+
+  const graph: GraphDoc = {
+    graph_id: "regen",
+    version: "1",
+    nodes: [
+      { id: "seed", type: "input", schema_id: "a" },
+      { id: "n1", transformation: "counting", in: ["seed"] },
+      { id: "n2", transformation: "ok2", in: ["n1"] },
+    ],
+  };
+
+  const first = await t.executor.start(graph, { seed: t.seed.artifact.artifact_id }, { runId: "run_regen" });
+  assert.equal(first.status, "completed");
+  assert.equal(calls, 1);
+
+  await t.executor.regenerateNode(graph, "run_regen", "n1", "test forcing regeneration");
+  const second = await t.executor.resume(graph, "run_regen", {});
+
+  assert.equal(second.status, "completed");
+  assert.equal(calls, 2, "n1 actually re-ran, not just re-marked complete");
+  assert.notEqual(second.outputs["n1"], first.outputs["n1"], "n1 got a genuinely new artifact");
+  assert.notEqual(second.outputs["n2"], first.outputs["n2"], "n2 cascaded to a fresh artifact built on the new n1, not the stale one");
+});
+
+test("regenerateNode() rejects an unknown or non-transformation node id", async () => {
+  const t = await tempSetup();
+  const graph: GraphDoc = {
+    graph_id: "regen-invalid",
+    version: "1",
+    nodes: [{ id: "seed", type: "input", schema_id: "a" }],
+  };
+
+  await assert.rejects(() => t.executor.regenerateNode(graph, "run_x", "seed", "reason"), ExecutorError);
+  await assert.rejects(() => t.executor.regenerateNode(graph, "run_x", "ghost", "reason"), ExecutorError);
+});

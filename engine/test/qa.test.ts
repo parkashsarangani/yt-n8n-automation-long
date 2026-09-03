@@ -185,24 +185,60 @@ test("one placeholder scene warns but still ships", async () => {
   assert.equal(payload.verdict, "pass");
 });
 
-test("a video that is mostly placeholders fails", async () => {
-  const { payload } = await runQa({ assets: { degraded_count: 8 } });
+// A "placeholder" source (blank, no image_uri at all -- a black screen for
+// the whole scene) and a "fallback" source (a real but repeated image) are
+// deliberately different signals now, not blended into one ratio (real
+// production case: a 1-blank/2-fallback episode published because the
+// combined 3/27 ratio alone was judged, not the fact that one scene was
+// literally blank). blankScenes() builds an assets override with N scenes
+// forced to "placeholder"; the rest stay the HEALTHY fixture's "primary".
+function blankScenes(n: number, total = 10) {
+  return {
+    scenes: Array.from({ length: total }, (_, i) => ({
+      scene_index: i,
+      source: i < n ? "placeholder" : "primary",
+      ...(i < n ? {} : { image_uri: `blob://sha256:${"a".repeat(64)}` }),
+      prompt: "a mountain",
+    })),
+    degraded_count: n,
+  };
+}
 
-  const c = check(payload, "visual_assets_renderable");
+test("any blank scene fails outright, regardless of how small a fraction of the episode it is", async () => {
+  const { payload } = await runQa({ assets: blankScenes(1) });
+
+  const c = check(payload, "blank_scenes");
   assert.equal(c.status, "fail");
-  assert.match(c.message, /visual asset pipeline is failing/);
+  assert.match(c.message, /1 of 10 scene\(s\) are blank placeholders/);
   assert.equal(payload.verdict, "fail");
 });
 
-test("the placeholder threshold is a ratio, not a count", async () => {
-  // 1 of 10 is tolerable; 1 of 4 is not. A fixed count would treat them alike.
+test("a video that is mostly blank scenes fails", async () => {
+  const { payload } = await runQa({ assets: blankScenes(8) });
+
+  const c = check(payload, "blank_scenes");
+  assert.equal(c.status, "fail");
+  assert.equal(payload.verdict, "fail");
+});
+
+test("the fallback (repeated-shot, not blank) threshold is a ratio, not a count", async () => {
+  // 1 of 10 fallback scenes is tolerable; 1 of 4 is not. A fixed count would
+  // treat them alike. Neither is a blank scene, so blank_scenes stays pass.
   const short = {
     script: { scenes: HEALTHY.script.scenes.slice(0, 4), word_count: 600 },
-    assets: { degraded_count: 1 },
+    assets: {
+      scenes: Array.from({ length: 4 }, (_, i) => ({
+        scene_index: i,
+        source: i === 0 ? "fallback" : "primary",
+        image_uri: `blob://sha256:${"a".repeat(64)}`,
+      })),
+      degraded_count: 1,
+    },
     voice: { clips: HEALTHY.voice.clips.slice(0, 4) },
     render: { scene_count: 4, duration_sec: 600 },
   };
   const { payload } = await runQa(short);
+  assert.equal(check(payload, "blank_scenes").status, "pass");
   assert.equal(check(payload, "visual_assets_renderable").status, "fail");
 });
 

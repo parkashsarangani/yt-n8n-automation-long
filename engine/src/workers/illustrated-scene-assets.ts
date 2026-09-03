@@ -205,8 +205,16 @@ async function generateOne(
  * generateOne, plus the same two vision QA passes hybrid_visual_assets ran
  * (see that file's now-deleted generatePackWithVisionQa): reject baked-in
  * text/lettering, and reject imagery that actively contradicts its own
- * narration. One retry with a perturbed seed; both checks fail open (pass)
- * on QA-infrastructure problems so a QA outage never blocks generation.
+ * narration. Both checks fail open (pass) on QA-infrastructure problems so a
+ * QA outage never blocks generation.
+ *
+ * Up to two full attempts, covering EITHER failure mode -- a raw provider
+ * exception (rate limit, transient network error, a safety-checker block)
+ * or a vision QA flag. Real production case: scene 0 (the literal first
+ * scene, with no reference image yet to fall back on) hit a bare provider
+ * exception on its only attempt and went straight to a blank placeholder --
+ * the vision-QA retry never even applied, because the failure never reached
+ * flags() at all.
  */
 async function generateWithVisionQa(
   provider: ReferenceCapableProvider,
@@ -228,22 +236,35 @@ async function generateWithVisionQa(
     return out;
   };
 
-  const first = await generateOne(provider, prompt, seed, reference);
-  const firstFlags = await flags(first);
-  if (firstFlags.length === 0) return first;
-  logger.warn(`[illustrated_scene_assets] scene ${sceneIndex}: generated image failed vision QA (${firstFlags.join("; ")}); regenerating once`);
-
-  const retry = await generateOne(provider, prompt, (seed + 1) & 0x7fffffff, reference);
-  const retryFlags = await flags(retry);
-  if (retryFlags.length === 0) return retry;
-  throw new Error(`generated image still fails vision QA after regeneration: ${retryFlags.join("; ")}`);
+  const MAX_ATTEMPTS = 2;
+  let lastError = new Error("unreachable");
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const attemptSeed = attempt === 0 ? seed : (seed + attempt) & 0x7fffffff;
+    try {
+      const image = await generateOne(provider, prompt, attemptSeed, reference);
+      const failed = await flags(image);
+      if (failed.length === 0) return image;
+      lastError = new Error(`generated image fails vision QA: ${failed.join("; ")}`);
+      logger.warn(
+        `[illustrated_scene_assets] scene ${sceneIndex}: attempt ${attempt + 1}/${MAX_ATTEMPTS} failed vision QA ` +
+          `(${failed.join("; ")})${attempt + 1 < MAX_ATTEMPTS ? "; regenerating" : ""}`,
+      );
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      logger.warn(
+        `[illustrated_scene_assets] scene ${sceneIndex}: attempt ${attempt + 1}/${MAX_ATTEMPTS} generation failed ` +
+          `(${lastError.message})${attempt + 1 < MAX_ATTEMPTS ? "; regenerating" : ""}`,
+      );
+    }
+  }
+  throw lastError;
 }
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
     name: "illustrated_scene_assets",
     kind: "worker",
-    version: opts.version ?? "3",
+    version: opts.version ?? "4",
     consumes: [
       { schema_id: "episode_direction", range: "^1", as: "direction" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -262,12 +283,53 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       const provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
       const ordered = [...scenes].sort((a, b) => a.scene_index - b.scene_index);
 
+      // Retry-aware reuse (real production case: a QA-triggered regeneration
+      // after scene 0 came back a bare placeholder). ctx.priorArtifact is
+      // this same worker's own most recent successful manifest for this run
+      // (see runner.ts) -- set only when GraphExecutor.regenerateNode() has
+      // forced this node to run again. A scene that already has real content
+      // (source "primary" or "fallback") is left untouched: no new spend, no
+      // risk of re-rolling a scene that was already fine. Only scenes that
+      // were true blank placeholders get attempted below.
+      interface PriorScene { scene_index?: number; source?: string; image_uri?: string; prompt?: string; template_data?: string }
+      const priorScenes = new Map<number, PriorScene>(
+        ((ctx.priorArtifact?.payload as { scenes?: PriorScene[] } | undefined)?.scenes ?? [])
+          .filter((s): s is PriorScene & { scene_index: number } => typeof s.scene_index === "number")
+          .map((s) => [s.scene_index, s]),
+      );
+
       const blobs: BlobRef[] = [];
       const manifestScenes: Array<Record<string, unknown>> = [];
       let referenceImage: GeneratedImage | undefined;
       let degraded = 0;
 
+      // Give a regenerated scene real reference continuity, which the true
+      // first-attempt edge case (scene 0 failing with no reference yet)
+      // never had -- seed it from a reused scene's real content before the
+      // loop, rather than leaving the retry to start from a blank slate too.
+      for (const prior of priorScenes.values()) {
+        if (prior.source !== "primary" || !prior.image_uri) continue;
+        try {
+          referenceImage = { bytes: await ctx.blobs.get(prior.image_uri), media_type: "image/png" };
+        } catch {
+          // Blob no longer on disk; fall through and generate without one.
+        }
+        break;
+      }
+
       for (const scene of ordered) {
+        const prior = priorScenes.get(scene.scene_index);
+        if (prior && prior.source !== "placeholder" && prior.image_uri) {
+          manifestScenes.push({
+            scene_index: scene.scene_index,
+            source: prior.source,
+            image_uri: prior.image_uri,
+            prompt: prior.prompt ?? buildIllustratedPrompt(scene.image_prompt, style),
+            template_data: prior.template_data ?? JSON.stringify({ camera_move: scene.camera_move }),
+          });
+          if (prior.source === "fallback") degraded++;
+          continue;
+        }
         const prompt = buildIllustratedPrompt(scene.image_prompt, style);
         const seed = stableSeed(prompt);
         // The outro scene needs its CTA to actually appear on screen, not

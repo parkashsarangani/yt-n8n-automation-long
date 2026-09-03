@@ -128,6 +128,36 @@ export class GraphExecutor {
     return this.drive(graph, runId, decisions);
   }
 
+  /**
+   * Force one already-succeeded transformation node to run again on the next
+   * resume(), the same mechanism a rejected human_gate already uses on its
+   * upstream node (see the "retry" record written in drive() above) --
+   * exposed here for a caller who wants to force regeneration for a reason
+   * other than a gate rejection (e.g. a QA report flagging bad output after
+   * the gate already auto-passed). pruneIncompleteDependencies then cascades
+   * the invalidation to everything downstream that consumed this node's now-
+   * superseded artifact, so a single call regenerates the node AND
+   * transparently re-runs everything built on top of it on the next
+   * resume() -- the worker itself decides how much of its own prior work
+   * (WorkerContext.priorArtifact, still in the log, only unlisted from
+   * completion) to actually redo versus reuse.
+   */
+  async regenerateNode(graph: GraphDoc, runId: string, nodeId: string, reason: string): Promise<void> {
+    const node = graph.nodes.find((n) => n.id === nodeId);
+    if (!node || nodeType(node) !== "transformation") {
+      throw new ExecutorError(`"${nodeId}" is not a transformation node in ${graphRef(graph)}`);
+    }
+    await this.recordNode(
+      runId,
+      graph,
+      nodeId,
+      (node as TransformationNode).transformation,
+      null,
+      "retry",
+      reason,
+    );
+  }
+
   // ------------------------------------------------------------------
 
   private async drive(
