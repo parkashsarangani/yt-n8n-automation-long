@@ -1,0 +1,17 @@
+{
+  "name": "growth_packager",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "intent", "range": "^1", "as": "intent" },
+    { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
+  ],
+  "produces": "growth_package",
+  "prompt": "growth_packager@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 5000
+  },
+  "confidence_dimensions": ["clickability", "story_potential", "audience_size"],
+  "retry": { "max_attempts": 3 }
+}
