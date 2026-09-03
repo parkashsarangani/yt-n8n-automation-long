@@ -667,6 +667,47 @@ export class VidGenService {
     void this.drive(runId, () => this.executor.resume(graph, runId, {}));
   }
 
+  /**
+   * Drive a run all the way to a terminal state without a human clicking
+   * "Resume" -- for scheduled/unattended production only. A worker failure
+   * (e.g. watchability_release's own MAX_ATTEMPTS_BEFORE_ACCEPTING escape
+   * hatch) intentionally parks a run "blocked" rather than looping itself,
+   * so a manually-started run's operator can inspect before retrying (see
+   * retry() above and the Studio UI's "Resume blocked run" banner) -- but
+   * a scheduled run has no one watching, so without this it would just sit
+   * blocked forever and the day's episode would never actually publish.
+   * Bounded so a genuinely broken run (bad credentials, a real bug) cannot
+   * spin forever; the next scheduled tick tries a fresh episode regardless.
+   */
+  private async driveUnattended(runId: string, maxRetries = 5): Promise<void> {
+    for (let round = 0; ; round++) {
+      for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
+        if (waitedMs >= 30 * 60_000) {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 30min, giving up waiting`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+      const view = this.getRun(runId);
+      if (!view) return;
+      if (view.status !== "blocked" || (view.failures?.length ?? 0) === 0) {
+        if (view.status === "waiting") {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate with no auto-pass predicate -- cannot self-resolve`);
+        }
+        return;
+      }
+      if (round >= maxRetries) {
+        console.log(
+          `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
+            `needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
+        );
+        return;
+      }
+      console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
+      await this.retry(runId);
+    }
+  }
+
   private async drive(runId: string, fn: () => Promise<GraphRunResult>): Promise<void> {
     const state = this.runs.get(runId)!;
     try {
@@ -1025,14 +1066,22 @@ export class VidGenService {
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
-          const first = (found.candidates as { candidates?: Array<{ brief?: string }> } | null)
-            ?.candidates?.[0]?.brief;
-          if (!first) {
+          const top = (found.candidates as { candidates?: Array<{ brief?: string; genre?: Genre }> } | null)
+            ?.candidates?.[0];
+          if (!top?.brief) {
             console.log("[scheduler] discovery returned no candidate; not starting a run");
             return;
           }
-          const runId = await this.startRun(first);
-          console.log(`[scheduler] started ${runId} for: ${first} (runs unattended through to publish)`);
+          const runId = await this.startRun(top.brief, undefined, top.genre ? { genre: top.genre } : {});
+          console.log(`[scheduler] started ${runId} for: ${top.brief} -- driving unattended through to publish`);
+          // startRun only kicks the graph off in the background (this.drive is
+          // fire-and-forget so the UI never blocks on a multi-minute run); a
+          // scheduled tick has no UI watching it, so this job's own run() must
+          // await the whole thing, auto-resuming past blocked attempts, or the
+          // Scheduler would consider "produce" done the instant the run started.
+          await this.driveUnattended(runId);
+          const finalStatus = this.getRun(runId)?.status;
+          console.log(`[scheduler] ${runId} finished: ${finalStatus}`);
         },
       },
     ];
