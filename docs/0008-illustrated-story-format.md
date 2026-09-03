@@ -165,11 +165,26 @@ its artifacts stay valid and resumable. Retired transformations and schemas rema
 registry so historical artifacts continue to validate and replay. Nothing is deleted from
 the artifact store.
 
+## Addendum: genre and image style are operator-selectable, not fixed
+
+The first two published episodes surfaced that a single fixed narrative shape and a single
+fixed visual identity were both too narrow — real feedback asked for drama, true-story and
+short-story content alongside the moral_story default, and for a second visual identity
+(`flat_comic_expressive`, expressive faces) alongside the original faceless ink-wash. Both are
+now `intent` fields (`genre`, `image_style`; see `schemas/intent/1.1.0.json`), selected per run
+rather than hardcoded, and surfaced on the operator UI. `narrative_story_architect` and
+`narration_script_writer` branch on `genre` (see their `@2` prompts); `illustrated_scene_assets`
+branches on `image_style` (see `STYLE_BUNDLES`). Both are optional and default to the original
+behavior when absent, so this is additive, not a rewrite of the decision above — the "no
+characters, illustrated stills, one watchability gate" architecture is unchanged; only the
+narrative shape and the art direction within it are now a choice instead of a constant.
+
 ## Open Questions
 
-**Content genre.** Whether episodes remain explanatory subjects told as stories, or move
-toward parable and commentary like the reference. Resolved by retention on the first three
-published episodes, not by argument.
+**Content genre.** Resolved differently than originally framed: rather than picking one shape
+by argument or by retention data, genre is now an operator choice per run (see addendum above).
+What remains open is which genre(s) actually retain and share best in practice — to be settled
+by measurement across published episodes of each type, not by argument.
 
 **Language and audience.** The reference channel publishes in Urdu/Hindi; this pipeline
 currently produces English. Unresolved, and it affects voice selection and topic choice.

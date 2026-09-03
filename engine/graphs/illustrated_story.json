@@ -13,7 +13,7 @@
     { "id": "watchability_release", "transformation": "watchability_release", "in": ["draft_script", "watchability_report"] },
     { "id": "approve_script", "type": "human_gate", "in": ["watchability_release"], "policy": { "auto_pass_if": "always" } },
     { "id": "direction", "transformation": "episode_director", "in": ["approve_script"] },
-    { "id": "assets", "transformation": "illustrated_scene_assets", "in": ["direction", "approve_script"] },
+    { "id": "assets", "transformation": "illustrated_scene_assets", "in": ["direction", "approve_script", "intent"] },
     { "id": "voice", "transformation": "voice", "in": ["approve_script"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story"] },
