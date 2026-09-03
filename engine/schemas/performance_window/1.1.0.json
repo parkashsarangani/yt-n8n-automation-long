@@ -1,0 +1,63 @@
+{
+  "schema_id": "performance_window",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "RFC 0009 extends the feedback window with negotiated 5/15/30-second retention samples and their medians, so discovery/packaging/story decisions can learn from actual early drop-off without pretending unavailable metrics exist.",
+  "produced_by": ["human"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "PerformanceWindowArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["episode_count", "episodes", "generated_at", "ctr_available", "retention_available", "aggregates"],
+    "properties": {
+      "generated_at": {"type": "string", "format": "date-time"},
+      "episode_count": {"type": "integer", "minimum": 0},
+      "ctr_available": {"type": "boolean"},
+      "retention_available": {"type": "boolean", "description": "True when at least one episode has an audience-retention curve/early sample."},
+      "aggregates": {
+        "type": "object", "additionalProperties": false,
+        "required": ["median_views", "median_view_percentage", "median_ctr", "median_retention_5s", "median_retention_15s", "median_retention_30s", "total_subscribers_gained"],
+        "properties": {
+          "median_views": {"type": "number", "minimum": 0},
+          "median_view_percentage": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+          "median_ctr": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+          "median_retention_5s": {"type": ["number", "null"], "minimum": 0},
+          "median_retention_15s": {"type": ["number", "null"], "minimum": 0},
+          "median_retention_30s": {"type": ["number", "null"], "minimum": 0},
+          "total_subscribers_gained": {"type": "integer"}
+        }
+      },
+      "episodes": {
+        "type": "array", "maxItems": 200,
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["external_id", "metrics"],
+          "properties": {
+            "external_id": {"type": "string", "maxLength": 64},
+            "title": {"type": "string", "maxLength": 200},
+            "primary_keyword": {"type": "string", "maxLength": 80},
+            "thumbnail_text": {"type": "string", "maxLength": 60},
+            "published_at": {"type": "string", "maxLength": 40},
+            "window_days": {"type": "integer", "minimum": 1},
+            "metrics": {
+              "type": "object", "additionalProperties": false,
+              "required": ["views", "average_view_percentage", "click_through_rate", "retention_5s", "retention_15s", "retention_30s", "subscribers_gained", "likes", "comments"],
+              "properties": {
+                "views": {"type": "integer", "minimum": 0},
+                "average_view_percentage": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+                "click_through_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+                "retention_5s": {"type": ["number", "null"], "minimum": 0},
+                "retention_15s": {"type": ["number", "null"], "minimum": 0},
+                "retention_30s": {"type": ["number", "null"], "minimum": 0},
+                "subscribers_gained": {"type": "integer"},
+                "likes": {"type": "integer", "minimum": 0},
+                "comments": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
