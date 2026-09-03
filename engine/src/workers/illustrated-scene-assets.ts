@@ -298,6 +298,24 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           .map((s) => [s.scene_index, s]),
       );
 
+      // Computed once, up front: reuse validity (prompt match) and the main
+      // loop both need this, and scene 0 -- which may need to regenerate --
+      // is processed FIRST in scene_index order, before a later scene that
+      // could seed its reference continuity would otherwise be visited.
+      const freshPrompts = new Map(ordered.map((s) => [s.scene_index, buildIllustratedPrompt(s.image_prompt, style)]));
+      // Reuse is only valid when the underlying content hasn't moved: a
+      // prior scene with a DIFFERENT prompt means direction/the script
+      // upstream of it was itself regenerated (e.g. VidGenService's
+      // best-of-N watchability pick, which invalidates the whole chain, not
+      // just this node) -- scene_index alone would silently reuse a stale
+      // image against what is now a different intended shot.
+      const reusable = (scene: DirectionScene): PriorScene | undefined => {
+        const prior = priorScenes.get(scene.scene_index);
+        return prior && prior.source !== "placeholder" && prior.image_uri && prior.prompt === freshPrompts.get(scene.scene_index)
+          ? prior
+          : undefined;
+      };
+
       const blobs: BlobRef[] = [];
       const manifestScenes: Array<Record<string, unknown>> = [];
       let referenceImage: GeneratedImage | undefined;
@@ -305,10 +323,12 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
 
       // Give a regenerated scene real reference continuity, which the true
       // first-attempt edge case (scene 0 failing with no reference yet)
-      // never had -- seed it from a reused scene's real content before the
-      // loop, rather than leaving the retry to start from a blank slate too.
-      for (const prior of priorScenes.values()) {
-        if (prior.source !== "primary" || !prior.image_uri) continue;
+      // never had -- seed it from the first validly-reusable "primary"
+      // scene before the loop, rather than leaving the retry to start from
+      // a blank slate too.
+      for (const scene of ordered) {
+        const prior = reusable(scene);
+        if (prior?.source !== "primary" || !prior.image_uri) continue;
         try {
           referenceImage = { bytes: await ctx.blobs.get(prior.image_uri), media_type: "image/png" };
         } catch {
@@ -318,19 +338,19 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       }
 
       for (const scene of ordered) {
-        const prior = priorScenes.get(scene.scene_index);
-        if (prior && prior.source !== "placeholder" && prior.image_uri) {
+        const prompt = freshPrompts.get(scene.scene_index)!;
+        const prior = reusable(scene);
+        if (prior) {
           manifestScenes.push({
             scene_index: scene.scene_index,
             source: prior.source,
             image_uri: prior.image_uri,
-            prompt: prior.prompt ?? buildIllustratedPrompt(scene.image_prompt, style),
+            prompt,
             template_data: prior.template_data ?? JSON.stringify({ camera_move: scene.camera_move }),
           });
           if (prior.source === "fallback") degraded++;
           continue;
         }
-        const prompt = buildIllustratedPrompt(scene.image_prompt, style);
         const seed = stableSeed(prompt);
         // The outro scene needs its CTA to actually appear on screen, not
         // just be spoken -- render.ts/compose.ts already route an is_outro

@@ -217,6 +217,71 @@ test("regenerateNode() forces one node to re-run on the next resume(), and casca
   assert.notEqual(second.outputs["n2"], first.outputs["n2"], "n2 cascaded to a fresh artifact built on the new n1, not the stale one");
 });
 
+test("pinNodeOutput() restores an earlier attempt's artifact without re-running it, and still cascades downstream", async () => {
+  // Real production use: VidGenService.driveUnattended()'s best-of-N pick
+  // (operator decision: "the strongest attempt should be counted, not the
+  // last") -- watchability_release regenerates draft_script up to 3 times,
+  // and this restores whichever attempt actually scored highest, even when
+  // it wasn't the last one, without spending another generation call on it.
+  const t = await tempSetup();
+  let calls = 0;
+  t.transformations.set("counting", {
+    name: "counting",
+    kind: "worker",
+    consumes: [{ schema_id: "a", range: "^1", as: "x" }],
+    produces: "b",
+    async execute(inputs) {
+      calls++;
+      return { payload: { v: `call${calls}:${(inputs["x"]!.payload as { v: string }).v}` } };
+    },
+  });
+
+  const graph: GraphDoc = {
+    graph_id: "pin",
+    version: "1",
+    nodes: [
+      { id: "seed", type: "input", schema_id: "a" },
+      { id: "n1", transformation: "counting", in: ["seed"] },
+      { id: "n2", transformation: "ok2", in: ["n1"] },
+    ],
+  };
+
+  const first = await t.executor.start(graph, { seed: t.seed.artifact.artifact_id }, { runId: "run_pin" });
+  assert.equal(calls, 1);
+  const firstN1 = first.outputs["n1"]!;
+  const firstN2 = first.outputs["n2"]!;
+
+  await t.executor.regenerateNode(graph, "run_pin", "n1", "force a second attempt");
+  const second = await t.executor.resume(graph, "run_pin", {});
+  assert.equal(calls, 2);
+  assert.notEqual(second.outputs["n1"], firstN1, "the second attempt is a genuinely different artifact");
+
+  await t.executor.pinNodeOutput(graph, "run_pin", "n1", firstN1, "restoring the first, better-scoring attempt");
+  const third = await t.executor.resume(graph, "run_pin", {});
+
+  assert.equal(calls, 2, "pinning must not re-execute n1 -- no new generation call");
+  assert.equal(third.status, "completed");
+  assert.equal(third.outputs["n1"], firstN1, "n1 is back to the pinned (first) artifact");
+  assert.equal(third.outputs["n2"], firstN2, "n2 cascaded to what it produces from that same n1 artifact, not the stale second-attempt output");
+});
+
+test("pinNodeOutput() rejects an unknown/non-transformation node, and refuses when an upstream dependency isn't complete", async () => {
+  const t = await tempSetup();
+  const graph: GraphDoc = {
+    graph_id: "pin-invalid",
+    version: "1",
+    nodes: [
+      { id: "seed", type: "input", schema_id: "a" },
+      { id: "n1", transformation: "ok1", in: ["seed"] },
+    ],
+  };
+
+  await assert.rejects(() => t.executor.pinNodeOutput(graph, "run_y", "seed", "sha256:x", "reason"), ExecutorError);
+  await assert.rejects(() => t.executor.pinNodeOutput(graph, "run_y", "ghost", "sha256:x", "reason"), ExecutorError);
+  // n1's upstream (seed) was never seeded/started for run_y -- not complete.
+  await assert.rejects(() => t.executor.pinNodeOutput(graph, "run_y", "n1", "sha256:x", "reason"), ExecutorError);
+});
+
 test("regenerateNode() rejects an unknown or non-transformation node id", async () => {
   const t = await tempSetup();
   const graph: GraphDoc = {

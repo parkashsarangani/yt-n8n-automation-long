@@ -256,12 +256,16 @@ test("ctx.priorArtifact reuses every real scene untouched, regenerating only wha
   const ctx = contentAddressedCtx(() => "ok");
   const primaryImage = await ctx.blobs.put(new TextEncoder().encode("scene0-bytes"), { role: "image", media_type: "image/png" });
   const fallbackImage = await ctx.blobs.put(new TextEncoder().encode("scene2-bytes"), { role: "image", media_type: "image/png" });
+  // Reuse only counts when the prior scene's prompt still matches what this
+  // execution would compute for the same scene_index -- these must equal
+  // buildIllustratedPrompt("subject N") below, or a real prior-attempt
+  // artifact would (correctly) be treated as stale and regenerated instead.
   (ctx as unknown as { priorArtifact: { payload: unknown } }).priorArtifact = {
     payload: {
       scenes: [
-        { scene_index: 0, source: "primary", image_uri: primaryImage.uri, prompt: "prior prompt 0", template_data: "{}" },
-        { scene_index: 1, source: "placeholder", prompt: "prior prompt 1", template_data: "{}" },
-        { scene_index: 2, source: "fallback", image_uri: fallbackImage.uri, prompt: "prior prompt 2", template_data: "{}" },
+        { scene_index: 0, source: "primary", image_uri: primaryImage.uri, prompt: buildIllustratedPrompt("subject 0"), template_data: "{}" },
+        { scene_index: 1, source: "placeholder", prompt: buildIllustratedPrompt("subject 1"), template_data: "{}" },
+        { scene_index: 2, source: "fallback", image_uri: fallbackImage.uri, prompt: buildIllustratedPrompt("subject 2"), template_data: "{}" },
       ],
       degraded_count: 2,
     },
@@ -289,6 +293,36 @@ test("ctx.priorArtifact reuses every real scene untouched, regenerating only wha
   assert.equal(payload.scenes[2]!["source"], "fallback");
   assert.notEqual(payload.scenes[1]!["source"], "placeholder", "scene 1 (the actual blank) got regenerated");
   assert.ok(payload.scenes[1]!["image_uri"], "scene 1 now has a real image");
+});
+
+test("a prior scene is regenerated, not reused, when its prompt no longer matches -- the upstream direction changed", async () => {
+  // Real risk this guards against: VidGenService's best-of-N watchability
+  // pick regenerates the WHOLE upstream chain (a fresh draft_script means a
+  // fresh direction/episode_director pass too), not just this node. Without
+  // this check, a stale prior scene would be reused by scene_index alone
+  // even though it depicts a completely different, no-longer-current shot.
+  const ctx = contentAddressedCtx(() => "ok");
+  const staleImage = await ctx.blobs.put(new TextEncoder().encode("stale-bytes"), { role: "image", media_type: "image/png" });
+  (ctx as unknown as { priorArtifact: { payload: unknown } }).priorArtifact = {
+    payload: {
+      scenes: [{ scene_index: 0, source: "primary", image_uri: staleImage.uri, prompt: "a completely different old shot", template_data: "{}" }],
+      degraded_count: 0,
+    },
+  };
+
+  const worker = makeIllustratedSceneAssetsWorker();
+  const out = await worker.execute(
+    {
+      direction: { payload: { scenes: [{ scene_index: 0, image_prompt: "a brand new shot from the regenerated direction", camera_move: "hold" }] } },
+      script: { payload: { scenes: [{ scene_index: 0, narration: "line 0" }] } },
+      intent: { payload: {} },
+    } as never,
+    ctx,
+  );
+
+  assert.equal(ctx.promptsSeen.length, 1, "the mismatched prior was not reused -- the provider was actually called");
+  const payload = out.payload as { scenes: Array<Record<string, unknown>> };
+  assert.notEqual(payload.scenes[0]!["image_uri"], staleImage.uri, "the stale image must not appear in the output");
 });
 
 test("regenerating scene 0 gets real reference continuity from a reused scene, which the original first-attempt edge case never had", async () => {
@@ -326,8 +360,8 @@ test("regenerating scene 0 gets real reference continuity from a reused scene, w
     priorArtifact: {
       payload: {
         scenes: [
-          { scene_index: 0, source: "placeholder", prompt: "prior prompt 0", template_data: "{}" },
-          { scene_index: 1, source: "primary", image_uri: primaryUri, prompt: "prior prompt 1", template_data: "{}" },
+          { scene_index: 0, source: "placeholder", prompt: buildIllustratedPrompt("subject 0"), template_data: "{}" },
+          { scene_index: 1, source: "primary", image_uri: primaryUri, prompt: buildIllustratedPrompt("subject 1"), template_data: "{}" },
         ],
         degraded_count: 1,
       },
