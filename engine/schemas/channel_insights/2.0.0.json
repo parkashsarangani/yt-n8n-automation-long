@@ -1,0 +1,37 @@
+{
+  "schema_id": "channel_insights",
+  "version": "2.0.0",
+  "status": "active",
+  "description": "RFC 0009 breaking strategist contract: analytics becomes confidence-weighted editorial memory with required actionable hypotheses. Major because editorial_memory is required and guidance areas are widened for packaging, hook, retention, emotional engine, and session continuation.",
+  "produced_by": ["channel_strategist"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ChannelInsightsArtifact",
+    "type": "object", "additionalProperties": false,
+    "required": ["sample_size", "confidence_note", "guidance", "editorial_memory"],
+    "properties": {
+      "sample_size": {"type": "integer", "minimum": 0},
+      "confidence_note": {"type": "string", "minLength": 5, "maxLength": 500},
+      "guidance": {"type": "array", "maxItems": 10, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["area", "advice", "evidence"],
+        "properties": {
+          "area": {"type": "string", "enum": ["topic", "title", "thumbnail", "packaging", "hook", "retention", "structure", "emotional_engine", "length", "session"]},
+          "advice": {"type": "string", "minLength": 10, "maxLength": 500},
+          "evidence": {"type": "string", "minLength": 5, "maxLength": 500}
+        }
+      }},
+      "editorial_memory": {"type": "array", "maxItems": 10, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["pattern", "implication", "evidence", "confidence"],
+        "properties": {
+          "pattern": {"type": "string", "minLength": 10, "maxLength": 500},
+          "implication": {"type": "string", "minLength": 10, "maxLength": 500},
+          "evidence": {"type": "string", "minLength": 5, "maxLength": 600},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }},
+      "avoid": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 5, "maxLength": 260}}
+    }
+  }
+}
