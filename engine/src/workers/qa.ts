@@ -1,15 +1,11 @@
-/** Deterministic technical QA for the finished RFC 0009 illustrated episode. */
+/** Deterministic technical QA for illustrated episodes. RFC 0009 adds sequence-review visibility while retaining v1 manifest compatibility. */
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 export interface QaWorkerOptions { maxPlaceholderRatio?: number; maxDurationDrift?: number; maxScriptDrift?: number; wordsPerMinute?: number; version?: string; name?: string }
 type Status = "pass" | "warn" | "fail";
 interface Check { id: string; status: Status; message: string; measured?: number | null; threshold?: number | null }
 interface Intent { target_duration_sec?: number }
 interface Script { scenes?: Array<{ scene_index: number; narration?: string }>; word_count?: number }
-interface Assets {
-  scenes?: Array<{ scene_index?: number; source?: string }>;
-  degraded_count?: number;
-  visual_review?: { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string };
-}
+interface Assets { scenes?: Array<{ scene_index?: number; source?: string }>; degraded_count?: number; visual_review?: { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string } }
 interface Voice { clips?: Array<{ scene_index?: number; duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
 interface Thumb { background?: string; text?: string }
@@ -26,7 +22,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
-      { schema_id: "asset_manifest", range: "^2", as: "assets" },
+      { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
@@ -54,18 +50,19 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const fallbackScenes = Math.max(0, (assets.degraded_count ?? blankScenes) - blankScenes);
       const fallbackRatio = sceneCount > 0 ? fallbackScenes / sceneCount : 0;
       checks.push(fallbackScenes === 0
-        ? { id: "visual_assets_renderable", status: "pass", message: "every scene has its intended generated visual pack" }
+        ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable intended visual" }
         : fallbackRatio <= maxPlaceholderRatio
           ? { id: "visual_assets_renderable", status: "warn", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery`, measured: fallbackRatio, threshold: maxPlaceholderRatio }
           : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery (${pct(fallbackRatio)})`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
 
-      const visualReview = assets.visual_review;
-      const remaining = visualReview?.remaining_flagged_shots?.length ?? 0;
-      checks.push(!visualReview || visualReview.status === "unavailable"
-        ? { id: "episode_visual_review", status: "warn", message: visualReview?.reason || "episode-level multimodal visual review did not run" }
-        : remaining > 0
-          ? { id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${visualReview.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 }
-          : { id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${visualReview.reviewed_shots ?? 0} shots` });
+      if (assets.visual_review) {
+        const remaining = assets.visual_review.remaining_flagged_shots?.length ?? 0;
+        checks.push(assets.visual_review.status === "unavailable"
+          ? { id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" }
+          : remaining > 0
+            ? { id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 }
+            : { id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
+      }
 
       const clips = voice.clips?.length ?? 0;
       checks.push(clips === sceneCount
@@ -92,7 +89,8 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         ? { id: "thumbnail_image", status: "pass", message: "thumbnail uses a supplied image" }
         : { id: "thumbnail_image", status: "warn", message: `thumbnail background is ${thumb.background ?? "unknown"}` });
 
-      const title = seo.title ?? "", description = seo.description ?? "";
+      const title = seo.title ?? "";
+      const description = seo.description ?? "";
       const tagChars = (seo.tags ?? []).reduce((n, t) => n + t.length, 0);
       const problems: string[] = [];
       if (title.length > 100) problems.push(`title ${title.length}/100 chars`);
