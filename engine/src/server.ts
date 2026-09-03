@@ -4,20 +4,20 @@
  * Deliberately loopback-only and unauthenticated: it is a single-operator tool
  * that holds API keys, so it must not be exposed to a network. Requests whose
  * Host header is not localhost are refused rather than served.
- *
- * Secrets are never sent to the browser — the credentials endpoint returns
- * masked previews only.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { VidGenService } from "./service.ts";
+import type { GrowthSchedulerHandle } from "./growth-scheduler.ts";
 
 const MAX_BODY_BYTES = 1_000_000;
 
 export interface ServerOptions {
   service: VidGenService;
+  /** RFC 0009 unattended scheduler. Omit in tests/embedders to use service's legacy scheduler API. */
+  scheduler?: GrowthSchedulerHandle;
   uiDir: string;
   port?: number;
   host?: string;
@@ -25,6 +25,9 @@ export interface ServerOptions {
 
 export function createUiServer(opts: ServerOptions) {
   const { service, uiDir } = opts;
+  const scheduler = opts.scheduler;
+  const scheduleStatus = () => scheduler ? scheduler.status() : service.scheduleStatus();
+  const runJobNow = (id: string) => scheduler ? scheduler.runNow(id) : service.runJobNow(id);
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 4321;
 
@@ -35,9 +38,6 @@ export function createUiServer(opts: ServerOptions) {
   });
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const reqStart = Date.now();
-    // Loopback guard: refuse anything that did not arrive at localhost. This is
-    // the only thing standing between a stray bind and a key-holding UI on a LAN.
     const hostHeader = (req.headers.host ?? "").split(":")[0];
     const allowedHosts = ["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"];
     if (!allowedHosts.includes(hostHeader ?? "")) {
@@ -48,7 +48,6 @@ export function createUiServer(opts: ServerOptions) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     const route = `${req.method} ${url.pathname}`;
 
-    // --- static ---
     if (route === "GET /") {
       const html = await readFile(path.join(uiDir, "index.html"), "utf8");
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -56,7 +55,6 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    // --- config ---
     if (route === "GET /api/config") {
       json(res, 200, {
         credentials: service.credentials(),
@@ -75,9 +73,6 @@ export function createUiServer(opts: ServerOptions) {
         if (typeof v === "string") updates[k] = v;
       }
       const { applied, rejected } = await service.saveCredentials(updates);
-      // Echo only which keys changed — never their values. `rejected` is
-      // reported so a key the engine does not recognise fails loudly in the UI
-      // instead of looking saved.
       json(res, 200, {
         applied,
         rejected,
@@ -88,23 +83,20 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    // --- feedback loop ---
     if (route === "POST /api/measure") {
-      // Read-only against YouTube; safe to trigger by hand while the scheduler
-      // does not exist yet.
       json(res, 200, await service.measureAll());
       return;
     }
 
     if (route === "GET /api/schedule") {
-      json(res, 200, { jobs: service.scheduleStatus() });
+      json(res, 200, { jobs: scheduleStatus() });
       return;
     }
 
     const jobMatch = /^\/api\/schedule\/([a-z_]+)\/run$/.exec(url.pathname);
     if (req.method === "POST" && jobMatch) {
-      await service.runJobNow(jobMatch[1]!);
-      json(res, 202, { ok: true, jobs: service.scheduleStatus() });
+      await runJobNow(jobMatch[1]!);
+      json(res, 202, { ok: true, jobs: scheduleStatus() });
       return;
     }
 
@@ -113,20 +105,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    // --- runs ---
     if (route === "GET /api/runs") {
-      const runs = service.listRuns();
-      // Don't compute cost for every run on every poll — too many DB queries.
-      // Cost is computed on the detail view only.
-      json(res, 200, { runs });
+      json(res, 200, { runs: service.listRuns() });
       return;
     }
 
-    // The default AI-driven run (RFC 0008): single-narrator voice-over over
-    // illustrated stills. No characters, no cast_roster. genre and image_style
-    // are the two operator-selectable knobs (intent@1.2.0); both optional --
-    // an empty/absent image_style ("Auto" in the UI) resolves to a
-    // genre-appropriate default inside startRun rather than a fixed style.
     if (route === "POST /api/runs") {
       const body = (await readJson(req)) as {
         brief?: string;
@@ -142,9 +125,6 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    // The operator writes the hook and narration themselves — story_architect
-    // and script_writer never run for this run. Everything from visuals onward
-    // still runs exactly as it does for an AI-drafted episode.
     if (route === "POST /api/runs/manual") {
       const body = (await readJson(req)) as {
         title?: string;
@@ -201,7 +181,6 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    // --- artifacts (for reviewing a script before approving it) ---
     const artMatch = /^\/api\/artifacts\/(sha256:[0-9a-f]{64})$/.exec(
       decodeURIComponent(url.pathname),
     );
@@ -214,10 +193,9 @@ export function createUiServer(opts: ServerOptions) {
   }
 
   return {
-    listen: () =>
-      new Promise<string>((resolve) => {
-        server.listen(port, host, () => resolve(`http://${host}:${port}`));
-      }),
+    listen: () => new Promise<string>((resolve) => {
+      server.listen(port, host, () => resolve(`http://${host}:${port}`));
+    }),
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }
@@ -226,7 +204,6 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    // Nothing here should ever be cached, least of all credential status.
     "cache-control": "no-store",
   });
   res.end(text);
