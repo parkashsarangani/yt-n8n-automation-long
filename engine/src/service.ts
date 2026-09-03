@@ -702,9 +702,16 @@ export class VidGenService {
   private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2): Promise<void> {
     let assetRegens = 0;
     for (let round = 0; ; round++) {
+      // Real production case: a 5-minute/27-scene episode's assets+render
+      // stage alone ran past 30 minutes (54 possible image provider calls at
+      // up to 2 attempts each, plus vision QA, plus the render itself) --
+      // this loop gave up watching before the run ever reached qa, so the
+      // one attempt that mattered (catching a blank-scene qa fail) never
+      // happened. 90 minutes gives real headroom for a long, high-scene
+      // episode while still being a finite bound, not an infinite wait.
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
-        if (waitedMs >= 30 * 60_000) {
-          console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 30min, giving up waiting`);
+        if (waitedMs >= 90 * 60_000) {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 90min, giving up waiting`);
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -740,7 +747,28 @@ export class VidGenService {
         );
         return;
       }
-      console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
+
+      // watchability_release's own MAX_ATTEMPTS_BEFORE_ACCEPTING escape hatch
+      // (watchability-release.ts) exists so a run never blocks forever on a
+      // bar the writer keeps landing under -- but a bare retry() re-executes
+      // ONLY watchability_release itself against the SAME already-generated
+      // draft_script and watchability_report (retry() invalidates nothing
+      // upstream, just re-attempts the node that failed). Real production
+      // case: two consecutive retries produced byte-identical scores, because
+      // nothing about the script or its critique ever changed between them --
+      // the "3 attempts" were three checks of one draft, not three drafts.
+      // Force draft_script to actually regenerate first; pruneIncompleteDependencies
+      // then cascades to watchability_report/watchability_release too, so the
+      // next attempt evaluates a genuinely different script, giving the
+      // accept-after-3 escape hatch a real chance to not be needed.
+      if (view.failures.some((f) => f.node_id === "watchability_release")) {
+        const state = this.runs.get(runId)!;
+        const graph = this.resolveRunGraph(state.graph);
+        await this.executor.regenerateNode(graph, runId, "draft_script", "watchability release blocked -- regenerating the script, not just re-checking it");
+        console.log(`[run ${runId.slice(4, 12)}] unattended: watchability blocked -- regenerating the script itself (retry ${round + 1}/${maxRetries})`);
+      } else {
+        console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
+      }
       await this.retry(runId);
     }
   }
@@ -749,7 +777,7 @@ export class VidGenService {
    * Poll until a run reaches a terminal status (completed/blocked/waiting),
    * without retrying anything itself -- for a caller (the scheduler) that
    * needs to know when a run genuinely finished, while startRun()'s own
-   * driveUnattended() chain does the actual retrying. Same 30-minute ceiling
+   * driveUnattended() chain does the actual retrying. Same 90-minute ceiling
    * as driveUnattended()'s own wait loop.
    */
   private async waitForTerminal(runId: string): Promise<void> {
@@ -768,8 +796,8 @@ export class VidGenService {
         stableTicks++;
         if (stableTicks >= 2) return;
       }
-      if (waitedMs >= 30 * 60_000) {
-        console.log(`[run ${runId.slice(4, 12)}] still running after 30min, giving up waiting`);
+      if (waitedMs >= 90 * 60_000) {
+        console.log(`[run ${runId.slice(4, 12)}] still running after 90min, giving up waiting`);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));
