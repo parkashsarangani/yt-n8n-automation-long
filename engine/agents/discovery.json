@@ -1,13 +1,13 @@
 {
   "name": "discovery",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
     { "schema_id": "topic_history", "range": "^1", "as": "history" },
     { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
   ],
   "produces": "topic_candidates",
-  "prompt": "discovery@2",
+  "prompt": "discovery@3",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 3000,
