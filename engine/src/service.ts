@@ -702,9 +702,16 @@ export class VidGenService {
   private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2): Promise<void> {
     let assetRegens = 0;
     for (let round = 0; ; round++) {
+      // Real production case: a 5-minute/27-scene episode's assets+render
+      // stage alone ran past 30 minutes (54 possible image provider calls at
+      // up to 2 attempts each, plus vision QA, plus the render itself) --
+      // this loop gave up watching before the run ever reached qa, so the
+      // one attempt that mattered (catching a blank-scene qa fail) never
+      // happened. 90 minutes gives real headroom for a long, high-scene
+      // episode while still being a finite bound, not an infinite wait.
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
-        if (waitedMs >= 30 * 60_000) {
-          console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 30min, giving up waiting`);
+        if (waitedMs >= 90 * 60_000) {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 90min, giving up waiting`);
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -770,7 +777,7 @@ export class VidGenService {
    * Poll until a run reaches a terminal status (completed/blocked/waiting),
    * without retrying anything itself -- for a caller (the scheduler) that
    * needs to know when a run genuinely finished, while startRun()'s own
-   * driveUnattended() chain does the actual retrying. Same 30-minute ceiling
+   * driveUnattended() chain does the actual retrying. Same 90-minute ceiling
    * as driveUnattended()'s own wait loop.
    */
   private async waitForTerminal(runId: string): Promise<void> {
@@ -789,8 +796,8 @@ export class VidGenService {
         stableTicks++;
         if (stableTicks >= 2) return;
       }
-      if (waitedMs >= 30 * 60_000) {
-        console.log(`[run ${runId.slice(4, 12)}] still running after 30min, giving up waiting`);
+      if (waitedMs >= 90 * 60_000) {
+        console.log(`[run ${runId.slice(4, 12)}] still running after 90min, giving up waiting`);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));
