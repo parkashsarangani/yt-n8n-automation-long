@@ -1,12 +1,12 @@
 {
   "name": "narration_script_writer",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
     { "schema_id": "story", "range": "^1", "as": "story" }
   ],
   "produces": "script",
-  "prompt": "narration_script_writer@2",
+  "prompt": "narration_script_writer@3",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 12000

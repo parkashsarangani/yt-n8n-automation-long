@@ -158,6 +158,45 @@ export class GraphExecutor {
     );
   }
 
+  /**
+   * Make an EARLIER attempt's artifact the current output of a node again,
+   * without re-running anything -- for a caller that generated several
+   * candidates across retries and wants to pick the best one rather than
+   * whichever happened to run last. Real production case: watchability_release
+   * regenerates draft_script up to 3 times on a low score (see
+   * regenerateNode()/driveUnattended()), but nothing chose the best of the
+   * three -- attempt 3 became final even when attempt 2 scored higher.
+   *
+   * Writes a fresh "ok" record for `nodeId` pointing at `artifactId`, with
+   * `inputs` computed from the graph's CURRENT completed state so
+   * pruneIncompleteDependencies does not immediately invalidate it again as a
+   * lineage mismatch. Does not validate that `artifactId` is actually a prior
+   * output of this node for this run, or that it satisfies the node's declared
+   * schema -- the caller is responsible for both; this is a bookkeeping
+   * primitive, not a content check.
+   */
+  async pinNodeOutput(graph: GraphDoc, runId: string, nodeId: string, artifactId: string, reason: string): Promise<void> {
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const node = byId.get(nodeId);
+    if (!node || nodeType(node) !== "transformation") {
+      throw new ExecutorError(`"${nodeId}" is not a transformation node in ${graphRef(graph)}`);
+    }
+    const tn = node as TransformationNode;
+    const def = this.deps.transformations.get(tn.transformation);
+    if (!def) throw new ExecutorError(`unknown transformation "${tn.transformation}" for node "${nodeId}"`);
+
+    const completed = await this.deriveCompleted(graph, runId, graphRef(graph));
+    const upstream = inputsOf(tn);
+    const missing = upstream.filter((up) => !completed.has(up));
+    if (missing.length > 0) {
+      throw new ExecutorError(`cannot pin "${nodeId}": upstream node(s) not completed: ${missing.join(", ")}`);
+    }
+    const inputs = upstream.map((up) => completed.get(up)!);
+
+    this.deps.logger?.log(`[graph ${graphRef(graph)}] pinning "${nodeId}" to a prior artifact: ${reason}`);
+    await this.recordNode(runId, graph, nodeId, tn.transformation, artifactId, "ok", null, def.version ?? "1", inputs);
+  }
+
   // ------------------------------------------------------------------
 
   private async drive(
