@@ -22,7 +22,7 @@ export const WATCHABILITY_THRESHOLDS = {
 // a deterministic gate with no retry loop of its own must not be able to
 // block a run forever when the writer agent's own retries (see runner.ts)
 // are already exhausted on the semantic side.
-const MAX_ATTEMPTS_BEFORE_ACCEPTING = 3;
+export const MAX_ATTEMPTS_BEFORE_ACCEPTING = 3;
 
 type Dimension = keyof typeof WATCHABILITY_THRESHOLDS;
 type WatchabilityReport = { scores?: Partial<Record<Dimension, unknown>> };
