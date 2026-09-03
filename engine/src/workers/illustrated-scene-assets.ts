@@ -1,180 +1,78 @@
 /**
- * Illustrated scene assets worker: episode_direction -> asset_manifest (RFC 0008).
+ * RFC 0009 illustrated asset worker.
  *
- * The illustrated-story format has no characters, no diagrams, no template
- * scenes -- every scene is one generated still under the locked house style.
- * This is deliberately a much smaller worker than hybrid_visual_assets: no
- * continuity groups per character, no entity identity tokens, no shot packs.
- * The whole episode shares ONE visual identity, established by the first
- * generated image and held via reference-image conditioning on every
- * subsequent scene -- prose style descriptions drift between generations;
- * a reference image does not (RFC 0008 decision 2).
- *
- * "Locked" originally meant one style, chosen by us. It now means one style
- * PER RUN, chosen by the operator via intent.image_style -- still nothing an
- * agent can drift on mid-episode, just no longer only one option system-wide.
+ * One narration scene is a writing unit, not an editing unit. episode_direction@2
+ * supplies 1-3 concrete shots per scene. Normal shots receive one accepted image;
+ * hero shots receive three accepted candidates and a multimodal best-of-three
+ * selection. After the whole ordered sequence exists, one compact visual review
+ * identifies specific weak/repetitive shots; those shots are regenerated once
+ * and the sequence is reviewed again before the manifest is released.
  */
-
 import type { Artifact, BlobRef } from "../artifact.ts";
-import { checkGeneratedImageForText, checkGeneratedImageMatchesNarration } from "../image-qa.ts";
+import {
+  checkGeneratedImageForText,
+  checkGeneratedImageMatchesNarration,
+  rankHeroImageCandidates,
+  reviewIllustratedSequence,
+  type VisualSequenceEntry,
+  type VisualSequenceReviewResult,
+} from "../image-qa.ts";
 import type { Aspect, ImageProvider } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
-interface DirectionScene {
-  scene_index: number;
+type CameraMove = "push-in" | "pull-out" | "pan-left" | "pan-right" | "hold";
+type ShotFunction = "wide" | "medium" | "close-up" | "object-detail" | "reaction" | "environmental-consequence" | "reveal" | "scale-shot" | "point-of-view" | "silhouette" | "location-before-after";
+type HeroRole = "hook" | "first-escalation" | "low-point" | "turn" | "payoff";
+type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
+
+interface DirectionShot {
+  shot_index: number;
   image_prompt: string;
-  camera_move: "push-in" | "pull-out" | "pan-left" | "pan-right" | "hold";
-  on_screen_label?: string;
+  camera_move: CameraMove;
+  shot_function: ShotFunction;
+  importance: "normal" | "hero";
+  hero_role?: HeroRole;
 }
+interface DirectionScene { scene_index: number; on_screen_label?: string; shots: DirectionShot[] }
 interface ScriptScene { scene_index: number; narration?: string; is_outro?: boolean }
 interface IntentPayload { image_style?: ImageStyle }
-type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
 interface GeneratedImage { bytes: Uint8Array; media_type: string }
 interface ReferenceCapableProvider extends ImageProvider {
   generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }>;
 }
-
-export interface IllustratedSceneAssetsWorkerOptions {
-  version?: string;
-}
+export interface IllustratedSceneAssetsWorkerOptions { version?: string }
 
 const DEFAULT_STYLE: ImageStyle = "ink_wash_stickman";
-
-/**
- * One locked visual identity per style, matching intent.image_style
- * (schemas/intent/1.1.0.json). Both a `houseStyle` (positive description) and
- * `negatives` (excludes) -- reference-image conditioning (in execute() below)
- * still carries the actual continuity across an episode; this text is the
- * floor for scene 0, before a reference exists, and for providers with no
- * reference support.
- */
-const STYLE_BUNDLES: Record<ImageStyle, { houseStyle: string; negatives: string }> = {
-  // RFC 0008 decision 2, verbatim. The original and still the default.
+const STYLE_BUNDLES: Record<ImageStyle, { positive: string; negative: string }> = {
   ink_wash_stickman: {
-    houseStyle: [
-      "hand-drawn pen-and-ink illustration with a muted wash, single consistent art style across a series",
-      "human figures are minimal and faceless -- simple stick figures with basic clothing shapes, no facial features",
-      "environments, objects and animals are rendered with real detail and texture, in contrast to the abstract human figures",
-      "muted, near-monochrome palette: sepia, ochre, dusty green, warm neutrals -- no saturated color",
-      "wide composition, subject off-centre, real negative space, visible horizon where relevant",
-      "visible paper grain texture uniformly across the image",
-    ].join(", "),
-    negatives: [
-      "no photorealistic humans",
-      "no glossy 3D render",
-      "no dramatic rim lighting",
-      "no lens flare",
-      "no hyperreal skin",
-      "no centered symmetrical hero shot",
-      "no text, no letters, no captions, no logos, no watermark",
-    ].join(", "),
+    positive: "hand-drawn pen-and-ink illustration, muted sepia/ochre/dusty-green wash, faceless minimal human figures, detailed environments/objects/animals, visible paper grain, wide off-centre composition with real negative space",
+    negative: "photorealistic humans, glossy 3D, lens flare, dramatic rim light, centered symmetrical hero pose, readable text, letters, numbers, logos, watermark",
   },
-  // A second, deliberately different identity: drama and true_story genres
-  // often need a reaction shot to read as a specific emotion, which a
-  // faceless figure can't carry. Flat vector color instead of ink wash so the
-  // two styles are visually distinct at a glance, not just a face variant of
-  // the same look.
   flat_comic_expressive: {
-    houseStyle: [
-      "flat 2D vector illustration, bold confident black outlines, single consistent art style across a series",
-      "human figures are simplified and geometric but have expressive minimal faces -- a few clean lines for eyes/brows/mouth that clearly read an emotion (shock, grief, relief, anger)",
-      "environments and objects are simplified to flat shapes with the same bold outline, not photorealistic detail",
-      "a bright but limited flat color palette, 4-6 colors per scene, strong contrast between figure and background",
-      "wide or medium composition, subject off-centre, real negative space",
-      "clean flat color fields, no gradients, no painterly texture",
-    ].join(", "),
-    negatives: [
-      "no photorealistic humans",
-      "no photorealistic textures",
-      "no 3D render",
-      "no soft airbrushed shading",
-      "no muted or desaturated palette",
-      "no centered symmetrical hero shot",
-      "no text, no letters, no captions, no logos, no watermark",
-    ].join(", "),
+    positive: "flat 2D comic illustration, bold black outlines, limited bright palette, simplified geometric people with minimal expressive faces, clean flat shapes, off-centre composition and negative space",
+    negative: "photorealism, glossy 3D, airbrushed shading, muted gray palette, centered symmetrical pose, readable text, letters, numbers, logos, watermark",
   },
-  // true_story needs to read as a specific real incident, not a cartoon --
-  // but full photorealism invites an uncanny-valley/deepfake reading this
-  // pipeline explicitly avoids (RFC 0008 decision 2). A courtroom-sketch-
-  // artist register threads that: recognizably human, grounded, restrained,
-  // but still visibly hand-drawn.
   documentary_sketch: {
-    houseStyle: [
-      "restrained charcoal and graphite reportage sketch, loose confident cross-hatching, single consistent art style across a series",
-      "human figures have real proportions and readable individual likeness rendered as sketch marks, not smooth photoreal skin -- courtroom-sketch-artist register",
-      "environments and objects are rendered with grounded, observational detail -- real specific settings, not generic backdrops",
-      "muted grayscale-leaning palette with one restrained accent color per scene at most",
-      "documentary framing -- eye-level, slightly off-centre, as if observed rather than staged",
-      "visible charcoal grain and paper tooth texture uniformly across the image",
-    ].join(", "),
-    negatives: [
-      "no photorealistic render",
-      "no smooth airbrushed skin",
-      "no glossy 3D render",
-      "no bright saturated color",
-      "no cartoon proportions, no faceless figures",
-      "no centered symmetrical hero shot",
-      "no text, no letters, no captions, no logos, no watermark",
-    ].join(", "),
+    positive: "restrained charcoal and graphite reportage sketch, realistic proportions rendered as drawing, observational setting detail, muted grayscale with at most one restrained accent, paper tooth and cross-hatching",
+    negative: "photorealistic render, smooth skin, glossy 3D, bright saturation, cartoon proportions, readable text, letters, numbers, logos, watermark",
   },
-  // short_story favors literary whimsy over parable starkness or drama
-  // punch -- a softer, more painterly register signals "story", the way a
-  // hardback storybook illustration does, distinct from both ink_wash's
-  // starkness and flat_comic's boldness.
   watercolor_storybook: {
-    houseStyle: [
-      "soft watercolor storybook illustration, gentle visible brushwork, single consistent art style across a series",
-      "human figures are simplified and painterly with softly suggested faces -- gentle, warm, not sharply detailed",
-      "environments and objects carry soft painterly detail and visible color bleed at edges",
-      "warm pastel palette -- dusty blues, warm creams, soft rose, muted greens -- gentle contrast, no harsh saturation",
-      "wide, breathing composition, subject off-centre, generous negative space",
-      "visible watercolor paper texture and soft pigment bloom uniformly across the image",
-    ].join(", "),
-    negatives: [
-      "no photorealistic humans",
-      "no bold black outlines",
-      "no flat vector shapes",
-      "no glossy 3D render",
-      "no harsh saturated color",
-      "no centered symmetrical hero shot",
-      "no text, no letters, no captions, no logos, no watermark",
-    ].join(", "),
+    positive: "soft watercolor storybook illustration, visible brushwork and color bleed, simplified painterly figures, warm pastel palette, breathing off-centre composition, paper texture",
+    negative: "photorealism, glossy 3D, hard neon lighting, vector-flat plastic look, readable text, letters, numbers, logos, watermark",
   },
-  // Not a genre default -- an explicit pick for suspense/thriller-leaning
-  // content (a dark true_story, a tense drama) where even documentary_sketch
-  // or flat_comic read too gentle for the material.
   noir_charcoal: {
-    houseStyle: [
-      "high-contrast noir charcoal and ink illustration, dramatic chiaroscuro shadow, single consistent art style across a series",
-      "human figures are rendered mostly in silhouette or heavy shadow, with only selective detail catching the light",
-      "environments and objects are simplified into strong shapes defined by light and shadow rather than line",
-      "near-monochrome palette -- charcoal black, cold gray, a single muted accent color reserved for emphasis",
-      "tight, tense composition, subject often off-centre or partially obscured",
-      "visible charcoal texture and heavy grain uniformly across the image",
-    ].join(", "),
-    negatives: [
-      "no photorealistic humans",
-      "no bright even lighting",
-      "no flat cheerful color",
-      "no glossy 3D render",
-      "no whimsical or cute proportions",
-      "no centered symmetrical hero shot",
-      "no text, no letters, no captions, no logos, no watermark",
-    ].join(", "),
+    positive: "high-contrast charcoal and ink illustration, heavy chiaroscuro, expressive rough marks, restrained monochrome palette, cinematic negative space, visibly hand-drawn texture",
+    negative: "photorealism, glossy 3D, bright candy colors, clean corporate vector style, readable text, letters, numbers, logos, watermark",
   },
 };
 
-function clean(value: unknown, max = 320): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, max) : "";
+function clean(value: unknown, max: number): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
 
-export function buildIllustratedPrompt(imagePrompt: string, style: ImageStyle = DEFAULT_STYLE): string {
+export function buildIllustratedPrompt(subject: string, style: ImageStyle): string {
   const bundle = STYLE_BUNDLES[style] ?? STYLE_BUNDLES[DEFAULT_STYLE];
-  return [
-    `Subject: ${clean(imagePrompt)}.`,
-    `Style: ${bundle.houseStyle}.`,
-    `Exclude: ${bundle.negatives}.`,
-  ].join(" ");
+  return `${clean(subject, 500)}. VISUAL IDENTITY: ${bundle.positive}. EXCLUDE: ${bundle.negative}. No typography.`;
 }
 
 function stableSeed(value: string): number {
@@ -183,12 +81,7 @@ function stableSeed(value: string): number {
   return (h >>> 0) & 0x7fffffff;
 }
 
-async function generateOne(
-  provider: ReferenceCapableProvider,
-  prompt: string,
-  seed: number,
-  reference: GeneratedImage | undefined,
-): Promise<GeneratedImage> {
+async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, reference?: GeneratedImage): Promise<GeneratedImage> {
   if (provider.generatePack) {
     const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}) });
     const image = out.images[0];
@@ -201,219 +94,216 @@ async function generateOne(
   return image;
 }
 
-/**
- * generateOne, plus the same two vision QA passes hybrid_visual_assets ran
- * (see that file's now-deleted generatePackWithVisionQa): reject baked-in
- * text/lettering, and reject imagery that actively contradicts its own
- * narration. Both checks fail open (pass) on QA-infrastructure problems so a
- * QA outage never blocks generation.
- *
- * Up to two full attempts, covering EITHER failure mode -- a raw provider
- * exception (rate limit, transient network error, a safety-checker block)
- * or a vision QA flag. Real production case: scene 0 (the literal first
- * scene, with no reference image yet to fall back on) hit a bare provider
- * exception on its only attempt and went straight to a blank placeholder --
- * the vision-QA retry never even applied, because the failure never reached
- * flags() at all.
- */
-async function generateWithVisionQa(
+async function generateAccepted(
   provider: ReferenceCapableProvider,
   prompt: string,
   seed: number,
   reference: GeneratedImage | undefined,
-  logger: WorkerContext["logger"],
-  sceneIndex: number,
   narration: string,
+  logger: WorkerContext["logger"],
+  shotId: string,
 ): Promise<GeneratedImage> {
-  const flags = async (image: GeneratedImage): Promise<string[]> => {
-    const [textResult, semanticResult] = await Promise.all([
-      checkGeneratedImageForText(image),
-      narration.trim() ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null),
-    ]);
-    const out: string[] = [];
-    if (textResult?.hasVisibleText) out.push(`visible text: ${textResult.reason}`);
-    if (semanticResult?.contradictsNarration) out.push(`contradicts narration: ${semanticResult.reason}`);
-    return out;
-  };
-
-  const MAX_ATTEMPTS = 2;
-  let lastError = new Error("unreachable");
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const attemptSeed = attempt === 0 ? seed : (seed + attempt) & 0x7fffffff;
+  let lastError = new Error("image generation failed");
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const image = await generateOne(provider, prompt, attemptSeed, reference);
-      const failed = await flags(image);
-      if (failed.length === 0) return image;
-      lastError = new Error(`generated image fails vision QA: ${failed.join("; ")}`);
-      logger.warn(
-        `[illustrated_scene_assets] scene ${sceneIndex}: attempt ${attempt + 1}/${MAX_ATTEMPTS} failed vision QA ` +
-          `(${failed.join("; ")})${attempt + 1 < MAX_ATTEMPTS ? "; regenerating" : ""}`,
-      );
+      const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, reference);
+      const [text, semantic] = await Promise.all([
+        checkGeneratedImageForText(image),
+        narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null),
+      ]);
+      const failures: string[] = [];
+      if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`);
+      if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
+      if (failures.length === 0) return image;
+      lastError = new Error(failures.join("; "));
+      logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/2: ${lastError.message}`);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      logger.warn(
-        `[illustrated_scene_assets] scene ${sceneIndex}: attempt ${attempt + 1}/${MAX_ATTEMPTS} generation failed ` +
-          `(${lastError.message})${attempt + 1 < MAX_ATTEMPTS ? "; regenerating" : ""}`,
-      );
+      logger.warn(`[illustrated_scene_assets] ${shotId}: generation failed attempt ${attempt + 1}/2: ${lastError.message}`);
     }
   }
   throw lastError;
+}
+
+async function generateShot(
+  provider: ReferenceCapableProvider,
+  prompt: string,
+  shot: DirectionShot,
+  narration: string,
+  reference: GeneratedImage | undefined,
+  logger: WorkerContext["logger"],
+  shotId: string,
+): Promise<GeneratedImage> {
+  const seed = stableSeed(`${shotId}|${prompt}`);
+  if (shot.importance !== "hero") return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId);
+
+  const candidates: GeneratedImage[] = [];
+  for (let i = 0; i < 3; i++) {
+    try {
+      candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`));
+    } catch (err) {
+      logger.warn(`[illustrated_scene_assets] ${shotId}: hero candidate ${i + 1}/3 unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (candidates.length === 0) throw new Error(`all hero candidates failed for ${shotId}`);
+  if (candidates.length === 1) return candidates[0]!;
+  const ranked = await rankHeroImageCandidates(candidates, {
+    prompt,
+    narration,
+    heroRole: shot.hero_role ?? "hero",
+  });
+  return candidates[ranked?.bestIndex ?? 0]!;
+}
+
+interface WorkingShot {
+  id: string;
+  sceneIndex: number;
+  shot: DirectionShot;
+  narration: string;
+  prompt: string;
+  image?: GeneratedImage;
+  source: "primary" | "fallback" | "placeholder";
+}
+
+function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: string[]): Record<string, unknown> {
+  const neutralScores = {
+    opening_visual_strength: 1, scene_relevance: 1, subject_legibility: 1, emotional_readability: 1,
+    shot_variety: 1, visual_redundancy: 1, continuity: 1, style_consistency: 1, ai_artifacts: 1, payoff_visual_strength: 1,
+  };
+  if (!review) return {
+    status: "unavailable", reviewed_shots: 0, regenerated_shots: regenerated,
+    remaining_flagged_shots: [], scores: neutralScores, reason: "episode-level visual review unavailable; per-image QA still ran",
+  };
+  return {
+    status: review.flagged_shots.length === 0 ? "pass" : "warn",
+    reviewed_shots: review.reviewed_shots,
+    regenerated_shots: regenerated,
+    remaining_flagged_shots: review.flagged_shots,
+    scores: review.scores,
+    reason: review.reason.slice(0, 1400),
+  };
 }
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
     name: "illustrated_scene_assets",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "5",
     consumes: [
-      { schema_id: "episode_direction", range: "^1", as: "direction" },
+      { schema_id: "episode_direction", range: "^2", as: "direction" },
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "intent", range: "^1", as: "intent" },
     ],
     produces: "asset_manifest",
-    produces_version: "1.7.0",
+    produces_version: "2.0.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
-      const scenes = (inputs["direction"]!.payload as { scenes: DirectionScene[] }).scenes;
+      const direction = inputs["direction"]!.payload as { scenes: DirectionScene[]; hero_shots: string[] };
       const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const intent = inputs["intent"]!.payload as IntentPayload;
-      const style: ImageStyle = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
-      const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 400)]));
-      const outroSceneIndex = scripts.find((s) => s.is_outro === true)?.scene_index;
+      const style = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
+      const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 600)]));
+      const outroIndex = scripts.find((s) => s.is_outro)?.scene_index;
       const configured = ctx.media.images as ReferenceCapableProvider | undefined;
       const provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
-      const ordered = [...scenes].sort((a, b) => a.scene_index - b.scene_index);
+      const orderedScenes = [...direction.scenes].sort((a, b) => a.scene_index - b.scene_index);
+      const working: WorkingShot[] = [];
+      let reference: GeneratedImage | undefined;
 
-      // Retry-aware reuse (real production case: a QA-triggered regeneration
-      // after scene 0 came back a bare placeholder). ctx.priorArtifact is
-      // this same worker's own most recent successful manifest for this run
-      // (see runner.ts) -- set only when GraphExecutor.regenerateNode() has
-      // forced this node to run again. A scene that already has real content
-      // (source "primary" or "fallback") is left untouched: no new spend, no
-      // risk of re-rolling a scene that was already fine. Only scenes that
-      // were true blank placeholders get attempted below.
-      interface PriorScene { scene_index?: number; source?: string; image_uri?: string; prompt?: string; template_data?: string }
-      const priorScenes = new Map<number, PriorScene>(
-        ((ctx.priorArtifact?.payload as { scenes?: PriorScene[] } | undefined)?.scenes ?? [])
-          .filter((s): s is PriorScene & { scene_index: number } => typeof s.scene_index === "number")
-          .map((s) => [s.scene_index, s]),
-      );
-
-      // Computed once, up front: reuse validity (prompt match) and the main
-      // loop both need this, and scene 0 -- which may need to regenerate --
-      // is processed FIRST in scene_index order, before a later scene that
-      // could seed its reference continuity would otherwise be visited.
-      const freshPrompts = new Map(ordered.map((s) => [s.scene_index, buildIllustratedPrompt(s.image_prompt, style)]));
-      // Reuse is only valid when the underlying content hasn't moved: a
-      // prior scene with a DIFFERENT prompt means direction/the script
-      // upstream of it was itself regenerated (e.g. VidGenService's
-      // best-of-N watchability pick, which invalidates the whole chain, not
-      // just this node) -- scene_index alone would silently reuse a stale
-      // image against what is now a different intended shot.
-      const reusable = (scene: DirectionScene): PriorScene | undefined => {
-        const prior = priorScenes.get(scene.scene_index);
-        return prior && prior.source !== "placeholder" && prior.image_uri && prior.prompt === freshPrompts.get(scene.scene_index)
-          ? prior
-          : undefined;
-      };
-
-      const blobs: BlobRef[] = [];
-      const manifestScenes: Array<Record<string, unknown>> = [];
-      let referenceImage: GeneratedImage | undefined;
-      let degraded = 0;
-
-      // Give a regenerated scene real reference continuity, which the true
-      // first-attempt edge case (scene 0 failing with no reference yet)
-      // never had -- seed it from the first validly-reusable "primary"
-      // scene before the loop, rather than leaving the retry to start from
-      // a blank slate too.
-      for (const scene of ordered) {
-        const prior = reusable(scene);
-        if (prior?.source !== "primary" || !prior.image_uri) continue;
-        try {
-          referenceImage = { bytes: await ctx.blobs.get(prior.image_uri), media_type: "image/png" };
-        } catch {
-          // Blob no longer on disk; fall through and generate without one.
+      for (const scene of orderedScenes) {
+        const shots = [...scene.shots].sort((a, b) => a.shot_index - b.shot_index);
+        for (const shot of shots) {
+          const id = `${scene.scene_index}:${shot.shot_index}`;
+          const narration = narrationBy.get(scene.scene_index) ?? "";
+          const prompt = buildIllustratedPrompt(shot.image_prompt, style);
+          const item: WorkingShot = { id, sceneIndex: scene.scene_index, shot, narration, prompt, source: "placeholder" };
+          if (provider) {
+            try {
+              item.image = await generateShot(provider, prompt, shot, narration, reference, ctx.logger, id);
+              item.source = "primary";
+              if (!reference) reference = item.image;
+            } catch (err) {
+              if (reference) {
+                item.image = reference;
+                item.source = "fallback";
+                ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after failure: ${err instanceof Error ? err.message : String(err)}`);
+              } else {
+                ctx.logger.warn(`[illustrated_scene_assets] ${id}: no renderable image after failure: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+          }
+          working.push(item);
         }
-        break;
       }
 
-      for (const scene of ordered) {
-        const prompt = freshPrompts.get(scene.scene_index)!;
-        const prior = reusable(scene);
-        if (prior) {
-          manifestScenes.push({
-            scene_index: scene.scene_index,
-            source: prior.source,
-            image_uri: prior.image_uri,
-            prompt,
-            template_data: prior.template_data ?? JSON.stringify({ camera_move: scene.camera_move }),
-          });
-          if (prior.source === "fallback") degraded++;
-          continue;
+      const sequenceEntries = (): VisualSequenceEntry[] => working
+        .filter((w): w is WorkingShot & { image: GeneratedImage } => Boolean(w.image))
+        .map((w) => ({
+          shot_id: w.id,
+          image: w.image,
+          narration: w.narration,
+          prompt: w.shot.image_prompt,
+          shot_function: w.shot.shot_function,
+          hero: w.shot.importance === "hero",
+        }));
+
+      let review = await reviewIllustratedSequence(sequenceEntries());
+      const regenerated: string[] = [];
+      if (provider && review?.flagged_shots.length) {
+        for (const id of review.flagged_shots.slice(0, 12)) {
+          const item = working.find((w) => w.id === id);
+          if (!item) continue;
+          try {
+            item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`);
+            item.source = "primary";
+            regenerated.push(id);
+          } catch (err) {
+            ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted visual-review regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
-        const seed = stableSeed(prompt);
-        // The outro scene needs its CTA to actually appear on screen, not
-        // just be spoken -- render.ts/compose.ts already route an is_outro
-        // scene with no template_category to compose.js's KineticText card
-        // (a real word-by-word reveal with an accent-highlighted last word),
-        // but that card reads its text from template_data.line, which
-        // nothing here set before this. Confirmed live: the CTA was
-        // audio-only, no on-screen text at all. narration_script_writer
-        // copies the story's outro_line into this scene's narration
-        // verbatim, so it's exactly the right text to reuse.
-        const isOutro = scene.scene_index === outroSceneIndex;
+        if (regenerated.length) review = await reviewIllustratedSequence(sequenceEntries());
+      }
+
+      const blobs: BlobRef[] = [];
+      const scenes: Array<Record<string, unknown>> = [];
+      let degraded = 0;
+      for (const scene of orderedScenes) {
+        const items = working.filter((w) => w.sceneIndex === scene.scene_index).sort((a, b) => a.shot.shot_index - b.shot.shot_index);
+        const uris: string[] = [];
+        for (const item of items) {
+          if (!item.image) continue;
+          const ref = await ctx.blobs.put(item.image.bytes, { role: "image", media_type: item.image.media_type });
+          blobs.push(ref);
+          uris.push(ref.uri);
+        }
+        const hasPlaceholder = items.some((i) => !i.image);
+        const hasFallback = items.some((i) => i.source === "fallback");
+        const source = uris.length === 0 ? "placeholder" : hasPlaceholder || hasFallback ? "fallback" : "primary";
+        if (source !== "primary") degraded++;
+        const isOutro = scene.scene_index === outroIndex;
         const templateData = JSON.stringify({
-          camera_move: scene.camera_move,
+          camera_move: items[0]?.shot.camera_move ?? "hold",
+          camera_moves: items.map((i) => i.shot.camera_move),
+          shot_functions: items.map((i) => i.shot.shot_function),
           ...(scene.on_screen_label ? { on_screen_label: scene.on_screen_label } : {}),
           ...(isOutro ? { line: narrationBy.get(scene.scene_index) ?? "" } : {}),
         });
-
-        if (!provider) {
-          manifestScenes.push({ scene_index: scene.scene_index, source: "placeholder", prompt, template_data: templateData });
-          degraded++;
-          continue;
-        }
-
-        try {
-          const image = await generateWithVisionQa(
-            provider, prompt, seed, referenceImage, ctx.logger, scene.scene_index, narrationBy.get(scene.scene_index) ?? "",
-          );
-          if (!referenceImage) referenceImage = image;
-          const ref = await ctx.blobs.put(image.bytes, { role: "image", media_type: image.media_type });
-          blobs.push(ref);
-          manifestScenes.push({ scene_index: scene.scene_index, source: "primary", image_uri: ref.uri, prompt, template_data: templateData });
-        } catch (error) {
-          // A bare "placeholder" scene has no image_uri at all, so long-compose
-          // falls back to its own generic dark gradient still (designed as a
-          // backdrop behind motion-graphics text/diagrams, not as 8+ seconds
-          // of standalone content) -- confirmed live, it reads as a plain
-          // black screen for the whole scene. Reusing the episode's own
-          // reference image instead keeps something on-style and coherent on
-          // screen; a repeated shot reads as an intentional visual callback
-          // in a hand-drawn format, not as a bug. Only the true edge case of
-          // the FIRST scene failing (no reference generated yet) still has to
-          // fall through to the placeholder -- there is nothing else on-style
-          // to show yet.
-          const message = error instanceof Error ? error.message : String(error);
-          if (referenceImage) {
-            ctx.logger.warn(`[illustrated_scene_assets] scene ${scene.scene_index} generation failed; reusing the episode's reference image instead of a blank placeholder: ${message}`);
-            const ref = await ctx.blobs.put(referenceImage.bytes, { role: "image", media_type: referenceImage.media_type });
-            blobs.push(ref);
-            manifestScenes.push({ scene_index: scene.scene_index, source: "fallback", image_uri: ref.uri, prompt, template_data: templateData });
-          } else {
-            ctx.logger.warn(`[illustrated_scene_assets] scene ${scene.scene_index} generation failed; degrading to placeholder: ${message}`);
-            manifestScenes.push({ scene_index: scene.scene_index, source: "placeholder", prompt, template_data: templateData });
-          }
-          degraded++;
-        }
+        scenes.push({
+          scene_index: scene.scene_index,
+          source,
+          ...(uris[0] ? { image_uri: uris[0] } : {}),
+          ...(uris.length ? { image_uris: uris } : {}),
+          prompt: items.map((i) => i.prompt).join("\n---SHOT---\n").slice(0, 1800),
+          template_data: templateData,
+          shot_types: items.map((i) => i.shot.shot_function),
+          hero_shot_ids: items.filter((i) => i.shot.importance === "hero").map((i) => i.id),
+        });
       }
 
-      const first = manifestScenes.find((s) => s["scene_index"] === 0);
-      if (!first || !(first["image_uri"] || first["source"] === "placeholder")) {
-        throw new Error("illustrated visual invariant failed: literal scene 0 has no renderable visual");
+      const first = scenes.find((s) => s["scene_index"] === 0);
+      if (!first || (!(first["image_uri"]) && first["source"] !== "placeholder")) {
+        throw new Error("illustrated visual invariant failed: scene 0 has no renderable visual or explicit placeholder");
       }
-
-      return { payload: { scenes: manifestScenes, degraded_count: degraded }, blobs };
+      return { payload: { scenes, degraded_count: degraded, visual_review: reviewPayload(review, regenerated) }, blobs };
     },
   };
 }
