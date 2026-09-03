@@ -1,16 +1,19 @@
 {
   "name": "thumbnail_designer",
   "kind": "agent",
-  "version": "1",
-  "consumes": [{ "schema_id": "story", "range": "^1", "as": "story" }],
+  "version": "2",
+  "consumes": [
+    { "schema_id": "story", "range": "^1", "as": "story" },
+    { "schema_id": "growth_package", "range": "^1", "as": "growth" }
+  ],
   "produces": "thumbnail_brief",
   "produces_version": "1.1.0",
-  "prompt": "thumbnail_designer@1",
+  "prompt": "thumbnail_designer@2",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 2000,
+    "max_output_tokens": 2500,
     "effort": "low"
   },
-  "confidence_dimensions": ["clarity", "curiosity"],
+  "confidence_dimensions": ["clarity", "curiosity", "package_fidelity"],
   "retry": { "max_attempts": 3 }
 }
