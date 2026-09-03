@@ -1,15 +1,15 @@
 {
   "name": "channel_strategist",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [{ "schema_id": "performance_window", "range": "^1", "as": "performance" }],
   "produces": "channel_insights",
-  "prompt": "channel_strategist@1",
+  "prompt": "channel_strategist@2",
   "model": {
-    "capability": "reasoning_fast",
-    "max_output_tokens": 3000,
-    "effort": "low"
+    "capability": "reasoning_high",
+    "max_output_tokens": 5000,
+    "effort": "medium"
   },
-  "confidence_dimensions": ["evidence_strength", "specificity"],
+  "confidence_dimensions": ["evidence_strength", "specificity", "actionability"],
   "retry": { "max_attempts": 3 }
 }
