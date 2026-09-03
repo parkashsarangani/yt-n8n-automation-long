@@ -2,25 +2,18 @@
  * Local control UI.
  *
  *   npm run ui              # http://127.0.0.1:4321
- *   npm run ui -- --publish # allow real YouTube uploads (still private)
- *
- * Loopback-only and unauthenticated by design: it holds API keys, so it must
- * never be bound to a routable interface.
+ *   npm run ui -- --publish # allow real YouTube uploads
  */
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VidGenService } from "../src/service.ts";
 import { createUiServer } from "../src/server.ts";
+import { startGrowthScheduler } from "../src/growth-scheduler.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-
 const allowPublish = process.argv.includes("--publish") || process.env["AMOS_ALLOW_PUBLISH"] === "1";
 const port = Number(process.env["AMOS_PORT"] ?? 4321);
-
-// Loopback by default. In a container this must be 0.0.0.0 to be reachable at
-// all — the loopback guarantee then comes from publishing the port as
-// 127.0.0.1:4321:4321 on the host, plus the Host-header check in the server.
 const host = process.env["AMOS_HOST"] ?? "127.0.0.1";
 
 const service = await VidGenService.create({
@@ -29,20 +22,19 @@ const service = await VidGenService.create({
   ...(process.env["AMOS_DATA"] ? { dataDir: process.env["AMOS_DATA"] } : {}),
   ...(process.env["AMOS_ENV_FILE"] ? { envFile: process.env["AMOS_ENV_FILE"] } : {}),
 });
-// Started here rather than in the service, so importing the service in a test
-// never spawns timers.
-const scheduler = service.startScheduler();
 
-const server = createUiServer({ service, uiDir: path.join(ROOT, "ui"), port, host });
+// RFC 0009: unattended production is candidate-tournament orchestration, not
+// merely "start one topic every 24h". The dedicated scheduler can abandon a
+// creatively weak top candidate and advance to the next ranked package while
+// refusing to paper over technical/QA failures by changing topic.
+const scheduler = startGrowthScheduler(service);
+
+const server = createUiServer({ service, scheduler, uiDir: path.join(ROOT, "ui"), port, host });
 const url = await server.listen();
 
 console.log(`VidGen UI  ${url}${host === "0.0.0.0" ? "  (published on the host as 127.0.0.1:" + port + ")" : ""}`);
 console.log(`config     ${service.envFile}`);
 
-// Capability check: say plainly which stages will do the real thing on the next
-// run, and for the rest, the exact key that would fix it. Quietly substituting
-// placeholders is the failure mode worth shouting about — the run "succeeds",
-// produces a video, and the result is unusable.
 console.log("\nwhat will actually run:");
 const stages = service.capabilities();
 for (const s of stages) {
@@ -54,27 +46,19 @@ for (const s of stages) {
 }
 
 const degraded = stages.filter((s) => !s.real).length;
-console.log(
-  degraded === 0
-    ? "\n  every stage is live."
-    : `\n  ${degraded} of ${stages.length} stages will use a stand-in.`,
-);
+console.log(degraded === 0 ? "\n  every stage is live." : `\n  ${degraded} of ${stages.length} stages will use a stand-in.`);
 
-if (allowPublish) console.log("  !! --publish is on: approved runs will upload to YouTube as PRIVATE");
+if (allowPublish) console.log("  !! --publish is on: QA-passing runs may upload publicly");
 else console.log("  publishing is a dry run; restart with --publish to upload for real");
 
-// What will happen without anyone pressing anything. Printed last because it is
-// the part most likely to surprise: a job that quietly starts runs costs money.
 console.log("\nscheduled jobs:");
 for (const j of scheduler.status()) {
-  console.log(
-    `  ${j.enabled ? "on " : "off"} ${j.id.padEnd(9)} every ${String(j.every_hours).padStart(3)}h  ${j.description}`,
-  );
+  console.log(`  ${j.enabled ? "on " : "off"} ${j.id.padEnd(9)} every ${String(j.every_hours).padStart(3)}h  ${j.description}`);
 }
 if (scheduler.status().some((j) => j.id === "produce" && j.enabled)) {
   console.log(
-    "\n  !! auto-production is ON: runs will start on their own.\n" +
-    "     They still stop at the story and script gates — nothing publishes unreviewed.",
+    "\n  !! auto-production is ON: discovery ranks packages; a creative failure may advance to the next candidate.\n" +
+    "     technical/QA failures do not trigger topic substitution.",
   );
 }
 
