@@ -14,11 +14,24 @@ test("the built prompt carries the concrete subject plus the locked house style 
 });
 
 test("the prompt never lets style/negative boilerplate crowd out the subject text", () => {
-  // A real regression this format must never repeat: hybrid_visual_assets'
-  // shotPrompt built prompts where the actual subject was a small fraction of
-  // the total characters. Keep the subject as the first, unambiguous clause.
   const prompt = buildIllustratedPrompt("a field of rats converging on a stone well");
   assert.ok(prompt.startsWith("Subject: a field of rats converging on a stone well."));
+});
+
+test("image_style selects a genuinely different visual identity, not a label swap", () => {
+  const inkWash = buildIllustratedPrompt("a shopkeeper handing a child free candy", "ink_wash_stickman");
+  const comic = buildIllustratedPrompt("a shopkeeper handing a child free candy", "flat_comic_expressive");
+  assert.match(inkWash, /faceless/);
+  assert.match(inkWash, /muted, near-monochrome palette/);
+  assert.match(comic, /expressive minimal faces/);
+  assert.match(comic, /bright but limited flat color palette/);
+  assert.doesNotMatch(comic, /faceless/);
+  assert.doesNotMatch(inkWash, /expressive minimal faces/);
+});
+
+test("an unrecognized image_style falls back to the default rather than throwing", () => {
+  const prompt = buildIllustratedPrompt("a shopkeeper handing a child free candy", "nonsense" as never);
+  assert.match(prompt, /faceless/, "falls back to ink_wash_stickman, the default");
 });
 
 function fakeCtx(images: WorkerContext["media"]["images"]): WorkerContext {
@@ -59,6 +72,7 @@ test("with no image provider, every scene degrades to a placeholder and the inva
           ],
         },
       },
+      intent: { payload: {} },
     } as never,
     ctx,
   );
@@ -70,13 +84,15 @@ test("with no image provider, every scene degrades to a placeholder and the inva
 
 function contentAddressedCtx(
   behavior: (callIndex: number) => "ok" | "fail",
-): WorkerContext {
+): WorkerContext & { promptsSeen: string[] } {
   let calls = 0;
   const store = new Map<string, Uint8Array>();
+  const promptsSeen: string[] = [];
   const images = {
     id: "test-provider/mock",
     async generate({ prompt }: { prompt: string }) {
       calls++;
+      promptsSeen.push(prompt);
       if (behavior(calls) === "fail") throw new Error(`mock generation failure (call ${calls})`);
       return {
         images: [{ bytes: new TextEncoder().encode(`img-bytes-for:${prompt}`), media_type: "image/png" }],
@@ -87,8 +103,6 @@ function contentAddressedCtx(
   return {
     media: { images },
     blobs: {
-      // Content-addressed like the real store, so reusing the same bytes for
-      // two scenes proves it via an equal image_uri, not just a shared fake.
       put: async (bytes: Uint8Array, meta: { media_type: string }) => {
         const key = Buffer.from(bytes).toString("base64");
         const uri = `blob://sha256:${key.padEnd(64, "0").slice(0, 64)}`;
@@ -101,16 +115,11 @@ function contentAddressedCtx(
     logger: { warn: () => {}, info: () => {}, error: () => {} },
     attemptNumber: 1,
     progress: async () => {},
-  } as unknown as WorkerContext;
+    promptsSeen,
+  } as unknown as WorkerContext & { promptsSeen: string[] };
 }
 
 test("the outro scene's line reaches template_data so the CTA actually appears on screen", async () => {
-  // Real regression, confirmed live: render.ts/compose.ts route an is_outro
-  // scene with no template_category to compose.js's KineticText card, which
-  // reads its text from template_data.line -- and compose.js deliberately
-  // excludes the outro scene from regular burned captions (it assumes the
-  // card carries its own text). Without `line` set here, the CTA was
-  // spoken-only with literally no on-screen text at all.
   const worker = makeIllustratedSceneAssetsWorker();
   const ctx = contentAddressedCtx(() => "ok");
   const out = await worker.execute(
@@ -131,6 +140,7 @@ test("the outro scene's line reaches template_data so the CTA actually appears o
           ],
         },
       },
+      intent: { payload: {} },
     } as never,
     ctx,
   );
@@ -143,11 +153,6 @@ test("the outro scene's line reaches template_data so the CTA actually appears o
 });
 
 test("a mid-episode generation failure reuses the episode's reference image instead of a blank placeholder", async () => {
-  // Real regression, confirmed live: a bare "placeholder" scene has no
-  // image_uri, so long-compose falls back to its own generic dark gradient
-  // still for the whole scene -- confirmed to read as a plain black screen
-  // for 8+ seconds. Reusing the already-established reference image keeps
-  // something on-style on screen instead.
   const worker = makeIllustratedSceneAssetsWorker();
   const ctx = contentAddressedCtx((call) => (call === 2 ? "fail" : "ok"));
   const out = await worker.execute(
@@ -164,6 +169,7 @@ test("a mid-episode generation failure reuses the episode's reference image inst
       script: {
         payload: { scenes: [0, 1, 2].map((i) => ({ scene_index: i, narration: `line ${i}` })) },
       },
+      intent: { payload: {} },
     } as never,
     ctx,
   );
@@ -189,6 +195,7 @@ test("the very first scene failing has no reference image yet, so it still falls
         },
       },
       script: { payload: { scenes: [0, 1].map((i) => ({ scene_index: i, narration: `line ${i}` })) } },
+      intent: { payload: {} },
     } as never,
     ctx,
   );
@@ -196,4 +203,43 @@ test("the very first scene failing has no reference image yet, so it still falls
   const payload = out.payload as { scenes: Array<Record<string, unknown>> };
   assert.equal(payload.scenes[0]!["source"], "placeholder");
   assert.equal(payload.scenes[0]!["image_uri"], undefined);
+});
+
+test("intent.image_style threads through to the actual generated prompts", async () => {
+  const worker = makeIllustratedSceneAssetsWorker();
+  const ctx = contentAddressedCtx(() => "ok");
+  await worker.execute(
+    {
+      direction: {
+        payload: {
+          scenes: [{ scene_index: 0, image_prompt: "a shopkeeper handing a child free candy", camera_move: "hold" }],
+        },
+      },
+      script: { payload: { scenes: [{ scene_index: 0, narration: "line 0" }] } },
+      intent: { payload: { image_style: "flat_comic_expressive" } },
+    } as never,
+    ctx,
+  );
+
+  assert.equal(ctx.promptsSeen.length, 1);
+  assert.match(ctx.promptsSeen[0]!, /expressive minimal faces/);
+});
+
+test("an absent intent.image_style keeps the default ink_wash_stickman identity", async () => {
+  const worker = makeIllustratedSceneAssetsWorker();
+  const ctx = contentAddressedCtx(() => "ok");
+  await worker.execute(
+    {
+      direction: {
+        payload: {
+          scenes: [{ scene_index: 0, image_prompt: "a shopkeeper handing a child free candy", camera_move: "hold" }],
+        },
+      },
+      script: { payload: { scenes: [{ scene_index: 0, narration: "line 0" }] } },
+      intent: { payload: {} },
+    } as never,
+    ctx,
+  );
+
+  assert.match(ctx.promptsSeen[0]!, /faceless/);
 });

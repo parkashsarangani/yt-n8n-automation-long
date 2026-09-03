@@ -9,6 +9,10 @@
  * generated image and held via reference-image conditioning on every
  * subsequent scene -- prose style descriptions drift between generations;
  * a reference image does not (RFC 0008 decision 2).
+ *
+ * "Locked" originally meant one style, chosen by us. It now means one style
+ * PER RUN, chosen by the operator via intent.image_style -- still nothing an
+ * agent can drift on mid-episode, just no longer only one option system-wide.
  */
 
 import type { Artifact, BlobRef } from "../artifact.ts";
@@ -23,6 +27,8 @@ interface DirectionScene {
   on_screen_label?: string;
 }
 interface ScriptScene { scene_index: number; narration?: string; is_outro?: boolean }
+interface IntentPayload { image_style?: ImageStyle }
+type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive";
 interface GeneratedImage { bytes: Uint8Array; media_type: string }
 interface ReferenceCapableProvider extends ImageProvider {
   generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }>;
@@ -32,39 +38,73 @@ export interface IllustratedSceneAssetsWorkerOptions {
   version?: string;
 }
 
-// RFC 0008 decision 2, verbatim: the visual identity is locked, not left to
-// the director's per-scene wording. Reference-image conditioning (below)
-// carries the actual look across scenes; this text exists for providers with
-// no reference support and as a floor when a reference is not yet available
-// (scene 0).
-const HOUSE_STYLE = [
-  "hand-drawn pen-and-ink illustration with a muted wash, single consistent art style across a series",
-  "human figures are minimal and faceless -- simple stick figures with basic clothing shapes, no facial features",
-  "environments, objects and animals are rendered with real detail and texture, in contrast to the abstract human figures",
-  "muted, near-monochrome palette: sepia, ochre, dusty green, warm neutrals -- no saturated color",
-  "wide composition, subject off-centre, real negative space, visible horizon where relevant",
-  "visible paper grain texture uniformly across the image",
-].join(", ");
+const DEFAULT_STYLE: ImageStyle = "ink_wash_stickman";
 
-const NEGATIVE_CONSTRAINTS = [
-  "no photorealistic humans",
-  "no glossy 3D render",
-  "no dramatic rim lighting",
-  "no lens flare",
-  "no hyperreal skin",
-  "no centered symmetrical hero shot",
-  "no text, no letters, no captions, no logos, no watermark",
-].join(", ");
+/**
+ * One locked visual identity per style, matching intent.image_style
+ * (schemas/intent/1.1.0.json). Both a `houseStyle` (positive description) and
+ * `negatives` (excludes) -- reference-image conditioning (in execute() below)
+ * still carries the actual continuity across an episode; this text is the
+ * floor for scene 0, before a reference exists, and for providers with no
+ * reference support.
+ */
+const STYLE_BUNDLES: Record<ImageStyle, { houseStyle: string; negatives: string }> = {
+  // RFC 0008 decision 2, verbatim. The original and still the default.
+  ink_wash_stickman: {
+    houseStyle: [
+      "hand-drawn pen-and-ink illustration with a muted wash, single consistent art style across a series",
+      "human figures are minimal and faceless -- simple stick figures with basic clothing shapes, no facial features",
+      "environments, objects and animals are rendered with real detail and texture, in contrast to the abstract human figures",
+      "muted, near-monochrome palette: sepia, ochre, dusty green, warm neutrals -- no saturated color",
+      "wide composition, subject off-centre, real negative space, visible horizon where relevant",
+      "visible paper grain texture uniformly across the image",
+    ].join(", "),
+    negatives: [
+      "no photorealistic humans",
+      "no glossy 3D render",
+      "no dramatic rim lighting",
+      "no lens flare",
+      "no hyperreal skin",
+      "no centered symmetrical hero shot",
+      "no text, no letters, no captions, no logos, no watermark",
+    ].join(", "),
+  },
+  // A second, deliberately different identity: drama and true_story genres
+  // often need a reaction shot to read as a specific emotion, which a
+  // faceless figure can't carry. Flat vector color instead of ink wash so the
+  // two styles are visually distinct at a glance, not just a face variant of
+  // the same look.
+  flat_comic_expressive: {
+    houseStyle: [
+      "flat 2D vector illustration, bold confident black outlines, single consistent art style across a series",
+      "human figures are simplified and geometric but have expressive minimal faces -- a few clean lines for eyes/brows/mouth that clearly read an emotion (shock, grief, relief, anger)",
+      "environments and objects are simplified to flat shapes with the same bold outline, not photorealistic detail",
+      "a bright but limited flat color palette, 4-6 colors per scene, strong contrast between figure and background",
+      "wide or medium composition, subject off-centre, real negative space",
+      "clean flat color fields, no gradients, no painterly texture",
+    ].join(", "),
+    negatives: [
+      "no photorealistic humans",
+      "no photorealistic textures",
+      "no 3D render",
+      "no soft airbrushed shading",
+      "no muted or desaturated palette",
+      "no centered symmetrical hero shot",
+      "no text, no letters, no captions, no logos, no watermark",
+    ].join(", "),
+  },
+};
 
 function clean(value: unknown, max = 320): string {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, max) : "";
 }
 
-export function buildIllustratedPrompt(imagePrompt: string): string {
+export function buildIllustratedPrompt(imagePrompt: string, style: ImageStyle = DEFAULT_STYLE): string {
+  const bundle = STYLE_BUNDLES[style] ?? STYLE_BUNDLES[DEFAULT_STYLE];
   return [
     `Subject: ${clean(imagePrompt)}.`,
-    `Style: ${HOUSE_STYLE}.`,
-    `Exclude: ${NEGATIVE_CONSTRAINTS}.`,
+    `Style: ${bundle.houseStyle}.`,
+    `Exclude: ${bundle.negatives}.`,
   ].join(" ");
 }
 
@@ -93,11 +133,11 @@ async function generateOne(
 }
 
 /**
- * generateOne, plus the same two vision QA passes hybrid_visual_assets runs
- * (see that file's generatePackWithVisionQa): reject baked-in text/lettering,
- * and reject imagery that actively contradicts its own narration. One retry
- * with a perturbed seed; both checks fail open (pass) on QA-infrastructure
- * problems so a QA outage never blocks generation.
+ * generateOne, plus the same two vision QA passes hybrid_visual_assets ran
+ * (see that file's now-deleted generatePackWithVisionQa): reject baked-in
+ * text/lettering, and reject imagery that actively contradicts its own
+ * narration. One retry with a perturbed seed; both checks fail open (pass)
+ * on QA-infrastructure problems so a QA outage never blocks generation.
  */
 async function generateWithVisionQa(
   provider: ReferenceCapableProvider,
@@ -134,16 +174,19 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
   return {
     name: "illustrated_scene_assets",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [
       { schema_id: "episode_direction", range: "^1", as: "direction" },
       { schema_id: "script", range: "^1", as: "script" },
+      { schema_id: "intent", range: "^1", as: "intent" },
     ],
     produces: "asset_manifest",
     produces_version: "1.7.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const scenes = (inputs["direction"]!.payload as { scenes: DirectionScene[] }).scenes;
       const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
+      const intent = inputs["intent"]!.payload as IntentPayload;
+      const style: ImageStyle = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
       const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 400)]));
       const outroSceneIndex = scripts.find((s) => s.is_outro === true)?.scene_index;
       const configured = ctx.media.images as ReferenceCapableProvider | undefined;
@@ -156,7 +199,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       let degraded = 0;
 
       for (const scene of ordered) {
-        const prompt = buildIllustratedPrompt(scene.image_prompt);
+        const prompt = buildIllustratedPrompt(scene.image_prompt, style);
         const seed = stableSeed(prompt);
         // The outro scene needs its CTA to actually appear on screen, not
         // just be spoken -- render.ts/compose.ts already route an is_outro
@@ -165,8 +208,8 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
         // but that card reads its text from template_data.line, which
         // nothing here set before this. Confirmed live: the CTA was
         // audio-only, no on-screen text at all. narration_script_writer
-        // copies the story's outro_line verbatim into this scene's
-        // narration, so it's exactly the right text to reuse.
+        // copies the story's outro_line into this scene's narration
+        // verbatim, so it's exactly the right text to reuse.
         const isOutro = scene.scene_index === outroSceneIndex;
         const templateData = JSON.stringify({
           camera_move: scene.camera_move,

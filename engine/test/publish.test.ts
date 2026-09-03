@@ -125,17 +125,18 @@ const seedThumb = (h: Awaited<ReturnType<typeof harness>>) =>
 
 // -- schema versioning (RFC 0007 minor bump, exercised for real) --------
 
-test("story@1.3.0 is an additive minor bump: 1.0.0 artifacts stay valid", async () => {
+test("story@1.4.0 is an additive minor bump: 1.0.0 artifacts stay valid", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
 
   // The registry resolves to the newest active version...
-  assert.equal(registry.resolveVersion("story"), "1.3.0");
+  assert.equal(registry.resolveVersion("story"), "1.4.0");
   // ...but a consumer asking for ^1 accepts either, and the old payload — which
   // lacks the new optional fields — still validates. No migrator needed.
   assert.doesNotThrow(() => registry.validate("story", "1.0.0", STORY));
   assert.doesNotThrow(() => registry.validate("story", "1.1.0", STORY));
   assert.doesNotThrow(() => registry.validate("story", "1.2.0", STORY));
   assert.doesNotThrow(() => registry.validate("story", "1.3.0", STORY));
+  assert.doesNotThrow(() => registry.validate("story", "1.4.0", STORY));
   assert.doesNotThrow(() => registry.assertCompatible("story", "1.0.0", "^1"));
   assert.doesNotThrow(() =>
     registry.validate("story", "1.1.0", {
@@ -146,9 +147,11 @@ test("story@1.3.0 is an additive minor bump: 1.0.0 artifacts stay valid", async 
   );
   // 1.2.0 only widens who may write a story — human, for the manual-script
   // flow — it does not touch the payload shape at all. 1.3.0 (RFC 0008) adds
-  // narrative_story_architect to the same allowlist, same non-effect.
+  // narrative_story_architect to the same allowlist. 1.4.0 adds the optional
+  // genre field. None of these touch the payload's required shape.
   assert.doesNotThrow(() => registry.validate("story", "1.2.0", STORY));
   assert.doesNotThrow(() => registry.validate("story", "1.3.0", STORY));
+  assert.doesNotThrow(() => registry.validate("story", "1.4.0", STORY));
 });
 
 test("publish uses the SEO metadata verbatim and substitutes nothing", async () => {

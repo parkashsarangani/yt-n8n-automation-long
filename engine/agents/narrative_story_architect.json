@@ -1,13 +1,13 @@
 {
   "name": "narrative_story_architect",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [
     { "schema_id": "intent", "range": "^1", "as": "intent" },
     { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
   ],
   "produces": "story",
-  "prompt": "narrative_story_architect@1",
+  "prompt": "narrative_story_architect@2",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 5000

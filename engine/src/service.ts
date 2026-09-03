@@ -130,6 +130,12 @@ export interface ServiceOptions {
   allowPublish?: boolean;
 }
 
+/** The two operator-selectable knobs from intent@1.1.0 (schemas/intent). */
+export interface RunOptions {
+  genre?: "moral_story" | "drama" | "true_story" | "short_story";
+  imageStyle?: "ink_wash_stickman" | "flat_comic_expressive";
+}
+
 export class VidGenService {
   private registry!: SchemaRegistry;
   private prompts!: PromptStore;
@@ -480,7 +486,7 @@ export class VidGenService {
 
   // -- runs ---------------------------------------------------------------
 
-  async startRun(brief: string, durationSec = 540): Promise<string> {
+  async startRun(brief: string, durationSec = 540, opts: RunOptions = {}): Promise<string> {
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
     if (!process.env["OPENAI_API_KEY"]?.trim()) {
@@ -488,7 +494,7 @@ export class VidGenService {
     }
 
     const runId = `run_${randomUUID()}`;
-    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)`);
+    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}${opts.imageStyle ? `, image_style=${opts.imageStyle}` : ""}`);
 
     // Persist run in Postgres if available
     if (this.runLog instanceof PgRunLog) {
@@ -497,7 +503,12 @@ export class VidGenService {
 
     const intent = await this.store.put({
       schema_id: "intent",
-      payload: { brief: trimmed, target_duration_sec: durationSec },
+      payload: {
+        brief: trimmed,
+        target_duration_sec: durationSec,
+        ...(opts.genre ? { genre: opts.genre } : {}),
+        ...(opts.imageStyle ? { image_style: opts.imageStyle } : {}),
+      },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
 
