@@ -1,12 +1,12 @@
 {
   "name": "episode_director",
   "kind": "agent",
-  "version": "4",
+  "version": "5",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" }
   ],
   "produces": "episode_direction",
-  "prompt": "episode_director@4",
+  "prompt": "episode_director@5",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 10000
