@@ -1,6 +1,6 @@
 # RFC 0009: Growth Optimization System
 
-- **Status:** Proposed
+- **Status:** Implementing
 - **Date:** 2026-09-03
 - **Builds on:** RFC 0008 (`0008-illustrated-story-format.md`)
 - **Objective:** Maximize channel growth rate by optimizing what viewers choose, watch, finish, and continue watching — not by adding more rendering complexity.
@@ -16,6 +16,12 @@ The governing principle of this RFC is:
 > **The pipeline should optimize audience response before it optimizes production sophistication.**
 
 This RFC does **not** replace RFC 0008. It defines how the illustrated-story format should evolve if the operator's primary goal is to grow the YouTube channel as quickly as possible.
+
+## Implementation contract for PR #TBD
+
+The implementation branch `feat/rfc-0009-growth-optimization` is intentionally broad: the operator requested that the whole RFC be implemented together and reviewed as one coherent architecture change. Each decision below therefore has a concrete contract, graph, worker, prompt, storage, or policy change in the PR. Capabilities that depend on an external platform feature that is not exposed by the current provider API are represented as durable artifacts/metadata rather than falsely claimed as automated.
+
+The implementation must preserve RFC 0008's core format: single narrator, illustrated shots, deterministic camera/edit motion, no return to the retired semantic-diagram or host/lip-sync stack.
 
 ## Decision 1: Select a video package, not merely a topic
 
@@ -388,15 +394,15 @@ Retention + CTR + satisfaction feedback
 
 ## Implementation priority
 
-The first three implementation projects should be:
+The implementation PR is expected to cover all thirteen decisions, but still in dependency order:
 
-1. **Idea + title + thumbnail package selection before scripting.**
-2. **Multiple visual shots per narration beat instead of one still per script scene.**
-3. **Episode-level multimodal contact-sheet QA before final render.**
-
-After those are working, implement topic abandonment, packaging experiments, analytics-derived editorial memory, and hero-shot multi-generation.
-
-AI video is deliberately late in the sequence because it should solve an observed retention problem, not create a new expensive dependency before the illustrated format is measured.
+1. package selection + first-30-second promise contract + three packaging variants;
+2. multi-shot direction + visual-change budget + hero-beat designation;
+3. multi-candidate hero generation + episode-level visual review + targeted regeneration contract;
+4. topic abandonment instead of below-bar publication;
+5. analytics-derived editorial memory + early-channel emotional focus + continuation CTA metadata;
+6. bounded AI-video eligibility metadata, disabled unless audience evidence activates it;
+7. architecture-freeze guardrails/documentation and tests.
 
 ## Non-goals
 
@@ -406,7 +412,6 @@ This RFC does not:
 - restore host characters or lip-sync,
 - require full AI-generated video,
 - add another chain of comprehension/factual-fidelity agents,
-- require every recommendation to ship in one PR,
 - claim that a specific genre or visual style will win before analytics demonstrates it.
 
 ## External rationale
