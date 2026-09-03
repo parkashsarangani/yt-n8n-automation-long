@@ -22,7 +22,7 @@ interface DirectionScene {
   camera_move: "push-in" | "pull-out" | "pan-left" | "pan-right" | "hold";
   on_screen_label?: string;
 }
-interface ScriptScene { scene_index: number; narration?: string }
+interface ScriptScene { scene_index: number; narration?: string; is_outro?: boolean }
 interface GeneratedImage { bytes: Uint8Array; media_type: string }
 interface ReferenceCapableProvider extends ImageProvider {
   generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }>;
@@ -145,6 +145,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       const scenes = (inputs["direction"]!.payload as { scenes: DirectionScene[] }).scenes;
       const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 400)]));
+      const outroSceneIndex = scripts.find((s) => s.is_outro === true)?.scene_index;
       const configured = ctx.media.images as ReferenceCapableProvider | undefined;
       const provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
       const ordered = [...scenes].sort((a, b) => a.scene_index - b.scene_index);
@@ -157,7 +158,21 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       for (const scene of ordered) {
         const prompt = buildIllustratedPrompt(scene.image_prompt);
         const seed = stableSeed(prompt);
-        const templateData = JSON.stringify({ camera_move: scene.camera_move, ...(scene.on_screen_label ? { on_screen_label: scene.on_screen_label } : {}) });
+        // The outro scene needs its CTA to actually appear on screen, not
+        // just be spoken -- render.ts/compose.ts already route an is_outro
+        // scene with no template_category to compose.js's KineticText card
+        // (a real word-by-word reveal with an accent-highlighted last word),
+        // but that card reads its text from template_data.line, which
+        // nothing here set before this. Confirmed live: the CTA was
+        // audio-only, no on-screen text at all. narration_script_writer
+        // copies the story's outro_line verbatim into this scene's
+        // narration, so it's exactly the right text to reuse.
+        const isOutro = scene.scene_index === outroSceneIndex;
+        const templateData = JSON.stringify({
+          camera_move: scene.camera_move,
+          ...(scene.on_screen_label ? { on_screen_label: scene.on_screen_label } : {}),
+          ...(isOutro ? { line: narrationBy.get(scene.scene_index) ?? "" } : {}),
+        });
 
         if (!provider) {
           manifestScenes.push({ scene_index: scene.scene_index, source: "placeholder", prompt, template_data: templateData });
@@ -174,8 +189,27 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           blobs.push(ref);
           manifestScenes.push({ scene_index: scene.scene_index, source: "primary", image_uri: ref.uri, prompt, template_data: templateData });
         } catch (error) {
-          ctx.logger.warn(`[illustrated_scene_assets] scene ${scene.scene_index} generation failed; degrading to placeholder: ${error instanceof Error ? error.message : String(error)}`);
-          manifestScenes.push({ scene_index: scene.scene_index, source: "placeholder", prompt, template_data: templateData });
+          // A bare "placeholder" scene has no image_uri at all, so long-compose
+          // falls back to its own generic dark gradient still (designed as a
+          // backdrop behind motion-graphics text/diagrams, not as 8+ seconds
+          // of standalone content) -- confirmed live, it reads as a plain
+          // black screen for the whole scene. Reusing the episode's own
+          // reference image instead keeps something on-style and coherent on
+          // screen; a repeated shot reads as an intentional visual callback
+          // in a hand-drawn format, not as a bug. Only the true edge case of
+          // the FIRST scene failing (no reference generated yet) still has to
+          // fall through to the placeholder -- there is nothing else on-style
+          // to show yet.
+          const message = error instanceof Error ? error.message : String(error);
+          if (referenceImage) {
+            ctx.logger.warn(`[illustrated_scene_assets] scene ${scene.scene_index} generation failed; reusing the episode's reference image instead of a blank placeholder: ${message}`);
+            const ref = await ctx.blobs.put(referenceImage.bytes, { role: "image", media_type: referenceImage.media_type });
+            blobs.push(ref);
+            manifestScenes.push({ scene_index: scene.scene_index, source: "fallback", image_uri: ref.uri, prompt, template_data: templateData });
+          } else {
+            ctx.logger.warn(`[illustrated_scene_assets] scene ${scene.scene_index} generation failed; degrading to placeholder: ${message}`);
+            manifestScenes.push({ scene_index: scene.scene_index, source: "placeholder", prompt, template_data: templateData });
+          }
           degraded++;
         }
       }
