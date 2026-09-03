@@ -3,9 +3,6 @@
 #   docker compose up --build
 #   → http://localhost:4321
 #
-# The tracked engine/config/cast_roster.default.json is the canonical recurring
-# cast. Set CARTOON_CAST_PATH only when intentionally overriding the channel cast.
-#
 # SECURITY: published ports remain loopback-only. The local UI holds API keys.
 name: vidgen
 
@@ -40,11 +37,9 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # Cartoon thumbnail artwork. Video scenes themselves are local SVG rigs.
+      # Every illustrated still and the thumbnail artwork (RFC 0008).
       FAL_KEY: ${FAL_KEY:-}
 
-      # Default/daily production uses the tracked recurring cast unless overridden.
-      CARTOON_CAST_PATH: ${CARTOON_CAST_PATH:-/app/config/cast_roster.default.json}
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
 

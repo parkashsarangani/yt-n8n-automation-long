@@ -1,5 +1,9 @@
 # Semantic visual representation architecture
 
+> **Superseded by [RFC 0008](0008-illustrated-story-format.md).** This document describes
+> the semantic diagram system that RFC 0008 removes. Kept for historical context and because
+> legacy artifacts produced under it remain resumable; do not build against it.
+
 ## Problem
 
 Rendered-output audits exposed a structural limit in the explanation system: the planner/critic can detect a `generic-visual`, but the reviser is still constrained to the same abstract primitive grammar (`network`, `cause-chain`, `objects`, `nested-context`, etc.). A scene can therefore be correctly flagged as too abstract and still only be revised into a different generic diagram.

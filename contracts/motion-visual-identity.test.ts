@@ -1,29 +1,33 @@
-// Cross-package contract: engine's AI-prompt entity identity tokens must stay
-// byte-for-byte compatible with the Remotion EntityMark renderer, so a cut
-// from motion graphics into AI-generated imagery preserves an entity's color
-// and shape rather than only its wording. engine/ and long-compose/ build as
-// two separate, isolated Docker contexts (see .github/workflows/ci.yml), so
-// this check runs once here, directly on the CI runner's raw checkout, where
-// both trees exist side by side -- not inside either package's own test
-// suite, which never has the other package's source available.
+// Cross-package contract, historical half (RFC 0008): engine/ no longer has
+// any AI-prompt path that generates motion-graphics entity identity tokens
+// -- hybrid_visual_assets, the only producer, was retired along with the
+// two-host character pipeline -- so engine's copies of
+// motion-visual-identity.ts/motion-compatibility.json were deleted outright
+// rather than kept in sync for nothing. long-compose/ keeps its own copies
+// independently: its Remotion renderer must still be able to replay
+// historical episodes rendered under the old contract, which has nothing to
+// do with what engine currently produces. This file now only pins
+// long-compose's own internal consistency (renderer source vs. its own
+// checked-in contract copy), not a three-way sync.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-
-import {
-  MOTION_BG,
-  MOTION_ENTITY_COLORS,
-  motionEntityHash,
-  motionEntityVisualTokens,
-} from "../engine/src/motion-visual-identity.ts";
 
 const motionSource = readFileSync(
   new URL("../long-compose/remotion/src/compositions/MotionDesignSystem.tsx", import.meta.url),
   "utf8",
 );
 
-test("engine AI identity tokens stay byte-for-byte compatible with Remotion EntityMark contract", () => {
-  assert.equal(MOTION_BG, "#08101E");
+// The canonical values themselves (background + the six deterministic entity
+// colours) used to live in engine/src/motion-visual-identity.ts, read here
+// via a cross-package import. Now that engine has no consumer left, this file
+// is that contract's only remaining home -- long-compose's renderer is
+// checked directly against it, not against an engine copy.
+const MOTION_BG = "#08101E";
+const MOTION_ENTITY_COLORS = ["#FFD166", "#65C7F7", "#7DE2A8", "#B794F4", "#FF7D7D", "#5DE0C6"];
+
+test("long-compose's own Remotion EntityMark contract is internally consistent", () => {
+  assert.ok(motionSource.includes(MOTION_BG), `renderer missing background ${MOTION_BG}`);
   for (const color of MOTION_ENTITY_COLORS) assert.ok(motionSource.includes(color), `renderer missing ${color}`);
   assert.match(motionSource, /hash \* 31 \+ char\.charCodeAt\(0\)/);
   assert.match(motionSource, /2166136261/);
@@ -40,14 +44,6 @@ test("engine AI identity tokens stay byte-for-byte compatible with Remotion Enti
   // icon lookup misses.
   assert.match(motionSource, /const fill = color \?\? colors\[hash % colors\.length\]!;/);
   assert.match(motionSource, /<text textAnchor="middle" fill=\{fill\}/);
-
-  const ids = ["entity-alpha", "entity-beta", "entity-gamma", "entity-delta"];
-  const tokens = motionEntityVisualTokens(ids);
-  for (const token of tokens) {
-    const hash = motionEntityHash(token.entity_id);
-    assert.equal(token.color, MOTION_ENTITY_COLORS[hash % MOTION_ENTITY_COLORS.length]);
-    assert.ok(!("shape" in token), "shape is no longer part of the cross-package identity contract");
-  }
 });
 
 function schemaBlueprintMap(schemaFile: Record<string, unknown>): Record<string, string[]> {
@@ -66,13 +62,17 @@ function schemaBlueprintMap(schemaFile: Record<string, unknown>): Record<string,
   return result;
 }
 
-test("semantic representation compatibility stays synchronized across schema, engine, and renderer", () => {
+// engine/src/semantic-representation.json (the third former leg of this
+// contract) was deleted along with its only consumer, semantic-visual-assets
+// (RFC 0008 retired the two-host character pipeline). explanation_plan's
+// schema stays -- historical episodes still need to validate and replay --
+// so this now pins that schema plus long-compose's own renderer copy against
+// the canonical contract, not an engine copy that no longer exists.
+test("semantic representation compatibility stays synchronized across schema and renderer", () => {
   const canonical = JSON.parse(readFileSync(new URL("./semantic-representation.json", import.meta.url), "utf8"));
-  const engine = JSON.parse(readFileSync(new URL("../engine/src/semantic-representation.json", import.meta.url), "utf8"));
   const renderer = JSON.parse(readFileSync(new URL("../long-compose/remotion/src/semantic/semantic-representation.json", import.meta.url), "utf8"));
   const schema = JSON.parse(readFileSync(new URL("../engine/schemas/explanation_plan/1.6.0.json", import.meta.url), "utf8"));
 
-  assert.deepEqual(engine, canonical);
   assert.deepEqual(renderer, canonical);
   assert.deepEqual(schemaBlueprintMap(schema), canonical);
 });

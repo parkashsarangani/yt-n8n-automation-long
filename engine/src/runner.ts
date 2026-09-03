@@ -11,7 +11,6 @@ import type { BlobStore } from "./blobs.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
-import { repairMotionCompatibility, repairOverlongLabels } from "./motion-contract.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import {
@@ -298,48 +297,15 @@ export class Runner {
             repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
-      // A valid-but-incompatible visual_operation/visual_primitive pair is not
-      // an enum near-miss (both values are individually legal), so the enum
-      // repair above never sees it. Fixing it here, before the semantic gate
-      // runs, means a model mistake the system already knows how to correct
-      // doesn't cost a full retry attempt -- production evidence this
-      // matters: explanation_visual_planner burned all 3 attempts on
-      // run_39850b3e fixing some pairs while breaking others, and never had a
-      // budget left for the unrelated numeric_value rule that then blocked
-      // the final attempt.
-      const { data: compatibilityRepaired, repairs: motionRepairs } = def.produces === "explanation_plan"
-        ? repairMotionCompatibility(enumRepaired)
-        : { data: enumRepaired, repairs: [] };
-      if (motionRepairs.length > 0) {
-        this.deps.logger?.warn(
-          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired ${motionRepairs.length} incompatible operation/primitive pair(s): ` +
-            motionRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
-        );
-      }
-      // Same "fix what the system already knows how to fix, don't spend a
-      // retry attempt on it" reasoning as the operation/primitive repair
-      // above, for explanation_plan@1.4.0's tightened state_before/
-      // state_after/key_text limits -- see repairOverlongLabels' own comment.
-      const { data: labelsRepaired, repairs: labelRepairs } = def.produces === "explanation_plan"
-        ? repairOverlongLabels(compatibilityRepaired)
-        : { data: compatibilityRepaired, repairs: [] };
-      if (labelRepairs.length > 0) {
-        this.deps.logger?.warn(
-          `[${def.name}] attempt ${attempt}/${maxAttempts} auto-clamped ${labelRepairs.length} overlong label(s): ` +
-            labelRepairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
-        );
-      }
-      // Same "fix what the system already knows how to fix, don't spend a
-      // retry attempt on it" reasoning as the repairs above, for the one
-      // real production mistake dialogue_script_writer/emotional_
-      // entertainment_editor/script_quality_reviser keep making: writing
-      // the outro scene's real content in the correct final position and
-      // simply omitting is_outro:true. See repairMissingOutroFlag's own
-      // comment for the production evidence and why the repair stays
-      // conservative.
+      // "Fix what the system already knows how to fix, don't spend a retry
+      // attempt on it" -- for the one real production mistake the script
+      // writers keep making: writing the outro scene's real content in the
+      // correct final position and simply omitting is_outro:true. See
+      // repairMissingOutroFlag's own comment for the production evidence and
+      // why the repair stays conservative.
       const { data: payload, repairs: outroRepairs } = def.produces === "script"
-        ? repairMissingOutroFlag(labelsRepaired)
-        : { data: labelsRepaired, repairs: [] };
+        ? repairMissingOutroFlag(enumRepaired)
+        : { data: enumRepaired, repairs: [] };
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +

@@ -111,26 +111,15 @@ test("the catalog loads every agent as pure data", async () => {
   assert.deepEqual(
     [...agents.keys()].sort(),
     [
-      "cartoon_creative_director",
-      "cartoon_thumbnail_designer",
-      "cartoon_visual_planner",
       "channel_strategist",
-      "comprehension_editor",
-      "dialogue_script_writer",
       "discovery",
-      "emotional_entertainment_editor",
-      "episode_visual_modeler",
-      "explanation_plan_critic",
-      "explanation_plan_reviser",
-      "explanation_visual_planner",
-      "retention_character_editor",
-      "script_quality_critic",
-      "script_quality_reviser",
-      "script_writer",
+      "episode_director",
+      "narration_script_writer",
+      "narrative_story_architect",
       "seo_optimizer",
-      "story_architect",
       "thumbnail_designer",
       "visual_planner",
+      "watchability_critic",
     ],
   );
   for (const def of agents.values()) {
@@ -159,14 +148,14 @@ test("catalog is cross-checked against schemas and prompts at boot", async () =>
 
 test("THE CLAIM: two different agents run through one harness, no agent-specific code", async () => {
   const h = await harness((req) =>
-    req.prompt.includes("head writer")
+    req.prompt.includes("story architect")
       ? { payload: STORY_PAYLOAD, confidence: { overall: 0.9 } }
       : { payload: SCRIPT_PAYLOAD, confidence: { overall: 0.82 } },
   );
   const intent = await seedIntent(h);
 
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
-  const script = await h.runner.run(h.agents.get("script_writer")!, [story.artifact.artifact_id]);
+  const story = await h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+  const script = await h.runner.run(h.agents.get("narration_script_writer")!, [story.artifact.artifact_id]);
 
   assert.equal(story.artifact.schema_id, "story");
   assert.equal(script.artifact.schema_id, "script");
@@ -182,8 +171,8 @@ test("THE CLAIM: two different agents run through one harness, no agent-specific
 test("confidence lands on the envelope and does not affect the content hash", async () => {
   const h1 = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.95 } }));
   const h2 = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.12 } }));
-  const a = await h1.runner.run(h1.agents.get("story_architect")!, [(await seedIntent(h1)).artifact_id, (await seedInsights(h1)).artifact_id]);
-  const b = await h2.runner.run(h2.agents.get("story_architect")!, [(await seedIntent(h2)).artifact_id, (await seedInsights(h2)).artifact_id]);
+  const a = await h1.runner.run(h1.agents.get("narrative_story_architect")!, [(await seedIntent(h1)).artifact_id, (await seedInsights(h1)).artifact_id]);
+  const b = await h2.runner.run(h2.agents.get("narrative_story_architect")!, [(await seedIntent(h2)).artifact_id, (await seedInsights(h2)).artifact_id]);
 
   assert.equal(a.artifact.confidence?.overall, 0.95);
   assert.equal(b.artifact.confidence?.overall, 0.12);
@@ -198,7 +187,7 @@ test("an invalid output is retried, and the retry prompt carries the errors", as
       : { payload: STORY_PAYLOAD, confidence: { overall: 0.88 } },
   );
   const intent = await seedIntent(h);
-  const out = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+  const out = await h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
 
   assert.equal(out.attempts, 2);
   assert.equal(h.provider.calls.length, 2);
@@ -229,7 +218,7 @@ test("a missing confidence.overall is retried like any other invalid output", as
       : { payload: STORY_PAYLOAD, confidence: { overall: 0.88 } },
   );
   const intent = await seedIntent(h);
-  const out = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+  const out = await h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
 
   assert.equal(out.attempts, 2);
   assert.equal(h.provider.calls.length, 2);
@@ -247,7 +236,7 @@ test("an invalid output never becomes an artifact, even after exhausting retries
   const insights = await seedInsights(h);
 
   await assert.rejects(
-    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, insights.artifact_id]),
+    () => h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, insights.artifact_id]),
     /invalid story after 3 attempts/,
   );
   // Only the two seeded inputs — no story artifact was written. That is the
@@ -268,7 +257,7 @@ test("a refusal is not retried", async () => {
   const insights = await seedInsights(h);
 
   await assert.rejects(
-    () => h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, insights.artifact_id]),
+    () => h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, insights.artifact_id]),
     ProviderRefusal,
   );
   assert.equal(h.provider.calls.length, 1); // no point re-asking the same question
@@ -280,7 +269,7 @@ test("inputs are validated on read against the declared schema", async () => {
   const intent = await seedIntent(h);
   // script_writer consumes a story, not an intent.
   await assert.rejects(
-    () => h.runner.run(h.agents.get("script_writer")!, [intent.artifact_id]),
+    () => h.runner.run(h.agents.get("narration_script_writer")!, [intent.artifact_id]),
     /expected schema "story"/,
   );
   assert.equal(h.provider.calls.length, 0); // fails before spending a token
@@ -292,7 +281,7 @@ test("the producer allowlist blocks a transformation that is not declared", asyn
   // one — is refused. See the RFC 0007 note in engine/README.md.
   const h = await harness(() => ({ payload: STORY_PAYLOAD, confidence: { overall: 0.9 } }));
   const intent = await seedIntent(h);
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+  const story = await h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
 
   const impostor: WorkerDef = {
     name: "act_counter",
@@ -367,18 +356,18 @@ test("workers run through the same harness and are given no model", async () => 
 
 test("run log rolls up cost per transformation", async () => {
   const h = await harness((req) =>
-    req.prompt.includes("head writer")
+    req.prompt.includes("story architect")
       ? { payload: STORY_PAYLOAD, confidence: { overall: 0.9 } }
       : { payload: SCRIPT_PAYLOAD, confidence: { overall: 0.8 } },
   );
   const intent = await seedIntent(h);
-  const story = await h.runner.run(h.agents.get("story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
-  await h.runner.run(h.agents.get("script_writer")!, [story.artifact.artifact_id]);
+  const story = await h.runner.run(h.agents.get("narrative_story_architect")!, [intent.artifact_id, (await seedInsights(h)).artifact_id]);
+  await h.runner.run(h.agents.get("narration_script_writer")!, [story.artifact.artifact_id]);
 
   const summary = rollup(await h.runLog.all());
   assert.deepEqual(Object.keys(summary.by_transformation).sort(), [
-    "script_writer",
-    "story_architect",
+    "narration_script_writer",
+    "narrative_story_architect",
   ]);
   assert.ok(summary.output_tokens > 0);
   assert.equal(summary.first_pass_rate, 1);

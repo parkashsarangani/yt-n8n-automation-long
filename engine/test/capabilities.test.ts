@@ -66,14 +66,14 @@ test("OpenAI reasoning requires an API key and has no offline fallback", () => {
   assert.match(reasoning.consequence, /no offline fallback/);
 });
 
-test("blank and whitespace-only Fal keys do not enable cartoon artwork", () => {
+test("blank and whitespace-only Fal keys do not enable illustration artwork", () => {
   const images = STAGES.find((s) => s.id === "images")!;
   assert.equal(credentialsSatisfied(images, { FAL_KEY: "" }), false);
   assert.equal(credentialsSatisfied(images, { FAL_KEY: "   " }), false);
   assert.equal(credentialsSatisfied(images, { FAL_KEY: "fal-live" }), true);
 });
 
-test("legacy stock keys cannot accidentally enable the cartoon image stage", () => {
+test("legacy stock keys cannot accidentally enable the illustration image stage", () => {
   const images = STAGES.find((s) => s.id === "images")!;
   assert.equal(credentialsSatisfied(images, { PEXELS_API_KEY: "px" }), false);
   assert.equal(credentialsSatisfied(images, { UNSPLASH_ACCESS_KEY: "un" }), false);
@@ -100,7 +100,7 @@ test("credentials present but publishing switched off is reported as blocked, no
   assert.match(publish.blockedBy ?? "", /AMOS_ALLOW_PUBLISH/);
 });
 
-test("a fully configured cartoon deployment reports every stage live", () => {
+test("a fully configured deployment reports every stage live", () => {
   const report = capabilityReport({
     allowPublish: true,
     env: {
@@ -109,7 +109,6 @@ test("a fully configured cartoon deployment reports every stage live", () => {
       ELEVENLABS_API_KEY: "el",
       FAL_KEY: "fal",
       COMPOSE_URL: "http://long-compose:4000",
-      CARTOON_CAST_PATH: "/app/config/cast_roster.default.json",
       YOUTUBE_CLIENT_ID: "id",
       YOUTUBE_CLIENT_SECRET: "secret",
       YOUTUBE_REFRESH_TOKEN: "refresh",
@@ -171,14 +170,13 @@ test("saving an unknown key is reported, not silently dropped", async () => {
   delete process.env["FAL_KEY"];
 });
 
-test("the keys the cartoon pipeline actually needs are saveable end to end", async () => {
+test("the keys the illustrated-story pipeline actually needs are saveable end to end", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "vidgen-cred-"));
   const file = path.join(dir, ".env");
   const keys = [
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
     "FAL_KEY",
-    "CARTOON_CAST_PATH",
     "YOUTUBE_CLIENT_ID",
     "YOUTUBE_CLIENT_SECRET",
     "YOUTUBE_REFRESH_TOKEN",

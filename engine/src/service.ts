@@ -138,7 +138,6 @@ export class VidGenService {
   private measureGraph!: GraphDoc;
   private discoverGraph!: GraphDoc;
   private manualGraph!: GraphDoc;
-  private cartoonGraph!: GraphDoc;
   private scheduler: Scheduler | undefined;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
@@ -174,11 +173,13 @@ export class VidGenService {
       hasSchema: (id) => svc.registry.has(id),
       hasPrompt: (ref) => svc.prompts.has(ref),
     });
-    svc.graph = await loadGraph(path.join(opts.root, "graphs", "skeleton.json"));
+    // The default AI-driven graph (RFC 0008): single-narrator voice-over over
+    // illustrated stills. Replaced the two-host character/dialogue pipeline
+    // ("skeleton.json") outright — see docs/0008-illustrated-story-format.md.
+    svc.graph = await loadGraph(path.join(opts.root, "graphs", "illustrated_story.json"));
     svc.measureGraph = await loadGraph(path.join(opts.root, "graphs", "measure.json"));
     svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
     svc.manualGraph = await loadGraph(path.join(opts.root, "graphs", "manual.json"));
-    svc.cartoonGraph = await loadGraph(path.join(opts.root, "graphs", "cartoon.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -255,13 +256,11 @@ export class VidGenService {
       this.agents,
       defaultWorkers({
         voice: { voiceId: env("ELEVENLABS_VOICE_ID") ?? "smoke-voice" },
-        dialogueVoice: { defaultVoiceId: env("ELEVENLABS_VOICE_ID") ?? "smoke-voice" },
         publish: { target, privacy: "private" },
       }),
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
     validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
-    validateGraph(this.cartoonGraph, { registry: this.registry, transformations: this.transformations });
 
     // reasoning_high runs on gpt-5.6-luna, not a bigger tier - a deliberate,
     // revisitable cost decision (Luna: $0.20/$1.20 per M tokens vs. Terra's
@@ -365,7 +364,7 @@ export class VidGenService {
       // table already knows how each finished, so trust that and only fall back
       // to counting nodes when there is no stored status.
       const runGraph = stored?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
-      const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph].find(
+      const matchedGraph = [this.graph, this.manualGraph].find(
         (g) => `${g.graph_id}@${g.version}` === runGraph,
       );
       const allDone = !!matchedGraph && completedOutputs.size === matchedGraph.nodes.length;
@@ -597,73 +596,10 @@ export class VidGenService {
     return runId;
   }
 
-  /**
-   * Start a cartoon-mode run: story_architect and dialogue_script_writer
-   * still write the episode (this is not the manual-script path), but every
-   * scene renders as SVG puppets in a reusable background instead of stock
-   * imagery, using the given cast_roster for who speaks and how they sound.
-   */
-  async startCartoonRun(brief: string, castRoster: unknown, durationSec = 540): Promise<string> {
-    const trimmed = brief.trim();
-    if (trimmed.length < 8) throw new Error("brief is too short");
-    if (!process.env["OPENAI_API_KEY"]?.trim()) {
-      throw new Error("OPENAI_API_KEY is not set — the reasoning agents cannot run");
-    }
-
-    const runId = `run_${randomUUID()}`;
-    console.log(`[run ${runId.slice(4, 12)}] starting (cartoon): "${trimmed}" (${durationSec}s)`);
-
-    if (this.runLog instanceof PgRunLog) {
-      await this.runLog.createRun(runId, trimmed, `${this.cartoonGraph.graph_id}@${this.cartoonGraph.version}`);
-    }
-
-    const intent = await this.store.put({
-      schema_id: "intent",
-      payload: { brief: trimmed, target_duration_sec: durationSec },
-      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
-    });
-    const window = await buildPerformanceWindow(this.store);
-    const performance = await this.store.put({
-      schema_id: "performance_window",
-      payload: window,
-      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
-    });
-    const cast = await this.store.put({
-      schema_id: "cast_roster",
-      payload: castRoster,
-      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
-    });
-
-    this.runs.set(runId, {
-      runId,
-      brief: trimmed,
-      createdAt: new Date().toISOString(),
-      graph: `${this.cartoonGraph.graph_id}@${this.cartoonGraph.version}`,
-      active: new Set(),
-      completedOutputs: new Map(),
-      last: null,
-      finished: false,
-      error: null,
-    });
-
-    void this.drive(runId, () =>
-      this.executor.start(
-        this.cartoonGraph,
-        {
-          intent: intent.artifact.artifact_id,
-          performance: performance.artifact.artifact_id,
-          cast_roster: cast.artifact.artifact_id,
-        },
-        { runId },
-      ),
-    );
-    return runId;
-  }
-
   /** Resolves which loaded graph a run used, falling back to the AI-driven one. */
   private resolveRunGraph(ref: string | undefined): GraphDoc {
     return (
-      [this.graph, this.manualGraph, this.cartoonGraph].find(
+      [this.graph, this.manualGraph].find(
         (g) => `${g.graph_id}@${g.version}` === ref,
       ) ?? this.graph
     );
@@ -745,9 +681,8 @@ export class VidGenService {
   }
 
   private static kindOf(graph: string): RunKind {
-    if (graph.startsWith("skeleton")) return "production";
+    if (graph.startsWith("illustrated_story")) return "production";
     if (graph.startsWith("manual")) return "production";
-    if (graph.startsWith("cartoon")) return "production";
     if (graph.startsWith("measure")) return "measure";
     if (graph.startsWith("discover")) return "discover";
     return "other";
@@ -764,7 +699,7 @@ export class VidGenService {
     // currently holding, at the exact version we hold it. For anything else —
     // a measure run, or a skeleton/manual version since superseded — report
     // the run without pretending to know its steps.
-    const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph].find(
+    const matchedGraph = [this.graph, this.manualGraph].find(
       (g) => `${g.graph_id}@${g.version}` === runGraph,
     );
 

@@ -57,26 +57,6 @@ const HEALTHY = {
     ],
     word_count: 1500, // exactly 600s at 150wpm
   },
-  quality: {
-    verdict: "pass",
-    scores: {
-      factual_fidelity: 0.98,
-      comprehension: 0.96,
-      hook_curiosity: 0.96,
-      dialogue_naturalness: 0.95,
-      character_chemistry: 0.95,
-      escalation: 0.95,
-      payoff: 0.96,
-      non_template_feel: 0.94,
-      emotional_momentum: 0.95,
-      entertainment_value: 0.96,
-      surprise_freshness: 0.94
-    },
-    weakest_dimension: "non_template_feel",
-    dropoff_risks: [],
-    revision_priorities: [],
-    summary: "The script clears the comprehension-led dialogue retention bar."
-  },
   assets: {
     scenes: Array.from({ length: 10 }, (_, i) => ({
       scene_index: i,
@@ -151,16 +131,15 @@ async function runQa(spoil: Spoil = {}, opts = {}) {
   // Order matches the worker's `consumes` — inputs bind positionally.
   const ids = [
     await put("intent", merged("intent"), "human"),
-    await put("script", merged("script"), "script_writer"),
-    await put("script_quality_report", merged("quality"), "script_quality_critic"),
-    await put("asset_manifest", merged("assets"), "asset_collector"),
+    await put("script", merged("script"), "narration_script_writer"),
+    await put("asset_manifest", merged("assets"), "illustrated_scene_assets"),
     await put("voice", merged("voice"), "voice"),
     await put("rendered_video", merged("render"), "render"),
     await put("thumbnail", merged("thumbnail"), "thumbnail"),
     await put("seo_metadata", merged("seo"), "seo_optimizer"),
   ];
 
-  const out = await runner.run(makeQaWorker({ ...opts, name: "retention_qa", enforceDialogueQuality: true }), ids);
+  const out = await runner.run(makeQaWorker(opts), ids);
   return { registry, payload: out.artifact.payload as QaPayload };
 }
 
@@ -175,17 +154,11 @@ test("a healthy episode passes every check", async () => {
   assert.doesNotThrow(() => registry.validate("qa_report", "1.0.0", payload));
 });
 
-test("a hybrid episode's real check count fits qa_report 1.1.0 but not 1.0.0", async () => {
-  // Real production bug: run_9989c55b (a genuine hybrid cartoon@11 episode)
-  // hit "/checks must NOT have more than 40 items" on qa_report@1.0.0.
-  // retention_qa's real check count is 11 script-quality dimensions + 17
-  // dialogue-evidence checks + 18 base/hybrid checks = 46 once PR #164's
-  // hybrid-specific checks (explanation_model_coverage,
-  // character_cut_in_restraint, ai_shot_semantics, visual_style_continuity,
-  // visual_reset_cadence, opening_visual_hook, bookend_entity_continuity,
-  // closing_visible_payoff, ai_character_visibility_telemetry,
-  // voice_stop_start_risk) fire, which only happens for content with a real
-  // AI/motion mix -- not this file's plain HEALTHY fixture.
+test("a large check count fits qa_report 1.1.0 but not 1.0.0", async () => {
+  // Historical production bug (run_9989c55b, the now-retired dialogue-era
+  // retention_qa mode) hit "/checks must NOT have more than 40 items" on
+  // qa_report@1.0.0. That mode is gone (RFC 0008), but the schema headroom it
+  // forced is still real infrastructure worth pinning with a synthetic count.
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const checks = Array.from({ length: 46 }, (_, i) => ({
     id: `check_${i}`,
@@ -364,44 +337,8 @@ test("every check explains itself well enough to act on at 7am", async () => {
   }
 });
 
-test("final QA blocks a script that misses the dialogue-led product goal", async () => {
-  const weak = 0.79; // below SCRIPT_QUALITY_THRESHOLDS.character_chemistry (0.80)
-  const { payload } = await runQa({
-    quality: {
-      scores: {
-        ...HEALTHY.quality.scores,
-        character_chemistry: weak,
-      },
-    },
-  });
-
-  const c = check(payload, "script_character_chemistry");
-  assert.equal(c.status, "fail");
-  assert.equal(c.measured, weak);
-  assert.equal(payload.verdict, "fail");
-});
-
 test("visual aesthetics are not represented as blocking quality scores", async () => {
   const { payload } = await runQa({ thumbnail: { background: "gradient" } });
   assert.equal(check(payload, "thumbnail_image").status, "warn");
   assert.equal(payload.checks.some((c) => /cinematic|camera variety|environment variety/i.test(c.id)), false);
-});
-
-
-test("perfect critic scores cannot hide lecture-like dialogue", async () => {
-  const fakeDialogue = HEALTHY.script.scenes.map((scene, index) => ({
-    ...scene,
-    speaker: "host",
-    narration: "Here is another useful fact about this concept.",
-    point: `action=Host talks; prop=none; function=${index === 0 ? "hook" : "implication"}; value=viewer learns concept`,
-  }));
-  const { payload } = await runQa({ script: { scenes: fakeDialogue } });
-
-  assert.equal(payload.verdict, "fail");
-  assert.equal(check(payload, "dialogue_two_active_characters").status, "fail");
-  assert.equal(check(payload, "dialogue_comprehension_arc").status, "fail");
-  assert.equal(check(payload, "dialogue_physical_explanation_model").status, "fail");
-  assert.ok(payload.checks.every((item) =>
-    !item.id.startsWith("script_") || item.status === "pass"
-  ), "critic scores should remain high in this adversarial fixture");
 });

@@ -20,7 +20,6 @@ test("low-risk agents still request low-effort fast reasoning", () => {
     "discovery.json",
     "seo_optimizer.json",
     "thumbnail_designer.json",
-    "cartoon_thumbnail_designer.json",
     "channel_strategist.json",
   ];
 
@@ -31,14 +30,12 @@ test("low-risk agents still request low-effort fast reasoning", () => {
   }
 });
 
-test("core creative cartoon agents do not request low-effort routing", () => {
+test("core creative agents do not request low-effort routing", () => {
   const protectedAgents = [
-    "story_architect.json",
-    "script_writer.json",
-    "dialogue_script_writer.json",
+    "narrative_story_architect.json",
+    "narration_script_writer.json",
+    "episode_director.json",
     "visual_planner.json",
-    "cartoon_visual_planner.json",
-    "cartoon_creative_director.json",
   ];
 
   for (const file of protectedAgents) {
@@ -52,14 +49,12 @@ test("agent output budgets stay bounded", () => {
     "discovery.json": 3000,
     "seo_optimizer.json": 2000,
     "thumbnail_designer.json": 2000,
-    "cartoon_thumbnail_designer.json": 4096,
     "channel_strategist.json": 3000,
-    "story_architect.json": 5000,
-    "script_writer.json": 10000,
-    "dialogue_script_writer.json": 18000,
+    "narrative_story_architect.json": 5000,
+    "narration_script_writer.json": 12000,
+    "episode_director.json": 10000,
+    "watchability_critic.json": 6000,
     "visual_planner.json": 10000,
-    "cartoon_visual_planner.json": 26000,
-    "cartoon_creative_director.json": 24000,
   };
 
   for (const [file, ceiling] of Object.entries(ceilings)) {
@@ -89,17 +84,19 @@ test("engine no longer imports the Anthropic SDK or the old compat shim", () => 
 });
 
 test("run-start preflight checks gate on the credential that is actually required", () => {
-  // PR #101 moved reasoning to Ollama-only, but two hardcoded pre-flight
-  // checks in service.ts kept gating on ANTHROPIC_API_KEY, which
-  // docker-compose.yml no longer set at all -- every startRun/
-  // startCartoonRun call failed unconditionally even with Ollama fully
-  // configured. Neither call site had test coverage at the time. Reasoning
-  // has since moved to OpenAI; keep the same regression class covered
-  // against whatever credential is actually required now.
+  // PR #101 moved reasoning to Ollama-only, but a hardcoded pre-flight check
+  // in service.ts kept gating on ANTHROPIC_API_KEY, which docker-compose.yml
+  // no longer set at all -- startRun failed unconditionally even with Ollama
+  // fully configured. Reasoning has since moved to OpenAI; keep the same
+  // regression class covered against whatever credential is actually
+  // required now. RFC 0008 retired the separate startCartoonRun/
+  // startManualRun-adjacent startIllustratedStoryRun entry points; startRun
+  // is the one AI-driven run-start method left, and manual runs (which don't
+  // touch reasoning agents at all) never gate on this credential.
   const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(service, /ANTHROPIC_API_KEY/);
   assert.doesNotMatch(service, /OLLAMA_BASE_URL/);
   const matches = service.match(/OPENAI_API_KEY.*is not set/g) ?? [];
-  assert.equal(matches.length, 2, "startRun and startCartoonRun should both gate on OPENAI_API_KEY");
+  assert.equal(matches.length, 1, "startRun should gate on OPENAI_API_KEY");
 });

@@ -1,0 +1,40 @@
+{
+  "schema_id": "watchability_report",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "The single script-quality gate for the illustrated-story pipeline (RFC 0008), replacing the six-node comprehension/entertainment/factual-fidelity chain (script_quality_critic + reviser + critic + release, plus emotional_entertainment_editor) that pipeline used. Scores only what decides whether a viewer keeps watching: hook, suspense, watchability, entertainment, payoff, and fit for the platform. No factual_fidelity, no comprehension, no dialogue_naturalness, no character_chemistry -- those measured technical correctness on a two-host explainer format this pipeline no longer produces.",
+  "produced_by": ["watchability_critic"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "WatchabilityReport",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["verdict", "scores", "weakest_dimension", "summary"],
+    "properties": {
+      "verdict": { "type": "string", "enum": ["pass", "revise"] },
+      "scores": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hook", "suspense", "watchability", "entertainment", "payoff", "youtube_fit"],
+        "properties": {
+          "hook": { "type": "number", "minimum": 0, "maximum": 1, "description": "Does the first line create a real question a viewer wants answered in the next few seconds?" },
+          "suspense": { "type": "number", "minimum": 0, "maximum": 1, "description": "Does tension escalate through the middle rather than staying flat or resolving early?" },
+          "watchability": { "type": "number", "minimum": 0, "maximum": 1, "description": "Read purely as spoken narration with no visuals: does it hold attention beat to beat?" },
+          "entertainment": { "type": "number", "minimum": 0, "maximum": 1, "description": "Wit, surprise, specificity, a real point of view -- not generic explainer tone." },
+          "payoff": { "type": "number", "minimum": 0, "maximum": 1, "description": "Does the ending land -- earns the setup, isn't a flat summary or moral-of-the-story restatement?" },
+          "youtube_fit": { "type": "number", "minimum": 0, "maximum": 1, "description": "Titleable, thumbnailable, shareable -- the kind of premise that gets a click and a finish." }
+        }
+      },
+      "weakest_dimension": {
+        "type": "string",
+        "enum": ["hook", "suspense", "watchability", "entertainment", "payoff", "youtube_fit"]
+      },
+      "summary": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600,
+        "description": "One or two sentences: what would make a viewer click away, and where."
+      }
+    }
+  }
+}

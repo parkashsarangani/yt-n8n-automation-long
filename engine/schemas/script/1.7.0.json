@@ -1,0 +1,94 @@
+{
+  "schema_id": "script",
+  "version": "1.7.0",
+  "status": "active",
+  "description": "Adds narration_script_writer and watchability_release to the producer allowlist for the illustrated-story pipeline (RFC 0008): a single-narrator script with no speaker/dialogue fields already validated against 1.6.0 (scene-level required is only scene_index/point/narration), so no payload change is needed -- only the write-gate. Additive per RFC 0007: existing 1.6.0 artifacts remain valid, ^1 consumers unaffected.",
+  "produced_by": [
+    "script_writer",
+    "dialogue_script_writer",
+    "narration_script_writer",
+    "comprehension_editor",
+    "retention_character_editor",
+    "emotional_entertainment_editor",
+    "script_quality_reviser",
+    "script_quality_release",
+    "watchability_release",
+    "human"
+  ],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ScriptArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "scenes"
+    ],
+    "properties": {
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "point",
+            "narration"
+          ],
+          "properties": {
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "act_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "point": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 420,
+              "description": "What this beat does for the story."
+            },
+            "narration": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000
+            },
+            "is_outro": {
+              "type": "boolean"
+            },
+            "speaker": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "character_id from the run's cast_roster who speaks this line. Absent for single-narrator scripts."
+            },
+            "emotion": {
+              "type": "string",
+              "enum": [
+                "neutral",
+                "happy",
+                "amused",
+                "skeptical",
+                "confused",
+                "concerned",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "thinking",
+                "annoyed"
+              ],
+              "description": "The speaker's emotional delivery for this line - drives the cartoon renderer's expression/pose choice, and is the visual planner's default speaker_emotion for this scene unless the direction genuinely needs a different nuance. Only meaningful alongside \"speaker\"."
+            }
+          }
+        }
+      },
+      "word_count": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

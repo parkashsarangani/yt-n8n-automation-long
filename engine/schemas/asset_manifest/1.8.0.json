@@ -3,7 +3,7 @@
   "version": "1.8.0",
   "status": "active",
   "description": "1.7.0 plus the semantic_visual_assets producer. Semantic renderer intent remains inside the bounded JSON template_data payload, so the manifest scene shape itself is unchanged; the new version preserves the producer allowlist contract without retroactively mutating 1.7.0.",
-  "produced_by": ["asset_collector", "cartoon_scene_compiler", "semantic_visual_assets", "hybrid_visual_assets"],
+  "produced_by": ["asset_collector", "cartoon_scene_compiler", "semantic_visual_assets", "hybrid_visual_assets", "illustrated_scene_assets"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "SemanticHybridAssetManifestArtifact",

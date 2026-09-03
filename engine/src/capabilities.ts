@@ -28,31 +28,22 @@ export const STAGES: StageSpec[] = [
   },
   {
     id: "speech",
-    label: "Character voices",
+    label: "Narrator voice",
     requires: [["ELEVENLABS_API_KEY"]],
     optional: ["ELEVENLABS_VOICE_ID"],
     real: "elevenlabs",
     fallback: "fake",
-    consequence: "silent placeholder audio; the video renders but has no usable dialogue",
+    consequence: "silent placeholder audio; the video renders but has no usable narration",
   },
   {
     id: "images",
-    label: "Hybrid AI scene packs and thumbnail artwork",
+    label: "Illustrated stills and thumbnail artwork",
     requires: [["FAL_KEY"]],
     real: "fal/flux-2-pro + flux-2-pro/edit",
-    fallback: "deterministic motion graphics",
-    consequence:
-      "without FAL_KEY the episode remains fully renderable using the deterministic explanation renderer, " +
-      "but AI b-roll scene packs and generated thumbnail art are unavailable; scene 0 still has a motion-graphic visual hook rather than a placeholder",
-  },
-  {
-    id: "cast",
-    label: "Recurring cast configuration",
-    requires: [["CARTOON_CAST_PATH"]],
-    real: "cast_roster file",
     fallback: "unavailable",
     consequence:
-      "the production graph's cast_roster node (cast_loader) throws immediately and the run fails before any content is produced - there is no fallback cast",
+      "without FAL_KEY every scene degrades to a placeholder still; RFC 0008's illustrated-story format has no " +
+      "deterministic fallback renderer to fall back to the way the retired motion-graphics stack did",
   },
   {
     id: "renderer",
