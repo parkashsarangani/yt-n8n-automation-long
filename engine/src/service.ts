@@ -572,9 +572,13 @@ export class VidGenService {
     });
 
     // Kick off in the background: a run takes minutes, and the UI polls.
+    // driveUnattended() self-heals a blocked worker attempt or a blank-scene
+    // qa fail without a human clicking "Resume" -- for every run, not only
+    // scheduled ones, so a manually-started episode gets the same benefit
+    // instead of parking with an avoidable, fixable defect.
     void this.drive(runId, () =>
       this.executor.start(this.graph, { intent: intent.artifact.artifact_id, performance: performance.artifact.artifact_id }, { runId }),
-    );
+    ).then(() => this.driveUnattended(runId));
     return runId;
   }
 
@@ -670,17 +674,33 @@ export class VidGenService {
 
   /**
    * Drive a run all the way to a terminal state without a human clicking
-   * "Resume" -- for scheduled/unattended production only. A worker failure
-   * (e.g. watchability_release's own MAX_ATTEMPTS_BEFORE_ACCEPTING escape
-   * hatch) intentionally parks a run "blocked" rather than looping itself,
-   * so a manually-started run's operator can inspect before retrying (see
-   * retry() above and the Studio UI's "Resume blocked run" banner) -- but
-   * a scheduled run has no one watching, so without this it would just sit
-   * blocked forever and the day's episode would never actually publish.
-   * Bounded so a genuinely broken run (bad credentials, a real bug) cannot
-   * spin forever; the next scheduled tick tries a fresh episode regardless.
+   * "Resume" -- for scheduled/unattended production, and also used by
+   * startRun() generally so a manually-started episode gets the same
+   * self-healing rather than parking with an avoidable defect. Handles two
+   * distinct recoverable situations, both of which intentionally park a run
+   * rather than looping themselves, so a human CAN inspect before retrying
+   * when one is actually watching (see retry() above and the Studio UI's
+   * "Resume blocked run" / "Review required" banners):
+   *
+   * 1. A worker failure (e.g. watchability_release's own
+   *    MAX_ATTEMPTS_BEFORE_ACCEPTING escape hatch) -- status "blocked".
+   * 2. approve_publish's auto-pass predicate (payload.verdict == "pass",
+   *    illustrated_story.json) held the run at "waiting" because qa_report
+   *    verdict is "fail". Real production case: qa reported 3/27 scenes as
+   *    bare blank placeholders and the episode still published (before
+   *    approve_publish's predicate existed) with nobody watching. When the
+   *    specific cause is blank/placeholder scenes -- the one failure mode
+   *    illustrated_scene_assets can actually self-heal (see its
+   *    ctx.priorArtifact reuse) -- force just that node to regenerate and
+   *    resume; render/qa/approve_publish/publish all re-run automatically
+   *    against the fixed manifest (GraphExecutor.pruneIncompleteDependencies).
+   *    Any OTHER qa failure (bad metadata, a real render bug) has no
+   *    automated remedy here, so it's left "waiting" for an operator exactly
+   *    as before -- regenerating assets would not fix it and would just
+   *    spend money in a loop.
    */
-  private async driveUnattended(runId: string, maxRetries = 5): Promise<void> {
+  private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2): Promise<void> {
+    let assetRegens = 0;
     for (let round = 0; ; round++) {
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
         if (waitedMs >= 30 * 60_000) {
@@ -691,12 +711,28 @@ export class VidGenService {
       }
       const view = this.getRun(runId);
       if (!view) return;
-      if (view.status !== "blocked" || (view.failures?.length ?? 0) === 0) {
-        if (view.status === "waiting") {
-          console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate with no auto-pass predicate -- cannot self-resolve`);
+
+      if (view.status === "waiting") {
+        const parkedAtPublish = view.waiting.some((w) => w.node_id === "approve_publish");
+        const blankScenes = parkedAtPublish && assetRegens < maxAssetRegens ? await this.qaBlankSceneCount(view) : 0;
+        if (blankScenes > 0) {
+          assetRegens++;
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: qa reported ${blankScenes} blank scene(s) -- ` +
+              `regenerating just those and re-rendering (attempt ${assetRegens}/${maxAssetRegens})`,
+          );
+          const state = this.runs.get(runId)!;
+          const graph = this.resolveRunGraph(state.graph);
+          await this.executor.regenerateNode(graph, runId, "assets", `qa reported ${blankScenes} blank/placeholder scene(s)`);
+          await this.retry(runId);
+          continue;
         }
+        console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate that did not auto-pass -- needs an operator`);
         return;
       }
+
+      if (view.status !== "blocked" || (view.failures?.length ?? 0) === 0) return;
+
       if (round >= maxRetries) {
         console.log(
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
@@ -707,6 +743,46 @@ export class VidGenService {
       console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
       await this.retry(runId);
     }
+  }
+
+  /**
+   * Poll until a run reaches a terminal status (completed/blocked/waiting),
+   * without retrying anything itself -- for a caller (the scheduler) that
+   * needs to know when a run genuinely finished, while startRun()'s own
+   * driveUnattended() chain does the actual retrying. Same 30-minute ceiling
+   * as driveUnattended()'s own wait loop.
+   */
+  private async waitForTerminal(runId: string): Promise<void> {
+    let stableTicks = 0;
+    for (let waitedMs = 0; ; waitedMs += 3000) {
+      const view = this.getRun(runId);
+      if (!view) return;
+      if (view.status === "running") {
+        stableTicks = 0;
+      } else {
+        // driveUnattended() can briefly report "finished" between one retry
+        // round ending and its own decision to start another (an await point
+        // inside qaBlankSceneCount) -- require two consecutive non-running
+        // reads before trusting it, rather than a single poll that can land
+        // exactly in that gap.
+        stableTicks++;
+        if (stableTicks >= 2) return;
+      }
+      if (waitedMs >= 30 * 60_000) {
+        console.log(`[run ${runId.slice(4, 12)}] still running after 30min, giving up waiting`);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+
+  /** How many scenes in this run's qa_report came back as a true blank placeholder, not just a repeated fallback shot. */
+  private async qaBlankSceneCount(view: RunView): Promise<number> {
+    const qaArtifactId = view.nodes.find((n) => n.node_id === "qa")?.artifact_id;
+    if (!qaArtifactId) return 0;
+    const qa = await this.store.get<{ checks?: Array<{ id: string; status: string; measured?: number | null }> }>(qaArtifactId);
+    const check = qa?.payload.checks?.find((c) => c.id === "blank_scenes");
+    return check?.status === "fail" && typeof check.measured === "number" ? check.measured : 0;
   }
 
   private async drive(runId: string, fn: () => Promise<GraphRunResult>): Promise<void> {
@@ -1037,6 +1113,12 @@ export class VidGenService {
       const n = Number(raw);
       return Number.isFinite(n) && n > 0 ? n : null;
     };
+    const hour = (key: string, fallback: number): number => {
+      const raw = process.env[key]?.trim();
+      if (!raw) return fallback;
+      const n = Number(raw);
+      return Number.isInteger(n) && n >= 0 && n <= 23 ? n : fallback;
+    };
 
     // A restart must not make "produce" immediately due again -- production
     // deploys several times a day now that it defaults to enabled, and each
@@ -1072,15 +1154,25 @@ export class VidGenService {
       },
       {
         id: "produce",
-        description: "Pick the top discovery candidate, produce it and publish it — fully automated, one episode per tick",
+        description: `Pick the top discovery candidate, produce it and publish it — one episode a day, timed for a US audience (~${hour("SCHEDULE_PRODUCE_HOUR_UTC", 19)}:00 UTC)`,
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
+        // Pinned to a daily US-afternoon slot (default 19:00 UTC = ~3pm ET /
+        // ~noon PT -- live before the evening viewing surge across US time
+        // zones) rather than "every 24h since it last finished", which drifts
+        // with render time and carries no notion of when in the day is good
+        // to publish. Override with SCHEDULE_PRODUCE_HOUR_UTC (0-23); unset
+        // SCHEDULE_PRODUCE_HOURS still controls the fallback cadence for a
+        // manual runNow() and for jobs that don't set targetHourUtc.
+        targetHourUtc: hour("SCHEDULE_PRODUCE_HOUR_UTC", 19),
         ...(Number.isFinite(lastProduceAt) ? { seedLastRun: lastProduceAt } : {}),
         // ON by default (once a day): every human_gate in illustrated_story.json
-        // is `auto_pass_if: always`, so a started run drives itself all the way
-        // to a public publish with no human step left to skip. Set
-        // SCHEDULE_PRODUCE_HOURS=0 to turn this off; the operator can still use
-        // the UI's "Create episode" to start additional episodes any time —
-        // this job only decides the topic for the *scheduled* one.
+        // auto-passes except approve_publish, which gates on the qa verdict --
+        // a started run drives itself unattended either to a public publish or
+        // to a self-healing retry (see driveUnattended), with no other human
+        // step left to skip. Set SCHEDULE_PRODUCE_HOURS=0 to turn this off;
+        // the operator can still use the UI's "Create episode" to start
+        // additional episodes any time — this job only decides the topic and
+        // timing for the *scheduled* one.
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
@@ -1092,12 +1184,14 @@ export class VidGenService {
           }
           const runId = await this.startRun(top.brief, undefined, top.genre ? { genre: top.genre } : {});
           console.log(`[scheduler] started ${runId} for: ${top.brief} -- driving unattended through to publish`);
-          // startRun only kicks the graph off in the background (this.drive is
-          // fire-and-forget so the UI never blocks on a multi-minute run); a
-          // scheduled tick has no UI watching it, so this job's own run() must
-          // await the whole thing, auto-resuming past blocked attempts, or the
-          // Scheduler would consider "produce" done the instant the run started.
-          await this.driveUnattended(runId);
+          // startRun() already chains driveUnattended() itself now (every run
+          // self-heals, not only scheduled ones) -- this job's run() still has
+          // to await the whole thing rather than return the instant the run
+          // started, or the Scheduler would consider "produce" done (and mark
+          // its next_run) long before the episode actually finished. Poll for
+          // a terminal status rather than calling driveUnattended() again,
+          // which would just race the one startRun() already kicked off.
+          await this.waitForTerminal(runId);
           const finalStatus = this.getRun(runId)?.status;
           console.log(`[scheduler] ${runId} finished: ${finalStatus}`);
         },

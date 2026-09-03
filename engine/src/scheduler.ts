@@ -29,7 +29,7 @@
 
 export interface Job {
   id: string;
-  /** How often to run. */
+  /** How often to run. Ignored when targetHourUtc is set (see below). */
   everyHours: number;
   /** Off jobs are listed but never fire — visible rather than absent. */
   enabled: boolean;
@@ -42,6 +42,18 @@ export interface Job {
    * its own past runs.
    */
   seedLastRun?: number;
+  /**
+   * Pin this job to a specific UTC hour (0-23) once a day, instead of "every
+   * everyHours since it last finished". A pure interval drifts with however
+   * long the job itself took (a 2-hour production run pushes the next day's
+   * slot two hours later, and so on) and carries no notion of *when in the
+   * day* is a good time to publish -- for a channel targeting a US audience,
+   * that's early-mid afternoon US Eastern, not "whenever the last run
+   * happened to finish". No DST correction: one fixed UTC hour, which drifts
+   * an hour relative to US local time twice a year -- deliberately simple
+   * over exactly right, revisit if that turns out to matter.
+   */
+  targetHourUtc?: number;
   run(): Promise<void>;
 }
 
@@ -75,6 +87,29 @@ export interface SchedulerOptions {
 }
 
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function isSameUtcDay(a: number, b: number): boolean {
+  const da = new Date(a), db = new Date(b);
+  return da.getUTCFullYear() === db.getUTCFullYear() && da.getUTCMonth() === db.getUTCMonth() && da.getUTCDate() === db.getUTCDate();
+}
+
+/** The next epoch ms at which `job` becomes due, given its last completion (or null). */
+function nextRunAt(job: Job, lastRun: number | null, nowMs: number): number {
+  if (job.targetHourUtc === undefined) {
+    return lastRun === null ? nowMs : lastRun + job.everyHours * HOUR_MS;
+  }
+  // Already ran today -> tomorrow's slot. Otherwise today's slot, whether
+  // that's still ahead of now or already passed (in which case it's due now).
+  const anchor = lastRun !== null && isSameUtcDay(lastRun, nowMs) ? nowMs + DAY_MS : nowMs;
+  const slot = new Date(anchor);
+  slot.setUTCHours(job.targetHourUtc, 0, 0, 0);
+  return slot.getTime();
+}
+
+function isDue(job: Job, lastRun: number | null, nowMs: number): boolean {
+  return nowMs >= nextRunAt(job, lastRun, nowMs);
+}
 
 export class Scheduler {
   private readonly jobs: Job[];
@@ -125,7 +160,7 @@ export class Scheduler {
       if (!job.enabled) continue;
       const st = this.state.get(job.id)!;
       if (st.running) continue;
-      if (st.lastRun !== null && this.now() - st.lastRun < job.everyHours * HOUR_MS) continue;
+      if (!isDue(job, st.lastRun, this.now())) continue;
       await this.execute(job);
     }
   }
@@ -172,9 +207,9 @@ export class Scheduler {
         last_error: st.lastError,
         last_duration_ms: st.lastDurationMs,
         next_run:
-          !j.enabled || st.lastRun === null
+          !j.enabled || (st.lastRun === null && j.targetHourUtc === undefined)
             ? null
-            : new Date(st.lastRun + j.everyHours * HOUR_MS).toISOString(),
+            : new Date(nextRunAt(j, st.lastRun, this.now())).toISOString(),
         runs: st.runs,
       };
     });

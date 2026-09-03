@@ -62,13 +62,33 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const targetSec = intent.target_duration_sec ?? 0;
       const visualScenes = [...(assets.scenes ?? [])].sort((a, b) => (a.scene_index ?? 0) - (b.scene_index ?? 0));
 
-      const placeholders = assets.degraded_count ?? visualScenes.filter((s) => s.source === "placeholder").length;
-      const ratio = sceneCount > 0 ? placeholders / sceneCount : 0;
-      checks.push(placeholders === 0
+      // Two distinct signals, deliberately not blended into one: a bare
+      // placeholder scene has NO image at all -- it renders as a black
+      // screen for its whole duration (long-compose falls back to a generic
+      // dark backdrop never meant to stand alone). A "fallback" scene reused
+      // the episode's own reference image instead -- a repeated shot, still
+      // real content, not blank. Real production evidence: an episode with
+      // 1 blank scene and 2 repeated-shot scenes (3/27, 11%) published
+      // publicly because the combined ratio crossed a threshold that treated
+      // both the same way. Any blank scene is now always a hard fail
+      // (approve_publish's auto-pass predicate holds the episode for review
+      // or a targeted retry, see VidGenService.driveUnattended) regardless of
+      // how small a fraction of the episode it is; a repeated shot alone
+      // stays a ratio-based warn, matching the original PR #209 design
+      // decision that a reused shot reads as an intentional callback, not a
+      // defect.
+      const blankScenes = visualScenes.filter((s) => s.source === "placeholder").length;
+      checks.push(blankScenes === 0
+        ? { id: "blank_scenes", status: "pass", message: "every scene has a real rendered image, not a blank placeholder" }
+        : { id: "blank_scenes", status: "fail", message: `${blankScenes} of ${sceneCount} scene(s) are blank placeholders with no image at all`, measured: blankScenes, threshold: 0 });
+
+      const fallbackScenes = Math.max(0, (assets.degraded_count ?? blankScenes) - blankScenes);
+      const fallbackRatio = sceneCount > 0 ? fallbackScenes / sceneCount : 0;
+      checks.push(fallbackScenes === 0
         ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable visual asset" }
-        : ratio <= maxPlaceholderRatio
-          ? { id: "visual_assets_renderable", status: "warn", message: `${placeholders} of ${sceneCount} scenes used a degraded visual fallback`, measured: ratio, threshold: maxPlaceholderRatio }
-          : { id: "visual_assets_renderable", status: "fail", message: `${placeholders} of ${sceneCount} scenes lack their intended renderable asset (${pct(ratio)}) — the visual asset pipeline is failing`, measured: ratio, threshold: maxPlaceholderRatio });
+        : fallbackRatio <= maxPlaceholderRatio
+          ? { id: "visual_assets_renderable", status: "warn", message: `${fallbackScenes} of ${sceneCount} scenes reused the episode's reference image instead of their own`, measured: fallbackRatio, threshold: maxPlaceholderRatio }
+          : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes reused the episode's reference image instead of their own (${pct(fallbackRatio)}) — the visual asset pipeline is degraded`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
 
       const clips = voice.clips?.length ?? 0;
       checks.push(clips === sceneCount
