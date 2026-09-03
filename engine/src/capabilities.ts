@@ -39,7 +39,11 @@ export const STAGES: StageSpec[] = [
     id: "images",
     label: "Illustrated stills and thumbnail artwork",
     requires: [["FAL_KEY"]],
-    real: "fal/flux-2-pro + flux-2-pro/edit",
+    // FLUX.2 [dev], not [pro] -- verified live against the house-style
+    // prompt at roughly half fal.ai's per-megapixel price with no visible
+    // quality loss for this format. Override with FAL_MODEL/FAL_EDIT_MODEL
+    // if that ever changes.
+    real: "fal/flux-2 + flux-2/edit",
     fallback: "unavailable",
     consequence:
       "without FAL_KEY every scene degrades to a placeholder still; RFC 0008's illustrated-story format has no " +
