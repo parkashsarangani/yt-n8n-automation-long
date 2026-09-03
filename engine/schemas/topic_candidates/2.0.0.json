@@ -1,0 +1,40 @@
+{
+  "schema_id": "topic_candidates",
+  "version": "2.0.0",
+  "status": "active",
+  "description": "RFC 0009 breaking contract: discovery ranks 20-30 complete audience propositions instead of bare topics. Each candidate carries its click promise, emotional engine, three materially distinct packaging variants, opening beat, and estimated opportunity scores so scheduled production can choose a package before scripting. This is a major version because those fields are required.",
+  "produced_by": ["discovery"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "TopicCandidatesGrowthTournament",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["candidates", "basis"],
+    "properties": {
+      "basis": {"type": "string", "minLength": 10, "maxLength": 900},
+      "candidates": {
+        "type": "array", "minItems": 20, "maxItems": 30,
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["brief", "genre", "angle", "target_audience", "curiosity_gap", "emotional_engine", "opening_visual", "opening_line", "title_concepts", "thumbnail_concepts", "scores", "why_it_earns_attention", "novelty"],
+          "properties": {
+            "brief": {"type": "string", "minLength": 15, "maxLength": 400},
+            "genre": {"type": "string", "enum": ["moral_story", "drama", "true_story", "short_story"]},
+            "angle": {"type": "string", "minLength": 10, "maxLength": 300},
+            "target_audience": {"type": "string", "minLength": 8, "maxLength": 220},
+            "curiosity_gap": {"type": "string", "minLength": 8, "maxLength": 220},
+            "emotional_engine": {"type": "string", "minLength": 8, "maxLength": 180},
+            "opening_visual": {"type": "string", "minLength": 12, "maxLength": 320},
+            "opening_line": {"type": "string", "minLength": 8, "maxLength": 220},
+            "title_concepts": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["family", "title"], "properties": {"family": {"type": "string", "enum": ["curiosity", "conflict", "reversal"]}, "title": {"type": "string", "minLength": 8, "maxLength": 100}}}},
+            "thumbnail_concepts": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["family", "concept"], "properties": {"family": {"type": "string", "enum": ["curiosity", "conflict", "reversal"]}, "concept": {"type": "string", "minLength": 8, "maxLength": 260}}}},
+            "scores": {"type": "object", "additionalProperties": false, "required": ["clickability", "story_potential", "audience_size", "overall"], "properties": {"clickability": {"type": "number", "minimum": 0, "maximum": 1}, "story_potential": {"type": "number", "minimum": 0, "maximum": 1}, "audience_size": {"type": "number", "minimum": 0, "maximum": 1}, "overall": {"type": "number", "minimum": 0, "maximum": 1}}},
+            "why_it_earns_attention": {"type": "string", "minLength": 10, "maxLength": 400},
+            "novelty": {"type": "string", "minLength": 5, "maxLength": 300},
+            "evidence": {"type": "string", "maxLength": 500}
+          }
+        }
+      }
+    }
+  }
+}
