@@ -1,0 +1,56 @@
+{
+  "schema_id": "asset_manifest",
+  "version": "2.0.0",
+  "status": "active",
+  "description": "RFC 0009 breaking illustrated-story manifest: required 1-3 shot packs, hero-shot ids, semantic shot functions, and persisted episode-level visual review. Major because these are required and the production scene shape is intentionally narrowed to illustrated growth output.",
+  "produced_by": ["illustrated_scene_assets"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "IllustratedGrowthAssetManifest",
+    "type": "object", "additionalProperties": false,
+    "required": ["scenes", "degraded_count", "visual_review"],
+    "properties": {
+      "scenes": {"type": "array", "minItems": 1, "maxItems": 300, "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["scene_index", "source", "prompt", "template_data", "shot_types", "hero_shot_ids"],
+        "properties": {
+          "scene_index": {"type": "integer", "minimum": 0},
+          "image_uri": {"type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$"},
+          "image_uris": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$"}},
+          "video_uri": {"type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$"},
+          "source": {"type": "string", "enum": ["primary", "fallback", "placeholder"]},
+          "prompt": {"type": "string", "maxLength": 1800},
+          "template_data": {"type": "string", "maxLength": 8000},
+          "shot_types": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string", "enum": ["wide", "medium", "close-up", "object-detail", "reaction", "environmental-consequence", "reveal", "scale-shot", "point-of-view", "silhouette", "location-before-after"]}},
+          "hero_shot_ids": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]+:[0-2]$"}}
+        }
+      }},
+      "degraded_count": {"type": "integer", "minimum": 0},
+      "visual_review": {"type": "object", "additionalProperties": false,
+        "required": ["status", "reviewed_shots", "regenerated_shots", "remaining_flagged_shots", "scores", "reason"],
+        "properties": {
+          "status": {"type": "string", "enum": ["pass", "warn", "unavailable"]},
+          "reviewed_shots": {"type": "integer", "minimum": 0},
+          "regenerated_shots": {"type": "array", "maxItems": 30, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]+:[0-2]$"}},
+          "remaining_flagged_shots": {"type": "array", "maxItems": 30, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]+:[0-2]$"}},
+          "scores": {"type": "object", "additionalProperties": false,
+            "required": ["opening_visual_strength", "scene_relevance", "subject_legibility", "emotional_readability", "shot_variety", "visual_redundancy", "continuity", "style_consistency", "ai_artifacts", "payoff_visual_strength"],
+            "properties": {
+              "opening_visual_strength": {"type": "number", "minimum": 0, "maximum": 1},
+              "scene_relevance": {"type": "number", "minimum": 0, "maximum": 1},
+              "subject_legibility": {"type": "number", "minimum": 0, "maximum": 1},
+              "emotional_readability": {"type": "number", "minimum": 0, "maximum": 1},
+              "shot_variety": {"type": "number", "minimum": 0, "maximum": 1},
+              "visual_redundancy": {"type": "number", "minimum": 0, "maximum": 1},
+              "continuity": {"type": "number", "minimum": 0, "maximum": 1},
+              "style_consistency": {"type": "number", "minimum": 0, "maximum": 1},
+              "ai_artifacts": {"type": "number", "minimum": 0, "maximum": 1},
+              "payoff_visual_strength": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          },
+          "reason": {"type": "string", "maxLength": 1400}
+        }
+      }
+    }
+  }
+}
