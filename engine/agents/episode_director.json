@@ -7,11 +7,9 @@
     { "schema_id": "growth_package", "range": "^1", "as": "growth" }
   ],
   "produces": "episode_direction",
+  "produces_version": "2.0.0",
   "prompt": "episode_director@6",
-  "model": {
-    "capability": "reasoning_high",
-    "max_output_tokens": 16000
-  },
+  "model": {"capability": "reasoning_high", "max_output_tokens": 16000},
   "confidence_dimensions": ["prompt_specificity", "camera_variety", "visual_change", "hero_selection"],
-  "retry": { "max_attempts": 3 }
+  "retry": {"max_attempts": 3}
 }
