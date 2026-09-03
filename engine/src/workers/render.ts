@@ -1,4 +1,4 @@
-/** Render worker: script + voice + RFC 0009 asset_manifest -> rendered_video. */
+/** Render worker: script + voice + asset_manifest -> rendered_video. */
 import type { Artifact, BlobRef } from "../artifact.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import type { RenderScene } from "../provider.ts";
@@ -59,7 +59,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
-      { schema_id: "asset_manifest", range: "^2", as: "assets" },
+      { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
     ],
     produces: "rendered_video",
     async execute(inputs, ctx): Promise<WorkerOutput> {
@@ -67,11 +67,9 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       if (!renderer) throw new Error("render worker requires a media renderer (media.renderer)");
       const scenes = await buildScenes(inputs, ctx);
       let jobId: string | undefined;
-      const result = await renderer.render({
-        scenes,
-        caption_style: opts.captionStyle ?? "neutral",
-        ...(opts.thumbnail ? { thumbnail: opts.thumbnail } : {}),
-      }, { onJob: async (id) => { jobId = id; await ctx.progress({ detail: "render job started", job_id: id }); } });
+      const result = await renderer.render({ scenes, caption_style: opts.captionStyle ?? "neutral", ...(opts.thumbnail ? { thumbnail: opts.thumbnail } : {}) }, {
+        onJob: async (id) => { jobId = id; await ctx.progress({ detail: "render job started", job_id: id }); },
+      });
       if (renderer.id === "long-compose" && result.media_type === "video/mp4") assertYouTubeProductionGeometry(result.video);
       const blobs: BlobRef[] = [];
       const video = await ctx.blobs.put(result.video, { role: "video", media_type: result.media_type });
