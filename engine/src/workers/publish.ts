@@ -67,10 +67,19 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       const seo = inputs["seo"]!.payload as SeoMetadata;
       const reqs = target.requirements();
 
-      // publish() no longer judges the QA verdict itself -- that decision
-      // belongs entirely to approve_publish upstream. qa_report stays a
-      // declared input purely to keep publish ordered after qa in the graph.
-      void (inputs["qa"]!.payload as QaReport);
+      // publish() does not judge whether to upload at all -- that decision
+      // belongs entirely to approve_publish upstream, and it auto-passes
+      // regardless of the QA verdict (RFC 0008 addendum: unattended daily
+      // production has no human watching to catch a bad episode). Real
+      // production evidence: a QA-failed episode (3/27 scenes missing their
+      // asset) went straight to public with nobody reviewing it. This one
+      // narrow exception reads the verdict for visibility only, never to
+      // block: a QA failure uploads private instead of the configured
+      // default, so a genuinely broken episode isn't live until an operator
+      // reviews it and flips it public in Studio. A passing QA still
+      // publishes at the configured privacy, unattended.
+      const qa = inputs["qa"]!.payload as QaReport;
+      const privacy = qa.verdict === "fail" ? "private" : (opts.privacy ?? "private");
 
       // Taken wholesale from the SEO artifact. This worker deliberately does no
       // fallback logic: it used to reach into the story and substitute the
@@ -80,9 +89,16 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         title: seo.title,
         description: seo.description,
         tags: seo.tags,
-        privacy: opts.privacy ?? "private",
+        privacy,
         made_for_kids: opts.madeForKids ?? false,
       };
+
+      if (qa.verdict === "fail" && privacy !== (opts.privacy ?? "private")) {
+        ctx.logger.warn(
+          `[publish] qa_report verdict is fail (${qa.failed} failed check${qa.failed === 1 ? "" : "s"}) -- ` +
+            `publishing private instead of ${opts.privacy ?? "private"} so an operator reviews it before it goes public`,
+        );
+      }
 
       assertFits(metadata, video, reqs, target.id);
 

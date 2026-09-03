@@ -182,7 +182,8 @@ test("publish uploads even when the QA verdict is fail — approve_publish alrea
   // ("belt and braces" against a graph edit routing around the gate), but that
   // makes it impossible to ever publish an episode the operator wants to review
   // and decide on manually -- the whole point of QA staying visible instead of
-  // silently blocking. The decision belongs entirely to approve_publish now.
+  // silently blocking. Whether to upload at all belongs entirely to
+  // approve_publish now.
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
@@ -198,6 +199,46 @@ test("publish uploads even when the QA verdict is fail — approve_publish alrea
 
   assert.ok((out.artifact.payload as { external_id: string }).external_id);
   assert.equal(h.target.published.length, 1);
+});
+
+test("a failing QA verdict publishes private instead of the configured privacy — real production evidence", async () => {
+  // Confirmed live: a scheduled/unattended run's episode had 3 of 27 scenes
+  // missing their asset (qa fail), and went straight to *public* because
+  // approve_publish auto-passes and nothing else was watching. Uploading
+  // still isn't blocked (see the test above), but visibility downgrades to
+  // private so an operator reviews it before it can go public.
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  const qa = await seedQa(h, "fail");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "private");
+  assert.equal(h.target.published[0]!.metadata.privacy, "private");
+});
+
+test("a passing QA verdict publishes at the configured privacy, unchanged", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  const qa = await seedQa(h, "pass");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
 });
 
 test("publish uploads and records where the video went", async () => {

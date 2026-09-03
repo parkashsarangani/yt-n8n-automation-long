@@ -285,9 +285,10 @@ export class VidGenService {
       this.agents,
       defaultWorkers({
         voice: { voiceId: env("ELEVENLABS_VOICE_ID") ?? "smoke-voice" },
-        // Public by operator decision: every episode that reaches publish has
-        // already passed the qa/approve_publish stages, so there is no
-        // separate manual "make it public" step left to do.
+        // Public by operator decision -- except a failing qa_report, which
+        // publish.ts downgrades to private regardless of this default (real
+        // production evidence: an episode with missing scenes went public
+        // unattended before that existed).
         publish: { target, privacy: "public" },
       }),
     );
