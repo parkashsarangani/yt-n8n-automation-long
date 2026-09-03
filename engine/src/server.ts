@@ -124,8 +124,9 @@ export function createUiServer(opts: ServerOptions) {
 
     // The default AI-driven run (RFC 0008): single-narrator voice-over over
     // illustrated stills. No characters, no cast_roster. genre and image_style
-    // are the two operator-selectable knobs (intent@1.1.0); both optional,
-    // each defaulting inside the agents/workers that read them when absent.
+    // are the two operator-selectable knobs (intent@1.2.0); both optional --
+    // an empty/absent image_style ("Auto" in the UI) resolves to a
+    // genre-appropriate default inside startRun rather than a fixed style.
     if (route === "POST /api/runs") {
       const body = (await readJson(req)) as {
         brief?: string;
