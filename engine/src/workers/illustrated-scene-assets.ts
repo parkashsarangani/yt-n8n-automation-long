@@ -28,7 +28,7 @@ interface DirectionScene {
 }
 interface ScriptScene { scene_index: number; narration?: string; is_outro?: boolean }
 interface IntentPayload { image_style?: ImageStyle }
-type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive";
+type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
 interface GeneratedImage { bytes: Uint8Array; media_type: string }
 interface ReferenceCapableProvider extends ImageProvider {
   generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }>;
@@ -89,6 +89,75 @@ const STYLE_BUNDLES: Record<ImageStyle, { houseStyle: string; negatives: string 
       "no 3D render",
       "no soft airbrushed shading",
       "no muted or desaturated palette",
+      "no centered symmetrical hero shot",
+      "no text, no letters, no captions, no logos, no watermark",
+    ].join(", "),
+  },
+  // true_story needs to read as a specific real incident, not a cartoon --
+  // but full photorealism invites an uncanny-valley/deepfake reading this
+  // pipeline explicitly avoids (RFC 0008 decision 2). A courtroom-sketch-
+  // artist register threads that: recognizably human, grounded, restrained,
+  // but still visibly hand-drawn.
+  documentary_sketch: {
+    houseStyle: [
+      "restrained charcoal and graphite reportage sketch, loose confident cross-hatching, single consistent art style across a series",
+      "human figures have real proportions and readable individual likeness rendered as sketch marks, not smooth photoreal skin -- courtroom-sketch-artist register",
+      "environments and objects are rendered with grounded, observational detail -- real specific settings, not generic backdrops",
+      "muted grayscale-leaning palette with one restrained accent color per scene at most",
+      "documentary framing -- eye-level, slightly off-centre, as if observed rather than staged",
+      "visible charcoal grain and paper tooth texture uniformly across the image",
+    ].join(", "),
+    negatives: [
+      "no photorealistic render",
+      "no smooth airbrushed skin",
+      "no glossy 3D render",
+      "no bright saturated color",
+      "no cartoon proportions, no faceless figures",
+      "no centered symmetrical hero shot",
+      "no text, no letters, no captions, no logos, no watermark",
+    ].join(", "),
+  },
+  // short_story favors literary whimsy over parable starkness or drama
+  // punch -- a softer, more painterly register signals "story", the way a
+  // hardback storybook illustration does, distinct from both ink_wash's
+  // starkness and flat_comic's boldness.
+  watercolor_storybook: {
+    houseStyle: [
+      "soft watercolor storybook illustration, gentle visible brushwork, single consistent art style across a series",
+      "human figures are simplified and painterly with softly suggested faces -- gentle, warm, not sharply detailed",
+      "environments and objects carry soft painterly detail and visible color bleed at edges",
+      "warm pastel palette -- dusty blues, warm creams, soft rose, muted greens -- gentle contrast, no harsh saturation",
+      "wide, breathing composition, subject off-centre, generous negative space",
+      "visible watercolor paper texture and soft pigment bloom uniformly across the image",
+    ].join(", "),
+    negatives: [
+      "no photorealistic humans",
+      "no bold black outlines",
+      "no flat vector shapes",
+      "no glossy 3D render",
+      "no harsh saturated color",
+      "no centered symmetrical hero shot",
+      "no text, no letters, no captions, no logos, no watermark",
+    ].join(", "),
+  },
+  // Not a genre default -- an explicit pick for suspense/thriller-leaning
+  // content (a dark true_story, a tense drama) where even documentary_sketch
+  // or flat_comic read too gentle for the material.
+  noir_charcoal: {
+    houseStyle: [
+      "high-contrast noir charcoal and ink illustration, dramatic chiaroscuro shadow, single consistent art style across a series",
+      "human figures are rendered mostly in silhouette or heavy shadow, with only selective detail catching the light",
+      "environments and objects are simplified into strong shapes defined by light and shadow rather than line",
+      "near-monochrome palette -- charcoal black, cold gray, a single muted accent color reserved for emphasis",
+      "tight, tense composition, subject often off-centre or partially obscured",
+      "visible charcoal texture and heavy grain uniformly across the image",
+    ].join(", "),
+    negatives: [
+      "no photorealistic humans",
+      "no bright even lighting",
+      "no flat cheerful color",
+      "no glossy 3D render",
+      "no whimsical or cute proportions",
       "no centered symmetrical hero shot",
       "no text, no letters, no captions, no logos, no watermark",
     ].join(", "),
@@ -174,7 +243,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
   return {
     name: "illustrated_scene_assets",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [
       { schema_id: "episode_direction", range: "^1", as: "direction" },
       { schema_id: "script", range: "^1", as: "script" },

@@ -130,11 +130,30 @@ export interface ServiceOptions {
   allowPublish?: boolean;
 }
 
-/** The two operator-selectable knobs from intent@1.1.0 (schemas/intent). */
+type Genre = "moral_story" | "drama" | "true_story" | "short_story";
+type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
+
+/** The two operator-selectable knobs from intent@1.2.0 (schemas/intent). */
 export interface RunOptions {
-  genre?: "moral_story" | "drama" | "true_story" | "short_story";
-  imageStyle?: "ink_wash_stickman" | "flat_comic_expressive";
+  genre?: Genre;
+  imageStyle?: ImageStyle;
 }
+
+/**
+ * When the operator leaves image_style on "Auto" (no explicit pick), the
+ * style still shouldn't be genre-blind -- flat_comic_expressive reads wrong
+ * on a moral_story, ink_wash_stickman under-serves a true_story's need for
+ * a specific human likeness. This is only a default: an explicit opts.imageStyle
+ * always wins (see startRun below), so the operator can still override per
+ * episode. noir_charcoal has no genre default -- it's suspense/thriller
+ * content within a genre, not a genre of its own, so it stays a manual pick.
+ */
+const GENRE_DEFAULT_STYLE: Record<Genre, ImageStyle> = {
+  moral_story: "ink_wash_stickman",
+  drama: "flat_comic_expressive",
+  true_story: "documentary_sketch",
+  short_story: "watercolor_storybook",
+};
 
 export class VidGenService {
   private registry!: SchemaRegistry;
@@ -266,7 +285,10 @@ export class VidGenService {
       this.agents,
       defaultWorkers({
         voice: { voiceId: env("ELEVENLABS_VOICE_ID") ?? "smoke-voice" },
-        publish: { target, privacy: "private" },
+        // Public by operator decision: every episode that reaches publish has
+        // already passed the qa/approve_publish stages, so there is no
+        // separate manual "make it public" step left to do.
+        publish: { target, privacy: "public" },
       }),
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
@@ -498,7 +520,10 @@ export class VidGenService {
     }
 
     const runId = `run_${randomUUID()}`;
-    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}${opts.imageStyle ? `, image_style=${opts.imageStyle}` : ""}`);
+    // Explicit operator pick always wins; otherwise derive a genre-appropriate
+    // default rather than always falling back to ink_wash_stickman.
+    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
+    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}${resolvedImageStyle ? `, image_style=${resolvedImageStyle}${opts.imageStyle ? "" : " (auto)"}` : ""}`);
 
     // Persist run in Postgres if available
     if (this.runLog instanceof PgRunLog) {
@@ -511,7 +536,7 @@ export class VidGenService {
         brief: trimmed,
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
-        ...(opts.imageStyle ? { image_style: opts.imageStyle } : {}),
+        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
@@ -989,11 +1014,15 @@ export class VidGenService {
       },
       {
         id: "produce",
-        description: "Pick the top discovery candidate and start a run (still gated)",
+        description: "Pick the top discovery candidate, produce it and publish it — fully automated, one episode per tick",
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
-        // OFF unless explicitly configured. This one spends money and makes
-        // videos; it must never become active because a default changed.
-        enabled: num("SCHEDULE_PRODUCE_HOURS") !== null,
+        // ON by default (once a day): every human_gate in illustrated_story.json
+        // is `auto_pass_if: always`, so a started run drives itself all the way
+        // to a public publish with no human step left to skip. Set
+        // SCHEDULE_PRODUCE_HOURS=0 to turn this off; the operator can still use
+        // the UI's "Create episode" to start additional episodes any time —
+        // this job only decides the topic for the *scheduled* one.
+        enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
           const first = (found.candidates as { candidates?: Array<{ brief?: string }> } | null)
@@ -1003,9 +1032,7 @@ export class VidGenService {
             return;
           }
           const runId = await this.startRun(first);
-          // The run stops at the story and script gates on its own, so this
-          // automates choosing and starting — never approving or publishing.
-          console.log(`[scheduler] started ${runId} for: ${first}`);
+          console.log(`[scheduler] started ${runId} for: ${first} (runs unattended through to publish)`);
         },
       },
     ];

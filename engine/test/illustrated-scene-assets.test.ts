@@ -34,6 +34,25 @@ test("an unrecognized image_style falls back to the default rather than throwing
   assert.match(prompt, /faceless/, "falls back to ink_wash_stickman, the default");
 });
 
+test("all five image styles are visually distinct from one another", () => {
+  const subject = "a delivery driver checking a paper map at dawn";
+  const prompts = {
+    ink_wash_stickman: buildIllustratedPrompt(subject, "ink_wash_stickman"),
+    flat_comic_expressive: buildIllustratedPrompt(subject, "flat_comic_expressive"),
+    documentary_sketch: buildIllustratedPrompt(subject, "documentary_sketch"),
+    watercolor_storybook: buildIllustratedPrompt(subject, "watercolor_storybook"),
+    noir_charcoal: buildIllustratedPrompt(subject, "noir_charcoal"),
+  };
+  assert.match(prompts.documentary_sketch, /charcoal and graphite reportage/);
+  assert.match(prompts.documentary_sketch, /courtroom-sketch-artist register/);
+  assert.match(prompts.watercolor_storybook, /soft watercolor storybook/);
+  assert.match(prompts.watercolor_storybook, /warm pastel palette/);
+  assert.match(prompts.noir_charcoal, /high-contrast noir charcoal/);
+  assert.match(prompts.noir_charcoal, /chiaroscuro/);
+  const unique = new Set(Object.values(prompts));
+  assert.equal(unique.size, 5, "every style must produce a distinct prompt");
+});
+
 function fakeCtx(images: WorkerContext["media"]["images"]): WorkerContext {
   const blobs: Array<{ bytes: Uint8Array; media_type: string }> = [];
   return {

@@ -171,13 +171,29 @@ The first two published episodes surfaced that a single fixed narrative shape an
 fixed visual identity were both too narrow — real feedback asked for drama, true-story and
 short-story content alongside the moral_story default, and for a second visual identity
 (`flat_comic_expressive`, expressive faces) alongside the original faceless ink-wash. Both are
-now `intent` fields (`genre`, `image_style`; see `schemas/intent/1.1.0.json`), selected per run
+now `intent` fields (`genre`, `image_style`; see `schemas/intent/1.2.0.json`), selected per run
 rather than hardcoded, and surfaced on the operator UI. `narrative_story_architect` and
 `narration_script_writer` branch on `genre` (see their `@2` prompts); `illustrated_scene_assets`
 branches on `image_style` (see `STYLE_BUNDLES`). Both are optional and default to the original
 behavior when absent, so this is additive, not a rewrite of the decision above — the "no
 characters, illustrated stills, one watchability gate" architecture is unchanged; only the
 narrative shape and the art direction within it are now a choice instead of a constant.
+
+`image_style` grew from 2 to 5 options once real feedback pointed out that `flat_comic_expressive`
+doesn't suit every genre: `ink_wash_stickman` (parable, faceless), `flat_comic_expressive` (bold,
+expressive faces), `documentary_sketch` (charcoal reportage, restrained real-human likeness),
+`watercolor_storybook` (soft, whimsical), `noir_charcoal` (high-contrast suspense, not a genre
+default — an explicit pick for dark/thriller-leaning content within any genre). When the operator
+leaves the UI on "Auto" (no explicit `image_style`), `VidGenService.startRun` resolves a
+genre-appropriate default (`GENRE_DEFAULT_STYLE` in `service.ts`) instead of always falling back to
+`ink_wash_stickman` — an explicit pick still always wins over the genre default.
+
+Every `human_gate` in `illustrated_story.json` is `auto_pass_if: always`, so a started run already
+drove itself unattended from intent to `published_episode` before this addendum; the only manual
+step left was the operator clicking "Create episode". `publish`'s privacy is now `public` (was
+`private`), and the scheduler's `produce` job is enabled by default (`SCHEDULE_PRODUCE_HOURS`,
+default 24h) — one episode a day is now fully unattended end to end, with the UI still available
+any time for extra, operator-chosen episodes.
 
 ## Open Questions
 
