@@ -1,16 +1,17 @@
 {
   "name": "narration_script_writer",
   "kind": "agent",
-  "version": "3",
+  "version": "4",
   "consumes": [
-    { "schema_id": "story", "range": "^1", "as": "story" }
+    { "schema_id": "story", "range": "^1", "as": "story" },
+    { "schema_id": "growth_package", "range": "^1", "as": "growth" }
   ],
   "produces": "script",
-  "prompt": "narration_script_writer@3",
+  "prompt": "narration_script_writer@4",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 12000
+    "max_output_tokens": 14000
   },
-  "confidence_dimensions": ["prose_quality", "pacing", "payoff_delivery"],
+  "confidence_dimensions": ["prose_quality", "pacing", "payoff_delivery", "first_30_fidelity"],
   "retry": { "max_attempts": 3 }
 }
