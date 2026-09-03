@@ -19,7 +19,6 @@ async function deps() {
   const agents = (await loadAgentDefs(path.join(ROOT, "agents"))) as Map<string, TransformationDef>;
   const workers = defaultWorkers({
     voice: { voiceId: "test-voice" },
-    dialogueVoice: { defaultVoiceId: "test-voice" },
     publish: { target: new FakePublishTarget() },
   });
   return { registry, transformations: allTransformations(agents, workers) };
@@ -29,8 +28,8 @@ function graph(nodes: GraphDoc["nodes"]): GraphDoc {
   return { graph_id: "test", version: "1", nodes };
 }
 
-test("the shipped skeleton graph is statically valid", async () => {
-  const g = await loadGraph(path.join(ROOT, "graphs", "skeleton.json"));
+test("the shipped illustrated_story graph is statically valid", async () => {
+  const g = await loadGraph(path.join(ROOT, "graphs", "illustrated_story.json"));
   const d = await deps();
   assert.doesNotThrow(() => validateGraph(g, d));
 });
@@ -41,22 +40,16 @@ test("the shipped manual graph is statically valid", async () => {
   assert.doesNotThrow(() => validateGraph(g, d));
 });
 
-test("the shipped cartoon graph is statically valid", async () => {
-  const g = await loadGraph(path.join(ROOT, "graphs", "cartoon.json"));
-  const d = await deps();
-  assert.doesNotThrow(() => validateGraph(g, d));
-});
-
 test("catches a mis-wired edge before a token is spent", async () => {
   const d = await deps();
-  // script_writer consumes a story; this hands it an intent.
+  // narration_script_writer consumes a story; this hands it an intent.
   const bad = graph([
     { id: "intent", type: "input", schema_id: "intent" },
-    { id: "script", transformation: "script_writer", in: ["intent"] },
+    { id: "script", transformation: "narration_script_writer", in: ["intent"] },
   ]);
   assert.throws(
     () => validateGraph(bad, d),
-    /emits "intent", but "script_writer" expects "story"/,
+    /emits "intent", but "narration_script_writer" expects "story"/,
   );
 });
 
@@ -64,10 +57,10 @@ test("catches wrong arity", async () => {
   const d = await deps();
   const bad = graph([
     { id: "intent", type: "input", schema_id: "intent" },
-    { id: "story", transformation: "story_architect", in: ["intent"] },
-    { id: "script", transformation: "script_writer", in: ["story", "intent"] },
+    { id: "story", type: "input", schema_id: "story" },
+    { id: "script", transformation: "narration_script_writer", in: ["story", "intent"] },
   ]);
-  assert.throws(() => validateGraph(bad, d), /supplies 2 input\(s\) but "script_writer" consumes 1/);
+  assert.throws(() => validateGraph(bad, d), /supplies 2 input\(s\) but "narration_script_writer" consumes 1/);
 });
 
 test("catches cycles, dangling references, and unknown transformations", async () => {
@@ -76,8 +69,8 @@ test("catches cycles, dangling references, and unknown transformations", async (
     () =>
       validateGraph(
         graph([
-          { id: "a", transformation: "story_architect", in: ["b"] },
-          { id: "b", transformation: "script_writer", in: ["a"] },
+          { id: "a", transformation: "narrative_story_architect", in: ["b"] },
+          { id: "b", transformation: "narration_script_writer", in: ["a"] },
         ]),
         d,
       ),
@@ -86,7 +79,7 @@ test("catches cycles, dangling references, and unknown transformations", async (
   assert.throws(
     () =>
       validateGraph(
-        graph([{ id: "story", transformation: "story_architect", in: ["nope"] }]),
+        graph([{ id: "story", transformation: "narrative_story_architect", in: ["nope"] }]),
         d,
       ),
     /references unknown input "nope"/,
@@ -117,7 +110,7 @@ test("rejects an unparseable auto-pass predicate", async () => {
   const d = await deps();
   const bad = graph([
     { id: "intent", type: "input", schema_id: "intent" },
-    { id: "story", transformation: "story_architect", in: ["intent"] },
+    { id: "story", transformation: "narrative_story_architect", in: ["intent"] },
     {
       id: "gate",
       type: "human_gate",
@@ -131,8 +124,8 @@ test("rejects an unparseable auto-pass predicate", async () => {
 test("descendantsOf finds the blocked subtree", async () => {
   const g = graph([
     { id: "intent", type: "input", schema_id: "intent" },
-    { id: "story", transformation: "story_architect", in: ["intent"] },
-    { id: "script", transformation: "script_writer", in: ["story"] },
+    { id: "story", transformation: "narrative_story_architect", in: ["intent"] },
+    { id: "script", transformation: "narration_script_writer", in: ["story"] },
   ]);
   assert.deepEqual([...descendantsOf(g, new Set(["story"]))], ["script"]);
   assert.deepEqual([...descendantsOf(g, new Set(["script"]))], []);
@@ -144,7 +137,7 @@ const ARTIFACT = {
   artifact_id: "sha256:" + "0".repeat(64),
   schema_id: "story",
   schema_version: "1.0.0",
-  produced_by: { transformation: "story_architect", version: "1", run_id: "r" },
+  produced_by: { transformation: "narrative_story_architect", version: "1", run_id: "r" },
   parents: [],
   confidence: { overall: 0.93, dimensions: { novelty: 0.7 } },
   created_at: "2026-08-10T00:00:00.000Z",

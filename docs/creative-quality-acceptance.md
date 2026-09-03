@@ -1,5 +1,11 @@
 # Creative quality acceptance contract
 
+> **Superseded by [RFC 0008](0008-illustrated-story-format.md).** This was the review
+> contract for the two-host character/cartoon render pipeline, which RFC 0008 retired
+> entirely — there is no camera/shot plan, no characters, no captions-vs-dialogue
+> concern left to judge. Kept for historical context only; do not review new work
+> against it.
+
 This project should not accept a cartoon render merely because it is technically valid. The target is a custom-made, directed episode that does not look like a beginner Remotion scene assembled from generic rooms, floating icons, and repeated captions.
 
 This document is the review contract for large quality PRs such as PR96. Claude Code should review the implementation against this contract before merge, and every fresh render should be judged against the same criteria.

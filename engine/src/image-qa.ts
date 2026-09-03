@@ -1,19 +1,20 @@
-// Checks a generated AI b-roll image for the one class of defect the house
-// style explicitly forbids but the image model sometimes produces anyway:
-// visible text, lettering, logos, or watermarks baked into the artwork (see
-// HOUSE_STYLE in hybrid-visual-assets.ts: "no words, no letters, no
-// captions, no logos, no watermark"). Confirmed in production
-// (run_ad5bd430, onions episode): a generated knife prop carried fake
-// engraved lettering ("ID ohrimi") that nothing in the pipeline rejected,
-// even though the prompt explicitly forbade it.
+// Checks a generated AI image for the one class of defect the house style
+// explicitly forbids but the image model sometimes produces anyway: visible
+// text, lettering, logos, or watermarks baked into the artwork (see
+// NEGATIVE_CONSTRAINTS in illustrated-scene-assets.ts: "no text, no letters,
+// no captions, no logos, no watermark"). Confirmed in production
+// (run_ad5bd430, onions episode, retired hybrid-visual-assets pipeline): a
+// generated knife prop carried fake engraved lettering ("ID ohrimi") that
+// nothing in the pipeline rejected, even though the prompt explicitly
+// forbade it.
 //
 // Uses OpenAI's vision-capable chat completions endpoint directly (the same
 // OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL env vars as
 // providers/openai.ts) rather than routing through the ModelProvider
 // abstraction: workers are deliberately given no model access (see
 // runner.test.ts, "workers run through the same harness and are given no
-// model") -- this is a narrowly-scoped, self-contained capability in that
-// same spirit as icon-search.ts, not a general completion channel.
+// model") -- this is a narrowly-scoped, self-contained capability, not a
+// general completion channel.
 //
 // Every failure mode (missing API key, network error, timeout, malformed
 // response) resolves to `{ hasVisibleText: false }` -- i.e. "pass" -- never

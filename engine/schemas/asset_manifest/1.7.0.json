@@ -6,7 +6,8 @@
   "produced_by": [
     "asset_collector",
     "cartoon_scene_compiler",
-    "hybrid_visual_assets"
+    "hybrid_visual_assets",
+    "illustrated_scene_assets"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

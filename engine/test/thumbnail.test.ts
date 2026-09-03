@@ -1,9 +1,10 @@
 /**
- * Cartoon thumbnail worker strictness.
+ * Thumbnail worker: best-effort artwork, gradient fallback.
  *
- * Creative artwork comes from the image model and typography comes from
- * long-compose. Cartoon production must not silently replace recurring-cast
- * artwork with a text-only gradient; failures stay retryable and visible.
+ * Typography comes from long-compose; artwork comes from the image model
+ * when one is configured and the brief has a usable prompt. Neither a failed
+ * generation nor a missing provider blocks the run — they degrade to the
+ * renderer's gradient background with a warning, so a thumbnail always ships.
  */
 
 import test from "node:test";
@@ -27,18 +28,10 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const BRIEF = {
-  mode: "cartoon" as const,
   text: "DON'T OPEN IT",
   emphasis: "OPEN IT",
-  art_prompt:
-    "Create a 16:9 long-form YouTube thumbnail in the channel's clean recurring 2D cartoon style. " +
-    "Show one large frightened recurring character on the right recoiling from an open school locker emitting a strong warm glow. " +
-    "Keep the left side deliberately quiet for typography. Thick dark outlines, simple readable shapes, expressive face, strong silhouette, controlled saturated colours. " +
-    "Do not render words, letters, captions, signs, logos, arrows, circles, UI labels, or watermarks.",
+  background_query: "a glowing school locker at night",
   accent: "#FFD34D",
-  visual_hook: "A frightened student discovers something impossible glowing inside an open locker.",
-  character_ids: ["pilot"],
-  preferred_text_side: "left" as const,
   rationale: "The reaction plus unexplained glowing locker forms one readable visual question at small size.",
   alternatives: ["WHAT'S INSIDE?", "IT WAS LOCKED"],
 };
@@ -58,6 +51,7 @@ interface ThumbPayload {
 async function harness(opts: {
   renderer?: FakeRenderer;
   images?: FakeImageProvider | null;
+  brief?: Partial<typeof BRIEF>;
 } = {}) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const store = await FsArtifactStore.open(
@@ -82,9 +76,10 @@ async function harness(opts: {
   const brief = (
     await store.put({
       schema_id: "thumbnail_brief",
-      payload: BRIEF,
+      schema_version: "1.1.0",
+      payload: { ...BRIEF, ...(opts.brief ?? {}) },
       produced_by: {
-        transformation: "cartoon_thumbnail_designer",
+        transformation: "thumbnail_designer",
         version: "1",
         run_id: "t",
         provider: null,
@@ -99,17 +94,17 @@ const run = async (h: Awaited<ReturnType<typeof harness>>) =>
   (await h.runner.run(makeThumbnailWorker(), [h.brief.artifact_id])).artifact
     .payload as ThumbPayload;
 
-test("composites deterministic text over generated cartoon artwork", async () => {
+test("composites deterministic text over generated artwork", async () => {
   const h = await harness();
   const out = await run(h);
 
-  assert.deepEqual(h.images!.prompts, [BRIEF.art_prompt]);
+  assert.deepEqual(h.images!.prompts, [BRIEF.background_query]);
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);
   assert.equal(sent.accent, BRIEF.accent);
   assert.equal(sent.emphasis, BRIEF.emphasis);
-  assert.ok(sent.image, "the generated cartoon artwork should reach the renderer");
+  assert.ok(sent.image, "the generated artwork should reach the renderer");
 
   assert.equal(out.background, "supplied");
   assert.equal(out.text, BRIEF.text);
@@ -127,25 +122,19 @@ test("the rendered bytes are actually stored and retrievable", async () => {
   assert.equal(bytes.byteLength, out.bytes);
 });
 
-test("cartoon artwork generation failure blocks instead of shipping a gradient", async () => {
+test("artwork generation failure degrades to a gradient instead of blocking the run", async () => {
   const h = await harness({ images: new FakeImageProvider(() => true) });
-  await assert.rejects(() => run(h), /cartoon thumbnail artwork generation failed/);
-  assert.equal(h.renderer.thumbnailRequests.length, 0, "the compositor should not run without cartoon artwork");
-  assert.equal(
-    (await h.store.index()).filter((r) => r.schema_id === "thumbnail").length,
-    0,
-    "a failed cartoon artwork attempt must not leave a degraded thumbnail artifact",
-  );
+  const out = await run(h);
+
+  assert.equal(out.background, "gradient");
+  assert.equal(h.renderer.thumbnailRequests[0]!.image, undefined);
 });
 
-test("cartoon production without an image provider blocks before compositing", async () => {
+test("no image provider degrades to a gradient instead of blocking the run", async () => {
   const h = await harness({ images: null });
-  await assert.rejects(() => run(h), /cartoon thumbnail needs an image provider/);
-  assert.equal(h.renderer.thumbnailRequests.length, 0);
-  assert.equal(
-    (await h.store.index()).filter((r) => r.schema_id === "thumbnail").length,
-    0,
-  );
+  const out = await run(h);
+
+  assert.equal(out.background, "gradient");
 });
 
 test("a renderer outage does fail the node — there is nothing to degrade to", async () => {
@@ -185,37 +174,10 @@ test("the emphasised phrase reaches the renderer, not just the text", async () =
   assert.equal(sent.emphasis, BRIEF.emphasis);
 });
 
-test("a cartoon brief without emphasis still renders", async () => {
-  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const store = await FsArtifactStore.open(
-    await mkdtemp(path.join(tmpdir(), "vidgen-thumb-noemph-")),
-    registry,
-  );
-  const renderer = new FakeRenderer();
-  const runner = new Runner({
-    store,
-    registry,
-    prompts: await PromptStore.load(path.join(ROOT, "prompts")),
-    providers: new ProviderRouter({}),
-    runLog: new MemoryRunLog(),
-    logger: silent(),
-    blobs: new MemoryBlobStore(),
-    media: { renderer, images: new FakeImageProvider() },
-  });
+test("a brief without emphasis still renders", async () => {
+  const h = await harness({ brief: { emphasis: undefined } });
+  const out = await run(h);
 
-  const { emphasis: _dropped, ...withoutEmphasis } = BRIEF;
-  void _dropped;
-  const brief = (
-    await store.put({
-      schema_id: "thumbnail_brief",
-      payload: withoutEmphasis,
-      produced_by: {
-        transformation: "cartoon_thumbnail_designer", version: "1", run_id: "t", provider: null,
-      },
-    })
-  ).artifact;
-
-  const out = await runner.run(makeThumbnailWorker(), [brief.artifact_id]);
-  assert.equal((out.artifact.payload as ThumbPayload).text, BRIEF.text);
-  assert.equal(renderer.thumbnailRequests[0]!.emphasis, undefined);
+  assert.equal(out.text, BRIEF.text);
+  assert.equal(h.renderer.thumbnailRequests[0]!.emphasis, undefined);
 });

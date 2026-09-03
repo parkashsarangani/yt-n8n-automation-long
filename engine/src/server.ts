@@ -122,9 +122,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // The default AI-driven run (RFC 0008): single-narrator voice-over over
+    // illustrated stills. No characters, no cast_roster.
     if (route === "POST /api/runs") {
       const body = (await readJson(req)) as { brief?: string; duration_sec?: number };
-      const runId = await service.startRun(String(body.brief ?? ""), body.duration_sec ?? 540);
+      const runId = await service.startRun(String(body.brief ?? ""), body.duration_sec ?? 180);
       json(res, 201, { run_id: runId });
       return;
     }
@@ -148,37 +150,6 @@ export function createUiServer(opts: ServerOptions) {
           topic: body.topic,
         },
         body.duration_sec ?? 540,
-      );
-      json(res, 201, { run_id: runId });
-      return;
-    }
-
-    // Cartoon-animation mode: story_architect and dialogue_script_writer
-    // still write the episode - only how it's *shot* differs (SVG puppets in
-    // reusable backgrounds instead of stock imagery). Needs the channel's
-    // cast (who speaks, their voice, their rig) supplied per run.
-    if (route === "POST /api/runs/cartoon") {
-      const body = (await readJson(req)) as {
-        brief?: string;
-        cast_roster?: unknown;
-        duration_sec?: number;
-      };
-      const runId = await service.startCartoonRun(
-        String(body.brief ?? ""),
-        body.cast_roster,
-        body.duration_sec ?? 540,
-      );
-      json(res, 201, { run_id: runId });
-      return;
-    }
-
-    // Illustrated-story mode (RFC 0008): single-narrator voice-over over
-    // sequential hand-drawn stills. No characters, no cast_roster.
-    if (route === "POST /api/runs/illustrated-story") {
-      const body = (await readJson(req)) as { brief?: string; duration_sec?: number };
-      const runId = await service.startIllustratedStoryRun(
-        String(body.brief ?? ""),
-        body.duration_sec ?? 180,
       );
       json(res, 201, { run_id: runId });
       return;

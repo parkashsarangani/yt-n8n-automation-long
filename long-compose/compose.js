@@ -937,7 +937,50 @@ async function buildStockVideoScene(stockVideoPath, audioPath, duration, outPath
   return outPath;
 }
 
-async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneIdx, mood, isEmphasis = false) {
+// Directed camera moves (RFC 0008's episode_director): reuses the exact
+// eased-sinusoid expression shape the parity-based fallback below already
+// proves out in production (`base + magnitude*ease` for zoom, the mirrored
+// pair for x), just parametrized per named move instead of picked by
+// sceneIdx/seg parity. Returns null for an absent/unrecognized value so the
+// caller falls back to that untouched legacy behaviour byte-for-byte -- this
+// keeps every existing manual.json/legacy render (no camera_move field)
+// identical to before this function existed.
+//
+// pan-left/pan-right direction is a best-effort convention (crop window
+// drifting toward positive x reads as "pan-right" here) that hasn't been
+// confirmed against a real render; flip PAN_RIGHT_IS_POSITIVE_X below if a
+// watched episode shows the labels reversed.
+const PAN_RIGHT_IS_POSITIVE_X = true;
+const DIRECTED_CAMERA_MOVES = new Set(["push-in", "pull-out", "pan-left", "pan-right", "hold"]);
+function directedCameraExpressions(cameraMove, totalFrames) {
+  const ease = `(1-cos(PI*on/${totalFrames}))/2`; // 0 -> 1, eased
+  const growing = (base, magnitude) => `'${base}+${magnitude}*${ease}'`;
+  const shrinking = (base, magnitude) => `'${(base + magnitude).toFixed(3)}-${magnitude}*${ease}'`;
+  const panTo = (positiveX, magnitude) => positiveX
+    ? `'iw*${magnitude}*${ease}'`
+    : `'iw*${magnitude}*(1-(${ease}))'`;
+
+  switch (cameraMove) {
+    case "push-in":
+      return { zoomExpr: growing(1.05, 0.05), xExpr: panTo(true, 0.02), yMagnitude: 0.02 };
+    case "pull-out":
+      return { zoomExpr: shrinking(1.05, 0.05), xExpr: panTo(true, 0.02), yMagnitude: 0.02 };
+    case "pan-left":
+      return { zoomExpr: growing(1.05, 0.03), xExpr: panTo(!PAN_RIGHT_IS_POSITIVE_X, 0.06), yMagnitude: 0.015 };
+    case "pan-right":
+      return { zoomExpr: growing(1.05, 0.03), xExpr: panTo(PAN_RIGHT_IS_POSITIVE_X, 0.06), yMagnitude: 0.015 };
+    case "hold":
+      // The payoff beat sitting still, deliberately (RFC 0008): same eased
+      // shape at a small enough amplitude to read as "held," not frozen --
+      // a truly static z=1/x=0/y=0 crop risks an exact-edge zoompan corner
+      // case this codebase has never exercised.
+      return { zoomExpr: growing(1.03, 0.02), xExpr: panTo(true, 0.01), yMagnitude: 0.01 };
+    default:
+      return null;
+  }
+}
+
+async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneIdx, mood, isEmphasis = false, cameraMove = null) {
   // Eased Ken Burns with sinusoidal motion (not linear)
   // Creates organic, handheld-feeling camera movement
   const fps = FPS;
@@ -946,8 +989,12 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
   // image, re-ran the zoom FROM THE START in each segment, so one photo looked
   // like it zoomed over and over. Now a scene with 1 image is one smooth move
   // across the whole scene; a scene with 2 images cuts once between them.
-  // Emphasis (payoff) scene is always a single deliberate push-in.
-  const numSegments = isEmphasis ? 1 : Math.max(1, imagePaths.length);
+  // Emphasis (payoff) scene is always a single deliberate push-in, UNLESS a
+  // directed camera_move is present -- an explicit director choice (e.g.
+  // "hold" on the payoff) overrides that default rather than being silently
+  // clobbered by it.
+  const hasDirective = DIRECTED_CAMERA_MOVES.has(cameraMove);
+  const numSegments = (isEmphasis && !hasDirective) ? 1 : Math.max(1, imagePaths.length);
   const segDuration = duration / numSegments;
   const totalFrames = Math.ceil(segDuration * fps);
   const gradeFilter = getColorGrade(mood);
@@ -958,35 +1005,44 @@ async function buildImageScene(imagePaths, audioPath, duration, outPath, sceneId
     const segOutPath = path.join(path.dirname(outPath), `seg_${sceneIdx}_${seg}.mp4`);
     const panLeftToRight = seg % 2 === 0;
 
+    const directive = directedCameraExpressions(cameraMove, totalFrames);
+
     // Sinusoidal easing: slow start, slow end, gentle drift through the middle
     // zoompan expressions use on/d for normalized progress
-    const xExpr = panLeftToRight
+    const xExpr = directive ? directive.xExpr : (panLeftToRight
       ? `'iw*0.035*(1-cos(PI*on/${totalFrames}))/2'`
-      : `'iw*0.035*(1+cos(PI*on/${totalFrames}))/2'`;
+      : `'iw*0.035*(1+cos(PI*on/${totalFrames}))/2'`);
+    const yMagnitude = directive ? directive.yMagnitude : 0.02;
 
     // Alternate the camera move per SCENE for variety: even scenes slowly
     // push IN, odd scenes pull OUT (gently eased). Breaks the "same subtle
     // drift on every scene" monotony without speeding anything up, and keeps
     // the motion coherent within a scene (all its segments move the same way).
+    // Only the fallback (no directive) path uses this; a directed episode
+    // picks its own push/pull/pan/hold per scene instead of alternating blind.
     const pushIn = sceneIdx % 2 === 0;
-    const zoomExpr = pushIn
+    const zoomExpr = directive ? directive.zoomExpr : (pushIn
       ? `'1.05+0.05*(1-cos(PI*on/${totalFrames}))/2'`
-      : `'1.10-0.05*(1-cos(PI*on/${totalFrames}))/2'`;
+      : `'1.10-0.05*(1-cos(PI*on/${totalFrames}))/2'`);
 
-    // Gentle punch-in on the first segment only, eased over its own window
+    // Gentle punch-in on the first segment only, eased over its own window.
+    // Skipped entirely once a directive is present -- see the emphasis note
+    // above; a director-chosen move is authoritative for its whole scene.
     const punchFrames = Math.min(18, Math.round(totalFrames * 0.3));
-    const finalZoom = isEmphasis
-      ? `'1.02+0.18*(1-cos(PI*on/${totalFrames}))/2'`
-      : sceneIdx === 0 && seg === 0
-        ? `'if(lte(on,${punchFrames}),1.13-0.04*on/${punchFrames},${zoomExpr.slice(1, -1)})'`
-        : zoomExpr;
+    const finalZoom = directive
+      ? directive.zoomExpr
+      : isEmphasis
+        ? `'1.02+0.18*(1-cos(PI*on/${totalFrames}))/2'`
+        : sceneIdx === 0 && seg === 0
+          ? `'if(lte(on,${punchFrames}),1.13-0.04*on/${punchFrames},${zoomExpr.slice(1, -1)})'`
+          : zoomExpr;
 
     const filterGraph = [
       // Upscale well past the output resolution before zoompan - cropping
       // from a source close to the output size makes the per-frame crop
       // window round to whole pixels unevenly, which reads as flicker/
       // vibration. The extra sub-pixel headroom eliminates that jitter.
-      `[0:v]scale=-2:${KENBURNS_UPSCALE},zoompan=z=${finalZoom}:x=${xExpr}:y='ih*0.02*(1-cos(PI*on/${totalFrames}))/2':d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${fps}[zoomed]`,
+      `[0:v]scale=-2:${KENBURNS_UPSCALE},zoompan=z=${finalZoom}:x=${xExpr}:y='ih*${yMagnitude}*(1-cos(PI*on/${totalFrames}))/2':d=${totalFrames}:s=${TARGET_W}x${TARGET_H}:fps=${fps}[zoomed]`,
       `[zoomed]${gradeFilter}[graded]`,
       `[graded]unsharp=5:5:0.4:5:5:0.0[final]`,
     ];
@@ -1846,7 +1902,7 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
           }
         }
         if (!animated) {
-          await buildImageScene(imagePaths, audioPath, duration, outPath, i, mood, i === emphasisIdx);
+          await buildImageScene(imagePaths, audioPath, duration, outPath, i, mood, i === emphasisIdx, sceneTemplateData(scene).camera_move ?? null);
         }
       }
 

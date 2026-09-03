@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
 
 import { repairEnumValues } from "../src/schema-repair.ts";
 
@@ -30,14 +29,4 @@ test("a recoverable near-miss still snaps to the value the planner meant", () =>
     const { data } = repairEnumValues(schema, { visual_state: written });
     assert.equal((data as { visual_state: string }).visual_state, expected);
   }
-});
-
-test("the planner prompt maps script beats onto renderer states", () => {
-  // The fallback above is a safety net. The prompt is what stops the planner
-  // emitting beat names in this field at all, so the mapping has to be stated.
-  const prompt = readFileSync(new URL("../prompts/explanation_visual_planner/1.md", import.meta.url), "utf8");
-  for (const beat of ["correction", "implication", "objection", "recap"]) {
-    assert.match(prompt, new RegExp(beat, "i"), `prompt does not tell the planner where "${beat}" belongs`);
-  }
-  assert.match(prompt, /NOT the script's beat names/i);
 });
