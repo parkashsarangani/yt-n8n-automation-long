@@ -740,7 +740,28 @@ export class VidGenService {
         );
         return;
       }
-      console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
+
+      // watchability_release's own MAX_ATTEMPTS_BEFORE_ACCEPTING escape hatch
+      // (watchability-release.ts) exists so a run never blocks forever on a
+      // bar the writer keeps landing under -- but a bare retry() re-executes
+      // ONLY watchability_release itself against the SAME already-generated
+      // draft_script and watchability_report (retry() invalidates nothing
+      // upstream, just re-attempts the node that failed). Real production
+      // case: two consecutive retries produced byte-identical scores, because
+      // nothing about the script or its critique ever changed between them --
+      // the "3 attempts" were three checks of one draft, not three drafts.
+      // Force draft_script to actually regenerate first; pruneIncompleteDependencies
+      // then cascades to watchability_report/watchability_release too, so the
+      // next attempt evaluates a genuinely different script, giving the
+      // accept-after-3 escape hatch a real chance to not be needed.
+      if (view.failures.some((f) => f.node_id === "watchability_release")) {
+        const state = this.runs.get(runId)!;
+        const graph = this.resolveRunGraph(state.graph);
+        await this.executor.regenerateNode(graph, runId, "draft_script", "watchability release blocked -- regenerating the script, not just re-checking it");
+        console.log(`[run ${runId.slice(4, 12)}] unattended: watchability blocked -- regenerating the script itself (retry ${round + 1}/${maxRetries})`);
+      } else {
+        console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
+      }
       await this.retry(runId);
     }
   }
