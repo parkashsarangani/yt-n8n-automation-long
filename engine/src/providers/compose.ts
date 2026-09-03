@@ -177,6 +177,10 @@ export class ComposeRenderer implements MediaRenderer {
       data: req.scenes.map((scene) => {
         const s = scene as HybridScene;
         const packedImages = s.images?.length ? s.images : s.image ? [s.image] : [];
+        // Already equals s.template_data unchanged for every scene except
+        // template_category="explanation" -- covers plain (no category) and
+        // every other templated scene as-is, so this is the one value to
+        // carry into the outgoing template_data below regardless of category.
         const bridgedTemplateData = s.template_category === "explanation"
           ? bridgeSemanticTemplateData(s.template_data)
           : s.template_data;
@@ -211,16 +215,28 @@ export class ComposeRenderer implements MediaRenderer {
           // reserved for the genuinely rare case of an is_outro scene with
           // no real template content at all -- an old/resumed artifact from
           // before this feature existed.
-          ...(s.template_category ? {
-            visual_source: "template",
-            template_name: s.template_category,
-            // compose.js's own duplicate-outro detection (isOutroScene)
-            // looks for is_outro:true INSIDE template_data, not as a
-            // sibling field -- without merging it in here, a real outro
-            // scene's own is_outro flag never reaches that check, and
-            // compose.js appends a second, generic fallback card after it.
-            template_data: s.is_outro ? { ...(bridgedTemplateData ?? {}), is_outro: true } : (bridgedTemplateData ?? {}),
-          } : s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
+          ...(s.template_category
+            ? { visual_source: "template", template_name: s.template_category }
+            : s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
+          // template_data travels independently of template_category now.
+          // It used to be nested inside that same conditional, which meant a
+          // plain illustrated-story scene (no template_category at all) had
+          // its template_data silently dropped before the request even left
+          // engine -- episode_director's camera_move never reached
+          // compose.js's buildImageScene, which fell back to its
+          // scene-index-parity default for every scene regardless of the
+          // director's actual choice (confirmed live, run_139b87a1: every
+          // rendered scene used the same alternating z=1.05.../1.10... /
+          // x=iw*0.035... pattern that scene-index parity alone produces).
+          //
+          // compose.js's own duplicate-outro detection (isOutroScene) looks
+          // for is_outro:true INSIDE template_data, not as a sibling field --
+          // without merging it in here, a real outro scene's own is_outro
+          // flag never reaches that check, and compose.js appends a second,
+          // generic fallback card after it.
+          ...(bridgedTemplateData || s.is_outro
+            ? { template_data: s.is_outro ? { ...(bridgedTemplateData ?? {}), is_outro: true } : bridgedTemplateData }
+            : {}),
           ...(s.speaker_name ? { speaker_name: s.speaker_name, speaker_color: s.speaker_color } : {}),
           ...(s.visual_mode ? { visual_mode: s.visual_mode } : {}),
           ...(s.continuity_group ? { continuity_group: s.continuity_group } : {}),

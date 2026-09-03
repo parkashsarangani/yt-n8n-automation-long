@@ -126,4 +126,61 @@ test("an outro scene with no real template content still falls back to kinetic_t
 
   const scene = (submitted[0]!.data as Array<Record<string, unknown>>)[0]!;
   assert.equal(scene.template_name, "kinetic_text");
+  // Even with no real template content, is_outro must still reach
+  // template_data -- compose.js's own duplicate-outro detection
+  // (isOutroScene) looks for it there, not as a sibling field. Missing this
+  // means compose.js never recognizes this as the real outro and appends a
+  // second, generic fallback card after it.
+  assert.equal((scene.template_data as Record<string, unknown>)?.is_outro, true);
+});
+
+test("a plain illustrated-story scene's template_data (camera_move) reaches the renderer", async () => {
+  // Real regression, confirmed live (run_139b87a1): template_data used to be
+  // nested inside the template_category conditional entirely, so a plain
+  // illustrated scene (no template_category at all -- illustrated_scene_assets
+  // never sets one) had its template_data silently dropped before the request
+  // left engine. episode_director's camera_move never reached compose.js's
+  // buildImageScene, which fell back to its scene-index-parity default for
+  // every scene regardless of the director's actual per-scene choice.
+  const submitted: Record<string, unknown>[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/compose") && init?.method === "POST") {
+      submitted.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ job_id: "job-1" }), { status: 200 });
+    }
+    if (url.endsWith("/compose-status/job-1")) {
+      return new Response(JSON.stringify({ status: "done", success: true, output_path: "/app/outputs/out.mp4" }), { status: 200 });
+    }
+    if (url.endsWith("/outputs/out.mp4")) {
+      return new Response(new Uint8Array([0, 1, 2, 3]), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  const renderer = new ComposeRenderer({
+    baseUrl: "http://compose.test",
+    pollIntervalSec: 0,
+    sleepImpl: async () => {},
+    fetchImpl,
+  });
+
+  await renderer.render({
+    scenes: [
+      {
+        scene_index: 0,
+        audio: new Uint8Array([1]),
+        audio_media_type: "audio/mpeg",
+        image: new Uint8Array([1, 2, 3]),
+        image_media_type: "image/png",
+        template_data: { camera_move: "pan-left" },
+      } as never,
+    ],
+  });
+
+  const scene = (submitted[0]!.data as Array<Record<string, unknown>>)[0]!;
+  assert.equal(scene.visual_source, undefined, "a plain illustrated scene must not be mistaken for a template scene");
+  assert.equal(scene.template_name, undefined);
+  assert.deepEqual(scene.template_data, { camera_move: "pan-left" });
+  assert.ok(Array.isArray(scene.images_base64), "the image itself must still reach the renderer");
 });
