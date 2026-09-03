@@ -223,7 +223,11 @@ export class VidGenService {
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
     const images: ImageProvider = can("images")
-      ? new StockImageProvider()
+      ? new StockImageProvider({
+        ...(env("FAL_MODEL") ? { model: env("FAL_MODEL") } : {}),
+        ...(env("FAL_EDIT_MODEL") ? { editModel: env("FAL_EDIT_MODEL") } : {}),
+        ...(env("FAL_PRICE_PER_IMAGE") ? { pricePerImage: Number(env("FAL_PRICE_PER_IMAGE")) } : {}),
+      })
       : new FakeImageProvider();
     const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })

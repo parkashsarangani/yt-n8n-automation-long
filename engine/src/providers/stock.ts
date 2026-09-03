@@ -14,6 +14,8 @@ export interface StockImageOptions {
   falKey?: string;
   model?: string;
   editModel?: string;
+  /** USD per generated image, for cost accounting. Passed through to FalImageProvider. */
+  pricePerImage?: number;
   fetchImpl?: typeof fetch;
   pexelsKey?: string;
   unsplashKey?: string;
@@ -29,6 +31,7 @@ export class StockImageProvider implements ImageProvider {
       ...(opts.falKey ? { apiKey: opts.falKey } : {}),
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.editModel ? { editModel: opts.editModel } : {}),
+      ...(opts.pricePerImage !== undefined ? { pricePerImage: opts.pricePerImage } : {}),
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     });
     this.id = `cartoon-art/${this.delegate.id}`;

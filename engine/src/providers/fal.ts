@@ -51,11 +51,21 @@ export class FalImageProvider implements ImageProvider {
     const key = opts.apiKey ?? process.env["FAL_KEY"];
     if (!key) throw new ProviderError("FalImageProvider needs an API key (FAL_KEY)");
     this.apiKey = key;
-    this.model = opts.model ?? "fal-ai/flux-2-pro";
+    // FLUX.2 [dev] rather than [pro]: verified live (a real generation
+    // against this exact house-style prompt, RFC 0008) that the distilled
+    // dev tier hits the illustrated-story house style -- faceless stick
+    // figures, real environment/object detail, muted wash, paper grain --
+    // at a standard of quality no different from pro for this use case, at
+    // roughly half fal.ai's per-megapixel price ($0.012/MP flat vs pro's
+    // ~$0.03 first MP + $0.015/extra MP). Same request/response shape as
+    // pro (image_size, seed, enable_safety_checker, output_format;
+    // image_urls for /edit), confirmed against fal.ai's own API reference,
+    // so this was a pure config change, not a rewrite.
+    this.model = opts.model ?? "fal-ai/flux-2";
     this.editModel = opts.editModel ?? `${this.model}/edit`;
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.outputFormat = opts.outputFormat ?? "png";
-    this.pricePerImage = opts.pricePerImage ?? 0.05;
+    this.pricePerImage = opts.pricePerImage ?? 0.025;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `fal/${this.model}`;
   }
@@ -98,7 +108,6 @@ export class FalImageProvider implements ImageProvider {
       prompt,
       image_size: SIZES[aspect],
       ...(seed !== undefined ? { seed } : {}),
-      safety_tolerance: "2",
       enable_safety_checker: true,
       output_format: this.outputFormat,
     };
@@ -114,7 +123,6 @@ export class FalImageProvider implements ImageProvider {
       image_urls: [this.dataUri(reference)],
       image_size: SIZES[aspect],
       seed,
-      safety_tolerance: "2",
       enable_safety_checker: true,
       output_format: this.outputFormat,
     };
