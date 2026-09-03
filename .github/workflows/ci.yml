@@ -39,14 +39,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Motion compatibility contract is synchronized
-        run: |
-          cmp contracts/motion-compatibility.json engine/src/motion-compatibility.json
-          cmp contracts/motion-compatibility.json long-compose/remotion/src/motion-compatibility.json
+        # engine/ has no consumer left (RFC 0008 retired the two-host
+        # character pipeline, the only producer of motion-graphics prompts);
+        # long-compose/ keeps its own copy independently to replay historical
+        # episodes rendered under the old contract, so only that leg is
+        # checked against the canonical copy now.
+        run: cmp contracts/motion-compatibility.json long-compose/remotion/src/motion-compatibility.json
 
       - name: Motion visual identity contract is synchronized
-        # engine/ and long-compose/ build as two separate, isolated Docker
-        # contexts in the sibling jobs, so this cross-package check runs here,
-        # on the raw checkout, where both trees exist side by side.
+        # long-compose/ builds as an isolated Docker context in the sibling
+        # job, so this check runs here, on the raw checkout.
         run: npx --yes tsx --test contracts/motion-visual-identity.test.ts
 
       - name: Compose file is valid and starts the right services
