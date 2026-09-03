@@ -1,0 +1,61 @@
+{
+  "schema_id": "intent",
+  "version": "1.3.0",
+  "status": "active",
+  "description": "RFC 0009 adds an optional package_seed so a discovery tournament winner carries its selected audience proposition into production instead of collapsing back to a bare brief. Manual runs may omit it; growth_packager then creates a package before scripting. Additive MINOR bump.",
+  "produced_by": ["human", "discovery"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "IntentArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["brief"],
+    "properties": {
+      "brief": {"type": "string", "minLength": 8, "maxLength": 2000},
+      "niche": {"type": "string", "maxLength": 64},
+      "target_duration_sec": {"type": "integer", "minimum": 15, "maximum": 7200},
+      "constraints": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 300}},
+      "genre": {"type": "string", "enum": ["moral_story", "drama", "true_story", "short_story"]},
+      "image_style": {"type": "string", "enum": ["ink_wash_stickman", "flat_comic_expressive", "documentary_sketch", "watercolor_storybook", "noir_charcoal"]},
+      "package_seed": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional discovery-tournament winner. growth_packager must preserve its core audience proposition while refining it into growth_package@1.0.0. Presence proves the scheduled run did not discard packaging before scripting.",
+        "required": ["angle", "target_audience", "curiosity_gap", "emotional_engine", "opening_visual", "opening_line", "title_concepts", "thumbnail_concepts", "scores"],
+        "properties": {
+          "angle": {"type": "string", "minLength": 8, "maxLength": 300},
+          "target_audience": {"type": "string", "minLength": 8, "maxLength": 220},
+          "curiosity_gap": {"type": "string", "minLength": 8, "maxLength": 220},
+          "emotional_engine": {"type": "string", "minLength": 8, "maxLength": 180},
+          "opening_visual": {"type": "string", "minLength": 12, "maxLength": 320},
+          "opening_line": {"type": "string", "minLength": 8, "maxLength": 220},
+          "title_concepts": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {"type": "object", "additionalProperties": false, "required": ["family", "title"], "properties": {
+              "family": {"type": "string", "enum": ["curiosity", "conflict", "reversal"]},
+              "title": {"type": "string", "minLength": 8, "maxLength": 100}
+            }}
+          },
+          "thumbnail_concepts": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {"type": "object", "additionalProperties": false, "required": ["family", "concept"], "properties": {
+              "family": {"type": "string", "enum": ["curiosity", "conflict", "reversal"]},
+              "concept": {"type": "string", "minLength": 8, "maxLength": 260}
+            }}
+          },
+          "scores": {
+            "type": "object", "additionalProperties": false,
+            "required": ["clickability", "story_potential", "audience_size", "overall"],
+            "properties": {
+              "clickability": {"type": "number", "minimum": 0, "maximum": 1},
+              "story_potential": {"type": "number", "minimum": 0, "maximum": 1},
+              "audience_size": {"type": "number", "minimum": 0, "maximum": 1},
+              "overall": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          },
+          "evidence": {"type": "string", "maxLength": 500}
+        }
+      }
+    }
+  }
+}
