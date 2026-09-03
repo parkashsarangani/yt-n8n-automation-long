@@ -43,7 +43,7 @@ import {
 import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
-import { assessWatchability } from "./workers/watchability-release.ts";
+import { assessWatchability, MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
@@ -699,6 +699,18 @@ export class VidGenService {
    *    automated remedy here, so it's left "waiting" for an operator exactly
    *    as before -- regenerating assets would not fix it and would just
    *    spend money in a loop.
+   *
+   * Hard operator constraint: illustrated_scene_assets (image generation)
+   * runs at most once per run, ever -- the only exception is the narrow,
+   * explicitly-scoped blank-scene repair in case 2 above, which regenerates
+   * individual flagged scenes, never the whole set. Best-of-N script
+   * selection (below) therefore MUST resolve before the graph ever reaches
+   * direction/assets, not after: once watchability_release accepts a script
+   * (on the bar or via the escape hatch), the executor cascades everything
+   * downstream -- including image generation -- inside that SAME resume()
+   * call, with no pause point to intervene at. An earlier version of this
+   * tried to fix that up afterward (pin the better attempt, invalidate, let
+   * assets regenerate) and it violated the constraint outright.
    */
   private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2): Promise<void> {
     let assetRegens = 0;
@@ -706,11 +718,10 @@ export class VidGenService {
     // decision: "the strongest attempt should be counted, not the last").
     // Real production case: attempt 1 scored 0.723, attempt 2 scored 0.757
     // (the best of the three), attempt 3 scored 0.693 and became final only
-    // because it happened to run last. One entry per attempt that has
-    // actually been evaluated, including whichever one ends up accepted.
+    // because it happened to run last. One entry per FAILED attempt --
+    // scripts that never got a chance to run (because a better one was
+    // pinned in ahead of the accepting attempt) are never generated at all.
     const scriptAttempts: Array<{ scriptId: string; reportId: string; avg: number }> = [];
-    let sawWatchabilityFailure = false;
-    let bestPicked = false;
     for (let round = 0; ; round++) {
       // Real production case: a 5-minute/27-scene episode's assets+render
       // stage alone ran past 30 minutes (54 possible image provider calls at
@@ -728,38 +739,6 @@ export class VidGenService {
       }
       const view = this.getRun(runId);
       if (!view) return;
-
-      // Once watchability_release is no longer what's blocking us -- it
-      // moved on, whether by clearing the bar or via the accept-after-3
-      // escape hatch -- and there was more than one candidate script,
-      // restore whichever attempt actually scored highest before anything
-      // downstream (direction/assets/voice/render/qa) gets any further.
-      // Only ever done once per run; pinning invalidates and re-runs
-      // everything downstream via pruneIncompleteDependencies, so this must
-      // not repeat every time the loop comes back around.
-      const stillBlockedOnWatchability = view.status === "blocked" && view.failures.some((f) => f.node_id === "watchability_release");
-      if (sawWatchabilityFailure && !bestPicked && !stillBlockedOnWatchability) {
-        bestPicked = true;
-        const accepted = await this.currentScriptAttempt(view);
-        if (accepted && !scriptAttempts.some((a) => a.reportId === accepted.reportId)) scriptAttempts.push(accepted);
-        if (scriptAttempts.length > 1) {
-          const best = scriptAttempts.reduce((a, b) => (b.avg > a.avg ? b : a));
-          if (accepted && best.reportId !== accepted.reportId && best.avg > accepted.avg) {
-            console.log(
-              `[run ${runId.slice(4, 12)}] unattended: attempt scoring ${best.avg.toFixed(3)} beat the accepted attempt ` +
-                `(${accepted.avg.toFixed(3)}) among ${scriptAttempts.length} candidates -- restoring it and redoing downstream`,
-            );
-            const state = this.runs.get(runId)!;
-            const graph = this.resolveRunGraph(state.graph);
-            const reason = `best of ${scriptAttempts.length} watchability attempts (avg ${best.avg.toFixed(3)})`;
-            await this.executor.pinNodeOutput(graph, runId, "draft_script", best.scriptId, reason);
-            await this.executor.pinNodeOutput(graph, runId, "watchability_report", best.reportId, reason);
-            await this.executor.regenerateNode(graph, runId, "watchability_release", "re-evaluating against the restored best-scoring script");
-            await this.retry(runId);
-            continue;
-          }
-        }
-      }
 
       if (view.status === "waiting") {
         const parkedAtPublish = view.waiting.some((w) => w.node_id === "approve_publish");
@@ -799,22 +778,41 @@ export class VidGenService {
       // case: two consecutive retries produced byte-identical scores, because
       // nothing about the script or its critique ever changed between them --
       // the "3 attempts" were three checks of one draft, not three drafts.
-      // Force draft_script to actually regenerate first; pruneIncompleteDependencies
-      // then cascades to watchability_report/watchability_release too, so the
-      // next attempt evaluates a genuinely different script, giving the
-      // accept-after-3 escape hatch a real chance to not be needed.
       if (view.failures.some((f) => f.node_id === "watchability_release")) {
-        sawWatchabilityFailure = true;
-        // Capture this attempt's script/report before discarding them --
-        // regenerateNode() is about to invalidate draft_script, and this is
-        // the only chance to remember what it scored for the best-of-N check
-        // once watchability_release finally moves on.
+        // Capture this attempt's script/report before discarding them -- this
+        // is the only chance to remember what it scored for the best-of-N
+        // pick below.
         const rejected = await this.currentScriptAttempt(view);
         if (rejected && !scriptAttempts.some((a) => a.reportId === rejected.reportId)) scriptAttempts.push(rejected);
         const state = this.runs.get(runId)!;
         const graph = this.resolveRunGraph(state.graph);
-        await this.executor.regenerateNode(graph, runId, "draft_script", "watchability release blocked -- regenerating the script, not just re-checking it");
-        console.log(`[run ${runId.slice(4, 12)}] unattended: watchability blocked -- regenerating the script itself (retry ${round + 1}/${maxRetries})`);
+
+        // scriptAttempts.length counts real failures so far. Once that hits
+        // MAX_ATTEMPTS_BEFORE_ACCEPTING - 1, the NEXT watchability_release
+        // evaluation is the one that accepts unconditionally -- and once it
+        // accepts, direction/assets (image generation) cascade immediately
+        // in the same resume() call, with no way back without a second,
+        // forbidden image-generation pass. So if there's more than one real
+        // candidate already, decide the winner NOW: pin the best-scoring one
+        // back in as what the accepting attempt will evaluate, instead of
+        // drafting a brand new (and possibly worse) one just because it's
+        // the script's "turn". This also means only ever generating up to
+        // MAX_ATTEMPTS_BEFORE_ACCEPTING - 1 real script drafts, never a full
+        // 3rd -- fewer LLM calls, not more.
+        const nextAttemptAccepts = scriptAttempts.length >= MAX_ATTEMPTS_BEFORE_ACCEPTING - 1;
+        if (nextAttemptAccepts && scriptAttempts.length > 1) {
+          const best = scriptAttempts.reduce((a, b) => (b.avg > a.avg ? b : a));
+          const reason = `best of ${scriptAttempts.length} watchability attempts (avg ${best.avg.toFixed(3)}) -- picked before the accepting attempt, not after image generation`;
+          await this.executor.pinNodeOutput(graph, runId, "draft_script", best.scriptId, reason);
+          await this.executor.pinNodeOutput(graph, runId, "watchability_report", best.reportId, reason);
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: watchability blocked -- restoring the best of ${scriptAttempts.length} ` +
+              `attempts (avg ${best.avg.toFixed(3)}) for the final evaluation instead of drafting another (retry ${round + 1}/${maxRetries})`,
+          );
+        } else {
+          await this.executor.regenerateNode(graph, runId, "draft_script", "watchability release blocked -- regenerating the script, not just re-checking it");
+          console.log(`[run ${runId.slice(4, 12)}] unattended: watchability blocked -- regenerating the script itself (retry ${round + 1}/${maxRetries})`);
+        }
       } else {
         console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
       }
