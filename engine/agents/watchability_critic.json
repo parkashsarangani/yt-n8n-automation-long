@@ -1,13 +1,14 @@
 {
   "name": "watchability_critic",
   "kind": "agent",
-  "version": "3",
+  "version": "4",
   "consumes": [
     { "schema_id": "story", "range": "^1", "as": "story" },
-    { "schema_id": "script", "range": "^1", "as": "script" }
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "growth_package", "range": "^1", "as": "growth" }
   ],
   "produces": "watchability_report",
-  "prompt": "watchability_critic@3",
+  "prompt": "watchability_critic@4",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 18000,
