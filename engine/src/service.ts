@@ -1038,6 +1038,22 @@ export class VidGenService {
       return Number.isFinite(n) && n > 0 ? n : null;
     };
 
+    // A restart must not make "produce" immediately due again -- production
+    // deploys several times a day now that it defaults to enabled, and each
+    // deploy restarts this process. Derive its real last-run time from
+    // persisted run history (reloadRuns() already populated this.runs by the
+    // time the entry point calls startScheduler()) rather than starting from
+    // null every time. Any production run counts, not just scheduler-started
+    // ones -- an operator-started episode today should also count as "today
+    // is covered".
+    const lastProduceAt = Math.max(
+      -Infinity,
+      ...this.listRuns()
+        .filter((r) => r.kind === "production")
+        .map((r) => Date.parse(r.created_at))
+        .filter((t) => Number.isFinite(t)),
+    );
+
     const jobs: Job[] = [
       {
         id: "measure",
@@ -1058,6 +1074,7 @@ export class VidGenService {
         id: "produce",
         description: "Pick the top discovery candidate, produce it and publish it — fully automated, one episode per tick",
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
+        ...(Number.isFinite(lastProduceAt) ? { seedLastRun: lastProduceAt } : {}),
         // ON by default (once a day): every human_gate in illustrated_story.json
         // is `auto_pass_if: always`, so a started run drives itself all the way
         // to a public publish with no human step left to skip. Set

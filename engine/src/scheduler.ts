@@ -17,10 +17,14 @@
  *    dies on the first error is worse than no scheduler, because it looks like
  *    it is still working.
  *
- * Last-run state is held in memory and seeded once at startup. It is not
- * persisted: on restart every job simply becomes due, which for an idempotent
- * read like measurement is harmless, and for production is gated behind an
- * explicit opt-in anyway.
+ * Last-run state is held in memory, not in a dedicated store -- but a bare
+ * restart must not make every job immediately due again. That was harmless
+ * while production was gated behind an explicit opt-in (nobody restarts a
+ * dev box mid-shift), but it is not harmless once production defaults to
+ * enabled and deploys happen several times a day: each deploy would fire a
+ * brand new public episode regardless of when the last one actually ran.
+ * `seedLastRun` on a Job lets the caller derive a real last-run time from
+ * persisted history (e.g. the most recent production run) instead of `null`.
  */
 
 export interface Job {
@@ -31,6 +35,13 @@ export interface Job {
   enabled: boolean;
   /** One-line description for the status view. */
   description: string;
+  /**
+   * Epoch ms of this job's last real completion, if the caller can derive one
+   * from persisted state. Absent/undefined means "unknown, treat as due" --
+   * the old behavior, still correct for a job with no independent record of
+   * its own past runs.
+   */
+  seedLastRun?: number;
   run(): Promise<void>;
 }
 
@@ -80,7 +91,7 @@ export class Scheduler {
     this.logger = opts.logger ?? console;
     for (const j of this.jobs) {
       this.state.set(j.id, {
-        lastRun: null,
+        lastRun: j.seedLastRun ?? null,
         running: false,
         lastError: null,
         lastDurationMs: null,
