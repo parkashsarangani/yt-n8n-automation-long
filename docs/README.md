@@ -30,6 +30,7 @@ design against.
 | [0005](0005-execution-graph.md) | Execution Graph | Accepted | Topology as versioned data; the engine executes, n8n conducts |
 | [0006](0006-observability-and-qa.md) | Observability & QA | Accepted | Per-transformation run records; QA as six narrow checks with PASS/FAIL/WARN |
 | [0007](0007-schema-registry.md) | Artifact Schema Registry | Accepted | One schema per artifact type, versioned; validate on write and read; migrators |
+| [0008](0008-illustrated-story-format.md) | Illustrated Story Format | Accepted | Voice-over over hand-drawn illustrated story beats, no characters; one script-level watchability gate replaces the semantic diagram/character/QA stack |
 
 ## Deliberately deferred
 

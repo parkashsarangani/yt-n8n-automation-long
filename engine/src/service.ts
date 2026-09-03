@@ -139,6 +139,7 @@ export class VidGenService {
   private discoverGraph!: GraphDoc;
   private manualGraph!: GraphDoc;
   private cartoonGraph!: GraphDoc;
+  private illustratedStoryGraph!: GraphDoc;
   private scheduler: Scheduler | undefined;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
@@ -179,6 +180,7 @@ export class VidGenService {
     svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
     svc.manualGraph = await loadGraph(path.join(opts.root, "graphs", "manual.json"));
     svc.cartoonGraph = await loadGraph(path.join(opts.root, "graphs", "cartoon.json"));
+    svc.illustratedStoryGraph = await loadGraph(path.join(opts.root, "graphs", "illustrated_story.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -262,6 +264,7 @@ export class VidGenService {
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
     validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
     validateGraph(this.cartoonGraph, { registry: this.registry, transformations: this.transformations });
+    validateGraph(this.illustratedStoryGraph, { registry: this.registry, transformations: this.transformations });
 
     // reasoning_high runs on gpt-5.6-luna, not a bigger tier - a deliberate,
     // revisitable cost decision (Luna: $0.20/$1.20 per M tokens vs. Terra's
@@ -365,7 +368,7 @@ export class VidGenService {
       // table already knows how each finished, so trust that and only fall back
       // to counting nodes when there is no stored status.
       const runGraph = stored?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
-      const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph].find(
+      const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph, this.illustratedStoryGraph].find(
         (g) => `${g.graph_id}@${g.version}` === runGraph,
       );
       const allDone = !!matchedGraph && completedOutputs.size === matchedGraph.nodes.length;
@@ -660,10 +663,66 @@ export class VidGenService {
     return runId;
   }
 
+  /**
+   * Start an illustrated-story run (RFC 0008): single-narrator voice-over
+   * over sequential hand-drawn stills. No cast_roster — there are no
+   * characters in this format at all.
+   */
+  async startIllustratedStoryRun(brief: string, durationSec = 180): Promise<string> {
+    const trimmed = brief.trim();
+    if (trimmed.length < 8) throw new Error("brief is too short");
+    if (!process.env["OPENAI_API_KEY"]?.trim()) {
+      throw new Error("OPENAI_API_KEY is not set — the reasoning agents cannot run");
+    }
+
+    const runId = `run_${randomUUID()}`;
+    console.log(`[run ${runId.slice(4, 12)}] starting (illustrated_story): "${trimmed}" (${durationSec}s)`);
+
+    if (this.runLog instanceof PgRunLog) {
+      await this.runLog.createRun(runId, trimmed, `${this.illustratedStoryGraph.graph_id}@${this.illustratedStoryGraph.version}`);
+    }
+
+    const intent = await this.store.put({
+      schema_id: "intent",
+      payload: { brief: trimmed, target_duration_sec: durationSec },
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+    const window = await buildPerformanceWindow(this.store);
+    const performance = await this.store.put({
+      schema_id: "performance_window",
+      payload: window,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
+
+    this.runs.set(runId, {
+      runId,
+      brief: trimmed,
+      createdAt: new Date().toISOString(),
+      graph: `${this.illustratedStoryGraph.graph_id}@${this.illustratedStoryGraph.version}`,
+      active: new Set(),
+      completedOutputs: new Map(),
+      last: null,
+      finished: false,
+      error: null,
+    });
+
+    void this.drive(runId, () =>
+      this.executor.start(
+        this.illustratedStoryGraph,
+        {
+          intent: intent.artifact.artifact_id,
+          performance: performance.artifact.artifact_id,
+        },
+        { runId },
+      ),
+    );
+    return runId;
+  }
+
   /** Resolves which loaded graph a run used, falling back to the AI-driven one. */
   private resolveRunGraph(ref: string | undefined): GraphDoc {
     return (
-      [this.graph, this.manualGraph, this.cartoonGraph].find(
+      [this.graph, this.manualGraph, this.cartoonGraph, this.illustratedStoryGraph].find(
         (g) => `${g.graph_id}@${g.version}` === ref,
       ) ?? this.graph
     );
@@ -764,7 +823,7 @@ export class VidGenService {
     // currently holding, at the exact version we hold it. For anything else —
     // a measure run, or a skeleton/manual version since superseded — report
     // the run without pretending to know its steps.
-    const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph].find(
+    const matchedGraph = [this.graph, this.manualGraph, this.cartoonGraph, this.illustratedStoryGraph].find(
       (g) => `${g.graph_id}@${g.version}` === runGraph,
     );
 

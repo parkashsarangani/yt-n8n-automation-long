@@ -1,0 +1,16 @@
+{
+  "name": "episode_director",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "script", "range": "^1", "as": "script" }
+  ],
+  "produces": "episode_direction",
+  "prompt": "episode_director@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 10000
+  },
+  "confidence_dimensions": ["prompt_specificity", "camera_variety"],
+  "retry": { "max_attempts": 3 }
+}

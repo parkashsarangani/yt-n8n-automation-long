@@ -21,6 +21,8 @@ import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeCastLoaderWorker } from "./cast.ts";
 import { makeScriptQualityReleaseWorker } from "./script-quality-release.ts";
 import { makeExplanationPlanReleaseWorker } from "./explanation-plan-release.ts";
+import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
+import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
 
 export {
   makeVoiceWorker,
@@ -37,6 +39,8 @@ export {
   makeCastLoaderWorker,
   makeScriptQualityReleaseWorker,
   makeExplanationPlanReleaseWorker,
+  makeWatchabilityReleaseWorker,
+  makeIllustratedSceneAssetsWorker,
 };
 export { buildPrompt } from "./assets.ts";
 
@@ -58,6 +62,7 @@ export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
   dialogueVoice?: DialogueVoiceWorkerOptions;
   assets?: AssetWorkerOptions;
+  illustratedAssets?: IllustratedSceneAssetsWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
   measure?: MeasureWorkerOptions;
@@ -81,9 +86,11 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeCastLoaderWorker(),
     makeScriptQualityReleaseWorker(),
     makeExplanationPlanReleaseWorker(),
+    makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeDialogueVoiceWorker(opts.dialogueVoice ?? { defaultVoiceId: opts.voice.voiceId }),
     makeAssetWorker(opts.assets ?? {}),
+    makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
     makeV16CartoonSceneCompilerWorker(),
     makeSemanticVisualAssetsWorker(),
     productionHybrid,

@@ -172,6 +172,18 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // Illustrated-story mode (RFC 0008): single-narrator voice-over over
+    // sequential hand-drawn stills. No characters, no cast_roster.
+    if (route === "POST /api/runs/illustrated-story") {
+      const body = (await readJson(req)) as { brief?: string; duration_sec?: number };
+      const runId = await service.startIllustratedStoryRun(
+        String(body.brief ?? ""),
+        body.duration_sec ?? 180,
+      );
+      json(res, 201, { run_id: runId });
+      return;
+    }
+
     const runMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (req.method === "GET" && runMatch) {
       const run = service.getRun(runMatch[1]!);

@@ -95,11 +95,12 @@ test("run-start preflight checks gate on the credential that is actually require
   // startCartoonRun call failed unconditionally even with Ollama fully
   // configured. Neither call site had test coverage at the time. Reasoning
   // has since moved to OpenAI; keep the same regression class covered
-  // against whatever credential is actually required now.
+  // against whatever credential is actually required now. RFC 0008 added a
+  // third run-start entry point, startIllustratedStoryRun, with the same guard.
   const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(service, /ANTHROPIC_API_KEY/);
   assert.doesNotMatch(service, /OLLAMA_BASE_URL/);
   const matches = service.match(/OPENAI_API_KEY.*is not set/g) ?? [];
-  assert.equal(matches.length, 2, "startRun and startCartoonRun should both gate on OPENAI_API_KEY");
+  assert.equal(matches.length, 3, "startRun, startCartoonRun and startIllustratedStoryRun should all gate on OPENAI_API_KEY");
 });

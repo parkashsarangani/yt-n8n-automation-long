@@ -52,9 +52,11 @@ test("loads the real project schemas", async () => {
   // produced_by to allow "human", for the manual-script flow. script's later
   // 1.2.0 adds optional speaker/emotion for cartoon-mode dialogue; 1.5.0
   // widens emotion's enum from 6 values to the 12 visual_plan already uses;
-  // 1.6.0 raises point's maxLength from 300 to 420.
-  assert.equal(reg.resolveVersion("story"), "1.2.0");
-  assert.equal(reg.resolveVersion("script"), "1.6.0");
+  // 1.6.0 raises point's maxLength from 300 to 420. story@1.3.0 and
+  // script@1.7.0 (RFC 0008) each add the illustrated-story pipeline's new
+  // producers to the same allowlist, again with no payload change.
+  assert.equal(reg.resolveVersion("story"), "1.3.0");
+  assert.equal(reg.resolveVersion("script"), "1.7.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {

@@ -1,0 +1,18 @@
+{
+  "name": "watchability_critic",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "story", "range": "^1", "as": "story" },
+    { "schema_id": "script", "range": "^1", "as": "script" }
+  ],
+  "produces": "watchability_report",
+  "prompt": "watchability_critic@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 6000,
+    "effort": "high"
+  },
+  "confidence_dimensions": ["evaluation_reliability"],
+  "retry": { "max_attempts": 2 }
+}

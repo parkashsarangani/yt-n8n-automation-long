@@ -119,10 +119,13 @@ test("the catalog loads every agent as pure data", async () => {
       "dialogue_script_writer",
       "discovery",
       "emotional_entertainment_editor",
+      "episode_director",
       "episode_visual_modeler",
       "explanation_plan_critic",
       "explanation_plan_reviser",
       "explanation_visual_planner",
+      "narration_script_writer",
+      "narrative_story_architect",
       "retention_character_editor",
       "script_quality_critic",
       "script_quality_reviser",
@@ -131,6 +134,7 @@ test("the catalog loads every agent as pure data", async () => {
       "story_architect",
       "thumbnail_designer",
       "visual_planner",
+      "watchability_critic",
     ],
   );
   for (const def of agents.values()) {
