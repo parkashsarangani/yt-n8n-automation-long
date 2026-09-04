@@ -299,6 +299,16 @@ export class Runner {
         ({ payload: rawPayload, confidence } = unwrap(value, def.name));
       } catch (err) {
         if (!(err instanceof ProviderError)) throw err;
+        // unwrap() failing (missing "payload", or a malformed/out-of-range
+        // confidence.overall) used to propagate straight out of this loop,
+        // skipping the retry-with-feedback path entirely: no run_records
+        // entry, no chance for the model to see and fix the problem, and a
+        // hard failure on attempt 1 regardless of max_attempts -- a run
+        // needed a manual top-level retry every time this happened, and each
+        // retry gave the model a genuinely fresh attempt 1 rather than the
+        // in-agent retry budget doing its job. Treated the same as a schema
+        // validation failure now: recorded, fed back via lastErrors, and
+        // retried within this agent's own attempt budget.
         lastErrors = [err.message];
         await this.writeRecord({
           run_id: runId,
@@ -338,6 +348,12 @@ export class Runner {
             repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
+      // "Fix what the system already knows how to fix, don't spend a retry
+      // attempt on it" -- for the one real production mistake the script
+      // writers keep making: writing the outro scene's real content in the
+      // correct final position and simply omitting is_outro:true. See
+      // repairMissingOutroFlag's own comment for the production evidence and
+      // why the repair stays conservative.
       const { data: payload, repairs: outroRepairs } = def.produces === "script"
         ? repairMissingOutroFlag(enumRepaired)
         : { data: enumRepaired, repairs: [] };
@@ -387,6 +403,7 @@ export class Runner {
       }
 
       const semanticErrors = agentSemanticValidationErrors(def, payload, inputs);
+      // The HARD: marker is an internal routing signal, never user-facing text.
       const displayErrors = semanticErrors.map((e) => e.startsWith(HARD_ERROR_PREFIX) ? e.slice(HARD_ERROR_PREFIX.length) : e);
       if (semanticErrors.length > 0 && attempt < maxAttempts) {
         lastErrors = displayErrors;
@@ -410,6 +427,11 @@ export class Runner {
           startedMs,
           error: displayErrors.join("; "),
           retry_reason: classifyRetryReason(displayErrors),
+          // Semantic gate rejections only ever recorded the error message,
+          // never the payload that triggered it -- undiagnosable after the
+          // fact without re-running (real cost) or guessing. The schema
+          // path above doesn't need this: SchemaValidationError already
+          // names the offending path/value per error.
           detail: JSON.stringify(payload).slice(0, 50_000),
         });
         this.deps.logger?.warn(
@@ -417,6 +439,16 @@ export class Runner {
         );
         continue;
       }
+      // Schema-valid but still failing the quality gate on the last attempt.
+      // For a soft gate (style/quality, e.g. natural-dialogue phrasing),
+      // accept it rather than throwing away a structurally sound artifact and
+      // blocking the whole run. A hard gate is different: it mirrors an
+      // unconditional throw with no retry in a downstream worker, so
+      // accepting the artifact does not avoid the block -- it just spends one
+      // more attempt arriving at the identical permanent block one stage
+      // later (production case: run_39850b3e's visual_plan was accepted with
+      // an incompatible operation/primitive pair on attempt 3/3, and the
+      // compiler rejected the stored artifact with no way to recover).
       if (semanticErrors.length > 0 && hasHardSemanticError(semanticErrors)) {
         throw new RunnerError(
           `${def.name} produced a ${def.produces} that still fails a hard validation rule after ${maxAttempts} attempts: ${displayErrors.join("; ")}`,
@@ -490,6 +522,9 @@ export class Runner {
       ? (await this.deps.runLog.all()).filter((r) => r.run_id === runId && r.node_id === opts.nodeId)
       : [];
     const priorFailures = nodeRecords.filter((r) => r.status === "failed").length;
+    // Most recent earlier success for this exact node in this run, if any --
+    // still present in the log even after a "retry" record invalidates it
+    // for deriveCompleted()'s purposes (see regenerateNode()/pruneIncompleteDependencies).
     const priorSuccess = nodeRecords
       .filter((r) => r.output && (r.status === "ok" || r.status === "cache_hit" || r.status === "accepted_below_quality_bar"))
       .at(-1);
@@ -607,6 +642,7 @@ function renderRetryBlock(errors: string[]): string {
     `Do not change anything else, and do not explain the fix.\n`
   );
 }
+
 
 function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_contract" | "visual_explanation" | "other_semantic" {
   const text = errors.join(" ").toLowerCase();
