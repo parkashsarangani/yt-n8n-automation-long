@@ -179,7 +179,7 @@ export class OpenAIProvider implements ModelProvider {
       if (!this.apiKey) {
         const detail = freeError instanceof Error ? freeError.message : String(freeError);
         throw new ProviderError(
-          `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not configured for fail-open: ${detail}`,
+          `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not set for fail-open: ${detail}`,
         );
       }
       // Cost-oriented signal only. Do not log prompts, response bodies, API
