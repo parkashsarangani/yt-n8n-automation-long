@@ -47,7 +47,7 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_MEDIA_TIMEOUT_MS",
       "ELEVENLABS_VOICE_ID",
     ],
-    real: "freellmapi-speech/${FREELLMAPI_SPEECH_MODEL:-openai-audio}",
+    real: "freellmapi-speech/${FREELLMAPI_SPEECH_MODEL:-auto}",
     fallback: "fake",
     consequence: "silent placeholder audio; set SPEECH_PROVIDER_MODE=elevenlabs to roll back to ElevenLabs",
   },
@@ -61,7 +61,7 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_IMAGE_MODEL",
       "FREELLMAPI_MEDIA_TIMEOUT_MS",
     ],
-    real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-flux}",
+    real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-auto}",
     fallback: "unavailable",
     consequence:
       "without the selected image provider every scene degrades to a placeholder; set IMAGE_PROVIDER_MODE=fal to restore reference-conditioned FLUX.2 editing",
@@ -189,12 +189,12 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
 
 function speechProvider(env: NodeJS.ProcessEnv): string {
   if (speechMode(env) === "elevenlabs") return "elevenlabs";
-  return `freellmapi/${env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "openai-audio"}`;
+  return `freellmapi/${env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "auto"}`;
 }
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
   if (imageMode(env) === "fal") return "fal/flux-2 + flux-2/edit";
-  return `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux"} (text-to-image; no reference edit)`;
+  return `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto"} (text-to-image; no reference edit)`;
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
