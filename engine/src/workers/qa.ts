@@ -6,13 +6,15 @@ interface Check { id: string; status: Status; message: string; measured?: number
 interface Intent { target_duration_sec?: number }
 interface Script { scenes?: Array<{ scene_index: number; narration?: string }>; word_count?: number }
 interface VisualReview { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string; scores?: Record<string, number> }
-interface Assets { scenes?: Array<{ scene_index?: number; source?: string }>; degraded_count?: number; visual_review?: VisualReview }
+interface Assets { scenes?: Array<{ scene_index?: number; source?: string; hero_shot_ids?: string[] }>; degraded_count?: number; visual_review?: VisualReview }
 interface Voice { clips?: Array<{ scene_index?: number; duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
 interface Thumb { background?: string; text?: string }
 interface Seo { title?: string; description?: string; tags?: string[] }
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const VISUAL_REVIEW_WARN_FLOOR = 0.68;
+const VISUAL_REVIEW_FAIL_FLOOR = 0.55;
+const CRITICAL_VISUAL_SCORES = ["opening_visual_strength", "payoff_visual_strength", "continuity", "ai_artifacts"] as const;
 
 export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxPlaceholderRatio = opts.maxPlaceholderRatio ?? 0.1;
@@ -20,7 +22,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxScriptDrift = opts.maxScriptDrift ?? 0.3;
   const wpm = opts.wordsPerMinute ?? 150;
   return {
-    name: opts.name ?? "qa", kind: "worker", version: opts.version ?? "2",
+    name: opts.name ?? "qa", kind: "worker", version: opts.version ?? "3",
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -58,13 +60,41 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
           : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery (${pct(fallbackRatio)})`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
 
       if (assets.visual_review) {
-        const remaining = assets.visual_review.remaining_flagged_shots?.length ?? 0;
-        const numericScores = Object.values(assets.visual_review.scores ?? {}).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+        const remainingIds = assets.visual_review.remaining_flagged_shots ?? [];
+        const remaining = remainingIds.length;
+        const heroIds = new Set(visualScenes.flatMap((s) => s.hero_shot_ids ?? []));
+        const remainingHeroes = remainingIds.filter((id) => heroIds.has(id));
+        const scores = assets.visual_review.scores ?? {};
+        const numericScores = Object.values(scores).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
         const minScore = numericScores.length ? Math.min(...numericScores) : null;
+        const criticalFailures = CRITICAL_VISUAL_SCORES
+          .flatMap((key) => {
+            const value = scores[key];
+            return typeof value === "number" && Number.isFinite(value) && value < VISUAL_REVIEW_FAIL_FLOOR
+              ? [`${key}=${value.toFixed(2)}`]
+              : [];
+          });
+
         if (assets.visual_review.status === "unavailable") {
           checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" });
+        } else if (remainingHeroes.length > 0) {
+          checks.push({
+            id: "episode_visual_review",
+            status: "fail",
+            message: `${remainingHeroes.length} hero shot(s) remain flagged after targeted regeneration: ${remainingHeroes.join(", ")}`,
+            measured: remainingHeroes.length,
+            threshold: 0,
+          });
+        } else if (criticalFailures.length > 0) {
+          checks.push({
+            id: "episode_visual_review",
+            status: "fail",
+            message: `critical visual-review score below ${VISUAL_REVIEW_FAIL_FLOOR.toFixed(2)}: ${criticalFailures.join(", ")}`,
+            measured: Math.min(...criticalFailures.map((item) => Number(item.split("=")[1]))),
+            threshold: VISUAL_REVIEW_FAIL_FLOOR,
+          });
         } else if (remaining > 0) {
-          checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 });
+          checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} non-hero shot(s) remain flagged after targeted regeneration: ${remainingIds.join(", ")}`, measured: remaining, threshold: 0 });
         } else if (assets.visual_review.status === "warn" || (minScore !== null && minScore < VISUAL_REVIEW_WARN_FLOOR)) {
           checks.push({
             id: "episode_visual_review",

@@ -7,6 +7,7 @@
     { "schema_id": "channel_insights", "range": "^2", "as": "insights" }
   ],
   "produces": "growth_package",
+  "produces_version": "1.1.0",
   "prompt": "growth_packager@1",
   "model": {"capability": "reasoning_high", "max_output_tokens": 5000},
   "confidence_dimensions": ["clickability", "story_potential", "audience_size"],

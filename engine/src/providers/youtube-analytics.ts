@@ -32,6 +32,8 @@ const DISCOVERY_METRICS = [
   "videoThumbnailImpressionsClickRate",
 ] as const;
 
+type QueryResult = Record<string, number | string> | "unknown-metric" | "no-data";
+
 export interface YouTubeAnalyticsOptions {
   accessToken: string | (() => Promise<string>);
   baseUrl?: string;
@@ -118,6 +120,13 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
       }
     } else if (!this.discoverySupported) {
       unavailable.push(`${DISCOVERY_METRICS.join(", ")} (not supported)`);
+    }
+
+    if (row === "no-data") {
+      throw new ProviderError(
+        `youtube analytics returned no rows for ${externalId} in ${window.start_date}..${window.end_date}; ` +
+        "treating the observation as unavailable rather than inventing zero performance",
+      );
     }
 
     const get = (name: string): number | null => {
@@ -217,7 +226,7 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
     externalId: string,
     window: AnalyticsWindow,
     metrics: string[],
-  ): Promise<Record<string, number | string> | "unknown-metric"> {
+  ): Promise<QueryResult> {
     const url = new URL(`${this.baseUrl}/reports`);
     url.searchParams.set("ids", "channel==MINE");
     url.searchParams.set("startDate", window.start_date);
@@ -255,10 +264,14 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
 
     const body = (await res.json()) as ReportResponse;
     const headers = (body.columnHeaders ?? []).map((h) => h.name);
-    const values = body.rows?.[0] ?? headers.map(() => 0);
+    const values = body.rows?.[0];
+    if (!values) return "no-data";
 
     const row: Record<string, number | string> = {};
-    headers.forEach((name, i) => { row[name] = values[i] ?? 0; });
+    headers.forEach((name, i) => {
+      const value = values[i];
+      if (value !== undefined) row[name] = value;
+    });
     return row;
   }
 }
