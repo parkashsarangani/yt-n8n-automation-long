@@ -41,13 +41,13 @@ services:
       FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-auto:smart}
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
-      # Experimental media routing. Defaults intentionally switch both media
-      # capabilities to FreeLLMAPI while retaining one-variable rollback to the
-      # established paid providers.
+      # Experimental media routing. Media model ids are installation/catalog
+      # specific, so `auto` is the only portable default. Paid providers remain
+      # available for config-only rollback.
       IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}
-      FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-flux}
-      FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-openai-audio}
+      FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}
+      FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-auto}
       FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}
       FREELLMAPI_SPEECH_FORMAT: ${FREELLMAPI_SPEECH_FORMAT:-mp3}
       FREELLMAPI_MEDIA_TIMEOUT_MS: ${FREELLMAPI_MEDIA_TIMEOUT_MS:-120000}
