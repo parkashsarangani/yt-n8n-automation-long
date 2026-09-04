@@ -20,33 +20,13 @@ function cleanBaseUrl(value: string | undefined): string {
   return (value?.trim() || "http://freellmapi:3001/v1").replace(/\/+$/, "");
 }
 
-function timeoutSignal(timeoutMs: number): AbortSignal {
-  return AbortSignal.timeout(Math.max(1_000, timeoutMs));
+function positiveTimeout(value: number | undefined, envValue: string | undefined): number {
+  const parsed = value ?? Number(envValue || 120_000);
+  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : 120_000;
 }
 
-function wavDurationSeconds(bytes: Uint8Array): number | undefined {
-  if (bytes.length < 44) return undefined;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const text = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));
-  if (text(0, 4) !== "RIFF" || text(8, 4) !== "WAVE") return undefined;
-
-  let byteRate: number | undefined;
-  let dataBytes: number | undefined;
-  let offset = 12;
-  while (offset + 8 <= bytes.length) {
-    const id = text(offset, 4);
-    const size = view.getUint32(offset + 4, true);
-    const payload = offset + 8;
-    if (payload + size > bytes.length) break;
-    if (id === "fmt " && size >= 16) byteRate = view.getUint32(payload + 8, true);
-    if (id === "data") {
-      dataBytes = size;
-      break;
-    }
-    offset = payload + size + (size % 2);
-  }
-  if (!byteRate || dataBytes === undefined) return undefined;
-  return Number((dataBytes / byteRate).toFixed(3));
+function timeoutSignal(timeoutMs: number): AbortSignal {
+  return AbortSignal.timeout(timeoutMs);
 }
 
 export interface FreeLLMImageOptions {
@@ -80,7 +60,7 @@ export class FreeLLMImageProvider implements ImageProvider {
     // keyless behind FreeLLMAPI and honors width/height, unlike several free
     // adapters that currently force square output. Operators can override it.
     this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux";
-    this.timeoutMs = opts.timeoutMs ?? Number(process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"] || 120_000);
+    this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-image/${this.model}`;
   }
@@ -158,7 +138,7 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly model: string;
-  private readonly format: string;
+  private readonly format: "mp3";
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -172,8 +152,17 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     // preserves a single OpenAI-style voice name across every scene.
     this.model = opts.model?.trim() || process.env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "openai-audio";
     this.defaultVoice = opts.voice?.trim() || process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "onyx";
-    this.format = opts.format?.trim() || process.env["FREELLMAPI_SPEECH_FORMAT"]?.trim() || "mp3";
-    this.timeoutMs = opts.timeoutMs ?? Number(process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"] || 120_000);
+    const configuredFormat = opts.format?.trim().toLowerCase()
+      || process.env["FREELLMAPI_SPEECH_FORMAT"]?.trim().toLowerCase()
+      || "mp3";
+    // The current voice artifact/render contract does not persist per-clip media
+    // type and the renderer reads narration as MP3. Refuse a misleading WAV/PCM
+    // configuration instead of generating valid bytes that are later mislabeled.
+    if (configuredFormat !== "mp3") {
+      throw new ProviderError(`FreeLLMSpeechProvider currently requires mp3 output; received '${configuredFormat}'`);
+    }
+    this.format = "mp3";
+    this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-speech/${this.model}`;
   }
@@ -190,8 +179,8 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
         body: JSON.stringify({
           model: this.model,
           input: req.text,
-          // Do not forward ELEVENLABS_VOICE_ID from the unchanged voice worker.
-          // FreeLLM has its own explicitly configured episode narrator.
+          // The worker passes the effective configured FreeLLM voice. Keep this
+          // provider deterministic even if called directly with another value.
           voice: this.defaultVoice,
           response_format: this.format,
         }),
@@ -206,7 +195,7 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
 
     const audio = new Uint8Array(await res.arrayBuffer());
     if (!audio.length) throw new ProviderError(`${this.id} returned empty audio`);
-    const mediaType = res.headers.get("content-type") || (this.format === "wav" ? "audio/wav" : "audio/mpeg");
+    const mediaType = res.headers.get("content-type") || "audio/mpeg";
     const provider = res.headers.get("x-provider");
     const actualModel = provider ? `${provider}/${this.model}` : this.model;
     const usage: Usage = {
@@ -220,9 +209,6 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     return {
       audio,
       media_type: mediaType,
-      ...(mediaType.includes("wav") && wavDurationSeconds(audio) !== undefined
-        ? { duration_sec: wavDurationSeconds(audio)! }
-        : {}),
       usage,
     };
   }
