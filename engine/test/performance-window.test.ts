@@ -46,8 +46,9 @@ test("empty channel produces a valid v2 window with explicitly unavailable early
   const w = await buildPerformanceWindow(store, { now: NOW });
   assert.equal(w.episode_count, 0); assert.equal(w.ctr_available, false); assert.equal(w.retention_available, false);
   assert.equal(w.aggregates.median_views, 0); assert.equal(w.aggregates.median_view_percentage, null);
+  assert.equal(w.aggregates.median_average_view_duration_sec, null);
   assert.equal(w.aggregates.median_retention_30s, null); assert.deepEqual(w.episodes, []);
-  assert.doesNotThrow(() => registry.validate("performance_window", "2.0.0", w));
+  assert.doesNotThrow(() => registry.validate("performance_window", "2.1.0", w));
 });
 
 test("each measurement is joined to title, keyword, thumbnail and early retention", async () => {
@@ -56,8 +57,8 @@ test("each measurement is joined to title, keyword, thumbnail and early retentio
   const w = await buildPerformanceWindow(store, { now: NOW });
   const e = w.episodes[0]!;
   assert.equal(e.title, "Why Chile Is So Absurdly Long"); assert.equal(e.primary_keyword, "why is chile so long"); assert.equal(e.thumbnail_text, "It Never Existed");
-  assert.equal(e.metrics.retention_30s, 0.73); assert.equal(w.retention_available, true);
-  assert.doesNotThrow(() => registry.validate("performance_window", "2.0.0", w));
+  assert.equal(e.metrics.retention_30s, 0.73); assert.equal(e.metrics.average_view_duration_sec, 300); assert.equal(w.retention_available, true);
+  assert.doesNotThrow(() => registry.validate("performance_window", "2.1.0", w));
 });
 
 test("re-measuring one video counts once and newest measurement wins", async () => {
@@ -76,7 +77,7 @@ test("aggregates use medians including early-retention medians", async () => {
   await episode(store, { ...common, id: "b", title: "Episode Bravo", publishedAt: "2026-07-02T00:00:00.000Z", views: 200, r30: 0.7 });
   await episode(store, { ...common, id: "c", title: "Episode Charlie", publishedAt: "2026-07-03T00:00:00.000Z", views: 90000, r30: 0.9 });
   const w = await buildPerformanceWindow(store, { now: NOW });
-  assert.equal(w.aggregates.median_views, 200); assert.equal(w.aggregates.median_retention_30s, 0.7);
+  assert.equal(w.aggregates.median_views, 200); assert.equal(w.aggregates.median_average_view_duration_sec, 300); assert.equal(w.aggregates.median_retention_30s, 0.7);
   assert.notEqual(w.aggregates.median_views, (100 + 200 + 90000) / 3);
 });
 
@@ -106,5 +107,6 @@ test("legacy published episode without SEO/thumbnail still contributes measured 
   }, "measure", [published.artifact_id]);
   const w = await buildPerformanceWindow(store, { now: NOW });
   assert.equal(w.episode_count, 1); assert.equal(w.episodes[0]!.title, "An Older Video"); assert.equal(w.episodes[0]!.thumbnail_text, undefined);
-  assert.doesNotThrow(() => registry.validate("performance_window", "2.0.0", w));
+  assert.equal(w.episodes[0]!.metrics.average_view_duration_sec, 240);
+  assert.doesNotThrow(() => registry.validate("performance_window", "2.1.0", w));
 });
