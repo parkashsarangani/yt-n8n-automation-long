@@ -46,6 +46,9 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
+    // RFC 0009 canonical implementation. There is deliberately one worker
+    // behind this transformation id so focused tests and production exercise
+    // the same multi-shot / hero / sequence-review code path.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),

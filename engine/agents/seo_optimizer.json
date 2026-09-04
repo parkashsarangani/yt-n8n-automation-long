@@ -1,18 +1,19 @@
 {
   "name": "seo_optimizer",
   "kind": "agent",
-  "version": "1",
+  "version": "2",
   "consumes": [
     { "schema_id": "story", "range": "^1", "as": "story" },
-    { "schema_id": "script", "range": "^1", "as": "script" }
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
   ],
   "produces": "seo_metadata",
-  "prompt": "seo_optimizer@1",
+  "prompt": "seo_optimizer@2",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 2000,
+    "max_output_tokens": 2500,
     "effort": "low"
   },
-  "confidence_dimensions": ["searchability", "honesty"],
+  "confidence_dimensions": ["searchability", "honesty", "package_fidelity"],
   "retry": { "max_attempts": 3 }
 }

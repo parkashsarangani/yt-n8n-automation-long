@@ -56,6 +56,7 @@ import {
   type GraphRunResult,
 } from "./executor.ts";
 import { validateGraph } from "./graph.ts";
+import { packageSeedOf, type DiscoveryCandidate, type PackageSeed } from "./growth-scheduler.ts";
 import {
   credentialStatus,
   readEnvFile,
@@ -138,6 +139,14 @@ type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_s
 export interface RunOptions {
   genre?: Genre;
   imageStyle?: ImageStyle;
+  /**
+   * The discovery-tournament winner, passed as typed data on intent rather
+   * than smuggled into the brief text. RFC 0009 decision 1 requires production
+   * to BEGIN from the already-selected package; a prose brief the packager has
+   * to parse is a contract it can silently ignore -- and did, because the
+   * marker the scheduler wrote never matched the one the prompt read.
+   */
+  packageSeed?: PackageSeed;
 }
 
 /**
@@ -539,6 +548,7 @@ export class VidGenService {
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
         ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
+        ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
@@ -1262,13 +1272,21 @@ export class VidGenService {
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
-          const top = (found.candidates as { candidates?: Array<{ brief?: string; genre?: Genre }> } | null)
-            ?.candidates?.[0];
+          const top = (found.candidates as { candidates?: DiscoveryCandidate[] } | null)?.candidates?.[0];
           if (!top?.brief) {
             console.log("[scheduler] discovery returned no candidate; not starting a run");
             return;
           }
-          const runId = await this.startRun(top.brief, undefined, top.genre ? { genre: top.genre } : {});
+          // RFC 0009 decision 1: the winner reaches the packager as typed data
+          // on intent, never as prose the packager has to parse back out.
+          const seed = packageSeedOf(top);
+          if (!seed) {
+            console.log("[scheduler] winning candidate is missing package fields; running it as a plain brief");
+          }
+          const runId = await this.startRun(top.brief, undefined, {
+            ...(top.genre ? { genre: top.genre } : {}),
+            ...(seed ? { packageSeed: seed } : {}),
+          });
           console.log(`[scheduler] started ${runId} for: ${top.brief} -- driving unattended through to publish`);
           // startRun() already chains driveUnattended() itself now (every run
           // self-heals, not only scheduled ones) -- this job's run() still has

@@ -1,0 +1,65 @@
+{
+  "schema_id": "growth_package",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "RFC 0009 pre-script audience proposition. Binds the selected premise, emotional engine, three materially different title/thumbnail propositions, and the first-30-second click-promise contract before story/script generation begins.",
+  "produced_by": ["growth_packager"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GrowthPackageArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["premise", "target_audience", "curiosity_gap", "emotional_engine", "selected_title", "selected_thumbnail_concept", "opening_visual", "opening_line", "first_30_seconds", "variants", "scores", "selection_rationale"],
+    "properties": {
+      "premise": {"type": "string", "minLength": 15, "maxLength": 400},
+      "target_audience": {"type": "string", "minLength": 8, "maxLength": 240},
+      "curiosity_gap": {"type": "string", "minLength": 8, "maxLength": 240},
+      "emotional_engine": {"type": "string", "minLength": 8, "maxLength": 180},
+      "selected_title": {"type": "string", "minLength": 8, "maxLength": 100},
+      "selected_thumbnail_concept": {"type": "string", "minLength": 8, "maxLength": 260},
+      "opening_visual": {"type": "string", "minLength": 12, "maxLength": 320},
+      "opening_line": {"type": "string", "minLength": 8, "maxLength": 220},
+      "first_30_seconds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["promise", "zero_to_five", "five_to_fifteen", "fifteen_to_thirty"],
+        "properties": {
+          "promise": {"type": "string", "minLength": 8, "maxLength": 220},
+          "zero_to_five": {"type": "string", "minLength": 8, "maxLength": 260},
+          "five_to_fifteen": {"type": "string", "minLength": 8, "maxLength": 260},
+          "fifteen_to_thirty": {"type": "string", "minLength": 8, "maxLength": 260}
+        }
+      },
+      "variants": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["family", "title", "thumbnail_concept", "click_reason"],
+          "properties": {
+            "family": {"type": "string", "enum": ["curiosity", "conflict", "reversal"]},
+            "title": {"type": "string", "minLength": 8, "maxLength": 100},
+            "thumbnail_concept": {"type": "string", "minLength": 8, "maxLength": 260},
+            "click_reason": {"type": "string", "minLength": 8, "maxLength": 220}
+          }
+        }
+      },
+      "scores": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clickability", "story_potential", "audience_size"],
+        "properties": {
+          "clickability": {"type": "number", "minimum": 0, "maximum": 1},
+          "story_potential": {"type": "number", "minimum": 0, "maximum": 1},
+          "audience_size": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      },
+      "selection_rationale": {"type": "string", "minLength": 20, "maxLength": 500},
+      "evidence": {"type": "string", "maxLength": 500},
+      "next_video_bridge": {"type": "string", "maxLength": 220, "description": "Optional continuation-oriented end-screen/open-loop line. Must point toward another relevant episode concept, not a generic like-and-subscribe CTA."},
+      "hero_motion_eligible": {"type": "boolean", "description": "Metadata only. True means the package would justify evaluating bounded AI-video clips for hero beats IF retention evidence has activated that feature; it does not itself enable AI video."}
+    }
+  }
+}

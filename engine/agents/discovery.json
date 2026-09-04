@@ -1,18 +1,34 @@
 {
   "name": "discovery",
   "kind": "agent",
-  "version": "3",
+  "version": "4",
   "consumes": [
-    { "schema_id": "topic_history", "range": "^1", "as": "history" },
-    { "schema_id": "channel_insights", "range": "^1", "as": "insights" }
+    {
+      "schema_id": "topic_history",
+      "range": "^1",
+      "as": "history"
+    },
+    {
+      "schema_id": "channel_insights",
+      "range": "^2",
+      "as": "insights"
+    }
   ],
   "produces": "topic_candidates",
-  "prompt": "discovery@3",
+  "produces_version": "2.0.0",
+  "prompt": "discovery@4",
   "model": {
     "capability": "reasoning_fast",
-    "max_output_tokens": 3000,
+    "max_output_tokens": 12000,
     "effort": "low"
   },
-  "confidence_dimensions": ["novelty", "evidence_strength"],
-  "retry": { "max_attempts": 3 }
+  "confidence_dimensions": [
+    "novelty",
+    "evidence_strength",
+    "clickability",
+    "story_potential"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
 }

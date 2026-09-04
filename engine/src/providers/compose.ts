@@ -19,6 +19,7 @@ export interface ComposeRendererOptions {
   baseUrl: string;
   pollIntervalSec?: number;
   timeoutSec?: number;
+  /** Backward-compatible fallback only; production RFC 0009 passes the bridge per render request. */
   outroLine?: string;
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
@@ -50,6 +51,7 @@ type HybridScene = RenderRequest["scenes"][number] & {
   continuity_group?: string;
   shot_types?: string[];
 };
+type ContinuationRenderRequest = RenderRequest & { outro_line?: string };
 
 export interface DiagnosticThumbnailResult extends ThumbnailResult {
   degradation_reason?: string;
@@ -85,7 +87,13 @@ export class ComposeRenderer implements MediaRenderer {
   private readonly baseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
-  private readonly outroLine: string;
+  /**
+   * RFC 0009 decision 11: there is no generic engagement default. This field
+   * remains only for backward-compatible callers that intentionally configure
+   * a continuation line globally; production passes the episode's bridge on
+   * the render request so one episode can never inherit another's CTA.
+   */
+  private readonly outroLine: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -93,7 +101,7 @@ export class ComposeRenderer implements MediaRenderer {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.pollIntervalMs = (opts.pollIntervalSec ?? 15) * 1000;
     this.timeoutMs = (opts.timeoutSec ?? 3600) * 1000;
-    this.outroLine = opts.outroLine ?? "What should we explain next? Subscribe.";
+    this.outroLine = opts.outroLine;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleepImpl = opts.sleepImpl ?? sleep;
   }
@@ -161,10 +169,12 @@ export class ComposeRenderer implements MediaRenderer {
     req: RenderRequest,
     opts: { onJob?: (jobId: string) => void | Promise<void>; signal?: AbortSignal } = {},
   ): Promise<RenderResult> {
+    const requestOutro = (req as ContinuationRenderRequest).outro_line?.trim();
+    const resolvedOutro = requestOutro || this.outroLine?.trim();
     const body = {
       caption_style: req.caption_style ?? "neutral",
       comment_hook: req.comment_hook ?? null,
-      outro_line: this.outroLine,
+      ...(resolvedOutro ? { outro_line: resolvedOutro } : {}),
       ...(req.thumbnail
         ? {
           thumbnail: {
@@ -195,45 +205,9 @@ export class ComposeRenderer implements MediaRenderer {
             : packedImages.length
               ? { images_base64: packedImages.map(toBase64) }
               : { _degraded: true }),
-          // A real spoken outro scene (dialogue_script_writer authoring
-          // is_outro:true, per the "spoken outro/CTA" feature) already has
-          // real template_category content -- the character-room compiler
-          // bypass gives it a full CartoonScene payload exactly like any
-          // other cartoon scene. That real content must win. This used to
-          // unconditionally force template_name to "kinetic_text" whenever
-          // is_outro was true and explicitly EXCLUDE template_category in
-          // that case (`s.template_category && !s.is_outro`), which was
-          // correct back when is_outro only ever marked the old synthetic
-          // silent-card placeholder with no real content of its own -- but
-          // it now silently discards a genuine authored scene's
-          // template_data, rendering a blank kinetic-text card instead
-          // (confirmed live, run_41601d4a: scene 32's real CartoonScene
-          // outro rendered as an empty "KineticText props keys: mood" card,
-          // and compose.js's own is_outro detection then injected a SECOND,
-          // generic fallback card after it since it never recognized the
-          // first one as the real outro). The kinetic_text fallback is now
-          // reserved for the genuinely rare case of an is_outro scene with
-          // no real template content at all -- an old/resumed artifact from
-          // before this feature existed.
           ...(s.template_category
             ? { visual_source: "template", template_name: s.template_category }
             : s.is_outro ? { visual_source: "template", template_name: "kinetic_text" } : {}),
-          // template_data travels independently of template_category now.
-          // It used to be nested inside that same conditional, which meant a
-          // plain illustrated-story scene (no template_category at all) had
-          // its template_data silently dropped before the request even left
-          // engine -- episode_director's camera_move never reached
-          // compose.js's buildImageScene, which fell back to its
-          // scene-index-parity default for every scene regardless of the
-          // director's actual choice (confirmed live, run_139b87a1: every
-          // rendered scene used the same alternating z=1.05.../1.10... /
-          // x=iw*0.035... pattern that scene-index parity alone produces).
-          //
-          // compose.js's own duplicate-outro detection (isOutroScene) looks
-          // for is_outro:true INSIDE template_data, not as a sibling field --
-          // without merging it in here, a real outro scene's own is_outro
-          // flag never reaches that check, and compose.js appends a second,
-          // generic fallback card after it.
           ...(bridgedTemplateData || s.is_outro
             ? { template_data: s.is_outro ? { ...(bridgedTemplateData ?? {}), is_outro: true } : bridgedTemplateData }
             : {}),

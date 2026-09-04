@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 interface AgentDef {
   name: string;
@@ -16,6 +16,12 @@ function agent(file: string): AgentDef {
 }
 
 test("low-risk agents still request low-effort fast reasoning", () => {
+  // RFC 0009 grew what these agents PRODUCE -- a 20-30 candidate package
+  // tournament, three packaging propositions, causal editorial memory -- but
+  // not how hard they have to think. They stay on the cheap tier and are
+  // bounded by output budget instead. This pipeline runs daily, so the
+  // reasoning tier is the recurring bill; moving an agent off this list is a
+  // real cost decision and should be argued for, not slipped in.
   const lowRisk = [
     "discovery.json",
     "seo_optimizer.json",
@@ -46,16 +52,40 @@ test("core creative agents do not request low-effort routing", () => {
 
 test("agent output budgets stay bounded", () => {
   const ceilings: Record<string, number> = {
-    "discovery.json": 3000,
-    "seo_optimizer.json": 2000,
-    "thumbnail_designer.json": 2000,
-    "channel_strategist.json": 3000,
-    "narrative_story_architect.json": 5000,
-    "narration_script_writer.json": 12000,
-    "episode_director.json": 10000,
+    // Raised from 3000 for RFC 0009's package tournament: 20-30 candidates,
+    // each carrying premise/audience/curiosity gap/titles/thumbnails/scores,
+    // physically cannot serialize into 3000 output tokens. Volume, not
+    // difficulty -- discovery stays on the cheap reasoning tier above.
+    "discovery.json": 12000,
+    // 2500 for RFC 0009 decision 8: three materially different packaging
+    // propositions (curiosity / injustice / reversal), not one title plus
+    // synonyms, do not fit the old single-package budget.
+    "seo_optimizer.json": 2500,
+    // Also 2500 for decision 8: three thumbnail concepts, one per framing
+    // family, rather than a single brief.
+    "thumbnail_designer.json": 2500,
+    "channel_strategist.json": 5000,
+    // 6500: the story now carries the package promise and first-30 beat
+    // structure (decision 2) alongside the story itself.
+    "narrative_story_architect.json": 6500,
+    // 14000: narration now has to realize the package's three-beat first-30
+    // contract, not just tell the story.
+    "narration_script_writer.json": 14000,
+    // 16000: direction emits 1-3 shots per narration beat (decision 3), so
+    // its output scales with shots, not scenes.
+    "episode_director.json": 16000,
     "watchability_critic.json": 18000,
     "visual_planner.json": 10000,
+    // growth_packager is new in RFC 0009 and must be bounded like the rest --
+    // an unlisted agent would silently escape this test entirely.
+    "growth_packager.json": 5000,
   };
+
+  // Every agent the catalog ships must appear above. Without this, adding a
+  // new agent is a way to opt out of the budget guardrail by omission, which
+  // is exactly how discovery's 6x raise would have gone unnoticed.
+  const shipped = readdirSync(new URL("../agents/", import.meta.url)).filter((f) => f.endsWith(".json"));
+  assert.deepEqual(shipped.sort(), Object.keys(ceilings).sort(), "every shipped agent needs a declared output ceiling");
 
   for (const [file, ceiling] of Object.entries(ceilings)) {
     const def = agent(file);

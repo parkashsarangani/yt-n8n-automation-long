@@ -103,7 +103,12 @@ export function makeAssetWorker(opts: AssetWorkerOptions = {}): WorkerDef {
     kind: "worker",
     version: opts.version ?? "3",
     consumes: [{ schema_id: "visual_plan", range: "^1", as: "plan" }],
-    produces: "asset_manifest",
+    // Pinned rather than resolved to "latest active": asset_manifest@2.0.0 is
+    // the RFC 0009 illustrated-growth shape (required shot packs, hero shot
+    // ids, episode-level visual review) and this stock-footage collector emits
+    // none of it. Without the pin, that schema bump silently invalidates every
+    // manifest this worker produces -- which is what broke the manual graph.
+    produces: "asset_manifest", produces_version: "1.8.0",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const scenes = (inputs["plan"]!.payload as { scenes: PlanScene[] }).scenes;

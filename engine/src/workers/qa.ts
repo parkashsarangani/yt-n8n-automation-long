@@ -1,34 +1,18 @@
-/**
- * QA worker: deterministic integrity + budget measurements against the
- * finished script/assets/voice/render/thumbnail/seo artifacts. Non-blocking
- * by convention (RFC 0008: nothing downstream of the watchability gate
- * blocks) -- every graph's approve_publish gate auto-passes regardless of
- * this worker's verdict; it exists so a bad run is visible, not to stop one.
- */
+/** Deterministic technical QA for illustrated episodes. RFC 0009 adds sequence-review visibility while retaining v1 manifest compatibility. */
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
-
-export interface QaWorkerOptions {
-  maxPlaceholderRatio?: number;
-  maxDurationDrift?: number;
-  maxScriptDrift?: number;
-  wordsPerMinute?: number;
-  version?: string;
-  name?: string;
-}
+export interface QaWorkerOptions { maxPlaceholderRatio?: number; maxDurationDrift?: number; maxScriptDrift?: number; wordsPerMinute?: number; version?: string; name?: string }
 type Status = "pass" | "warn" | "fail";
 interface Check { id: string; status: Status; message: string; measured?: number | null; threshold?: number | null }
 interface Intent { target_duration_sec?: number }
-interface ScriptScene { scene_index: number; narration?: string }
-interface Script { scenes?: ScriptScene[]; word_count?: number }
-interface AssetScene { scene_index?: number; source?: string }
-interface Assets { scenes?: AssetScene[]; degraded_count?: number }
-interface VoiceClip { scene_index?: number; duration_sec?: number }
-interface Voice { clips?: VoiceClip[]; total_duration_sec?: number }
+interface Script { scenes?: Array<{ scene_index: number; narration?: string }>; word_count?: number }
+interface VisualReview { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string; scores?: Record<string, number> }
+interface Assets { scenes?: Array<{ scene_index?: number; source?: string }>; degraded_count?: number; visual_review?: VisualReview }
+interface Voice { clips?: Array<{ scene_index?: number; duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
 interface Thumb { background?: string; text?: string }
 interface Seo { title?: string; description?: string; tags?: string[] }
-
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+const VISUAL_REVIEW_WARN_FLOOR = 0.68;
 
 export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxPlaceholderRatio = opts.maxPlaceholderRatio ?? 0.1;
@@ -36,13 +20,11 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxScriptDrift = opts.maxScriptDrift ?? 0.3;
   const wpm = opts.wordsPerMinute ?? 150;
   return {
-    name: opts.name ?? "qa",
-    kind: "worker",
-    version: opts.version ?? "1",
+    name: opts.name ?? "qa", kind: "worker", version: opts.version ?? "2",
     consumes: [
       { schema_id: "intent", range: "^1", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
-      { schema_id: "asset_manifest", range: "^1", as: "assets" },
+      { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
@@ -62,38 +44,43 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const targetSec = intent.target_duration_sec ?? 0;
       const visualScenes = [...(assets.scenes ?? [])].sort((a, b) => (a.scene_index ?? 0) - (b.scene_index ?? 0));
 
-      // Two distinct signals, deliberately not blended into one: a bare
-      // placeholder scene has NO image at all -- it renders as a black
-      // screen for its whole duration (long-compose falls back to a generic
-      // dark backdrop never meant to stand alone). A "fallback" scene reused
-      // the episode's own reference image instead -- a repeated shot, still
-      // real content, not blank. Real production evidence: an episode with
-      // 1 blank scene and 2 repeated-shot scenes (3/27, 11%) published
-      // publicly because the combined ratio crossed a threshold that treated
-      // both the same way. Any blank scene is now always a hard fail
-      // (approve_publish's auto-pass predicate holds the episode for review
-      // or a targeted retry, see VidGenService.driveUnattended) regardless of
-      // how small a fraction of the episode it is; a repeated shot alone
-      // stays a ratio-based warn, matching the original PR #209 design
-      // decision that a reused shot reads as an intentional callback, not a
-      // defect.
       const blankScenes = visualScenes.filter((s) => s.source === "placeholder").length;
       checks.push(blankScenes === 0
-        ? { id: "blank_scenes", status: "pass", message: "every scene has a real rendered image, not a blank placeholder" }
-        : { id: "blank_scenes", status: "fail", message: `${blankScenes} of ${sceneCount} scene(s) are blank placeholders with no image at all`, measured: blankScenes, threshold: 0 });
+        ? { id: "blank_scenes", status: "pass", message: "every scene has a real rendered image" }
+        : { id: "blank_scenes", status: "fail", message: `${blankScenes} of ${sceneCount} scene(s) are blank placeholders`, measured: blankScenes, threshold: 0 });
 
       const fallbackScenes = Math.max(0, (assets.degraded_count ?? blankScenes) - blankScenes);
       const fallbackRatio = sceneCount > 0 ? fallbackScenes / sceneCount : 0;
       checks.push(fallbackScenes === 0
-        ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable visual asset" }
+        ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable intended visual" }
         : fallbackRatio <= maxPlaceholderRatio
-          ? { id: "visual_assets_renderable", status: "warn", message: `${fallbackScenes} of ${sceneCount} scenes reused the episode's reference image instead of their own`, measured: fallbackRatio, threshold: maxPlaceholderRatio }
-          : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes reused the episode's reference image instead of their own (${pct(fallbackRatio)}) — the visual asset pipeline is degraded`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
+          ? { id: "visual_assets_renderable", status: "warn", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery`, measured: fallbackRatio, threshold: maxPlaceholderRatio }
+          : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery (${pct(fallbackRatio)})`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
+
+      if (assets.visual_review) {
+        const remaining = assets.visual_review.remaining_flagged_shots?.length ?? 0;
+        const numericScores = Object.values(assets.visual_review.scores ?? {}).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+        const minScore = numericScores.length ? Math.min(...numericScores) : null;
+        if (assets.visual_review.status === "unavailable") {
+          checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" });
+        } else if (remaining > 0) {
+          checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 });
+        } else if (assets.visual_review.status === "warn" || (minScore !== null && minScore < VISUAL_REVIEW_WARN_FLOOR)) {
+          checks.push({
+            id: "episode_visual_review",
+            status: "warn",
+            message: assets.visual_review.reason || `episode-level visual review minimum score ${minScore?.toFixed(2)} remains below ${VISUAL_REVIEW_WARN_FLOOR.toFixed(2)}`,
+            ...(minScore !== null ? { measured: minScore, threshold: VISUAL_REVIEW_WARN_FLOOR } : {}),
+          });
+        } else {
+          checks.push({ id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
+        }
+      }
 
       const clips = voice.clips?.length ?? 0;
       checks.push(clips === sceneCount
         ? { id: "narration_complete", status: "pass", message: `${clips} clips for ${sceneCount} scenes` }
-        : { id: "narration_complete", status: "fail", message: `${clips} voice clips for ${sceneCount} scenes — the video would have silent stretches`, measured: clips, threshold: sceneCount });
+        : { id: "narration_complete", status: "fail", message: `${clips} voice clips for ${sceneCount} scenes`, measured: clips, threshold: sceneCount });
       const rendered = render.scene_count ?? 0;
       checks.push(rendered === sceneCount
         ? { id: "scenes_rendered", status: "pass", message: `all ${sceneCount} scenes rendered` }
@@ -104,18 +91,19 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         checks.push(drift <= maxDurationDrift
           ? { id: "duration", status: "pass", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target`, measured: drift, threshold: maxDurationDrift }
           : { id: "duration", status: "fail", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target (${pct(drift)} off)`, measured: drift, threshold: maxDurationDrift });
-      } else checks.push({ id: "duration", status: "warn", message: "no rendered duration reported, so length could not be checked", measured: null });
+      } else checks.push({ id: "duration", status: "warn", message: "no rendered duration reported", measured: null });
 
       if (targetSec > 0 && typeof script.word_count === "number" && script.word_count > 0) {
         const budget = (targetSec / 60) * wpm;
         const drift = Math.abs(script.word_count - budget) / budget;
-        checks.push({ id: "script_length", status: drift <= maxScriptDrift ? "pass" : "warn", message: `${script.word_count} words against a ~${Math.round(budget)} word budget`, measured: drift, threshold: maxScriptDrift });
+        checks.push({ id: "script_length", status: drift <= maxScriptDrift ? "pass" : "warn", message: `${script.word_count} words against ~${Math.round(budget)}`, measured: drift, threshold: maxScriptDrift });
       }
       checks.push(thumb.background === "supplied"
-        ? { id: "thumbnail_image", status: "pass", message: "thumbnail uses a real photograph" }
-        : { id: "thumbnail_image", status: "warn", message: `thumbnail background is "${thumb.background ?? "unknown"}", not a photograph — worse, but still a designed thumbnail` });
+        ? { id: "thumbnail_image", status: "pass", message: "thumbnail uses a supplied image" }
+        : { id: "thumbnail_image", status: "warn", message: `thumbnail background is ${thumb.background ?? "unknown"}` });
 
-      const title = seo.title ?? "", description = seo.description ?? "";
+      const title = seo.title ?? "";
+      const description = seo.description ?? "";
       const tagChars = (seo.tags ?? []).reduce((n, t) => n + t.length, 0);
       const problems: string[] = [];
       if (title.length > 100) problems.push(`title ${title.length}/100 chars`);
@@ -123,7 +111,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       if (tagChars > 500) problems.push(`tags ${tagChars}/500 chars`);
       checks.push(problems.length === 0
         ? { id: "metadata_limits", status: "pass", message: "title, description and tags fit" }
-        : { id: "metadata_limits", status: "fail", message: `YouTube would reject this upload: ${problems.join("; ")}` });
+        : { id: "metadata_limits", status: "fail", message: `YouTube would reject: ${problems.join("; ")}` });
 
       const failed = checks.filter((c) => c.status === "fail").length;
       const warned = checks.filter((c) => c.status === "warn").length;
