@@ -7,56 +7,35 @@ container, database volume, or copy of the Shorts `llm-gateway`.
 ## Runtime architecture
 
 ```text
-Long reasoning agents ---- ProviderRouter/OpenAIProvider ----+
-                                                             |
-Long illustration vision QA --------------------------------+
-                                                             |
-                                      LLM_ROUTER_MODE=freellmapi
-                                                             |
-                                   shared freellmapi:3001
-                                   (owned by Shorts stack)
-                                                             |
-                                     free hosted providers
+reasoning + vision QA -------------------+
+                                         |
+experimental image generation -----------+--> shared freellmapi:3001
+                                         |
+experimental narration ------------------+
 
-                              on outage/quota/error, when enabled
-                                                             |
-                                      direct paid OpenAI
-                                      (owned by Long)
+reasoning failure (when enabled) ------------> direct paid OpenAI
+IMAGE_PROVIDER_MODE=fal ---------------------> Fal FLUX.2 + edit
+SPEECH_PROVIDER_MODE=elevenlabs -------------> ElevenLabs
 ```
 
-The ownership split is deliberate:
-
-- `yt-n8n-automation-shorts` owns the pinned FreeLLMAPI container, its encrypted
-  SQLite state, the upstream free-provider credentials, and the Docker network
-  `yt-n8n-automation-shorts_default`.
-- `yt-n8n-automation-long` owns its application-level routing policy and its
-  direct OpenAI fail-open credential.
-- Long uses only FreeLLMAPI's unified client key. It does not need or receive the
-  individual upstream provider keys stored by the shared FreeLLMAPI instance.
-- Long does not use the Shorts `llm-gateway`; doing so would couple Long to the
-  Shorts gateway lifecycle and its paid fallback credentials.
-
-This keeps one copy of FreeLLMAPI on the resource-constrained host while keeping
-paid fallback/accounting isolated per application.
+`yt-n8n-automation-shorts` remains the infrastructure owner: pinned FreeLLMAPI
+container, encrypted provider state and Docker network. Long owns only its
+application routing policy and direct-provider rollback credentials.
 
 ## Activation
 
-1. Make sure the Shorts FreeLLMAPI deployment is configured and healthy. Its
-   dashboard remains loopback-only on host port `127.0.0.1:3001`.
-2. Use the same FreeLLMAPI unified key for Long. Store it as the Long production
-   secret `FREELLMAPI_API_KEY`, or expose one organization/environment secret to
-   both repositories. Do not commit the key.
-3. Deploy Long normally. The deployment locates the Long `engine` container,
-   attaches it to `yt-n8n-automation-shorts_default`, then checks
-   `http://freellmapi:3001/api/ping` from inside that container.
-4. The shared network name can be overridden with the Long repository variable
-   `SHARED_LLM_NETWORK` if the Shorts Compose project identity changes.
+Use the same unified `FREELLMAPI_API_KEY` as Shorts. Long production attaches the
+engine container to `yt-n8n-automation-shorts_default` and checks the internal
+FreeLLMAPI endpoint from inside that container.
 
-The network/FreeLLMAPI health check is warning-only. A missing shared network or
-FreeLLMAPI outage must not prevent the Long stack from deploying when paid
-fail-open is available.
+For reasoning-only FreeLLMAPI routing, an unavailable shared route can remain a
+warning because paid OpenAI fail-open exists. If either experimental media mode
+uses FreeLLMAPI, deployment treats a missing key/network/unreachable shared
+service as fatal: media has deliberately **no per-shot paid fail-open**, because
+mixing image generators or narrator voices inside one episode would create
+visible/audible discontinuity.
 
-## Routing controls
+## Reasoning / vision controls
 
 ```text
 LLM_ROUTER_MODE=freellmapi
@@ -67,52 +46,89 @@ FREELLMAPI_VISION_MODEL=auto:smart
 LLM_ROUTER_TIMEOUT_MS=120000
 ```
 
-`LLM_ROUTER_MODE=freellmapi` is the default. Reasoning requests use
-`FREELLMAPI_TEXT_MODEL`; illustration text checks, semantic checks, hero ranking,
-and episode-level visual review use `FREELLMAPI_VISION_MODEL`.
+`LLM_ROUTER_MODE=direct` is the immediate reasoning/vision rollback to Long's
+existing paid OpenAI configuration.
 
-When `LLM_ROUTER_FAIL_OPEN_TO_DIRECT=true`, a FreeLLMAPI reasoning failure is
-retried through the existing direct OpenAI provider. That fallback preserves the
-Long pipeline's streaming SSE implementation. Vision QA also retries through
-direct OpenAI; if both routes are unavailable, vision QA preserves its existing
-non-blocking behavior and returns no review rather than deadlocking production.
+## Experimental media controls
 
-Set `LLM_ROUTER_FAIL_OPEN_TO_DIRECT=false` for strict zero-paid-call behavior.
-In that mode a FreeLLMAPI reasoning failure blocks the reasoning node and vision
-QA simply becomes unavailable for that check; the code will not invoke paid
-OpenAI.
-
-## Immediate rollback
-
-Set:
+Production currently opts into:
 
 ```text
-LLM_ROUTER_MODE=direct
+IMAGE_PROVIDER_MODE=freellmapi
+SPEECH_PROVIDER_MODE=freellmapi
+FREELLMAPI_IMAGE_MODEL=flux
+FREELLMAPI_SPEECH_MODEL=openai-audio
+FREELLMAPI_SPEECH_VOICE=onyx
+FREELLMAPI_SPEECH_FORMAT=mp3
+FREELLMAPI_MEDIA_TIMEOUT_MS=120000
 ```
 
-and restart/redeploy Long. Reasoning and vision QA then bypass FreeLLMAPI and use
-Long's existing OpenAI configuration. No code revert and no Shorts deployment is
-required.
+These are config choices, not graph changes.
+
+### Images
+
+`FREELLMAPI_IMAGE_MODEL=flux` is pinned rather than `auto` so one episode does not
+wander across image models/providers. On FreeLLMAPI v0.9.5 this resolves to the
+Pollinations image adapter and honors the requested aspect dimensions.
+
+The limitation is explicit: FreeLLMAPI's OpenAI-style `/v1/images/generations`
+endpoint is text-to-image. It does not carry Fal's reference-conditioned
+`flux-2/edit` contract. The existing illustrated asset worker therefore keeps
+its shot-pack contract but each FreeLLM image is generated independently. The
+existing visual QA and pre-render release gates remain unchanged and are expected
+to expose any continuity/style regression.
+
+Rollback only images:
+
+```text
+IMAGE_PROVIDER_MODE=fal
+```
+
+Fal then resumes the existing FLUX.2 + FLUX.2/edit path with canonical reference
+conditioning across recurring subjects and shot packs.
+
+### Narration
+
+`FREELLMAPI_SPEECH_MODEL=openai-audio` is pinned rather than `auto` so narrator
+identity cannot switch after a provider failure. The experiment uses the
+OpenAI-style `onyx` voice and MP3 output, which fits the current render contract
+without introducing a WAV/transcoding migration.
+
+FreeLLM speech does not provide ElevenLabs character alignment or the
+`previous_text` / `next_text` prosody-continuity fields. This experiment therefore
+tests whether simple voiceover quality is sufficient for the channel. Existing
+rendering still works because alignment is optional; any caption/timing quality
+difference must be evaluated on the comparison episode.
+
+Rollback only narration:
+
+```text
+SPEECH_PROVIDER_MODE=elevenlabs
+```
+
+That restores the existing ElevenLabs `/with-timestamps` path and contextual
+prosody fields.
+
+## Deployment verification
+
+When a FreeLLM media mode is selected, deployment performs tiny smoke calls
+against the exact configured `/v1/images/generations` and `/v1/audio/speech`
+endpoints before reporting success. It also requires both image and speech
+capabilities to report `real=true` from `/api/config`.
+
+The smoke calls intentionally do not log the unified key or generated media.
 
 ## Provider attribution and cost
 
-Generated reasoning artifacts record the provider that actually answered:
-
-- `freellmapi/<actual-model>` when the free route succeeds;
-- `openai/<model>` when direct mode or paid fail-open answers.
-
-FreeLLMAPI-routed calls are recorded with `cost_usd: 0` in the Long run log;
-direct OpenAI calls retain the existing model-specific cost estimate. This makes
-unexpected paid fail-open visible in episode/run cost telemetry instead of
-silently attributing it to the free route.
-
-Router fallback logs intentionally contain no prompts, response bodies, API
-keys, or upstream provider error bodies.
+Reasoning artifacts still record the route that answered. FreeLLM image/speech
+providers likewise report `provider: freellmapi` and `cost_usd: 0`; the selected
+upstream/model is retained where the media API exposes it. Fal and ElevenLabs
+retain their existing paid cost accounting when rollback modes are selected.
 
 ## Lifecycle caveat
 
-The shared Docker network is owned by the Shorts Compose project. If that Compose
-project/network is deliberately removed and recreated, the running Long engine
-may lose its attachment. Long's paid fail-open still works because it does not
-use that network; redeploy Long after the Shorts network is restored to reattach
-the engine to the free route.
+The shared Docker network is owned by the Shorts Compose project. If that network
+is removed/recreated, redeploy Long after Shorts is healthy. With FreeLLM media
+selected, Long intentionally refuses to report a healthy deployment until the
+shared route is reachable; with Fal/ElevenLabs selected, only reasoning/vision
+uses that route and paid OpenAI fail-open can keep the pipeline operational.

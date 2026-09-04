@@ -31,10 +31,8 @@ services:
       DATABASE_URL: postgres://vidgen:${POSTGRES_PASSWORD:-vidgen_dev}@postgres:5432/vidgen
       COMPOSE_URL: http://long-compose:4000
 
-      # Free-first LLM routing. The FreeLLMAPI container itself is intentionally
-      # NOT declared here: the Shorts stack owns the single shared instance and
-      # encrypted provider state on this host. Production deploy attaches this
-      # engine container to that stack's Docker network after startup.
+      # Shared FreeLLMAPI. Shorts owns the one container and encrypted provider
+      # state; production deploy attaches this engine to the Shorts network.
       LLM_ROUTER_MODE: ${LLM_ROUTER_MODE:-freellmapi}
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${LLM_ROUTER_FAIL_OPEN_TO_DIRECT:-true}
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
@@ -43,14 +41,26 @@ services:
       FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-auto:smart}
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
-      # Paid OpenAI remains only for fail-open and one-switch direct rollback.
+      # Experimental media routing. Defaults intentionally switch both media
+      # capabilities to FreeLLMAPI while retaining one-variable rollback to the
+      # established paid providers.
+      IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}
+      SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}
+      FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-flux}
+      FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-openai-audio}
+      FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}
+      FREELLMAPI_SPEECH_FORMAT: ${FREELLMAPI_SPEECH_FORMAT:-mp3}
+      FREELLMAPI_MEDIA_TIMEOUT_MS: ${FREELLMAPI_MEDIA_TIMEOUT_MS:-120000}
+
+      # Paid OpenAI remains only for LLM fail-open/direct rollback.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
 
+      # Retained for SPEECH_PROVIDER_MODE=elevenlabs rollback.
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # Every illustrated still and the thumbnail artwork (RFC 0008).
+      # Retained for IMAGE_PROVIDER_MODE=fal rollback and optional AI video.
       FAL_KEY: ${FAL_KEY:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}

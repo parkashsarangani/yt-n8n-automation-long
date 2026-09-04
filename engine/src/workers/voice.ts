@@ -6,8 +6,8 @@
  * artifact (given a deterministic provider).
  *
  * Carries forward the one hard-won lesson from the long-form pipeline: pass the
- * neighbouring narration as context so prosody stays continuous across ~50
- * separate clips instead of resetting at every scene boundary.
+ * neighbouring narration as context so providers that support it can preserve
+ * prosody across separate clips instead of resetting at every scene boundary.
  */
 
 import type { BlobRef } from "../artifact.ts";
@@ -30,13 +30,20 @@ interface ScriptScene {
 
 type SpeechResult = Awaited<ReturnType<SpeechProvider["synthesize"]>>;
 
+function effectiveVoiceId(speech: SpeechProvider, configuredVoiceId: string): string {
+  if (speech.id.startsWith("freellmapi-speech/")) {
+    return process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "onyx";
+  }
+  return configuredVoiceId;
+}
+
 async function trimProductionSpeech(
   speech: SpeechProvider,
   result: SpeechResult,
   ctx: WorkerContext,
 ): Promise<SpeechResult> {
   // Fake providers intentionally emit tiny non-media fixtures. Only normalize
-  // the real ElevenLabs MP3 path; CI/dry-run providers remain byte-for-byte.
+  // the real ElevenLabs MP3 path; FreeLLM experimental TTS has no alignment.
   if (!speech.id.startsWith("elevenlabs/") || result.media_type !== "audio/mpeg" || result.alignment === undefined) {
     return result;
   }
@@ -72,6 +79,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
         throw new Error('voice worker requires a speech provider (media.speech)');
       }
 
+      const voiceId = effectiveVoiceId(speech, opts.voiceId);
       const scenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
       const ordered = [...scenes].sort((a, b) => a.scene_index - b.scene_index);
       const blobs: BlobRef[] = [];
@@ -82,7 +90,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
         async (scene, i) => {
           let result = await speech.synthesize({
             text: scene.narration,
-            voice: opts.voiceId,
+            voice: voiceId,
             context: {
               ...(i > 0 ? { prev: ordered[i - 1]!.narration } : {}),
               ...(i < ordered.length - 1 ? { next: ordered[i + 1]!.narration } : {}),
@@ -116,7 +124,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
       for (const c of clips) blobs.push(...c._blobs);
 
       const payload = {
-        voice_id: opts.voiceId,
+        voice_id: voiceId,
         clips: clips.map(({ _blobs, ...clip }) => {
           void _blobs;
           return clip;
