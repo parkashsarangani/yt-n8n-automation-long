@@ -57,9 +57,6 @@ async function trimProductionSpeech(
       duration_sec: trimmed.duration_sec,
     };
   } catch (error) {
-    // Trimming is quality normalization, not a reason to discard otherwise
-    // valid speech. Production images ship FFmpeg, but preserve the original
-    // clip if a one-off decode fails and make that degradation visible.
     ctx.logger.warn(`[voice] speech-boundary trim failed (${String(error)}); keeping provider audio`);
     return result;
   }
@@ -69,15 +66,13 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
   return {
     name: "voice",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [{ schema_id: "script", range: "^1", as: "script" }],
     produces: "voice",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const speech = ctx.media.speech;
-      if (!speech) {
-        throw new Error('voice worker requires a speech provider (media.speech)');
-      }
+      if (!speech) throw new Error('voice worker requires a speech provider (media.speech)');
 
       const voiceId = effectiveVoiceId(speech, opts.voiceId);
       const scenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
@@ -114,6 +109,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
           return {
             scene_index: scene.scene_index,
             audio_uri: audio.uri,
+            media_type: result.media_type,
             ...(alignmentRef ? { alignment_uri: alignmentRef.uri } : {}),
             duration_sec: result.duration_sec ?? 0,
             _blobs: alignmentRef ? [audio, alignmentRef] : [audio],
@@ -129,9 +125,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
           void _blobs;
           return clip;
         }),
-        total_duration_sec: Number(
-          clips.reduce((sum, c) => sum + c.duration_sec, 0).toFixed(3),
-        ),
+        total_duration_sec: Number(clips.reduce((sum, c) => sum + c.duration_sec, 0).toFixed(3)),
       };
 
       return { payload, blobs };
