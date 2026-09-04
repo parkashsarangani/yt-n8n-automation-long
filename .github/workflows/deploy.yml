@@ -37,7 +37,8 @@ jobs:
           IMAGE_PROVIDER_MODE: ${{ vars.IMAGE_PROVIDER_MODE || 'freellmapi' }}
           SPEECH_PROVIDER_MODE: ${{ vars.SPEECH_PROVIDER_MODE || 'freellmapi' }}
           # Media model ids come from FreeLLM's separate media registry. `auto`
-          # is portable; deployment discovers/validates the actual provider row.
+          # is portable; deployment validates the enabled registry state through
+          # the inference endpoint rather than guessing a dashboard model id.
           FREELLMAPI_IMAGE_MODEL: ${{ vars.FREELLMAPI_IMAGE_MODEL || 'auto' }}
           FREELLMAPI_SPEECH_MODEL: ${{ vars.FREELLMAPI_SPEECH_MODEL || 'auto' }}
           FREELLMAPI_SPEECH_VOICE: ${{ vars.FREELLMAPI_SPEECH_VOICE || 'onyx' }}
@@ -96,43 +97,19 @@ jobs:
             echo "::warning::FREELLMAPI_API_KEY is not configured for reasoning; direct OpenAI fail-open will be used"
           fi
 
-          # Image routing is registry-backed and independent of /v1/models.
-          # v0.9.5 explicitly supports anonymous Pollinations image calls, so
-          # when the experiment is selected enable one existing Pollinations
-          # image row if catalog-sync delivered it but it is disabled. Never
-          # enable a keyed provider and never manufacture a model id.
+          # Do not call /api/media here. v0.9.5 protects dashboard/admin routes
+          # with a dashboard session token; FREELLMAPI_API_KEY authorizes only
+          # /v1 inference. Long validates media through the same inference API
+          # production will use and never bypasses the Shorts-owned admin state.
           if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ]; then
-            docker exec "$ENGINE_CID" node --input-type=module - <<'NODE'
-          const base='http://freellmapi:3001';
-          const fail=(m)=>{console.error(m);process.exit(1)};
-          const r=await fetch(base+'/api/media');
-          if(!r.ok) fail('FreeLLMAPI media registry '+r.status);
-          const body=await r.json();
-          const rows=Array.isArray(body.models)?body.models:[];
-          const images=rows.filter(x=>x.modality==='image');
-          const pollinations=images.filter(x=>x.platform==='pollinations');
-          if(!pollinations.length) {
-            console.error('Image registry has no Pollinations row. Available image rows: '+images.map(x=>`${x.platform}/${x.modelId}[${x.enabled?'on':'off'}]`).join(', '));
-            process.exit(1);
-          }
-          let row=pollinations.find(x=>x.enabled) || pollinations[0];
-          if(!row.enabled) {
-            const u=await fetch(base+'/api/media/'+row.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true})});
-            if(!u.ok) fail('could not enable keyless Pollinations image row '+row.modelId+': '+u.status);
-            console.log('Enabled keyless Pollinations image row: '+row.modelId);
-          } else {
-            console.log('Keyless Pollinations image row already enabled: '+row.modelId);
-          }
-          NODE
-
-            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_IMAGE_MODEL||'auto';fetch('http://freellmapi:3001/v1/images/generations',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,prompt:'simple empty landscape, no text',n:1,size:'512x512',response_format:'b64_json'})}).then(async r=>{if(!r.ok)throw new Error('image smoke '+r.status+': '+(await r.text()).slice(0,180));const j=await r.json();if(!j.data?.length)throw new Error('image smoke empty');console.log('FreeLLMAPI image smoke OK: '+(j.provider||'unknown')+'/'+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_IMAGE_MODEL||'auto';fetch('http://freellmapi:3001/v1/images/generations',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,prompt:'simple empty landscape, no text',n:1,size:'512x512',response_format:'b64_json'})}).then(async r=>{if(!r.ok){const body=(await r.text()).slice(0,300);if(r.status===502&&/no usable keys/i.test(body))throw new Error('image smoke 502: no usable image provider is enabled. In the shared FreeLLMAPI dashboard open Models -> Image and enable a Pollinations image row (v0.9.5 supports Pollinations image generation without a provider key), then redeploy.');throw new Error('image smoke '+r.status+': '+body)}const j=await r.json();if(!j.data?.length)throw new Error('image smoke empty');console.log('FreeLLMAPI image smoke OK: '+(j.provider||'registry')+'/'+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
           fi
 
           # `auto` is live-proven on the shared instance. Google currently
           # returns WAV despite an MP3 preference; that is valid and the engine
-          # now persists the real media type instead of rejecting it.
+          # persists the real media type instead of rejecting it.
           if [ "$SPEECH_PROVIDER_MODE" = "freellmapi" ]; then
-            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_SPEECH_MODEL||'auto',v=process.env.FREELLMAPI_SPEECH_VOICE||'onyx';fetch('http://freellmapi:3001/v1/audio/speech',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,input:'Media smoke test.',voice:v,response_format:'mp3'})}).then(async r=>{if(!r.ok)throw new Error('speech smoke '+r.status+': '+(await r.text()).slice(0,180));const b=await r.arrayBuffer();if(!b.byteLength)throw new Error('speech smoke empty');const t=(r.headers.get('content-type')||'').split(';')[0];if(!['audio/wav','audio/x-wav','audio/vnd.wave','audio/wave','audio/mpeg','audio/mp3','audio/ogg','audio/aac','audio/flac','audio/L16'].includes(t))throw new Error('unsupported speech content-type '+t);console.log('FreeLLMAPI speech smoke OK: '+(r.headers.get('x-provider')||'unknown')+'/'+m+' '+t+' '+b.byteLength+' bytes')}).catch(e=>{console.error(e.message);process.exit(1)})"
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_SPEECH_MODEL||'auto',v=process.env.FREELLMAPI_SPEECH_VOICE||'onyx';fetch('http://freellmapi:3001/v1/audio/speech',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,input:'Media smoke test.',voice:v,response_format:'mp3'})}).then(async r=>{if(!r.ok)throw new Error('speech smoke '+r.status+': '+(await r.text()).slice(0,300));const b=await r.arrayBuffer();if(!b.byteLength)throw new Error('speech smoke empty');const t=(r.headers.get('content-type')||'').split(';')[0].toLowerCase();if(!['audio/wav','audio/x-wav','audio/vnd.wave','audio/wave','audio/mpeg','audio/mp3','audio/ogg','audio/aac','audio/flac','audio/l16'].includes(t))throw new Error('unsupported speech content-type '+t);console.log('FreeLLMAPI speech smoke OK: '+(r.headers.get('x-provider')||'unknown')+'/'+m+' '+t+' '+b.byteLength+' bytes')}).catch(e=>{console.error(e.message);process.exit(1)})"
           fi
 
       - name: Health check
