@@ -1,13 +1,15 @@
 /**
  * RFC 0009 illustrated asset worker.
- * Direction@2 supplies 1-3 visual shots per narration scene. Hero shots use
- * best-of-three generation. The ordered sequence receives one compact visual
- * review + targeted regeneration. QA retries reuse every unchanged successful
- * shot pack instead of re-rolling the whole episode.
+ * Direction@2 supplies 1-3 visual shots per narration scene. Paid/reference-
+ * capable image routes may spend best-of-N on hero shots; the FreeLLM route is
+ * deliberately quota-aware and uses one baseline attempt plus at most one
+ * feedback-driven repair. The ordered sequence receives one compact visual
+ * review + targeted regeneration. QA retries reuse unchanged successful work.
  */
 import type { Artifact, BlobRef } from "../artifact.ts";
 import { checkGeneratedImageForText, checkGeneratedImageMatchesNarration, rankHeroImageCandidates, reviewIllustratedSequence, type VisualSequenceEntry, type VisualSequenceReviewResult } from "../image-qa.ts";
 import type { Aspect, ImageProvider } from "../provider.ts";
+import { FreeMediaTerminalError, isTerminalFreeMediaFailure, semanticRecoveryPrompt } from "../free-media-policy.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 type CameraMove = "push-in" | "pull-out" | "pan-left" | "pan-right" | "hold";
@@ -39,12 +41,11 @@ export function buildIllustratedPrompt(subject: string, style: ImageStyle = DEFA
 
 /**
  * A scene-specific recovery prompt used only after vision QA actually finds
- * text. It does not alter the story beat; it changes how text-bearing props are
- * framed so a document-centric premise does not collapse into repeated fallback
- * imagery just because the image model keeps inventing names/labels.
+ * text. It changes physical framing rather than asking a weak free model to
+ * "try again" with the same text-bearing prop.
  */
 export function buildTextSafeRecoveryPrompt(prompt: string): string {
-  return `${clean(prompt, 1200)} TEXT-SAFE RECOVERY: communicate the same story beat through people, hands, posture, object placement, silhouette, and environment. Any paper, chart, document, book, sign, badge, phone, screen, or board must be blank, face-down, closed, turned away, cropped, obscured, or too distant to read. Absolutely no names, letters, numbers, symbols, logos, handwriting, labels, or typography.`;
+  return `${clean(prompt, 1200)} TEXT-SAFE RECOVERY: communicate the same story beat through people, hands, posture, object placement, silhouette, and environment. Any paper, chart, document, book, sign, badge, phone, screen, board, clock, watch, timepiece, dial, or calendar must be blank, face-down, closed, turned away, cropped, obscured, edge-on, or too distant to read. Clock/watch faces must not be visible at all. Absolutely no names, letters, numbers, dial ticks, symbols, logos, handwriting, labels, or typography.`;
 }
 
 /** Hard deterministic enforcement for RFC 0009 Decisions 3-5. */
@@ -75,23 +76,58 @@ export function validateEpisodeDirection(direction: { scenes: DirectionScene[]; 
 }
 
 function stableSeed(value: string): number { let h = 2166136261; for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) & 0x7fffffff; }
+function isFreeProvider(provider: ReferenceCapableProvider): boolean { return provider.id.includes("freellmapi-image/"); }
+
+class ImageBudgetExhausted extends Error {
+  constructor(calls: number, max: number) { super(`image provider call ceiling reached (${calls}/${max})`); }
+}
+class ImageBudget {
+  private calls = 0;
+  readonly maxCalls: number;
+  readonly optionalCeiling: number;
+  constructor(private readonly logger: WorkerContext["logger"], readonly freeMode: boolean) {
+    // Free mode optimizes for finishing one episode inside shared daily quotas;
+    // Fal keeps the existing high-quality spend policy.
+    this.maxCalls = freeMode ? 48 : 120;
+    this.optionalCeiling = freeMode ? 36 : 70;
+  }
+  chargeProviderCall(): void {
+    if (this.calls >= this.maxCalls) {
+      if (this.freeMode) throw new FreeMediaTerminalError(`free image provider call ceiling reached (${this.calls}/${this.maxCalls}); stop this asset pass rather than multiplying quota spend`);
+      throw new ImageBudgetExhausted(this.calls, this.maxCalls);
+    }
+    this.calls += 1;
+  }
+  canAffordOptional(maxProviderCalls: number): boolean { return this.calls + maxProviderCalls <= this.optionalCeiling; }
+  get spent(): number { return this.calls; }
+  report(): void { this.logger.warn(`[illustrated_scene_assets] image provider calls this run: ${this.calls} (optional spend stops at ${this.optionalCeiling}, hard stop ${this.maxCalls}${this.freeMode ? ", free-mode" : ""})`); }
+}
+
 async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, budget: ImageBudget, reference?: GeneratedImage): Promise<GeneratedImage> {
   budget.chargeProviderCall();
   if (provider.generatePack) { const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image; }
   const out = await provider.generate({ prompt, aspect: "16:9", count: 1 }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
 }
-const MAX_ATTEMPTS_PER_ACCEPTED_IMAGE = 2;
-const MAX_TEXT_RECOVERY_CALLS = MAX_ATTEMPTS_PER_ACCEPTED_IMAGE;
-const MAX_SINGLE_WITH_TEXT_RECOVERY_CALLS = MAX_ATTEMPTS_PER_ACCEPTED_IMAGE + MAX_TEXT_RECOVERY_CALLS;
+
+function qualityAttempts(provider: ReferenceCapableProvider): number { return isFreeProvider(provider) ? 1 : 2; }
 async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
+  const maxAttempts = qualityAttempts(provider);
   let lastError = new Error("image generation failed");
-  for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_ACCEPTED_IMAGE; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference);
       const [text, semantic] = await Promise.all([checkGeneratedImageForText(image), narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null)]);
-      const failures: string[] = []; if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`); if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
-      if (!failures.length) return image; lastError = new Error(failures.join("; ")); logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/${MAX_ATTEMPTS_PER_ACCEPTED_IMAGE}: ${lastError.message}`);
-    } catch (err) { lastError = err instanceof Error ? err : new Error(String(err)); logger.warn(`[illustrated_scene_assets] ${shotId}: generation failed attempt ${attempt + 1}/${MAX_ATTEMPTS_PER_ACCEPTED_IMAGE}: ${lastError.message}`); }
+      const failures: string[] = [];
+      if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`);
+      if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
+      if (!failures.length) return image;
+      lastError = new Error(failures.join("; "));
+      logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/${maxAttempts}: ${lastError.message}`);
+    } catch (err) {
+      if (isTerminalFreeMediaFailure(err)) throw err;
+      lastError = err instanceof Error ? err : new Error(String(err));
+      logger.warn(`[illustrated_scene_assets] ${shotId}: generation failed attempt ${attempt + 1}/${maxAttempts}: ${lastError.message}`);
+    }
   }
   throw lastError;
 }
@@ -99,32 +135,19 @@ async function generateAccepted(provider: ReferenceCapableProvider, prompt: stri
 const HOOK_CANDIDATES = 3;
 const HERO_CANDIDATES = 2;
 const MAX_REVIEW_REGENERATIONS = 4;
-const OPTIONAL_SPEND_CEILING = 70;
-const MAX_PROVIDER_CALLS = 120;
-
-export class ImageBudgetExhausted extends Error {
-  constructor(calls: number) { super(`image provider call ceiling reached (${calls}/${MAX_PROVIDER_CALLS})`); }
-}
-class ImageBudget {
-  private calls = 0;
-  constructor(private readonly logger: WorkerContext["logger"]) {}
-  chargeProviderCall(): void {
-    if (this.calls >= MAX_PROVIDER_CALLS) throw new ImageBudgetExhausted(this.calls);
-    this.calls += 1;
-  }
-  /** Reserve the worst-case provider calls for OPTIONAL work, including retries. */
-  canAffordOptional(maxProviderCalls: number): boolean { return this.calls + maxProviderCalls <= OPTIONAL_SPEND_CEILING; }
-  get spent(): number { return this.calls; }
-  report(): void { this.logger.warn(`[illustrated_scene_assets] image provider calls this run: ${this.calls} (optional spend stops at ${OPTIONAL_SPEND_CEILING}, hard stop ${MAX_PROVIDER_CALLS})`); }
-}
 
 async function generateShot(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
   const seed = stableSeed(`${shotId}|${prompt}`);
-  const wanted = shot.importance !== "hero" ? 1 : shot.hero_role === "hook" ? HOOK_CANDIDATES : HERO_CANDIDATES;
-  // If optional hero best-of-N is admitted, reserve its full retry budget plus
-  // one possible text-safe recovery. Baseline single-candidate correctness may
-  // still cross the soft ceiling; only the hard 120-call ceiling applies there.
-  const worstCaseCalls = wanted * MAX_ATTEMPTS_PER_ACCEPTED_IMAGE + MAX_TEXT_RECOVERY_CALLS;
+  // FreeLLM already has provider-chain failover internally. Generating three
+  // hero candidates on top of that was the largest avoidable quota multiplier
+  // in the production run; keep best-of-N for Fal, use one candidate on free.
+  const wanted = isFreeProvider(provider)
+    ? 1
+    : shot.importance !== "hero"
+      ? 1
+      : shot.hero_role === "hook" ? HOOK_CANDIDATES : HERO_CANDIDATES;
+  const perCandidate = qualityAttempts(provider);
+  const worstCaseCalls = wanted * perCandidate + perCandidate;
   const count = allowMultipleCandidates && wanted > 1 && budget.canAffordOptional(worstCaseCalls) ? wanted : 1;
   if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
 
@@ -133,29 +156,38 @@ async function generateShot(provider: ReferenceCapableProvider, prompt: string, 
   for (let i = 0; i < count; i++) {
     try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`, budget)); }
     catch (err) {
+      if (isTerminalFreeMediaFailure(err)) throw err;
       const message = err instanceof Error ? err.message : String(err);
       candidateErrors.push(message);
       logger.warn(`[illustrated_scene_assets] ${shotId}: hero candidate ${i + 1}/${count} unavailable: ${message}`);
     }
   }
-  if (!candidates.length) throw new Error(`all hero candidates failed for ${shotId}: ${candidateErrors.join(" | ")}`); if (candidates.length === 1) return candidates[0]!;
-  const ranked = await rankHeroImageCandidates(candidates, { prompt, narration, heroRole: shot.hero_role ?? "hero" }); return candidates[ranked?.bestIndex ?? 0]!;
+  if (!candidates.length) throw new Error(`all hero candidates failed for ${shotId}: ${candidateErrors.join(" | ")}`);
+  if (candidates.length === 1) return candidates[0]!;
+  const ranked = await rankHeroImageCandidates(candidates, { prompt, narration, heroRole: shot.hero_role ?? "hero" });
+  return candidates[ranked?.bestIndex ?? 0]!;
 }
 
-function isVisibleTextFailure(err: unknown): boolean {
-  return /visible text:/i.test(err instanceof Error ? err.message : String(err));
-}
+function isVisibleTextFailure(err: unknown): boolean { return /visible text:/i.test(err instanceof Error ? err.message : String(err)); }
+function isSemanticFailure(err: unknown): boolean { return /contradicts narration:/i.test(err instanceof Error ? err.message : String(err)); }
 
 async function generateShotWithTextRecovery(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
   try {
     return await generateShot(provider, prompt, shot, narration, reference, logger, shotId, budget, allowMultipleCandidates);
   } catch (err) {
-    if (!isVisibleTextFailure(err)) throw err;
-    const recoveryPrompt = buildTextSafeRecoveryPrompt(prompt);
-    logger.warn(`[illustrated_scene_assets] ${shotId}: visible text persisted; retrying once with text-safe physical framing`);
-    // Recovery is deliberately one candidate even for heroes: it is baseline
-    // correctness work after a failure, not another optional best-of-N spend.
-    return generateShot(provider, recoveryPrompt, shot, narration, reference, logger, `${shotId}:text-safe`, budget, false);
+    if (isTerminalFreeMediaFailure(err)) throw err;
+    if (isVisibleTextFailure(err)) {
+      const recoveryPrompt = buildTextSafeRecoveryPrompt(prompt);
+      logger.warn(`[illustrated_scene_assets] ${shotId}: visible text persisted; making one feedback-driven text-safe recovery call`);
+      return generateShot(provider, recoveryPrompt, shot, narration, reference, logger, `${shotId}:text-safe`, budget, false);
+    }
+    if (isSemanticFailure(err)) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const recoveryPrompt = semanticRecoveryPrompt(prompt, narration, reason);
+      logger.warn(`[illustrated_scene_assets] ${shotId}: narration mismatch; making one semantic-fidelity recovery call`);
+      return generateShot(provider, recoveryPrompt, shot, narration, reference, logger, `${shotId}:semantic`, budget, false);
+    }
+    throw err;
   }
 }
 
@@ -169,16 +201,23 @@ function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: s
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
-    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "8",
+    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "9",
     consumes: [{ schema_id: "episode_direction", range: "^2", as: "direction" }, { schema_id: "script", range: "^1", as: "script" }, { schema_id: "intent", range: "^1", as: "intent" }],
     produces: "asset_manifest", produces_version: "1.9.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const direction = inputs["direction"]!.payload as { scenes: DirectionScene[]; hero_shots: string[] };
-      const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes; validateEpisodeDirection(direction, scripts.map((s) => s.scene_index));
-      const intent = inputs["intent"]!.payload as IntentPayload, style = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
-      const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 600)])), outroIndex = scripts.find((s) => s.is_outro)?.scene_index;
-      const configured = ctx.media.images as ReferenceCapableProvider | undefined, provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
-      const orderedScenes = [...direction.scenes].sort((a, b) => a.scene_index - b.scene_index), working: WorkingShot[] = [], deferred: WorkingShot[] = [], budget = new ImageBudget(ctx.logger);
+      const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
+      validateEpisodeDirection(direction, scripts.map((s) => s.scene_index));
+      const intent = inputs["intent"]!.payload as IntentPayload;
+      const style = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
+      const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 600)]));
+      const outroIndex = scripts.find((s) => s.is_outro)?.scene_index;
+      const configured = ctx.media.images as ReferenceCapableProvider | undefined;
+      const provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
+      const freeMode = Boolean(provider && isFreeProvider(provider));
+      const orderedScenes = [...direction.scenes].sort((a, b) => a.scene_index - b.scene_index);
+      const working: WorkingShot[] = [], deferred: WorkingShot[] = [];
+      const budget = new ImageBudget(ctx.logger, freeMode);
       const priorMap = new Map<number, PriorScene>(((ctx.priorArtifact?.payload as { scenes?: PriorScene[] } | undefined)?.scenes ?? []).filter((s): s is PriorScene & { scene_index: number } => typeof s.scene_index === "number").map((s) => [s.scene_index, s]));
       let reference: GeneratedImage | undefined;
 
@@ -196,18 +235,30 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
               reused.push({ id: `${scene.scene_index}:${fresh[i]!.shot.shot_index}`, sceneIndex: scene.scene_index, shot: fresh[i]!.shot, narration: narrationBy.get(scene.scene_index) ?? "", prompt: fresh[i]!.prompt, image, source: prior.source! });
               if (!reference && prior.source === "primary") reference = image;
             }
-            working.push(...reused); continue;
-          } catch { }
+            working.push(...reused);
+            continue;
+          } catch { /* stale/missing prior blob: regenerate */ }
         }
+
         for (const { shot, prompt } of fresh) {
           const id = `${scene.scene_index}:${shot.shot_index}`, narration = narrationBy.get(scene.scene_index) ?? "";
           const item: WorkingShot = { id, sceneIndex: scene.scene_index, shot, narration, prompt, source: "placeholder" };
           if (provider) {
-            try { item.image = await generateShotWithTextRecovery(provider, prompt, shot, narration, reference, ctx.logger, id, budget); item.source = "primary"; if (!reference) reference = item.image; }
-            catch (err) {
+            try {
+              item.image = await generateShotWithTextRecovery(provider, prompt, shot, narration, reference, ctx.logger, id, budget);
+              item.source = "primary";
+              if (!reference) reference = item.image;
+            } catch (err) {
+              if (isTerminalFreeMediaFailure(err)) throw err;
               const message = err instanceof Error ? err.message : String(err);
-              if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after generation + recovery failure: ${message}`); }
-              else { deferred.push(item); ctx.logger.warn(`[illustrated_scene_assets] ${id}: failed with no reference available yet; deferring one retry until a later scene establishes one: ${message}`); }
+              if (reference) {
+                item.image = reference;
+                item.source = "fallback";
+                ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after generation + recovery failure: ${message}`);
+              } else {
+                deferred.push(item);
+                ctx.logger.warn(`[illustrated_scene_assets] ${id}: failed with no reference available yet; deferring one retry until a later scene establishes one: ${message}`);
+              }
             }
           }
           working.push(item);
@@ -221,36 +272,81 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           item.source = "primary";
           ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry succeeded with reference conditioning; render receives a real image instead of a blank frame`);
         } catch (err) {
-          item.image = reference; item.source = "fallback";
+          if (isTerminalFreeMediaFailure(err)) throw err;
+          item.image = reference;
+          item.source = "fallback";
           ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry also failed; reusing the episode reference rather than shipping blank: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
       const sequenceEntries = (): VisualSequenceEntry[] => working.filter((w): w is WorkingShot & { image: GeneratedImage } => Boolean(w.image)).map((w) => ({ shot_id: w.id, image: w.image, narration: w.narration, prompt: w.shot.image_prompt, shot_function: w.shot.shot_function, hero: w.shot.importance === "hero" }));
-      let review = await reviewIllustratedSequence(sequenceEntries()); const regenerated: string[] = [];
+      let review = await reviewIllustratedSequence(sequenceEntries());
+      const regenerated: string[] = [];
+      const maxReviewRegens = freeMode ? 2 : MAX_REVIEW_REGENERATIONS;
       if (provider && review?.flagged_shots.length) {
-        for (const id of review.flagged_shots.slice(0, MAX_REVIEW_REGENERATIONS)) {
+        for (const id of review.flagged_shots.slice(0, maxReviewRegens)) {
           const item = working.find((w) => w.id === id);
           if (!item) continue;
-          if (!budget.canAffordOptional(MAX_SINGLE_WITH_TEXT_RECOVERY_CALLS)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`); break; }
+          const recoveryReserve = qualityAttempts(provider) * 2;
+          if (!budget.canAffordOptional(recoveryReserve)) {
+            ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`);
+            break;
+          }
           try {
             item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
             item.source = "primary";
             regenerated.push(id);
-          } catch (err) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted review regeneration failed: ${err instanceof Error ? err.message : String(err)}`); }
+          } catch (err) {
+            if (isTerminalFreeMediaFailure(err)) throw err;
+            ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted review regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
         if (regenerated.length) review = await reviewIllustratedSequence(sequenceEntries());
       }
 
-      const blobs: BlobRef[] = [], scenes: Array<Record<string, unknown>> = []; let degraded = 0;
+      const blobs: BlobRef[] = [], scenes: Array<Record<string, unknown>> = [];
+      let degraded = 0;
       for (const scene of orderedScenes) {
-        const items = working.filter((w) => w.sceneIndex === scene.scene_index).sort((a, b) => a.shot.shot_index - b.shot.shot_index), uris: string[] = [];
-        for (const item of items) if (item.image) { const ref = await ctx.blobs.put(item.image.bytes, { role: "image", media_type: item.image.media_type }); blobs.push(ref); uris.push(ref.uri); }
-        const source = uris.length === 0 ? "placeholder" : items.some((i) => !i.image || i.source === "fallback") ? "fallback" : "primary"; if (source !== "primary") degraded++;
-        const templateData = JSON.stringify({ camera_move: items[0]?.shot.camera_move ?? "hold", camera_moves: items.map((i) => i.shot.camera_move), shot_functions: items.map((i) => i.shot.shot_function), ...(scene.on_screen_label ? { on_screen_label: scene.on_screen_label } : {}), ...(scene.scene_index === outroIndex ? { line: narrationBy.get(scene.scene_index) ?? "" } : {}) });
-        scenes.push({ scene_index: scene.scene_index, source, ...(uris[0] ? { image_uri: uris[0] } : {}), ...(uris.length ? { image_uris: uris } : {}), prompt: aggregatePrompt(items), template_data: templateData, shot_types: items.map((i) => i.shot.shot_function), hero_shot_ids: items.filter((i) => i.shot.importance === "hero").map((i) => i.id) });
+        const items = working.filter((w) => w.sceneIndex === scene.scene_index).sort((a, b) => a.shot.shot_index - b.shot.shot_index);
+        const uris: string[] = [];
+        const visualItems: WorkingShot[] = [];
+        const seenUris = new Set<string>();
+        for (const item of items) {
+          if (!item.image) continue;
+          const ref = await ctx.blobs.put(item.image.bytes, { role: "image", media_type: item.image.media_type });
+          // Blob URIs are content-addressed. Reusing one fallback reference for
+          // two failed shots therefore yields the same URI; represent that
+          // honestly as one visual instead of violating uniqueItems in
+          // asset_manifest@1.9.0.
+          if (seenUris.has(ref.uri)) continue;
+          seenUris.add(ref.uri);
+          blobs.push(ref);
+          uris.push(ref.uri);
+          visualItems.push(item);
+        }
+        const source = uris.length === 0 ? "placeholder" : items.some((i) => !i.image || i.source === "fallback") ? "fallback" : "primary";
+        if (source !== "primary") degraded++;
+        const displayItems = visualItems.length ? visualItems : items;
+        const templateData = JSON.stringify({
+          camera_move: displayItems[0]?.shot.camera_move ?? "hold",
+          camera_moves: displayItems.map((i) => i.shot.camera_move),
+          shot_functions: displayItems.map((i) => i.shot.shot_function),
+          ...(scene.on_screen_label ? { on_screen_label: scene.on_screen_label } : {}),
+          ...(scene.scene_index === outroIndex ? { line: narrationBy.get(scene.scene_index) ?? "" } : {}),
+        });
+        scenes.push({
+          scene_index: scene.scene_index,
+          source,
+          ...(uris[0] ? { image_uri: uris[0] } : {}),
+          ...(uris.length ? { image_uris: uris } : {}),
+          prompt: aggregatePrompt(items),
+          template_data: templateData,
+          shot_types: displayItems.map((i) => i.shot.shot_function),
+          hero_shot_ids: items.filter((i) => i.shot.importance === "hero").map((i) => i.id),
+        });
       }
-      const first = scenes.find((s) => s["scene_index"] === 0); if (!first || (!first["image_uri"] && first["source"] !== "placeholder")) throw new Error("illustrated visual invariant failed: scene 0 has no renderable visual or explicit placeholder");
+      const first = scenes.find((s) => s["scene_index"] === 0);
+      if (!first || (!first["image_uri"] && first["source"] !== "placeholder")) throw new Error("illustrated visual invariant failed: scene 0 has no renderable visual or explicit placeholder");
       budget.report();
       return { payload: { scenes, degraded_count: degraded, visual_review: reviewPayload(review, regenerated) }, blobs };
     },
