@@ -56,6 +56,38 @@ function validatedImage(bytes: Uint8Array, id: string): { bytes: Uint8Array; med
   return { bytes, media_type: mediaType };
 }
 
+function normalizeAudioMediaType(raw: string | null): string {
+  const value = (raw || "").split(";", 1)[0]!.trim().toLowerCase();
+  if (["audio/wav", "audio/x-wav", "audio/vnd.wave", "audio/wave"].includes(value)) return "audio/wav";
+  if (["audio/mpeg", "audio/mp3"].includes(value)) return "audio/mpeg";
+  if (value === "audio/ogg") return value;
+  if (["audio/aac", "audio/flac", "audio/l16"].includes(value)) return value;
+  throw new ProviderError(`FreeLLM speech returned unsupported content-type '${value || "unknown"}'`);
+}
+
+function wavDurationSeconds(bytes: Uint8Array): number | undefined {
+  if (bytes.length < 44) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (offset: number, length: number) => Buffer.from(bytes.subarray(offset, offset + length)).toString("ascii");
+  if (tag(0, 4) !== "RIFF" || tag(8, 4) !== "WAVE") return undefined;
+  let byteRate: number | undefined;
+  let dataBytes: number | undefined;
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const id = tag(offset, 4);
+    const size = view.getUint32(offset + 4, true);
+    const payload = offset + 8;
+    if (payload + size > bytes.length) break;
+    if (id === "fmt " && size >= 16) byteRate = view.getUint32(payload + 8, true);
+    if (id === "data") {
+      dataBytes = size;
+      break;
+    }
+    offset = payload + size + (size % 2);
+  }
+  if (!byteRate || dataBytes === undefined) return undefined;
+  return Number((dataBytes / byteRate).toFixed(3));
+}
+
 export interface FreeLLMImageOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -83,10 +115,10 @@ export class FreeLLMImageProvider implements ImageProvider {
     if (!key?.trim()) throw new ProviderError("FreeLLMImageProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = cleanBaseUrl(opts.baseUrl ?? process.env["FREELLMAPI_BASE_URL"]);
-    // Pollinations `flux` is deliberately pinned for the experiment: it is
-    // keyless behind FreeLLMAPI and honors width/height, unlike several free
-    // adapters that currently force square output. Operators can override it.
-    this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux";
+    // The media registry is independent of /v1/models. `auto` is the only
+    // portable default across installations; deployment verifies that the
+    // registry has a usable image row before enabling this experiment.
+    this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
     this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-image/${this.model}`;
@@ -126,10 +158,7 @@ export class FreeLLMImageProvider implements ImageProvider {
       } else if (item.url) {
         const dl = await this.fetchImpl(item.url, { signal: timeoutSignal(this.timeoutMs) });
         if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
-        const bytes = new Uint8Array(await dl.arrayBuffer());
-        // Prefer the bytes over an upstream Content-Type header: signed/CDN
-        // URLs frequently answer with application/octet-stream even for images.
-        images.push(validatedImage(bytes, this.id));
+        images.push(validatedImage(new Uint8Array(await dl.arrayBuffer()), this.id));
       }
     }
     if (images.length === 0) throw new ProviderError(`${this.id} returned no images`);
@@ -165,7 +194,7 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly model: string;
-  private readonly format: "mp3";
+  private readonly requestedFormat: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
@@ -174,21 +203,17 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     if (!key?.trim()) throw new ProviderError("FreeLLMSpeechProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = cleanBaseUrl(opts.baseUrl ?? process.env["FREELLMAPI_BASE_URL"]);
-    // Pin one model for the whole episode. `openai-audio` is the v0.9.5
-    // Pollinations adapter, works without an upstream key, returns MP3, and
-    // preserves a single OpenAI-style voice name across every scene.
-    this.model = opts.model?.trim() || process.env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "openai-audio";
+    // The live shared v0.9.5 instance has already proven `auto` routes to a
+    // working Google TTS row. Provider-native ids vary with the media catalog,
+    // so do not guess one here.
+    this.model = opts.model?.trim() || process.env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "auto";
     this.defaultVoice = opts.voice?.trim() || process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "onyx";
-    const configuredFormat = opts.format?.trim().toLowerCase()
+    // Keep requesting MP3 when a provider can supply it, but trust and persist
+    // the response's real content type. Google/Gemini legitimately returns WAV
+    // even when this preference is MP3.
+    this.requestedFormat = opts.format?.trim().toLowerCase()
       || process.env["FREELLMAPI_SPEECH_FORMAT"]?.trim().toLowerCase()
       || "mp3";
-    // The current voice artifact/render contract does not persist per-clip media
-    // type and the renderer reads narration as MP3. Refuse a misleading WAV/PCM
-    // configuration instead of generating valid bytes that are later mislabeled.
-    if (configuredFormat !== "mp3") {
-      throw new ProviderError(`FreeLLMSpeechProvider currently requires mp3 output; received '${configuredFormat}'`);
-    }
-    this.format = "mp3";
     this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-speech/${this.model}`;
@@ -206,10 +231,8 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
         body: JSON.stringify({
           model: this.model,
           input: req.text,
-          // The worker passes the effective configured FreeLLM voice. Keep this
-          // provider deterministic even if called directly with another value.
           voice: this.defaultVoice,
-          response_format: this.format,
+          response_format: this.requestedFormat,
         }),
         signal: timeoutSignal(this.timeoutMs),
       });
@@ -222,12 +245,10 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
 
     const audio = new Uint8Array(await res.arrayBuffer());
     if (!audio.length) throw new ProviderError(`${this.id} returned empty audio`);
-    const mediaType = (res.headers.get("content-type") || "audio/mpeg").split(";", 1)[0]!.trim().toLowerCase();
-    if (mediaType !== "audio/mpeg" && mediaType !== "audio/mp3") {
-      throw new ProviderError(`${this.id} requested mp3 but returned '${mediaType || "unknown"}'`);
-    }
+    const mediaType = normalizeAudioMediaType(res.headers.get("content-type"));
     const provider = res.headers.get("x-provider");
     const actualModel = provider ? `${provider}/${this.model}` : this.model;
+    const duration = mediaType === "audio/wav" ? wavDurationSeconds(audio) : undefined;
     const usage: Usage = {
       input_tokens: 0,
       output_tokens: 0,
@@ -238,7 +259,8 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     };
     return {
       audio,
-      media_type: "audio/mpeg",
+      media_type: mediaType,
+      ...(duration !== undefined ? { duration_sec: duration } : {}),
       usage,
     };
   }

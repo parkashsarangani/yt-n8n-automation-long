@@ -6,7 +6,7 @@ import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface RenderWorkerOptions { captionStyle?: string; version?: string; thumbnail?: { text?: string; accent?: string } }
 interface ScriptScene { scene_index: number; narration: string; is_outro?: boolean }
-interface VoiceClip { scene_index: number; audio_uri: string; alignment_uri?: string; duration_sec: number }
+interface VoiceClip { scene_index: number; audio_uri: string; media_type?: string; alignment_uri?: string; duration_sec: number }
 interface AssetScene {
   scene_index: number; image_uri?: string; image_uris?: string[]; video_uri?: string; source: string;
   template_category?: string; template_data?: string; visual_mode?: "motion_graphic" | "ai_broll";
@@ -40,7 +40,10 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
     scenes.push({
       scene_index: scene.scene_index,
       audio,
-      audio_media_type: "audio/mpeg",
+      // Voice v2 artifacts predate per-clip media_type and were always MP3.
+      // New artifacts persist the provider's real type so WAV from Gemini TTS
+      // reaches the compositor without being mislabeled.
+      audio_media_type: clip.media_type?.trim() || "audio/mpeg",
       ...(video ? { video, video_media_type: "video/mp4" } : {}),
       ...(image ? { image, image_media_type: "image/png" } : {}),
       ...(images.length > 1 ? { images } : {}),
@@ -58,17 +61,12 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
 
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
-    name: "render", kind: "worker", version: opts.version ?? "7",
+    name: "render", kind: "worker", version: opts.version ?? "8",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
-      // RFC 0009 decision 11. Manual/legacy graphs have no growth package, so
-      // this is deliberately optional; the illustrated growth graph wires it.
       { schema_id: "growth_package", range: "^1", as: "package", optional: true },
-      // The illustrated graph supplies this after episode-level visual review.
-      // It is optional for manual/legacy graphs, but when supplied it must be a
-      // successful deterministic release before the renderer is invoked.
       { schema_id: "visual_asset_release", range: "^1", as: "visual_release", optional: true },
     ],
     produces: "rendered_video",
@@ -79,9 +77,6 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       if (release && release.status !== "pass") throw new Error("render: visual asset release is not pass");
       const scenes = await buildScenes(inputs, ctx);
       const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
-      // The continuation line is episode data, not renderer configuration.
-      // Passing it per request guarantees the package that won this run is the
-      // one whose session-continuation promise reaches the compositor.
       const request: ContinuationRenderRequest = {
         scenes,
         caption_style: opts.captionStyle ?? "neutral",

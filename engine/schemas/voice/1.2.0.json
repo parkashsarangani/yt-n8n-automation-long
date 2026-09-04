@@ -1,0 +1,43 @@
+{
+  "schema_id": "voice",
+  "version": "1.2.0",
+  "status": "active",
+  "description": "Adds an optional per-clip media_type so speech providers can preserve their real audio format end to end. The current voice worker always writes it; omission remains valid for legacy and alternate producers, and render treats omitted media_type as the historical audio/mpeg contract.",
+  "produced_by": ["voice", "dialogue_voice"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "VoiceArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["voice_id", "clips"],
+    "properties": {
+      "voice_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+      "clips": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scene_index", "audio_uri", "duration_sec"],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "audio_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
+            "media_type": {
+              "type": "string",
+              "enum": ["audio/mpeg", "audio/wav", "audio/ogg", "audio/aac", "audio/flac", "audio/l16"],
+              "description": "Actual normalized media type of audio_uri. New voice artifacts persist the provider response type instead of assuming MP3."
+            },
+            "alignment_uri": {
+              "type": "string",
+              "pattern": "^blob://sha256:[0-9a-f]{64}$",
+              "description": "Word/character timings, when the speech provider supplies them."
+            },
+            "duration_sec": { "type": "number", "minimum": 0 }
+          }
+        }
+      },
+      "total_duration_sec": { "type": "number", "minimum": 0 }
+    }
+  }
+}

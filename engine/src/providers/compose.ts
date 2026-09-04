@@ -5,7 +5,6 @@
  * polling remains an implementation detail while onJob exposes recoverable job
  * identity to the engine immediately.
  */
-
 import {
   ProviderError,
   type MediaRenderer,
@@ -87,12 +86,6 @@ export class ComposeRenderer implements MediaRenderer {
   private readonly baseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
-  /**
-   * RFC 0009 decision 11: there is no generic engagement default. This field
-   * remains only for backward-compatible callers that intentionally configure
-   * a continuation line globally; production passes the episode's bridge on
-   * the render request so one episode can never inherit another's CTA.
-   */
   private readonly outroLine: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number) => Promise<void>;
@@ -187,10 +180,6 @@ export class ComposeRenderer implements MediaRenderer {
       data: req.scenes.map((scene) => {
         const s = scene as HybridScene;
         const packedImages = s.images?.length ? s.images : s.image ? [s.image] : [];
-        // Already equals s.template_data unchanged for every scene except
-        // template_category="explanation" -- covers plain (no category) and
-        // every other templated scene as-is, so this is the one value to
-        // carry into the outgoing template_data below regardless of category.
         const bridgedTemplateData = s.template_category === "explanation"
           ? bridgeSemanticTemplateData(s.template_data)
           : s.template_data;
@@ -198,6 +187,7 @@ export class ComposeRenderer implements MediaRenderer {
           scene_index: s.scene_index,
           audio: {
             audio_base64: toBase64(s.audio),
+            media_type: s.audio_media_type,
             ...(s.alignment !== undefined ? { alignment: s.alignment } : {}),
           },
           ...(s.video
@@ -227,18 +217,14 @@ export class ComposeRenderer implements MediaRenderer {
     const deadline = Date.now() + this.timeoutMs;
     for (;;) {
       if (opts.signal?.aborted) throw new ProviderError(`${this.id} render aborted (job ${jobId})`);
-      if (Date.now() > deadline) {
-        throw new ProviderError(`${this.id} job ${jobId} did not finish within ${this.timeoutMs / 1000}s`);
-      }
+      if (Date.now() > deadline) throw new ProviderError(`${this.id} job ${jobId} did not finish within ${this.timeoutMs / 1000}s`);
       await this.sleepImpl(this.pollIntervalMs);
       const status = (await this.get(`/compose-status/${jobId}`)) as ComposeStatus;
       if (status.status === "processing") continue;
       if (status.status !== "done" || status.success === false) {
         throw new ProviderError(`${this.id} job ${jobId} failed: ${status.error ?? status.status}`);
       }
-      if (!status.output_path) {
-        throw new ProviderError(`${this.id} job ${jobId} reported done with no output_path`);
-      }
+      if (!status.output_path) throw new ProviderError(`${this.id} job ${jobId} reported done with no output_path`);
 
       const video = await this.download(status.output_path);
       const thumbnail = status.thumbnail_path

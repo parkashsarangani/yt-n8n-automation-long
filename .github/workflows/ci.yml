@@ -8,23 +8,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Four independent jobs, no `needs` between any of them, so wall clock is the
-# slowest one rather than the sum. Measured on real runs, not guessed:
-#
-#   one sequential job                          509s
-#   three parallel jobs + buildx layer cache    398s
-#
-# Two lessons are baked in here.
-#
-# 1. The buildx GHA layer cache made builds SLOWER, not faster: engine
-#    36s -> 87s, long-compose 73s -> 194s. `cache-to: mode=max` exports every
-#    layer, and this image carries a ~200MB apt layer (chromium + ffmpeg) plus
-#    two node_modules trees, so the export cost more than the build it saved.
-#    Reverted to plain `docker build`.
-#
-# 2. The two render suites are CPU-bound. Splitting them across two RUNNERS
-#    halves the tail; splitting them inside one runner does not, because
-#    node --test already spreads files across that runner's cores.
 jobs:
   contracts:
     name: Contracts and compose config
@@ -49,7 +32,6 @@ jobs:
           }
 
       - name: Shared FreeLLMAPI deployment contract
-        # Repo-level deployment artifacts stay out of the engine image.
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -65,8 +47,8 @@ jobs:
               "FREELLMAPI_VISION_MODEL:",
               "IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}",
               "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}",
-              "FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-flux}",
-              "FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-openai-audio}",
+              "FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}",
+              "FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-auto}",
               "FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}",
           ):
               assert required in compose, f"missing shared FreeLLMAPI client contract: {required}"
@@ -90,17 +72,24 @@ jobs:
               "FREELLMAPI_SPEECH_MODEL:",
               "/v1/images/generations",
               "/v1/audio/speech",
-              "FreeLLMAPI media is selected but",
-              "direct LLM fail-open",
+              "audio/wav",
+              "Models -> Image",
+              "Pollinations image row",
+              "direct OpenAI fail-open",
           ):
               assert required in deploy, f"missing production shared-media contract: {required}"
+
+          # The unified key is inference-only in FreeLLMAPI v0.9.5. Long must
+          # never use it to impersonate a dashboard session or mutate /api/media.
+          assert "fetch(base+'/api/media')" not in deploy
+          assert "'/api/media/'" not in deploy
+          assert "x-dashboard-token" not in deploy.lower()
 
           assert "secrets." + "FREELLMAPI_API_KEY" in deploy
           assert "vars." + "LLM_ROUTER_MODE" in deploy
           assert "vars." + "IMAGE_PROVIDER_MODE" in deploy
           assert "vars." + "SPEECH_PROVIDER_MODE" in deploy
           assert "'freellmapi'" in deploy
-
           print("Shared FreeLLMAPI deployment contract OK")
           PY
 
@@ -109,13 +98,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Build engine image
         run: docker build -t engine:pr-${{ github.event.pull_request.number }} ./engine
-
       - name: Typecheck
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
-
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
@@ -124,37 +110,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
-
       - name: Typecheck Remotion
         run: |
-          docker run --rm \
-            --entrypoint sh \
-            long-compose:pr-${{ github.event.pull_request.number }} \
-            -lc 'cd /app/remotion && npx tsc --noEmit'
-
+          docker run --rm --entrypoint sh long-compose:pr-${{ github.event.pull_request.number }} -lc 'cd /app/remotion && npx tsc --noEmit'
       - name: Source contracts
-        run: |
-          docker run --rm --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
-
+        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
       - name: Motion render regression
-        run: |
-          docker run --rm --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} run test:render:motion
+        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:render:motion
 
   long-compose-output:
     name: Long-compose output quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Build long-compose image (no push)
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
-
       - name: Output quality
-        run: |
-          docker run --rm --entrypoint npm \
-            long-compose:pr-${{ github.event.pull_request.number }} run test:render:output
+        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:render:output

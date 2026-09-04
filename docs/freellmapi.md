@@ -51,32 +51,47 @@ existing paid OpenAI configuration.
 
 ## Experimental media controls
 
-Production currently opts into:
+The portable FreeLLM media configuration is:
 
 ```text
 IMAGE_PROVIDER_MODE=freellmapi
 SPEECH_PROVIDER_MODE=freellmapi
-FREELLMAPI_IMAGE_MODEL=flux
-FREELLMAPI_SPEECH_MODEL=openai-audio
+FREELLMAPI_IMAGE_MODEL=auto
+FREELLMAPI_SPEECH_MODEL=auto
 FREELLMAPI_SPEECH_VOICE=onyx
 FREELLMAPI_SPEECH_FORMAT=mp3
 FREELLMAPI_MEDIA_TIMEOUT_MS=120000
 ```
 
-These are config choices, not graph changes.
+The media-model registry is separate from `/v1/models`. Do not copy a chat model
+id into the image or audio endpoints and do not guess a provider-native id.
+`auto` means "use the enabled rows for this media modality" and is therefore the
+only portable default across FreeLLMAPI catalog revisions/installations.
 
 ### Images
 
-`FREELLMAPI_IMAGE_MODEL=flux` is pinned rather than `auto` so one episode does not
-wander across image models/providers. On FreeLLMAPI v0.9.5 this resolves to the
-Pollinations image adapter and honors the requested aspect dimensions.
+FreeLLMAPI v0.9.5 treats Pollinations as keyless-capable for image generation.
+That means a Pollinations image row needs no provider credential, but the row
+still has to exist and be enabled in FreeLLMAPI's separate media registry.
 
-The limitation is explicit: FreeLLMAPI's OpenAI-style `/v1/images/generations`
-endpoint is text-to-image. It does not carry Fal's reference-conditioned
-`flux-2/edit` contract. The existing illustrated asset worker therefore keeps
-its shot-pack contract but each FreeLLM image is generated independently. The
-existing visual QA and pre-render release gates remain unchanged and are expected
-to expose any continuity/style regression.
+Long deliberately does **not** read or mutate `/api/media`: FreeLLMAPI protects
+that dashboard/admin surface with a dashboard session token, while
+`FREELLMAPI_API_KEY` authorizes only `/v1` inference. The Shorts-owned FreeLLM
+instance therefore keeps ownership of its media configuration.
+
+When `IMAGE_PROVIDER_MODE=freellmapi`, deployment smoke-tests
+`/v1/images/generations` with `model=auto`. If FreeLLM answers that no usable image
+provider is enabled, deployment fails with an explicit instruction to open the
+shared FreeLLMAPI dashboard, go to **Models → Image**, enable a Pollinations image
+row, and redeploy. No API credential is required for that Pollinations row on
+v0.9.5.
+
+The architectural limitation remains explicit: FreeLLMAPI's OpenAI-style image
+surface is text-to-image. It does not carry Fal's reference-conditioned
+`flux-2/edit` contract. Each FreeLLM image is therefore generated independently.
+Existing image text/semantic QA, hero ranking, episode sequence review and
+`visual_asset_release` remain authoritative and should reject unacceptable
+continuity/style regressions.
 
 Rollback only images:
 
@@ -89,16 +104,27 @@ conditioning across recurring subjects and shot packs.
 
 ### Narration
 
-`FREELLMAPI_SPEECH_MODEL=openai-audio` is pinned rather than `auto` so narrator
-identity cannot switch after a provider failure. The experiment uses the
-OpenAI-style `onyx` voice and MP3 output, which fits the current render contract
-without introducing a WAV/transcoding migration.
+The live shared instance has proven that `FREELLMAPI_SPEECH_MODEL=auto` can route
+to Google TTS. Google/Gemini returns WAV even when the request expresses an MP3
+preference; FreeLLMAPI v0.9.5 intentionally wraps Gemini's PCM output as WAV.
+Accordingly `FREELLMAPI_SPEECH_FORMAT=mp3` is a preference, not an assertion
+about the bytes that come back.
 
-FreeLLM speech does not provide ElevenLabs character alignment or the
+Long now preserves the real speech media type end to end:
+
+1. `FreeLLMSpeechProvider` accepts supported audio response types and returns the
+   actual `media_type` (including `audio/wav`).
+2. The voice artifact stores `media_type` per clip.
+3. The render worker forwards that type rather than hardcoding `audio/mpeg`.
+4. `ComposeRenderer` sends it to long-compose. Long-compose hands the inline
+   bytes to FFmpeg, whose input probing accepts WAV natively even through the
+   legacy `voice_N.mp3` temporary filename; this behavior has a regression test.
+
+FreeLLM speech still does not provide ElevenLabs character alignment or the
 `previous_text` / `next_text` prosody-continuity fields. This experiment therefore
-tests whether simple voiceover quality is sufficient for the channel. Existing
-rendering still works because alignment is optional; any caption/timing quality
-difference must be evaluated on the comparison episode.
+tests whether simple voiceover quality is sufficient for the channel. Alignment
+is optional in the renderer, so lack of ElevenLabs timing data is a quality
+comparison question rather than a media-format failure.
 
 Rollback only narration:
 
@@ -111,24 +137,35 @@ prosody fields.
 
 ## Deployment verification
 
-When a FreeLLM media mode is selected, deployment performs tiny smoke calls
-against the exact configured `/v1/images/generations` and `/v1/audio/speech`
-endpoints before reporting success. It also requires both image and speech
-capabilities to report `real=true` from `/api/config`.
+When FreeLLM media is selected, deployment validates the real shared instance
+rather than trusting static configuration:
 
-The smoke calls intentionally do not log the unified key or generated media.
+- reach `freellmapi:3001` from inside the Long engine container;
+- smoke-test `/v1/images/generations` with `model=auto` without attempting an
+  admin-session bypass;
+- give the exact dashboard action if no usable image row is enabled;
+- smoke-test `/v1/audio/speech` with `model=auto` and accept/log the actual audio
+  content type returned by the provider;
+- require both selected media capabilities to report `real=true` from
+  `/api/config`.
+
+The smoke calls do not log the unified key or generated media.
 
 ## Provider attribution and cost
 
 Reasoning artifacts still record the route that answered. FreeLLM image/speech
-providers likewise report `provider: freellmapi` and `cost_usd: 0`; the selected
-upstream/model is retained where the media API exposes it. Fal and ElevenLabs
+providers likewise report `provider: freellmapi` and `cost_usd: 0`; the upstream
+provider/model is retained where the media API exposes it. Fal and ElevenLabs
 retain their existing paid cost accounting when rollback modes are selected.
 
 ## Lifecycle caveat
 
-The shared Docker network is owned by the Shorts Compose project. If that network
-is removed/recreated, redeploy Long after Shorts is healthy. With FreeLLM media
-selected, Long intentionally refuses to report a healthy deployment until the
-shared route is reachable; with Fal/ElevenLabs selected, only reasoning/vision
-uses that route and paid OpenAI fail-open can keep the pipeline operational.
+The shared Docker network and FreeLLM media registry are owned by the Shorts
+FreeLLMAPI deployment. Long does not add keys, create/toggle media rows, reuse a
+dashboard session, or otherwise take ownership of that administrative state.
+
+If the Shorts network is removed/recreated, redeploy Long after Shorts is
+healthy. With FreeLLM media selected, Long intentionally refuses to report a
+healthy deployment until the selected media routes are genuinely callable; with
+Fal/ElevenLabs selected, only reasoning/vision uses the shared route and paid
+OpenAI fail-open can keep the pipeline operational.

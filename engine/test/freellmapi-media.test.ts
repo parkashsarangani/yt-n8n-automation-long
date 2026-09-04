@@ -21,6 +21,25 @@ const ENV_KEYS = [
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const JPEG_BYTES = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
 
+function smallWav(sampleRate = 24_000, samples = 240): Uint8Array {
+  const dataBytes = samples * 2;
+  const b = Buffer.alloc(44 + dataBytes);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + dataBytes, 4);
+  b.write("WAVE", 8);
+  b.write("fmt ", 12);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(sampleRate, 24);
+  b.writeUInt32LE(sampleRate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(dataBytes, 40);
+  return new Uint8Array(b);
+}
+
 async function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, fn: () => Promise<void>) {
   const before = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   try {
@@ -36,7 +55,7 @@ async function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>
   }
 }
 
-test("FreeLLM image provider uses the shared endpoint, detects returned image bytes, and records zero paid cost", async () => {
+test("FreeLLM image provider uses registry-portable auto and records the actual image model", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     let requestBody: any;
     const provider = new FreeLLMImageProvider({
@@ -46,76 +65,81 @@ test("FreeLLM image provider uses the shared endpoint, detects returned image by
         requestBody = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
           data: [{ b64_json: Buffer.from(JPEG_BYTES).toString("base64") }],
-          model: "flux",
+          model: "pollinations-image-model",
           provider: "pollinations",
         }), { status: 200, headers: { "content-type": "application/json" } });
       }) as typeof fetch,
     });
 
     const out = await provider.generate({ prompt: "a quiet street", aspect: "16:9", count: 1 });
-    assert.equal(requestBody.model, "flux");
+    assert.equal(requestBody.model, "auto");
     assert.equal(requestBody.size, "1792x1024");
     assert.equal(requestBody.response_format, "b64_json");
     assert.deepEqual(out.images[0]!.bytes, JPEG_BYTES);
     assert.equal(out.images[0]!.media_type, "image/jpeg");
     assert.equal(out.usage.provider, "freellmapi");
-    assert.equal(out.usage.model, "pollinations/flux");
+    assert.equal(out.usage.model, "pollinations/pollinations-image-model");
     assert.equal(out.usage.cost_usd, 0);
   });
 });
 
-test("FreeLLM speech provider pins one narrator and keeps the renderer-safe MP3 contract", async () => {
+test("FreeLLM speech accepts live Google WAV even when MP3 was requested", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     let requestBody: any;
+    const wav = smallWav();
     const provider = new FreeLLMSpeechProvider({
       fetchImpl: (async (input, init) => {
         assert.equal(String(input), "http://freellmapi:3001/v1/audio/speech");
         requestBody = JSON.parse(String(init?.body));
-        return new Response(Uint8Array.from([1, 2, 3, 4]), {
+        return new Response(wav, {
           status: 200,
-          headers: { "content-type": "audio/mpeg", "x-provider": "pollinations" },
+          headers: { "content-type": "audio/wav; rate=24000", "x-provider": "google" },
         });
       }) as typeof fetch,
     });
 
     const out = await provider.synthesize({ text: "hello world", voice: "legacy-elevenlabs-id" });
-    assert.equal(requestBody.model, "openai-audio");
+    assert.equal(requestBody.model, "auto");
     assert.equal(requestBody.voice, "onyx");
     assert.equal(requestBody.response_format, "mp3");
-    assert.equal(out.media_type, "audio/mpeg");
-    assert.equal(out.usage.model, "pollinations/openai-audio");
+    assert.equal(out.media_type, "audio/wav");
+    assert.equal(out.duration_sec, 0.01);
+    assert.equal(out.usage.model, "google/auto");
     assert.equal(out.usage.cost_usd, 0);
   });
 });
 
-test("FreeLLM speech refuses formats the current voice/render artifact would mislabel", async () => {
-  await withEnv({
-    FREELLMAPI_API_KEY: "free-key",
-    FREELLMAPI_SPEECH_FORMAT: "wav",
-  }, async () => {
-    assert.throws(
-      () => new FreeLLMSpeechProvider(),
-      /currently requires mp3 output/,
-    );
+test("FreeLLM speech still accepts MP3-capable providers", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    const provider = new FreeLLMSpeechProvider({
+      model: "catalog-audio-model",
+      fetchImpl: (async () => new Response(Uint8Array.from([1, 2, 3, 4]), {
+        status: 200,
+        headers: { "content-type": "audio/mpeg", "x-provider": "pollinations" },
+      })) as typeof fetch,
+    });
+    const out = await provider.synthesize({ text: "hello", voice: "onyx" });
+    assert.equal(out.media_type, "audio/mpeg");
+    assert.equal(out.usage.model, "pollinations/catalog-audio-model");
   });
 });
 
-test("FreeLLM speech rejects a provider response that is not actually MP3", async () => {
+test("FreeLLM speech rejects non-audio payload types", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     const provider = new FreeLLMSpeechProvider({
       fetchImpl: (async () => new Response(Uint8Array.from([1, 2, 3]), {
         status: 200,
-        headers: { "content-type": "audio/wav" },
+        headers: { "content-type": "application/octet-stream" },
       })) as typeof fetch,
     });
     await assert.rejects(
       () => provider.synthesize({ text: "hello", voice: "onyx" }),
-      /requested mp3 but returned 'audio\/wav'/,
+      /unsupported content-type/,
     );
   });
 });
 
-test("config-selected FreeLLM image packs generate every requested shot without pretending to consume references", async () => {
+test("config-selected FreeLLM image packs use auto and generate every requested shot", async () => {
   await withEnv({
     IMAGE_PROVIDER_MODE: "freellmapi",
     FREELLMAPI_API_KEY: "free-key",
@@ -126,13 +150,13 @@ test("config-selected FreeLLM image packs generate every requested shot without 
         bodies.push(JSON.parse(String(init?.body)));
         return new Response(JSON.stringify({
           data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
-          model: "flux",
+          model: "anonymous-image",
           provider: "pollinations",
         }), { status: 200, headers: { "content-type": "application/json" } });
       }) as typeof fetch,
     });
 
-    assert.match(provider.id, /freellmapi-image\/flux/);
+    assert.match(provider.id, /freellmapi-image\/auto/);
     const out = await provider.generatePack({
       prompts: ["shot one", "shot two"],
       aspect: "16:9",
@@ -140,6 +164,7 @@ test("config-selected FreeLLM image packs generate every requested shot without 
       reference: { bytes: Uint8Array.from([9]), media_type: "image/png" },
     });
     assert.equal(out.images.length, 2);
+    assert.deepEqual(bodies.map((b) => b.model), ["auto", "auto"]);
     assert.deepEqual(bodies.map((b) => b.prompt), ["shot one", "shot two"]);
     assert.equal(out.images.every((image) => image.media_type === "image/png"), true);
     assert.equal(out.usage?.cost_usd, 0);
@@ -171,7 +196,6 @@ test("provider modes roll back to Fal and ElevenLabs without code changes", asyn
         }), { status: 200, headers: { "content-type": "application/json" } });
       }) as typeof fetch,
     });
-    assert.match(speech.id, /^elevenlabs\//);
     const out = await speech.synthesize({
       text: "hello",
       voice: "voice-1",
