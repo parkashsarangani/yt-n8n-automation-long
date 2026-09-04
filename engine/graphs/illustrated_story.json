@@ -1,7 +1,7 @@
 {
   "graph_id": "illustrated_story",
   "version": "3",
-  "description": "RFC 0008 illustrated-story format plus RFC 0009 growth optimization. A pre-script package binds title/thumbnail/opening promise; an explicit creative-viability gate parks critic verdict=abandon before release or asset spend; viable drafts are gated against first-30/package fidelity, directed into 1-3 visual shots per narration beat with hero budgeting, reviewed as an ordered visual sequence, then technically QA'd before publish.",
+  "description": "RFC 0008 illustrated-story format plus RFC 0009 growth optimization. A pre-script package binds title/thumbnail/opening promise; an explicit creative-viability gate parks abandon_recommended=true before release or asset spend; viable drafts are gated against first-30/package fidelity, directed into 1-3 visual shots per narration beat with hero budgeting, reviewed as an ordered visual sequence, then technically QA'd before publish.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -11,7 +11,7 @@
     { "id": "approve_story", "type": "human_gate", "in": ["story"], "policy": { "auto_pass_if": "always" } },
     { "id": "draft_script", "transformation": "narration_script_writer", "in": ["approve_story", "package"] },
     { "id": "watchability_report", "transformation": "watchability_critic", "in": ["approve_story", "draft_script", "package"] },
-    { "id": "creative_viability", "type": "human_gate", "in": ["watchability_report"], "policy": { "auto_pass_if": "payload.verdict != \"abandon\"" } },
+    { "id": "creative_viability", "type": "human_gate", "in": ["watchability_report"], "policy": { "auto_pass_if": "payload.abandon_recommended == false" } },
     { "id": "watchability_release", "transformation": "watchability_release", "in": ["draft_script", "creative_viability"] },
     { "id": "approve_script", "type": "human_gate", "in": ["watchability_release"], "policy": { "auto_pass_if": "always" } },
     { "id": "direction", "transformation": "episode_director", "in": ["approve_script", "package"] },
