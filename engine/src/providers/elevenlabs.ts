@@ -1,15 +1,16 @@
 /**
- * ElevenLabs speech provider (RFC 0004).
+ * Config-selectable speech provider facade.
  *
- * The only file that knows ElevenLabs exists. Request shape carried over from
- * the long-form pipeline, including `previous_text`/`next_text` — the stateless
- * way to keep prosody continuous across ~50 separate clips.
+ * SPEECH_PROVIDER_MODE selects:
+ *   - freellmapi (experimental default): shared FreeLLMAPI /audio/speech
+ *   - elevenlabs: existing ElevenLabs with timestamps/prosody context
  *
- * NOT YET RUN AGAINST THE REAL API. Written from the pipeline's known-good
- * request shape; treat the first live call as the real test.
+ * The exported class name stays stable so the service/graph does not need to
+ * know which vendor serves the speech capability.
  */
 
 import { ProviderError, type SpeechProvider, type Usage } from "../provider.ts";
+import { FreeLLMSpeechProvider } from "./freellmapi-media.ts";
 
 export interface ElevenLabsOptions {
   apiKey?: string;
@@ -27,7 +28,7 @@ interface TimestampsResponse {
   normalized_alignment?: unknown;
 }
 
-export class ElevenLabsProvider implements SpeechProvider {
+class DirectElevenLabsProvider implements SpeechProvider {
   readonly id: string;
   private readonly apiKey: string;
   private readonly modelId: string;
@@ -71,8 +72,6 @@ export class ElevenLabsProvider implements SpeechProvider {
         body: JSON.stringify({
           text: req.text,
           model_id: this.modelId,
-          // Stateless prosody continuity: no request-stitching, so clips can
-          // still be generated concurrently.
           ...(req.context?.prev ? { previous_text: req.context.prev } : {}),
           ...(req.context?.next ? { next_text: req.context.next } : {}),
           voice_settings: this.voiceSettings,
@@ -113,6 +112,28 @@ export class ElevenLabsProvider implements SpeechProvider {
         : {}),
       usage,
     };
+  }
+}
+
+function speechProviderMode(): "freellmapi" | "elevenlabs" {
+  return process.env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "elevenlabs"
+    ? "elevenlabs"
+    : "freellmapi";
+}
+
+export class ElevenLabsProvider implements SpeechProvider {
+  readonly id: string;
+  private readonly delegate: SpeechProvider;
+
+  constructor(opts: ElevenLabsOptions = {}) {
+    this.delegate = speechProviderMode() === "elevenlabs"
+      ? new DirectElevenLabsProvider(opts)
+      : new FreeLLMSpeechProvider({ ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+    this.id = this.delegate.id;
+  }
+
+  synthesize(req: { text: string; voice: string; context?: { prev?: string; next?: string } }) {
+    return this.delegate.synthesize(req);
   }
 }
 
