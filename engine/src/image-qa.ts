@@ -9,8 +9,12 @@
 //      weak opening/payoff, style drift, continuity breaks, or AI artefacts.
 //
 // These calls remain deliberately self-contained instead of giving arbitrary
-// workers a model client. All infrastructure failures fail OPEN and return
-// null: a QA outage must be visible in logs but must not deadlock production.
+// workers a model client. FreeLLMAPI is primary when enabled; direct OpenAI is
+// the fail-open/rollback path. All infrastructure failures still fail OPEN and
+// return null: a QA outage must be visible in logs but must not deadlock
+// production.
+
+import { llmRoutingConfig } from "./llm-routing.ts";
 
 const TIMEOUT_MS = 20000;
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -71,32 +75,26 @@ function clampScore(value: unknown): number {
     : 0;
 }
 
-async function askVisionMany(
-  images: Array<{ bytes: Uint8Array; media_type: string }>,
-  instruction: string,
+async function requestVisionJson(
+  opts: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    content: Array<Record<string, unknown>>;
+    maxCompletionTokens: number;
+  },
   fetchImpl: FetchLike,
-  maxCompletionTokens = 500,
 ): Promise<Record<string, unknown> | null> {
-  const apiKey = process.env["OPENAI_API_KEY"];
-  if (!apiKey || images.length === 0) return null;
-  const baseUrl = (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
-  const model = process.env["OPENAI_IMAGE_QA_MODEL"] ?? process.env["OPENAI_MODEL"] ?? "gpt-5.6-luna";
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
-    for (const image of images) {
-      const dataUri = `data:${image.media_type};base64,${base64FromBytes(image.bytes)}`;
-      content.push({ type: "image_url", image_url: { url: dataUri, detail: "low" } });
-    }
-    const res = await fetchImpl(`${baseUrl}/chat/completions`, {
+    const res = await fetchImpl(`${opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
       body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content }],
-        max_completion_tokens: maxCompletionTokens,
+        model: opts.model,
+        messages: [{ role: "user", content: opts.content }],
+        max_completion_tokens: opts.maxCompletionTokens,
         response_format: { type: "json_object" },
       }),
       signal: controller.signal,
@@ -112,6 +110,53 @@ async function askVisionMany(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function askVisionMany(
+  images: Array<{ bytes: Uint8Array; media_type: string }>,
+  instruction: string,
+  fetchImpl: FetchLike,
+  maxCompletionTokens = 500,
+): Promise<Record<string, unknown> | null> {
+  if (images.length === 0) return null;
+
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
+  for (const image of images) {
+    const dataUri = `data:${image.media_type};base64,${base64FromBytes(image.bytes)}`;
+    content.push({ type: "image_url", image_url: { url: dataUri, detail: "low" } });
+  }
+
+  const routing = llmRoutingConfig();
+  const directApiKey = process.env["OPENAI_API_KEY"]?.trim();
+  const directBaseUrl = (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+  const directModel = process.env["OPENAI_IMAGE_QA_MODEL"] ?? process.env["OPENAI_MODEL"] ?? "gpt-5.6-luna";
+
+  if (routing.mode === "freellmapi") {
+    if (routing.apiKey) {
+      const free = await requestVisionJson({
+        baseUrl: routing.baseUrl,
+        apiKey: routing.apiKey,
+        model: routing.visionModel,
+        content,
+        maxCompletionTokens,
+      }, fetchImpl);
+      if (free) return free;
+      if (!routing.failOpenToDirect) return null;
+      // Deliberately omit prompts, responses and provider error bodies.
+      console.warn("[llm-routing] FreeLLMAPI vision QA failed; retrying through direct OpenAI");
+    } else if (!routing.failOpenToDirect) {
+      return null;
+    }
+  }
+
+  if (!directApiKey) return null;
+  return requestVisionJson({
+    baseUrl: directBaseUrl,
+    apiKey: directApiKey,
+    model: directModel,
+    content,
+    maxCompletionTokens,
+  }, fetchImpl);
 }
 
 async function askVision(

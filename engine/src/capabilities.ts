@@ -19,12 +19,22 @@ export interface StageSpec {
 export const STAGES: StageSpec[] = [
   {
     id: "reasoning",
-    label: "Story, dialogue, visual direction and thumbnail planning",
-    requires: [["OPENAI_API_KEY"]],
-    optional: ["OPENAI_MODEL"],
-    real: "openai/${OPENAI_MODEL:-gpt-5.6-luna}",
+    label: "Story, dialogue, visual direction, thumbnail planning and visual QA",
+    // Free-first is the production default. With fail-open enabled, direct
+    // OpenAI alone is also a complete route while FreeLLMAPI is being set up.
+    requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
+    optional: [
+      "LLM_ROUTER_MODE",
+      "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
+      "LLM_ROUTER_TIMEOUT_MS",
+      "FREELLMAPI_BASE_URL",
+      "FREELLMAPI_TEXT_MODEL",
+      "FREELLMAPI_VISION_MODEL",
+      "OPENAI_MODEL",
+    ],
+    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-auto:smart}",
     fallback: "unavailable",
-    consequence: "runs fail at the first reasoning node — there is no offline fallback for creative planning",
+    consequence: "runs fail at the first reasoning node — there is no offline model fallback for creative planning",
   },
   {
     id: "speech",
@@ -39,10 +49,6 @@ export const STAGES: StageSpec[] = [
     id: "images",
     label: "Illustrated stills and thumbnail artwork",
     requires: [["FAL_KEY"]],
-    // FLUX.2 [dev], not [pro] -- verified live against the house-style
-    // prompt at roughly half fal.ai's per-megapixel price with no visible
-    // quality loss for this format. Override with FAL_MODEL/FAL_EDIT_MODEL
-    // if that ever changes.
     real: "fal/flux-2 + flux-2/edit",
     fallback: "unavailable",
     consequence:
@@ -98,14 +104,46 @@ function isSet(env: NodeJS.ProcessEnv, key: string): boolean {
   return Boolean(env[key]?.trim());
 }
 
+function routerMode(env: NodeJS.ProcessEnv): "freellmapi" | "direct" {
+  return env["LLM_ROUTER_MODE"]?.trim().toLowerCase() === "direct" ? "direct" : "freellmapi";
+}
+
+function failOpen(env: NodeJS.ProcessEnv): boolean {
+  const v = env["LLM_ROUTER_FAIL_OPEN_TO_DIRECT"]?.trim().toLowerCase();
+  return v === undefined || !["false", "0", "off", "no"].includes(v);
+}
+
+function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
+  if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY");
+  if (isSet(env, "FREELLMAPI_API_KEY")) return true;
+  return failOpen(env) && isSet(env, "OPENAI_API_KEY");
+}
+
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (spec.id === "reasoning") return reasoningSatisfied(env);
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
 function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
+  if (spec.id === "reasoning") {
+    if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY") ? [] : ["OPENAI_API_KEY"];
+    if (!isSet(env, "FREELLMAPI_API_KEY") && !failOpen(env)) return ["FREELLMAPI_API_KEY"];
+  }
   return spec.requires
     .map((group) => group.filter((k) => !isSet(env, k)))
     .sort((a, b) => a.length - b.length)[0] ?? [];
+}
+
+function reasoningProvider(env: NodeJS.ProcessEnv): string {
+  const openaiModel = env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
+  if (routerMode(env) === "direct") return `openai/${openaiModel}`;
+  if (isSet(env, "FREELLMAPI_API_KEY")) {
+    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "auto:smart";
+    return failOpen(env) && isSet(env, "OPENAI_API_KEY")
+      ? `freellmapi/${freeModel} → openai/${openaiModel} fail-open`
+      : `freellmapi/${freeModel}`;
+  }
+  return `openai/${openaiModel} (FreeLLMAPI unconfigured; fail-open)`;
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
@@ -114,10 +152,15 @@ export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.Pro
     const hasCreds = credentialsSatisfied(spec, env);
     const gateOpen = spec.gatedBy ? opts.allowPublish : true;
     const real = hasCreds && gateOpen;
+    const provider = spec.id === "reasoning" && real
+      ? reasoningProvider(env)
+      : real
+        ? spec.real.replace("${OPENAI_MODEL:-gpt-5.6-luna}", env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna")
+        : spec.fallback;
     return {
       id: spec.id,
       label: spec.label,
-      provider: real ? spec.real.replace("${OPENAI_MODEL:-gpt-5.6-luna}", env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna") : spec.fallback,
+      provider,
       real,
       consequence: spec.consequence,
       missing: hasCreds ? [] : nearestMissing(spec, env),

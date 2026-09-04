@@ -1,21 +1,16 @@
 /**
- * OpenAI model provider (RFC 0004).
+ * OpenAI-compatible reasoning provider (RFC 0004).
  *
- * Chat Completions with streaming: today's Ollama incident showed exactly
- * what a non-streaming call costs on any output that takes a while to
- * generate -- the client waits for a complete response before it sees any
- * bytes, and if that crosses a timeout the request dies with a generic
- * error indistinguishable from a real connectivity problem. Streaming
- * avoids that entirely, the same reason anthropic.ts already streams.
+ * Production is free-first: when LLM_ROUTER_MODE is not `direct`, requests go
+ * to the shared FreeLLMAPI instance first. FreeLLMAPI's OpenAI-compatible
+ * response is deliberately non-streaming because its router aggregates hosted
+ * provider responses. If that route is unavailable/rejected and fail-open is
+ * enabled, the exact original request is retried through direct OpenAI using
+ * the existing streaming implementation. `LLM_ROUTER_MODE=direct` is the
+ * immediate rollback switch.
  *
- * response_format is left at "json_object" (guaranteed-valid JSON, not
- * schema-enforced "json_schema" strict mode) rather than OpenAI's stricter
- * structured-outputs mode, which requires every property to be listed in
- * `required` -- incompatible with this registry's schemas, which use
- * genuinely optional fields throughout. The schema is still sent as prompt
- * grounding; the registry's own validation on write remains the strict,
- * authoritative gate, matching the same division of responsibility already
- * used for Ollama.
+ * response_format stays at `json_object`; the registry remains the strict
+ * authoritative schema validator after generation.
  */
 
 import {
@@ -27,6 +22,7 @@ import {
   type ModelProvider,
   type ProviderCapabilities,
 } from "../provider.ts";
+import { llmRoutingConfig, type LlmRoutingConfig } from "../llm-routing.ts";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -39,12 +35,21 @@ interface OpenAIStreamChunk {
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
 }
 
-export interface OpenAIProviderOptions {
-  /** Defaults to OPENAI_MODEL, then gpt-5.6-luna. */
+interface OpenAIJsonResponse {
+  choices?: Array<{
+    message?: { content?: string | null };
+    finish_reason?: string | null;
+  }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
   model?: string;
-  /** Defaults to OPENAI_API_KEY. Required -- there is no fallback. */
+}
+
+export interface OpenAIProviderOptions {
+  /** Direct paid fallback model. Defaults to OPENAI_MODEL, then gpt-5.6-luna. */
+  model?: string;
+  /** Direct paid fallback key. Free-first operation does not require it. */
   apiKey?: string;
-  /** Defaults to OPENAI_BASE_URL, then the public API. */
+  /** Direct paid fallback base URL. */
   baseUrl?: string;
   /** Defaults to 8192. Agent max_output_tokens overrides this per call. */
   maxOutputTokens?: number;
@@ -66,19 +71,9 @@ export function defaultOpenAIBaseUrl(env: NodeJS.ProcessEnv = process.env): stri
 }
 
 function outputPrompt(prompt: string, schema: unknown): string {
-  // json_object mode guarantees syntactically valid JSON but does not
-  // enforce a shape, so the schema still has to ground the model the same
-  // way it does for Ollama. The registry validates strictly afterward.
   return `${prompt}\n\nReturn only one JSON object matching this JSON Schema. Do not wrap it in markdown.\n${JSON.stringify(schema)}`;
 }
 
-/**
- * Chat Completions streams one SSE "data: {...}" line per chunk, ending
- * with a literal "data: [DONE]" line. With stream_options.include_usage,
- * one extra chunk carries the final usage totals (its choices array is
- * empty). Concatenate delta.content across chunks and keep the last
- * finish_reason/usage seen.
- */
 async function readOpenAIStream(res: Response): Promise<{ content: string; finishReason: string | null; usage: OpenAIStreamChunk["usage"] }> {
   const body = res.body;
   if (!body) throw new ProviderError("openai stream response had no body");
@@ -118,14 +113,38 @@ async function readOpenAIStream(res: Response): Promise<{ content: string; finis
   return { content, finishReason, usage };
 }
 
+function structuredBody(
+  model: string,
+  req: CompletionRequest,
+  defaultMaxTokens: number,
+  defaultEffort: CompletionRequest["effort"],
+  stream: boolean,
+): Record<string, unknown> {
+  const schema = relaxForStructuredOutput(req.outputSchema);
+  const effort = req.effort ?? defaultEffort;
+  const maxTokens = req.maxOutputTokens ?? defaultMaxTokens;
+  return {
+    model,
+    messages: [{ role: "user", content: outputPrompt(req.prompt, schema) }],
+    stream,
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    response_format: { type: "json_object" },
+    max_completion_tokens: maxTokens,
+    reasoning_effort: req.thinking === false ? "none" : effort,
+  };
+}
+
+function parsedJson(providerRef: string, content: string): unknown {
+  try {
+    return JSON.parse(content) as unknown;
+  } catch {
+    throw new ProviderError(`${providerRef} returned non-JSON despite structured output: ${content.slice(0, 300)}`);
+  }
+}
+
 export class OpenAIProvider implements ModelProvider {
   readonly id: string;
   private readonly model: string;
-  // Not required at construction time: rebuild() in service.ts constructs
-  // every provider unconditionally on every credential change, including
-  // before an API key has ever been entered, so the server can still boot
-  // and show the credentials UI. Failing happens lazily, on the first real
-  // call, the same way the original AnthropicProvider did.
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
   private readonly defaultMaxTokens: number;
@@ -139,7 +158,10 @@ export class OpenAIProvider implements ModelProvider {
     this.defaultMaxTokens = opts.maxOutputTokens ?? 8192;
     this.defaultEffort = opts.effort ?? "medium";
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.id = `openai/${this.model}`;
+    const routing = llmRoutingConfig();
+    this.id = routing.mode === "direct"
+      ? `openai/${this.model}`
+      : `freellmapi/${routing.textModel}+openai-failopen`;
   }
 
   capabilities(): ProviderCapabilities {
@@ -147,22 +169,89 @@ export class OpenAIProvider implements ModelProvider {
   }
 
   async complete(req: CompletionRequest): Promise<CompletionResult> {
+    const routing = llmRoutingConfig();
+    if (routing.mode === "direct") return this.completeDirect(req);
+
+    try {
+      return await this.completeFree(req, routing);
+    } catch (freeError) {
+      if (!routing.failOpenToDirect) throw freeError;
+      if (!this.apiKey) {
+        const detail = freeError instanceof Error ? freeError.message : String(freeError);
+        throw new ProviderError(
+          `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not configured for fail-open: ${detail}`,
+        );
+      }
+      // Cost-oriented signal only. Do not log prompts, response bodies, API
+      // keys, or the upstream error text because provider errors can echo input.
+      console.warn("[llm-routing] FreeLLMAPI reasoning failed; retrying through direct OpenAI");
+      return this.completeDirect(req);
+    }
+  }
+
+  private async completeFree(req: CompletionRequest, routing: LlmRoutingConfig): Promise<CompletionResult> {
+    const providerRef = `freellmapi/${routing.textModel}`;
+    if (!routing.apiKey) throw new ProviderError(`${providerRef} request failed: FREELLMAPI_API_KEY is not set`);
+
+    const maxTokens = req.maxOutputTokens ?? this.defaultMaxTokens;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), routing.timeoutMs);
+    let data: OpenAIJsonResponse;
+    try {
+      const res = await this.fetchImpl(`${routing.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${routing.apiKey}`,
+        },
+        body: JSON.stringify(structuredBody(routing.textModel, req, this.defaultMaxTokens, this.defaultEffort, false)),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        if (res.status === 400 && /content_?policy|safety/i.test(text)) {
+          throw new ProviderRefusal(`${providerRef} declined the request`, "policy");
+        }
+        throw new ProviderError(`${providerRef} request failed (${res.status})`);
+      }
+      data = await res.json() as OpenAIJsonResponse;
+    } catch (err) {
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(`${providerRef} request failed: ${err instanceof Error ? err.name : "network error"}`);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const choice = data.choices?.[0];
+    const finishReason = choice?.finish_reason ?? null;
+    if (finishReason === "length") {
+      throw new ProviderError(`${providerRef} hit max_tokens (${maxTokens}); output is truncated`);
+    }
+    if (finishReason === "content_filter") {
+      throw new ProviderRefusal(`${providerRef} declined the request`, "content_filter");
+    }
+    const content = choice?.message?.content;
+    if (typeof content !== "string" || !content) throw new ProviderError(`${providerRef} returned no content`);
+
+    const actualModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : routing.textModel;
+    return {
+      value: parsedJson(providerRef, content),
+      usage: {
+        input_tokens: data.usage?.prompt_tokens ?? 0,
+        output_tokens: data.usage?.completion_tokens ?? 0,
+        cost_usd: 0,
+        provider: "freellmapi",
+        model: actualModel,
+      },
+      providerRef: `freellmapi/${actualModel}`,
+    };
+  }
+
+  private async completeDirect(req: CompletionRequest): Promise<CompletionResult> {
     const providerRef = `openai/${this.model}`;
     const apiKey = this.apiKey;
     if (!apiKey) throw new ProviderError(`${providerRef} request failed: OPENAI_API_KEY is not set`);
-    const schema = relaxForStructuredOutput(req.outputSchema);
-    const effort = req.effort ?? this.defaultEffort;
     const maxTokens = req.maxOutputTokens ?? this.defaultMaxTokens;
-
-    const body = {
-      model: this.model,
-      messages: [{ role: "user", content: outputPrompt(req.prompt, schema) }],
-      stream: true,
-      stream_options: { include_usage: true },
-      response_format: { type: "json_object" },
-      max_completion_tokens: maxTokens,
-      reasoning_effort: req.thinking === false ? "none" : effort,
-    };
 
     let result: { content: string; finishReason: string | null; usage: OpenAIStreamChunk["usage"] };
     try {
@@ -172,7 +261,7 @@ export class OpenAIProvider implements ModelProvider {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(structuredBody(this.model, req, this.defaultMaxTokens, this.defaultEffort, true)),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -195,15 +284,8 @@ export class OpenAIProvider implements ModelProvider {
     }
     if (!result.content) throw new ProviderError(`${providerRef} returned no content`);
 
-    let value: unknown;
-    try {
-      value = JSON.parse(result.content);
-    } catch {
-      throw new ProviderError(`${providerRef} returned non-JSON despite structured output: ${result.content.slice(0, 300)}`);
-    }
-
     return {
-      value,
+      value: parsedJson(providerRef, result.content),
       usage: {
         input_tokens: result.usage?.prompt_tokens ?? 0,
         output_tokens: result.usage?.completion_tokens ?? 0,
@@ -222,10 +304,6 @@ interface Price {
   output: number;
 }
 
-/**
- * Prices as of 2026-08-24 (post the 2026-07-30 Luna/Terra cut; Sol
- * unchanged). Verified against openai.com/api/pricing, not assumed.
- */
 const PRICES: Record<string, Price> = {
   "gpt-5.6-luna": { input: 0.2, output: 1.2 },
   "gpt-5.6-terra": { input: 2, output: 12 },
@@ -234,6 +312,6 @@ const PRICES: Record<string, Price> = {
 
 export function estimateOpenAICost(model: string, inputTokens: number, outputTokens: number): number {
   const price = PRICES[model];
-  if (!price) return 0; // unknown model: report zero rather than invent a rate
+  if (!price) return 0;
   return (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
 }
