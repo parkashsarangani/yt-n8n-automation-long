@@ -93,12 +93,18 @@ jobs:
               "yt-n8n-automation-shorts_default",
               'docker network connect "$SHARED_LLM_NETWORK" "$ENGINE_CID"',
               "http://freellmapi:3001/api/ping",
-              "FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}",
-              "LLM_ROUTER_MODE: ${{ vars.LLM_ROUTER_MODE || 'freellmapi' }}",
+              "FREELLMAPI_API_KEY:",
+              "LLM_ROUTER_MODE:",
               "warning::shared network",
               "direct LLM fail-open",
           ):
               assert required in deploy, f"missing production shared-network contract: {required}"
+
+          # Build these identifiers dynamically so GitHub Actions does not
+          # interpolate expression syntax inside this validation script.
+          assert "secrets." + "FREELLMAPI_API_KEY" in deploy
+          assert "vars." + "LLM_ROUTER_MODE" in deploy
+          assert "'freellmapi'" in deploy
 
           print("Shared FreeLLMAPI deployment contract OK")
           PY
