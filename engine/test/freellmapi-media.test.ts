@@ -18,6 +18,9 @@ const ENV_KEYS = [
   "ELEVENLABS_API_KEY",
 ] as const;
 
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_BYTES = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);
+
 async function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>>, fn: () => Promise<void>) {
   const before = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   try {
@@ -33,7 +36,7 @@ async function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>
   }
 }
 
-test("FreeLLM image provider uses the shared OpenAI-compatible image endpoint with zero paid cost", async () => {
+test("FreeLLM image provider uses the shared endpoint, detects returned image bytes, and records zero paid cost", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     let requestBody: any;
     const provider = new FreeLLMImageProvider({
@@ -42,7 +45,7 @@ test("FreeLLM image provider uses the shared OpenAI-compatible image endpoint wi
         assert.equal((init?.headers as Record<string, string>).Authorization, "Bearer free-key");
         requestBody = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({
-          data: [{ b64_json: Buffer.from("PNG").toString("base64") }],
+          data: [{ b64_json: Buffer.from(JPEG_BYTES).toString("base64") }],
           model: "flux",
           provider: "pollinations",
         }), { status: 200, headers: { "content-type": "application/json" } });
@@ -53,7 +56,8 @@ test("FreeLLM image provider uses the shared OpenAI-compatible image endpoint wi
     assert.equal(requestBody.model, "flux");
     assert.equal(requestBody.size, "1792x1024");
     assert.equal(requestBody.response_format, "b64_json");
-    assert.equal(Buffer.from(out.images[0]!.bytes).toString(), "PNG");
+    assert.deepEqual(out.images[0]!.bytes, JPEG_BYTES);
+    assert.equal(out.images[0]!.media_type, "image/jpeg");
     assert.equal(out.usage.provider, "freellmapi");
     assert.equal(out.usage.model, "pollinations/flux");
     assert.equal(out.usage.cost_usd, 0);
@@ -96,6 +100,21 @@ test("FreeLLM speech refuses formats the current voice/render artifact would mis
   });
 });
 
+test("FreeLLM speech rejects a provider response that is not actually MP3", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    const provider = new FreeLLMSpeechProvider({
+      fetchImpl: (async () => new Response(Uint8Array.from([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "audio/wav" },
+      })) as typeof fetch,
+    });
+    await assert.rejects(
+      () => provider.synthesize({ text: "hello", voice: "onyx" }),
+      /requested mp3 but returned 'audio\/wav'/,
+    );
+  });
+});
+
 test("config-selected FreeLLM image packs generate every requested shot without pretending to consume references", async () => {
   await withEnv({
     IMAGE_PROVIDER_MODE: "freellmapi",
@@ -106,7 +125,7 @@ test("config-selected FreeLLM image packs generate every requested shot without 
       fetchImpl: (async (_input, init) => {
         bodies.push(JSON.parse(String(init?.body)));
         return new Response(JSON.stringify({
-          data: [{ b64_json: Buffer.from(`IMG${bodies.length}`).toString("base64") }],
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
           model: "flux",
           provider: "pollinations",
         }), { status: 200, headers: { "content-type": "application/json" } });
@@ -122,6 +141,7 @@ test("config-selected FreeLLM image packs generate every requested shot without 
     });
     assert.equal(out.images.length, 2);
     assert.deepEqual(bodies.map((b) => b.prompt), ["shot one", "shot two"]);
+    assert.equal(out.images.every((image) => image.media_type === "image/png"), true);
     assert.equal(out.usage?.cost_usd, 0);
   });
 });
