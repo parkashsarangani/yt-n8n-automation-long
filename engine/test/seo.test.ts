@@ -208,7 +208,7 @@ test("the agent is declared to read the script, not just the story", async () =>
 
   assert.deepEqual(
     seo.consumes.map((c) => c.schema_id).sort(),
-    ["script", "story"],
+    ["growth_package", "script", "story"],
   );
   assert.equal(seo.produces, "seo_metadata");
 });

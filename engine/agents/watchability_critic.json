@@ -5,7 +5,7 @@
   "consumes": [
     { "schema_id": "story", "range": "^1", "as": "story" },
     { "schema_id": "script", "range": "^1", "as": "script" },
-    { "schema_id": "growth_package", "range": "^1", "as": "growth" }
+    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
   ],
   "produces": "watchability_report",
   "produces_version": "2.0.0",

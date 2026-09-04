@@ -147,7 +147,7 @@ export async function checkGeneratedImageMatchesNarration(
   if (!line) return null;
   const parsed = await askVision(
     image,
-    `This illustration plays under this spoken narration: "${line}"\n\nDecide ONLY whether it actively contradicts or materially misrepresents the line (wrong event, wrong causal direction, figurative phrase rendered as a false literal event). Do not flag merely atmospheric, partial, stylised, or oblique illustration. If unsure answer false. Respond ONLY JSON: {\"contradicts_narration\":true|false,\"reason\":\"one short sentence\"}`,
+    `This illustration plays under this spoken narration: "${line}"\n\nDecide ONLY whether it actively contradicts or materially misrepresents the line (wrong event, wrong causal direction, figurative phrase rendered as a false literal event). Do NOT flag an image merely for being atmospheric, partial, stylised, loose, abstract, or oblique b-roll. If you are unsure, answer false. Respond ONLY JSON: {\"contradicts_narration\":true|false,\"reason\":\"one short sentence\"}`,
     fetchImpl,
   );
   if (!parsed || typeof parsed["contradicts_narration"] !== "boolean") return null;

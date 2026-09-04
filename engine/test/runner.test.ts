@@ -100,6 +100,9 @@ async function seedInsights(h: Awaited<ReturnType<typeof harness>>) {
       sample_size: 0,
       confidence_note: "Nothing measured yet; no guidance can be supported.",
       guidance: [],
+      // RFC 0009 decision 9: a channel with nothing measured has no editorial
+      // memory to carry forward, and that emptiness is the honest answer.
+      editorial_memory: [],
     },
     produced_by: { transformation: "channel_strategist", version: "1", run_id: "run_seed", provider: null },
   });
@@ -114,6 +117,7 @@ test("the catalog loads every agent as pure data", async () => {
       "channel_strategist",
       "discovery",
       "episode_director",
+      "growth_packager",
       "narration_script_writer",
       "narrative_story_architect",
       "seo_optimizer",

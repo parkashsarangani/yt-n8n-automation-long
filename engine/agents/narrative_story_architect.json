@@ -5,7 +5,7 @@
   "consumes": [
     { "schema_id": "intent", "range": "^1", "as": "intent" },
     { "schema_id": "channel_insights", "range": "^2", "as": "insights" },
-    { "schema_id": "growth_package", "range": "^1", "as": "growth" }
+    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
   ],
   "produces": "story",
   "prompt": "narrative_story_architect@4",

@@ -100,14 +100,14 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
   return {
     name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "6",
     consumes: [{ schema_id: "episode_direction", range: "^2", as: "direction" }, { schema_id: "script", range: "^1", as: "script" }, { schema_id: "intent", range: "^1", as: "intent" }],
-    produces: "asset_manifest", produces_version: "2.0.0",
+    produces: "asset_manifest", produces_version: "1.9.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
       const direction = inputs["direction"]!.payload as { scenes: DirectionScene[]; hero_shots: string[] };
       const scripts = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes; validateEpisodeDirection(direction, scripts.map((s) => s.scene_index));
       const intent = inputs["intent"]!.payload as IntentPayload, style = intent.image_style && intent.image_style in STYLE_BUNDLES ? intent.image_style : DEFAULT_STYLE;
       const narrationBy = new Map(scripts.map((s) => [s.scene_index, clean(s.narration, 600)])), outroIndex = scripts.find((s) => s.is_outro)?.scene_index;
       const configured = ctx.media.images as ReferenceCapableProvider | undefined, provider = configured && !configured.id.startsWith("fake/") ? configured : undefined;
-      const orderedScenes = [...direction.scenes].sort((a, b) => a.scene_index - b.scene_index), working: WorkingShot[] = [];
+      const orderedScenes = [...direction.scenes].sort((a, b) => a.scene_index - b.scene_index), working: WorkingShot[] = [], deferred: WorkingShot[] = [];
       const priorMap = new Map<number, PriorScene>(((ctx.priorArtifact?.payload as { scenes?: PriorScene[] } | undefined)?.scenes ?? []).filter((s): s is PriorScene & { scene_index: number } => typeof s.scene_index === "number").map((s) => [s.scene_index, s]));
       let reference: GeneratedImage | undefined;
 
@@ -133,9 +133,39 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           const item: WorkingShot = { id, sceneIndex: scene.scene_index, shot, narration, prompt, source: "placeholder" };
           if (provider) {
             try { item.image = await generateShot(provider, prompt, shot, narration, reference, ctx.logger, id); item.source = "primary"; if (!reference) reference = item.image; }
-            catch (err) { if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after failure: ${err instanceof Error ? err.message : String(err)}`); } else ctx.logger.warn(`[illustrated_scene_assets] ${id}: no renderable image after failure: ${err instanceof Error ? err.message : String(err)}`); }
+            catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after failure: ${message}`); }
+              // No reference exists YET -- which is the structural bad luck of
+              // going first, not a verdict on this shot. Scene 0 is generated
+              // before any other scene has succeeded, so it is both the most
+              // important image in the episode (it carries the hook) and the
+              // only one with nothing to fall back on. Defer it instead of
+              // conceding a blank frame: a later scene almost always succeeds
+              // and becomes the reference this shot never had. Confirmed in
+              // production -- scene 0 failed vision QA twice, shipped blank,
+              // and was then fixed by exactly this retry one full render pass
+              // later, after qa caught it.
+              else { deferred.push(item); ctx.logger.warn(`[illustrated_scene_assets] ${id}: failed with no reference available yet; deferring one retry until a later scene establishes one: ${message}`); }
+            }
           }
           working.push(item);
+        }
+      }
+
+      // Second chance for the shots that went first, now that the episode has
+      // a reference image. This adds no generation for a healthy run (the list
+      // is empty) and never re-rolls a shot that already produced an image, so
+      // images are still generated once per shot per run.
+      for (const item of deferred) {
+        if (!provider || !reference) break; // nothing succeeded anywhere; a true placeholder is honest
+        try {
+          item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`);
+          item.source = "primary";
+          ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry succeeded with reference conditioning; render receives a real image instead of a blank frame`);
+        } catch (err) {
+          item.image = reference; item.source = "fallback";
+          ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry also failed; reusing the episode reference rather than shipping blank: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 

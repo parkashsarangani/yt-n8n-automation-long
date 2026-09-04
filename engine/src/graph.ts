@@ -178,15 +178,35 @@ export function validateGraph(graph: GraphDoc, deps: ValidateGraphDeps): void {
       problems.push(`node "${n.id}" references unknown transformation "${tn.transformation}"`);
       continue;
     }
-    if (inputsOf(tn).length !== def.consumes.length) {
+    // Optional inputs (consumes[].optional) mean the supplied arity is a
+    // RANGE, not a fixed count -- an agent whose growth_package input is
+    // optional is legally wired both by the illustrated graph (which has a
+    // package node) and by the manual graph (which has none). Mirror
+    // Runner.bindInputs exactly, or a graph the runner would execute happily
+    // is rejected as statically invalid.
+    const requiredCount = def.consumes.filter((spec) => !spec.optional).length;
+    const suppliedCount = inputsOf(tn).length;
+    if (suppliedCount < requiredCount || suppliedCount > def.consumes.length) {
+      const expected = requiredCount === def.consumes.length
+        ? String(def.consumes.length)
+        : `${requiredCount}-${def.consumes.length}`;
       problems.push(
-        `node "${n.id}" supplies ${inputsOf(tn).length} input(s) but "${tn.transformation}" ` +
-          `consumes ${def.consumes.length}`,
+        `node "${n.id}" supplies ${suppliedCount} input(s) but "${tn.transformation}" ` +
+          `consumes ${expected}`,
       );
       continue;
     }
-    // Type-check every edge against the schema registry.
-    for (const [i, spec] of def.consumes.entries()) {
+    // Type-check every edge against the schema registry, binding positionally
+    // the same way the runner does: an optional spec is skipped when the
+    // remaining supplied inputs are only enough to cover what is required.
+    let inputIndex = 0;
+    for (const [specIndex, spec] of def.consumes.entries()) {
+      const requiredRemainingAfter = def.consumes
+        .slice(specIndex + 1)
+        .filter((candidate) => !candidate.optional).length;
+      if (spec.optional && suppliedCount - inputIndex <= requiredRemainingAfter) continue;
+      const i = inputIndex;
+      inputIndex += 1;
       const upstreamId = inputsOf(tn)[i]!;
       const produced = emits(upstreamId);
       if (produced === null) continue; // already reported

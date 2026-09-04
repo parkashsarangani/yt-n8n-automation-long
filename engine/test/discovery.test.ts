@@ -133,7 +133,7 @@ test("discovery runs end to end on an empty channel and emits the 20-package gro
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-disc-run-")), registry);
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider((req) =>
-    req.prompt.includes("propose what this channel should make next") || req.prompt.includes("complete audience propositions")
+    req.prompt.includes("The unit of selection is NOT a topic") || req.prompt.includes("complete audience proposition")
       ? { payload: CANDIDATES, confidence: { overall: 0.6 } }
       : { payload: INSIGHTS, confidence: { overall: 0.4 } });
   const runner = new Runner({ store, registry, prompts: await PromptStore.load(path.join(ROOT, "prompts")), providers: new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider }), runLog, logger: silent(), blobs: new MemoryBlobStore() });

@@ -84,13 +84,13 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       const rendered = render.scene_count ?? 0;
       checks.push(rendered === sceneCount
         ? { id: "scenes_rendered", status: "pass", message: `all ${sceneCount} scenes rendered` }
-        : { id: "scenes_rendered", status: "fail", message: `renderer reported ${rendered} scenes, script has ${sceneCount}`, measured: rendered, threshold: sceneCount });
+        : { id: "scenes_rendered", status: "fail", message: `renderer reported ${rendered} scenes, the script has ${sceneCount}`, measured: rendered, threshold: sceneCount });
 
       if (targetSec > 0 && typeof render.duration_sec === "number") {
         const drift = Math.abs(render.duration_sec - targetSec) / targetSec;
         checks.push(drift <= maxDurationDrift
-          ? { id: "duration", status: "pass", message: `${Math.round(render.duration_sec)}s against ${targetSec}s target`, measured: drift, threshold: maxDurationDrift }
-          : { id: "duration", status: "fail", message: `${Math.round(render.duration_sec)}s against ${targetSec}s target (${pct(drift)} off)`, measured: drift, threshold: maxDurationDrift });
+          ? { id: "duration", status: "pass", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target`, measured: drift, threshold: maxDurationDrift }
+          : { id: "duration", status: "fail", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target (${pct(drift)} off)`, measured: drift, threshold: maxDurationDrift });
       } else checks.push({ id: "duration", status: "warn", message: "no rendered duration reported", measured: null });
 
       if (targetSec > 0 && typeof script.word_count === "number" && script.word_count > 0) {
