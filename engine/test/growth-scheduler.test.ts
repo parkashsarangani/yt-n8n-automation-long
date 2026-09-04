@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { briefWithPackageSeed, candidateOverallScore, viableCandidate, creativeFailure, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
+import { briefWithPackageSeed, candidateOverallScore, viableCandidate, creativeFailure, topicAttemptOrder, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
 
 function candidate(overall = 0.8): DiscoveryCandidate {
   return {
@@ -39,4 +39,23 @@ test("creative terminal states authorize topic failover but infrastructure failu
   assert.equal(creativeFailure(exhaustedRevision), true, "after service-level retries are exhausted the scheduler must advance the topic");
   assert.equal(creativeFailure(infrastructure), false);
   assert.equal(creativeFailure(technicalQa), false);
+});
+
+// RFC 0009 decision 7: abandonment only works as an unattended outcome if
+// there is a ranked place to go next. These pin the selection side of that.
+test("the day's attempts are the viable candidates, best first, capped", () => {
+  const weak = candidate(0.5); weak.scores!.story_potential = 0.3;
+  const good = candidate(0.82);
+  const better = candidate(0.91);
+
+  const order = topicAttemptOrder([weak, good, better], 3);
+
+  assert.deepEqual(order.map(candidateOverallScore), [0.91, 0.82], "weak packages never start a run at all");
+});
+
+test("a bad pool publishes nothing rather than grinding every candidate", () => {
+  const doomed = () => { const c = candidate(0.4); c.scores!.clickability = 0.2; return c; };
+
+  assert.deepEqual(topicAttemptOrder([doomed(), doomed(), doomed()], 3), []);
+  assert.equal(topicAttemptOrder(Array.from({ length: 20 }, () => candidate(0.85)), 3).length, 3);
 });

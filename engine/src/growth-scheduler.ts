@@ -35,6 +35,23 @@ export function viableCandidate(candidate: DiscoveryCandidate): boolean {
   return [s.clickability, s.story_potential, s.audience_size].every((v) => typeof v === "number" && Number.isFinite(v) && v >= MIN_COMPONENT_SCORE)
     && typeof s.overall === "number" && Number.isFinite(s.overall) && s.overall >= MIN_OVERALL_SCORE;
 }
+/**
+ * The candidates one scheduled slot will actually attempt, in ranked order.
+ *
+ * RFC 0009 decision 7 makes abandonment a normal outcome, which only works if
+ * there is somewhere to go next. Candidates the viability floor already
+ * rejects are skipped here rather than started and then abandoned: a doomed
+ * run still costs a story and a script before anyone notices, and this is the
+ * cheapest possible place to notice. The cap bounds a bad day -- better to
+ * publish nothing than to grind through the entire pool.
+ */
+export function topicAttemptOrder(candidates: DiscoveryCandidate[], maxAttempts: number): DiscoveryCandidate[] {
+  return candidates
+    .filter((candidate) => viableCandidate(candidate))
+    .sort((a, b) => candidateOverallScore(b) - candidateOverallScore(a))
+    .slice(0, Math.max(0, maxAttempts));
+}
+
 function terminal(view: RunView | null): boolean { return Boolean(view && view.status !== "running"); }
 async function waitForTerminal(service: VidGenService, runId: string): Promise<RunView | null> {
   let stable = 0;

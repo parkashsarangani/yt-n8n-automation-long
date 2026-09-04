@@ -56,6 +56,7 @@ import {
   type GraphRunResult,
 } from "./executor.ts";
 import { validateGraph } from "./graph.ts";
+import { topicAttemptOrder, type DiscoveryCandidate } from "./growth-scheduler.ts";
 import {
   credentialStatus,
   readEnvFile,
@@ -149,6 +150,14 @@ export interface RunOptions {
  * episode. noir_charcoal has no genre default -- it's suspense/thriller
  * content within a genre, not a genre of its own, so it stays a manual pick.
  */
+/**
+ * How far down the ranked candidate pool one scheduled slot will walk when
+ * topics keep getting abandoned. Bounded on purpose: each attempt costs a
+ * story and a script (cheap, no images), but an unbounded loop on a bad day
+ * would burn the whole pool and still publish nothing.
+ */
+const MAX_TOPIC_ATTEMPTS_PER_DAY = 3;
+
 const GENRE_DEFAULT_STYLE: Record<Genre, ImageStyle> = {
   moral_story: "ink_wash_stickman",
   drama: "flat_comic_expressive",
@@ -174,6 +183,12 @@ export class VidGenService {
   private analyticsProvider: AnalyticsProvider | undefined;
 
   private readonly runs = new Map<string, RunState>();
+  /**
+   * Runs whose topic was abandoned on creative-viability grounds rather than
+   * failing technically. The distinction matters to the scheduler: a weak idea
+   * means "try the next candidate", while a real failure means "stop".
+   */
+  private readonly abandonedRuns = new Set<string>();
   readonly envFile: string;
   private readonly dataDir: string;
   private allowPublish: boolean;
@@ -755,6 +770,23 @@ export class VidGenService {
           await this.retry(runId);
           continue;
         }
+        // RFC 0009 decision 7: abandoning a weak idea is a NORMAL unattended
+        // outcome, not an operator escalation. creative_viability only fails to
+        // auto-pass when the critic explicitly recommended abandonment, and by
+        // then nothing expensive has run -- no images, no voice, no render.
+        // Parking here would strand the day's episode waiting for a human, so
+        // reject the gate to terminate the run cleanly and let the caller move
+        // on to the next ranked candidate.
+        const abandoned = view.waiting.find((w) => w.node_id === "creative_viability");
+        if (abandoned) {
+          this.abandonedRuns.add(runId);
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: creative viability rejected this topic -- ` +
+              `abandoning before any image/voice/render spend (${abandoned.reason})`,
+          );
+          await this.decide(runId, "creative_viability", { result: "reject", reason: abandoned.reason });
+          return;
+        }
         console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate that did not auto-pass -- needs an operator`);
         return;
       }
@@ -1262,24 +1294,39 @@ export class VidGenService {
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
-          const top = (found.candidates as { candidates?: Array<{ brief?: string; genre?: Genre }> } | null)
-            ?.candidates?.[0];
-          if (!top?.brief) {
-            console.log("[scheduler] discovery returned no candidate; not starting a run");
+          const pool = (found.candidates as { candidates?: DiscoveryCandidate[] } | null)?.candidates ?? [];
+          // RFC 0009 decision 7: discovery ranks a pool precisely so a weak
+          // idea can be dropped rather than forced through. Walk down the
+          // ranking when a topic is abandoned on creative-viability grounds --
+          // that costs a story and a script, not an episode. A technical
+          // failure is a different thing and still stops the job.
+          const attempts = topicAttemptOrder(pool, MAX_TOPIC_ATTEMPTS_PER_DAY);
+          if (attempts.length === 0) {
+            console.log(
+              `[scheduler] discovery returned ${pool.length} candidate(s) but none cleared the viability floor; ` +
+                `not starting a run`,
+            );
             return;
           }
-          const runId = await this.startRun(top.brief, undefined, top.genre ? { genre: top.genre } : {});
-          console.log(`[scheduler] started ${runId} for: ${top.brief} -- driving unattended through to publish`);
-          // startRun() already chains driveUnattended() itself now (every run
-          // self-heals, not only scheduled ones) -- this job's run() still has
-          // to await the whole thing rather than return the instant the run
-          // started, or the Scheduler would consider "produce" done (and mark
-          // its next_run) long before the episode actually finished. Poll for
-          // a terminal status rather than calling driveUnattended() again,
-          // which would just race the one startRun() already kicked off.
-          await this.waitForTerminal(runId);
-          const finalStatus = this.getRun(runId)?.status;
-          console.log(`[scheduler] ${runId} finished: ${finalStatus}`);
+          for (const [position, candidate] of attempts.entries()) {
+            const runId = await this.startRun(candidate.brief!, undefined, candidate.genre ? { genre: candidate.genre as Genre } : {});
+            console.log(
+              `[scheduler] started ${runId} for candidate ${position + 1}/${attempts.length}: ` +
+                `${candidate.brief} -- driving unattended through to publish`,
+            );
+            await this.waitForTerminal(runId);
+            const finalStatus = this.getRun(runId)?.status;
+            if (!this.abandonedRuns.has(runId)) {
+              console.log(`[scheduler] ${runId} finished: ${finalStatus}`);
+              return;
+            }
+            console.log(`[scheduler] ${runId} abandoned its topic; advancing to the next ranked candidate`);
+          }
+          console.log(
+            `[scheduler] every one of the top ${MAX_TOPIC_ATTEMPTS_PER_DAY} candidates was abandoned as too weak; ` +
+              `publishing nothing today rather than shipping below the bar`,
+          );
+          return;
         },
       },
     ];
