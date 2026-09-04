@@ -37,8 +37,8 @@ function fakeStore(entries: Map<string, any>) {
   return { get: async (artifactId: string) => entries.get(artifactId) ?? null } as any;
 }
 
-function record(node_id: string, output: string) {
-  return { run_id: "run_test", node_id, output, status: "ok" } as any;
+function record(node_id: string, output: string, inputs: string[] = []) {
+  return { run_id: "run_test", node_id, output, status: "ok", inputs } as any;
 }
 
 test("second external draft receives the exact prior script + matching critic as targeted revision context", async () => {
@@ -46,7 +46,10 @@ test("second external draft receives the exact prior script + matching critic as
     [script1, artifact(script1, "script", priorScript)],
     [report1, artifact(report1, "watchability_report", weakReport, [script1])],
   ]);
-  const runLog = { all: async () => [record("draft_script", script1), record("watchability_report", report1)] } as any;
+  const runLog = { all: async () => [
+    record("draft_script", script1),
+    record("watchability_report", report1, [script1]),
+  ] } as any;
 
   const result = await buildScriptRevisionContext({ runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries) });
   assert.ok(result);
@@ -68,7 +71,7 @@ test("fourth draft escalates to structural rebuild rather than paraphrasing the 
   ]);
   const runLog = { all: async () => [
     record("draft_script", script1), record("draft_script", script2), record("draft_script", script3),
-    record("watchability_report", report3),
+    record("watchability_report", report3, [script3]),
   ] } as any;
 
   const result = await buildScriptRevisionContext({ runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries) });
@@ -76,6 +79,32 @@ test("fourth draft escalates to structural rebuild rather than paraphrasing the 
   assert.equal(result!.payload.attempt, 4);
   assert.equal(result!.payload.mode, "structural_rebuild");
   assert.match(result!.payload.directives[0]!, /structural rewrite/i);
+});
+
+// Content-addressed artifacts dedupe: two watchability_critic executions with
+// byte-identical output share one stored artifact, whose `parents` field
+// belongs permanently to whichever run wrote it FIRST. Matching by parents
+// (the pre-provenance-fix behavior) would follow that stale first-writer
+// lineage instead of the report this run's OWN script actually produced.
+// The run record's own `inputs` is the one place that still names the truth
+// per execution, regardless of dedup on the output side.
+test("a deduped report artifact is still matched to the current attempt via run-record inputs, not stale first-writer parents", async () => {
+  const dedupedReport = id("d");
+  const entries = new Map<string, any>([
+    [script1, artifact(script1, "script", priorScript)],
+    // Written by an earlier, unrelated run's script (script2) -- parents is
+    // permanently stamped with that first writer, not this run's script1.
+    [dedupedReport, artifact(dedupedReport, "watchability_report", weakReport, [script2])],
+  ]);
+  const runLog = { all: async () => [
+    record("draft_script", script1),
+    record("watchability_report", dedupedReport, [script1]),
+  ] } as any;
+
+  const result = await buildScriptRevisionContext({ runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries) });
+  assert.ok(result, "run-log inputs must find the match that artifact.parents (stamped script2) would miss");
+  assert.equal(result!.payload.attempt, 2);
+  assert.deepEqual(result!.payload.previous_script, priorScript);
 });
 
 test("first draft has no invented feedback context", async () => {
