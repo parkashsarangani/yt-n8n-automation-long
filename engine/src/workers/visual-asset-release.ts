@@ -107,16 +107,25 @@ export function makeVisualAssetReleaseWorker(): WorkerDef {
     kind: "worker",
     version: "1",
     consumes: [{ schema_id: "asset_manifest", range: ">=1 <3", as: "assets" }],
-    produces: "asset_manifest",
-    produces_version: "1.9.0",
+    produces: "visual_asset_release",
+    produces_version: "1.0.0",
     async execute(inputs, ctx): Promise<WorkerOutput> {
-      const payload = inputs["assets"]!.payload;
-      const assessment = assessVisualAssetRelease(payload);
+      const assessment = assessVisualAssetRelease(inputs["assets"]!.payload);
       for (const warning of assessment.warnings) ctx.logger.warn(`[visual_asset_release] WARN ${warning}`);
       if (assessment.failures.length > 0) {
         throw new Error(`visual asset release blocked before render: ${assessment.failures.join("; ")}`);
       }
-      return { payload };
+      return {
+        payload: {
+          status: "pass",
+          blank_scenes: assessment.blankScenes,
+          fallback_scenes: assessment.fallbackScenes,
+          fallback_ratio: assessment.fallbackRatio,
+          remaining_hero_shots: assessment.remainingHeroShots,
+          critical_failures: assessment.criticalFailures,
+          warnings: assessment.warnings,
+        },
+      };
     },
   };
 }
