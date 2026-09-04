@@ -37,6 +37,16 @@ export function buildIllustratedPrompt(subject: string, style: ImageStyle = DEFA
   return `${clean(subject, 500)}. VISUAL IDENTITY: ${bundle.positive}. EXCLUDE: ${bundle.negative}. No typography.`;
 }
 
+/**
+ * A scene-specific recovery prompt used only after vision QA actually finds
+ * text. It does not alter the story beat; it changes how text-bearing props are
+ * framed so a document-centric premise does not collapse into repeated fallback
+ * imagery just because the image model keeps inventing names/labels.
+ */
+export function buildTextSafeRecoveryPrompt(prompt: string): string {
+  return `${clean(prompt, 1200)} TEXT-SAFE RECOVERY: communicate the same story beat through people, hands, posture, object placement, silhouette, and environment. Any paper, chart, document, book, sign, badge, phone, screen, or board must be blank, face-down, closed, turned away, cropped, obscured, or too distant to read. Absolutely no names, letters, numbers, symbols, logos, handwriting, labels, or typography.`;
+}
+
 /** Hard deterministic enforcement for RFC 0009 Decisions 3-5. */
 export function validateEpisodeDirection(direction: { scenes: DirectionScene[]; hero_shots: string[] }, scriptSceneIndices: number[]): void {
   const errors: string[] = [], scriptSet = new Set(scriptSceneIndices), declared = direction.hero_shots;
@@ -114,13 +124,36 @@ async function generateShot(provider: ReferenceCapableProvider, prompt: string, 
   if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
 
   const candidates: GeneratedImage[] = [];
+  const candidateErrors: string[] = [];
   for (let i = 0; i < count; i++) {
     try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`, budget)); }
-    catch (err) { logger.warn(`[illustrated_scene_assets] ${shotId}: hero candidate ${i + 1}/${count} unavailable: ${err instanceof Error ? err.message : String(err)}`); }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      candidateErrors.push(message);
+      logger.warn(`[illustrated_scene_assets] ${shotId}: hero candidate ${i + 1}/${count} unavailable: ${message}`);
+    }
   }
-  if (!candidates.length) throw new Error(`all hero candidates failed for ${shotId}`); if (candidates.length === 1) return candidates[0]!;
+  if (!candidates.length) throw new Error(`all hero candidates failed for ${shotId}: ${candidateErrors.join(" | ")}`); if (candidates.length === 1) return candidates[0]!;
   const ranked = await rankHeroImageCandidates(candidates, { prompt, narration, heroRole: shot.hero_role ?? "hero" }); return candidates[ranked?.bestIndex ?? 0]!;
 }
+
+function isVisibleTextFailure(err: unknown): boolean {
+  return /visible text:/i.test(err instanceof Error ? err.message : String(err));
+}
+
+async function generateShotWithTextRecovery(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
+  try {
+    return await generateShot(provider, prompt, shot, narration, reference, logger, shotId, budget, allowMultipleCandidates);
+  } catch (err) {
+    if (!isVisibleTextFailure(err)) throw err;
+    const recoveryPrompt = buildTextSafeRecoveryPrompt(prompt);
+    logger.warn(`[illustrated_scene_assets] ${shotId}: visible text persisted; retrying once with text-safe physical framing`);
+    // Recovery is deliberately one candidate even for heroes: it is baseline
+    // correctness work after a failure, not another optional best-of-N spend.
+    return generateShot(provider, recoveryPrompt, shot, narration, reference, logger, `${shotId}:text-safe`, budget, false);
+  }
+}
+
 interface WorkingShot { id: string; sceneIndex: number; shot: DirectionShot; narration: string; prompt: string; image?: GeneratedImage; source: "primary" | "fallback" | "placeholder" }
 const aggregatePrompt = (items: Array<{ prompt: string }>) => items.map((i) => i.prompt).join("\n---SHOT---\n").slice(0, 1800);
 function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: string[]): Record<string, unknown> {
@@ -131,7 +164,7 @@ function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: s
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
-    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "7",
+    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "8",
     consumes: [{ schema_id: "episode_direction", range: "^2", as: "direction" }, { schema_id: "script", range: "^1", as: "script" }, { schema_id: "intent", range: "^1", as: "intent" }],
     produces: "asset_manifest", produces_version: "1.9.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
@@ -165,10 +198,10 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           const id = `${scene.scene_index}:${shot.shot_index}`, narration = narrationBy.get(scene.scene_index) ?? "";
           const item: WorkingShot = { id, sceneIndex: scene.scene_index, shot, narration, prompt, source: "placeholder" };
           if (provider) {
-            try { item.image = await generateShot(provider, prompt, shot, narration, reference, ctx.logger, id, budget); item.source = "primary"; if (!reference) reference = item.image; }
+            try { item.image = await generateShotWithTextRecovery(provider, prompt, shot, narration, reference, ctx.logger, id, budget); item.source = "primary"; if (!reference) reference = item.image; }
             catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after failure: ${message}`); }
+              if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after generation + recovery failure: ${message}`); }
               else { deferred.push(item); ctx.logger.warn(`[illustrated_scene_assets] ${id}: failed with no reference available yet; deferring one retry until a later scene establishes one: ${message}`); }
             }
           }
@@ -179,7 +212,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       for (const item of deferred) {
         if (!provider || !reference) break;
         try {
-          item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`, budget);
+          item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`, budget);
           item.source = "primary";
           ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry succeeded with reference conditioning; render receives a real image instead of a blank frame`);
         } catch (err) {
@@ -196,7 +229,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           if (!item) continue;
           if (!budget.canAffordOptional(MAX_ATTEMPTS_PER_ACCEPTED_IMAGE)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`); break; }
           try {
-            item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
+            item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
             item.source = "primary";
             regenerated.push(id);
           } catch (err) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted review regeneration failed: ${err instanceof Error ? err.message : String(err)}`); }
