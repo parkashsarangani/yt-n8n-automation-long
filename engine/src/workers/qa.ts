@@ -5,12 +5,14 @@ type Status = "pass" | "warn" | "fail";
 interface Check { id: string; status: Status; message: string; measured?: number | null; threshold?: number | null }
 interface Intent { target_duration_sec?: number }
 interface Script { scenes?: Array<{ scene_index: number; narration?: string }>; word_count?: number }
-interface Assets { scenes?: Array<{ scene_index?: number; source?: string }>; degraded_count?: number; visual_review?: { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string } }
+interface VisualReview { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string; scores?: Record<string, number> }
+interface Assets { scenes?: Array<{ scene_index?: number; source?: string }>; degraded_count?: number; visual_review?: VisualReview }
 interface Voice { clips?: Array<{ scene_index?: number; duration_sec?: number }>; total_duration_sec?: number }
 interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
 interface Thumb { background?: string; text?: string }
 interface Seo { title?: string; description?: string; tags?: string[] }
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+const VISUAL_REVIEW_WARN_FLOOR = 0.68;
 
 export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   const maxPlaceholderRatio = opts.maxPlaceholderRatio ?? 0.1;
@@ -57,12 +59,19 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       if (assets.visual_review) {
         const remaining = assets.visual_review.remaining_flagged_shots?.length ?? 0;
+        const numericScores = Object.values(assets.visual_review.scores ?? {}).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+        const minScore = numericScores.length ? Math.min(...numericScores) : null;
         if (assets.visual_review.status === "unavailable") {
           checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" });
         } else if (remaining > 0) {
           checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 });
-        } else if (assets.visual_review.status === "warn") {
-          checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level visual review remains below its quality floor after targeted regeneration" });
+        } else if (assets.visual_review.status === "warn" || (minScore !== null && minScore < VISUAL_REVIEW_WARN_FLOOR)) {
+          checks.push({
+            id: "episode_visual_review",
+            status: "warn",
+            message: assets.visual_review.reason || `episode-level visual review minimum score ${minScore?.toFixed(2)} remains below ${VISUAL_REVIEW_WARN_FLOOR.toFixed(2)}`,
+            ...(minScore !== null ? { measured: minScore, threshold: VISUAL_REVIEW_WARN_FLOOR } : {}),
+          });
         } else {
           checks.push({ id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
         }
