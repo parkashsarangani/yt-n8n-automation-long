@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildIllustratedPrompt, makeIllustratedSceneAssetsWorker, validateEpisodeDirection } from "../src/workers/illustrated-scene-assets.ts";
+import { FreeMediaTerminalError } from "../src/free-media-policy.ts";
 import type { WorkerContext } from "../src/runner.ts";
 
 const shot = (shot_index: number, shot_function: any, importance: "normal" | "hero" = "normal", hero_role?: any) => ({
@@ -20,12 +21,12 @@ const validDirection = () => ({
   ],
 });
 
-function ctxWithProvider(enabled = true): WorkerContext & { calls: string[] } {
+function ctxWithProvider(enabled = true, providerId = "test-provider/mock"): WorkerContext & { calls: string[] } {
   const calls: string[] = [];
   let blob = 0;
   const data = new Map<string, Uint8Array>();
   const images = enabled ? {
-    id: "test-provider/mock",
+    id: providerId,
     async generate({ prompt }: { prompt: string }) {
       calls.push(prompt);
       return { images: [{ bytes: new TextEncoder().encode(`img-${calls.length}-${prompt}`), media_type: "image/png" }], usage: { input_tokens: 0, output_tokens: 0, cost_usd: 0, provider: "test", model: "test" } };
@@ -87,15 +88,17 @@ test("multi-shot direction becomes image_uris and semantic shot_types in the man
   assert.equal(payload.visual_review.scores.opening_visual_strength, 0, "unavailable review must not masquerade as a perfect score");
 });
 
-test("generation spend is tiered by how much the shot actually matters", async () => {
+test("paid/reference-capable routes keep tiered hero spend", async () => {
   const ctx = ctxWithProvider(true);
   await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
-  // RFC 0009 decision 5 asks for UNEQUAL spend, not uniform best-of-N, and
-  // this stage is the only part of a run that costs real money per image. The
-  // hook gets 3 candidates because the episode is judged on it, the other two
-  // hero beats get 2, connective shots get 1: 3 + 2 + 2 + 1 = 8. Vision
-  // ranking/review fail open without OPENAI_API_KEY and add no provider calls.
+  // Hook gets 3 candidates, the other heroes 2, connective shot 1.
   assert.equal(ctx.calls.length, 8);
+});
+
+test("FreeLLM route removes blind hero best-of-N quota multiplication", async () => {
+  const ctx = ctxWithProvider(true, "cartoon-art/freellmapi-image/auto");
+  await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
+  assert.equal(ctx.calls.length, 4, "the four directed shots should each get one baseline free image call");
 });
 
 test("a retry reuses every unchanged successful shot pack instead of rerolling images", async () => {
@@ -108,7 +111,7 @@ test("a retry reuses every unchanged successful shot pack instead of rerolling i
   assert.equal(ctx.calls.length, callsAfterFirst, "unchanged primary shot packs must incur zero additional image-generation calls");
 });
 
-test("without an image provider the v2 manifest explicitly degrades scenes to placeholders", async () => {
+test("without an image provider the manifest explicitly degrades scenes to placeholders", async () => {
   const out = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctxWithProvider(false));
   const payload = out.payload as any;
   assert.equal(payload.degraded_count, 3);
@@ -123,21 +126,14 @@ test("outro narration is carried into template_data while regular scenes do not 
   assert.equal(JSON.parse(scenes[2].template_data).line, "One repair changed the whole room.");
 });
 
-// Regression, straight from production: scene 0 carries the hook, is generated
-// FIRST, and is therefore the only shot with no reference image to fall back on
-// when it fails. It shipped a blank frame into a full render; qa caught it only
-// afterwards, and repairing it cost a second complete render pass -- using a
-// reference that already existed by then, because a later scene had produced
-// one. Assert at SHOT level: scene 0 has two shots, so a scene-level check is
-// satisfied by the surviving sibling and would not catch this at all.
 test("a shot that fails before any reference exists is retried once a later scene provides one", async () => {
   const ctx = ctxWithProvider(true);
   const realGenerate = (ctx.media as any).images.generate;
   let openingAttempts = 0;
   (ctx.media as any).images.generate = async (req: { prompt: string }) => {
     const out = await realGenerate(req);
-    // Fail every initial attempt at scene 0 shot 0 (hero: 3 candidates x 2
-    // tries), then let the deferred retry through.
+    // Paid test route: opening hero has 3 candidates x 2 attempts. Fail those,
+    // then let the later deferred retry through once another shot is reference.
     if (req.prompt.includes("for wide shot 0") && ++openingAttempts <= 6) {
       throw new Error("content policy rejected the opening shot");
     }
@@ -148,11 +144,11 @@ test("a shot that fails before any reference exists is retried once a later scen
   const sceneZero = (out.payload as any).scenes.find((s: any) => s.scene_index === 0);
 
   assert.ok(openingAttempts > 6, "the deferred retry must actually re-attempt the failed opening shot");
-  assert.equal(sceneZero.image_uris.length, 2, "both of scene 0's shots must reach render, not just the surviving sibling");
+  assert.equal(sceneZero.image_uris.length, 2, "both successful scene-0 shots are distinct visuals");
   assert.equal(sceneZero.source, "primary");
 });
 
-test("a deferred retry that also fails reuses the episode reference rather than shipping a blank frame", async () => {
+test("duplicate content-addressed fallback references collapse to one manifest URI", async () => {
   const ctx = ctxWithProvider(true);
   const realGenerate = (ctx.media as any).images.generate;
   (ctx.media as any).images.generate = async (req: { prompt: string }) => {
@@ -161,17 +157,44 @@ test("a deferred retry that also fails reuses the episode reference rather than 
     return out;
   };
 
+  // Simulate a content-addressed blob store: equal image bytes => equal URI.
+  const byContent = new Map<string, string>();
+  let blob = 0;
+  (ctx.blobs as any).put = async (bytes: Uint8Array) => {
+    const key = Buffer.from(bytes).toString("base64");
+    let uri = byContent.get(key);
+    if (!uri) {
+      uri = `blob://sha256:${(++blob).toString(16).padStart(64, "0")}`;
+      byContent.set(key, uri);
+    }
+    return { uri };
+  };
+
   const out = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
   const sceneZero = (out.payload as any).scenes.find((s: any) => s.scene_index === 0);
 
-  assert.equal(sceneZero.image_uris.length, 2, "the reused reference still fills the failed shot's slot");
+  assert.equal(sceneZero.image_uris.length, 1, "the same fallback image must appear once, satisfying asset_manifest uniqueItems");
+  assert.equal(new Set(sceneZero.image_uris).size, sceneZero.image_uris.length);
+  assert.equal(sceneZero.shot_types.length, 1, "render metadata must stay aligned with the unique visual list");
   assert.equal(sceneZero.source, "fallback");
 });
 
-// The operator's hard constraint is that image generation is the one cost that
-// must not surprise them. Optional quality spend is what gets cut when a run
-// gets expensive -- never a shot's own image, or a scene reaches render blank.
-test("a pathological direction cannot multiply the image bill", async () => {
+test("terminal FreeLLM daily capacity failure aborts assets instead of becoming reference fallback", async () => {
+  const ctx = ctxWithProvider(true, "cartoon-art/freellmapi-image/auto");
+  let calls = 0;
+  (ctx.media as any).images.generate = async () => {
+    calls++;
+    throw new FreeMediaTerminalError("daily free image allocation exhausted until midnight UTC");
+  };
+
+  await assert.rejects(
+    () => makeIllustratedSceneAssetsWorker().execute(inputs(), ctx),
+    /free-media-terminal.*daily free image allocation/i,
+  );
+  assert.equal(calls, 1, "worker must stop immediately rather than filling shots with fallbacks and continuing to call a dead provider");
+});
+
+test("a pathological paid direction cannot multiply the image bill", async () => {
   const ctx = ctxWithProvider(true);
   const many = {
     hero_shots: ["0:0", "1:0", "2:0"],
@@ -185,7 +208,7 @@ test("a pathological direction cannot multiply the image bill", async () => {
   const out = await makeIllustratedSceneAssetsWorker().execute(inputs(many), ctx);
   const scenes = (out.payload as any).scenes;
 
-  assert.ok(ctx.calls.length <= 70, `image generations must stay under the run ceiling, got ${ctx.calls.length}`);
+  assert.ok(ctx.calls.length <= 70, `image generations must stay under the optional-spend ceiling, got ${ctx.calls.length}`);
   assert.ok(
     scenes.every((s: any) => s.image_uris.length === 3),
     "every directed shot still gets its own image; only optional spend is cut",
