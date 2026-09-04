@@ -19,6 +19,15 @@ export const WATCHABILITY_THRESHOLDS = {
 } as const;
 export const WATCHABILITY_AVERAGE_THRESHOLD = 0.79;
 export const MATERIAL_WEAKNESS_FLOOR = 0.55;
+/**
+ * Compatibility bound consumed by the inherited pre-image best-of-N service
+ * sequencing from main. Despite the historical constant name, RFC 0009 NEVER
+ * accepts a below-bar script unconditionally. Setting this one beyond the
+ * service's five automatic retry rounds lets it draft serious alternatives
+ * before terminating/advancing the topic, while preserving main's rule that
+ * script selection finishes before image generation can start.
+ */
+export const MAX_ATTEMPTS_BEFORE_ACCEPTING = 6;
 type Dimension = keyof typeof WATCHABILITY_THRESHOLDS;
 type WatchabilityReport = { verdict?: unknown; abandon_recommended?: unknown; abandon_reason?: unknown; scores?: Partial<Record<Dimension, unknown>> };
 
