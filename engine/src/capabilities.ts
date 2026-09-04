@@ -38,6 +38,15 @@ export const STAGES: StageSpec[] = [
     id: "speech",
     label: "Narrator voice",
     requires: [["FREELLMAPI_API_KEY"], ["ELEVENLABS_API_KEY"]],
+    optional: [
+      "SPEECH_PROVIDER_MODE",
+      "FREELLMAPI_BASE_URL",
+      "FREELLMAPI_SPEECH_MODEL",
+      "FREELLMAPI_SPEECH_VOICE",
+      "FREELLMAPI_SPEECH_FORMAT",
+      "FREELLMAPI_MEDIA_TIMEOUT_MS",
+      "ELEVENLABS_VOICE_ID",
+    ],
     real: "freellmapi-speech/${FREELLMAPI_SPEECH_MODEL:-openai-audio}",
     fallback: "fake",
     consequence: "silent placeholder audio; set SPEECH_PROVIDER_MODE=elevenlabs to roll back to ElevenLabs",
@@ -46,6 +55,12 @@ export const STAGES: StageSpec[] = [
     id: "images",
     label: "Illustrated stills and thumbnail artwork",
     requires: [["FREELLMAPI_API_KEY"], ["FAL_KEY"]],
+    optional: [
+      "IMAGE_PROVIDER_MODE",
+      "FREELLMAPI_BASE_URL",
+      "FREELLMAPI_IMAGE_MODEL",
+      "FREELLMAPI_MEDIA_TIMEOUT_MS",
+    ],
     real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-flux}",
     fallback: "unavailable",
     consequence:
