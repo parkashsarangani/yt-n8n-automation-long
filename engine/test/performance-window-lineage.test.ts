@@ -39,7 +39,7 @@ test("performance window keeps measured outcomes attached to the creative decisi
     curiosity_gap: "Why the mechanic knew the machine was about to fail",
     emotional_engine: "injustice to anxiety to public vindication",
     selected_title: "His Boss Laughed at the Warning",
-    selected_thumbnail_concept: "Supervisor laughing while the mechanic points at a visibly frayed belt",
+    selected_thumbnail_concept: "Boss laughing at the warning",
     opening_visual: "A mechanic points at a frayed drive belt while his supervisor waves him away and the machine keeps running.",
     opening_line: "He pointed at the belt twice. His boss laughed the second time.",
     first_30_seconds: {
