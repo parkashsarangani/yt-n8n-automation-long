@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { packageSeedOf, candidateOverallScore, viableCandidate, creativeFailure, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
+import { packageSeedOf, candidateOverallScore, viableCandidate, creativeFailure, creativeFailureKind, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
 
 function candidate(overall = 0.8): DiscoveryCandidate {
   return {
@@ -49,6 +49,13 @@ test("creative terminal states authorize topic failover but infrastructure failu
   const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT)" }] } as any;
   const infrastructure = { status: "blocked", waiting: [], failures: [{ node_id: "render", error: "renderer unavailable" }] } as any;
   const technicalQa = { status: "waiting", waiting: [{ node_id: "approve_publish" }], failures: [] } as any;
+
+  assert.equal(creativeFailureKind(parkedAbandon), "creative_viability", "a parked viability gate must be terminally abandoned, not treated as a generic retry");
+  assert.equal(creativeFailureKind(blockedAbandon), "watchability");
+  assert.equal(creativeFailureKind(exhaustedRevision), "watchability");
+  assert.equal(creativeFailureKind(infrastructure), null);
+  assert.equal(creativeFailureKind(technicalQa), null);
+
   assert.equal(creativeFailure(parkedAbandon), true);
   assert.equal(creativeFailure(blockedAbandon), true);
   assert.equal(creativeFailure(exhaustedRevision), true, "after service-level retries are exhausted the scheduler must advance the topic");
