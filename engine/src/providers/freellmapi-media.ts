@@ -9,10 +9,20 @@
  */
 
 import { ProviderError, type Aspect, type ImageProvider, type SpeechProvider, type Usage } from "../provider.ts";
+import {
+  FreeMediaTerminalError,
+  freeImagePrompt,
+  isDailyFreeImageCapacityMessage,
+  nextUtcDailyReset,
+} from "../free-media-policy.ts";
 
+// Free routes should spend capacity on content, not oversized source frames.
+// The renderer scales these to 1080p; 1024-class source images are sufficient
+// for illustrated stills and materially cheaper on providers that bill/limit by
+// generated pixels or compute.
 const IMAGE_SIZES: Record<Aspect, string> = {
-  "16:9": "1792x1024",
-  "9:16": "1024x1792",
+  "16:9": "1024x576",
+  "9:16": "576x1024",
   "1:1": "1024x1024",
 };
 
@@ -88,12 +98,21 @@ function wavDurationSeconds(bytes: Uint8Array): number | undefined {
   return Number((dataBytes / byteRate).toFixed(3));
 }
 
+const TRANSIENT_IMAGE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+let imageCapacityBlockedUntil = 0;
+let imageCapacityReason = "";
+
 export interface FreeLLMImageOptions {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  /** Total Long->FreeLLM attempts. FreeLLM itself already fails over providers. */
+  maxAttempts?: number;
+  retryDelayMs?: number;
   fetchImpl?: typeof fetch;
+  sleepImpl?: (ms: number) => Promise<void>;
+  now?: () => number;
 }
 
 interface FreeLLMImageResponse {
@@ -108,7 +127,11 @@ export class FreeLLMImageProvider implements ImageProvider {
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly timeoutMs: number;
+  private readonly maxAttempts: number;
+  private readonly retryDelayMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly sleepImpl: (ms: number) => Promise<void>;
+  private readonly now: () => number;
 
   constructor(opts: FreeLLMImageOptions = {}) {
     const key = opts.apiKey ?? process.env["FREELLMAPI_API_KEY"];
@@ -120,36 +143,75 @@ export class FreeLLMImageProvider implements ImageProvider {
     // registry has a usable image row before enabling this experiment.
     this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
     this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
+    this.maxAttempts = Math.max(1, Math.min(3, opts.maxAttempts ?? 2));
+    this.retryDelayMs = Math.max(0, opts.retryDelayMs ?? 600);
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.sleepImpl = opts.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.now = opts.now ?? (() => Date.now());
     this.id = `freellmapi-image/${this.model}`;
   }
 
   async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
-    const count = Math.max(1, Math.min(4, req.count ?? 1));
-    let res: Response;
-    try {
-      res = await this.fetchImpl(`${this.baseUrl}/images/generations`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          prompt: req.prompt,
-          n: count,
-          size: IMAGE_SIZES[req.aspect],
-          response_format: "b64_json",
-        }),
-        signal: timeoutSignal(this.timeoutMs),
-      });
-    } catch (err) {
-      throw new ProviderError(`${this.id} request failed: ${String(err)}`);
+    const now = this.now();
+    if (now < imageCapacityBlockedUntil) {
+      throw new FreeMediaTerminalError(
+        `${this.id} daily image capacity is circuit-broken until ${new Date(imageCapacityBlockedUntil).toISOString()}: ${imageCapacityReason}`,
+      );
     }
-    if (!res.ok) {
-      throw new ProviderError(`${this.id} returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (now >= imageCapacityBlockedUntil) {
+      imageCapacityBlockedUntil = 0;
+      imageCapacityReason = "";
     }
 
+    const count = Math.max(1, Math.min(4, req.count ?? 1));
+    const prompt = freeImagePrompt(req.prompt);
+    let res: Response | undefined;
+    let lastError: Error | undefined;
+
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      try {
+        res = await this.fetchImpl(`${this.baseUrl}/images/generations`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: this.model,
+            prompt,
+            n: count,
+            size: IMAGE_SIZES[req.aspect],
+            response_format: "b64_json",
+          }),
+          signal: timeoutSignal(this.timeoutMs),
+        });
+      } catch (err) {
+        lastError = new ProviderError(`${this.id} request failed: ${err instanceof Error ? err.name : "network error"}`);
+        if (attempt < this.maxAttempts) {
+          await this.sleepImpl(this.retryDelayMs * attempt);
+          continue;
+        }
+        throw lastError;
+      }
+
+      if (res.ok) break;
+      const body = (await res.text()).slice(0, 500);
+      if (res.status === 429 && isDailyFreeImageCapacityMessage(body)) {
+        imageCapacityBlockedUntil = nextUtcDailyReset(this.now());
+        imageCapacityReason = body.slice(0, 240);
+        throw new FreeMediaTerminalError(
+          `${this.id} exhausted the daily free image allocation; no further image calls will be made before ${new Date(imageCapacityBlockedUntil).toISOString()}`,
+        );
+      }
+      lastError = new ProviderError(`${this.id} returned ${res.status}: ${body.slice(0, 300)}`);
+      if (attempt < this.maxAttempts && TRANSIENT_IMAGE_STATUSES.has(res.status)) {
+        await this.sleepImpl(this.retryDelayMs * attempt);
+        continue;
+      }
+      throw lastError;
+    }
+
+    if (!res?.ok) throw lastError ?? new ProviderError(`${this.id} request failed`);
     const body = (await res.json()) as FreeLLMImageResponse;
     const images: Array<{ bytes: Uint8Array; media_type: string }> = [];
     for (const item of body.data ?? []) {
