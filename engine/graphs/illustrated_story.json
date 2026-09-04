@@ -21,8 +21,8 @@
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script", "package"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "visual_asset_release", "package"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "visual_asset_release", "voice", "render", "thumbnail", "seo"] },
+    { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "assets", "package", "visual_asset_release"] },
+    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
   ]
