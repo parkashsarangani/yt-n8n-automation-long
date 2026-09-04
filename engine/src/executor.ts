@@ -71,7 +71,13 @@ export type ExecutorEvent =
 
 export type GateDecision =
   | { result: "approve" }
-  | { result: "reject"; reason?: string };
+  | { result: "reject"; reason?: string }
+  /**
+   * Terminal negative decision. Unlike reject, this MUST NOT regenerate the
+   * upstream artifact. RFC 0009 uses it when a topic is intentionally dropped
+   * before asset spend so the scheduler can advance to another package.
+   */
+  | { result: "abandon"; reason?: string };
 
 export interface ExecutorDeps {
   runner: Runner;
@@ -244,6 +250,19 @@ export class GraphExecutor {
           // gate would look stale on every resume, wiping and regenerating everything downstream
           // of it (the entire rest of the graph) each time, even when nothing actually changed.
           await this.recordNode(runId, graph, gate.id, "human_gate", upstreamId, "ok", null, "1", [upstreamId]);
+        } else if (outcome.kind === "abandoned") {
+          // Terminal negative decision. Do NOT invalidate or regenerate the
+          // upstream transformation: abandonment means the artifact was
+          // evaluated and intentionally dropped, not that it should be tried
+          // again. Persist a failed gate record so process restart preserves
+          // the terminal state and the scheduler can safely advance topics.
+          const error = `abandoned: ${outcome.reason}`;
+          stalled.add(gate.id);
+          failures.push({ node_id: gate.id, transformation: "human_gate", error });
+          this.emit({ type: "gate_settled", run_id: runId, node_id: gate.id, approved: false });
+          this.emit({ type: "node_failed", run_id: runId, node_id: gate.id, error });
+          await this.recordNode(runId, graph, gate.id, "human_gate", null, "failed", error, "1", [upstreamId]);
+          this.deps.logger?.log(`[graph ${ref}] gate "${gate.id}" abandoned terminally — ${outcome.reason}`);
         } else if (outcome.kind === "rejected") {
           // Retry: remove the upstream transformation from completed so it reruns.
           // The gate stays unresolved, and on the next loop iteration the upstream
@@ -354,12 +373,12 @@ export class GraphExecutor {
     upstreamId: string,
     decision: GateDecision | undefined,
   ): Promise<
-    { kind: "approved" } | { kind: "rejected"; reason: string } | { kind: "waiting"; reason: string }
+    { kind: "approved" } | { kind: "rejected"; reason: string } | { kind: "abandoned"; reason: string } | { kind: "waiting"; reason: string }
   > {
     if (decision) {
-      return decision.result === "approve"
-        ? { kind: "approved" }
-        : { kind: "rejected", reason: decision.reason ?? "rejected at human gate" };
+      if (decision.result === "approve") return { kind: "approved" };
+      if (decision.result === "abandon") return { kind: "abandoned", reason: decision.reason ?? "abandoned at human gate" };
+      return { kind: "rejected", reason: decision.reason ?? "rejected at human gate" };
     }
     const predicate = gate.policy?.auto_pass_if;
     if (!predicate) {
