@@ -29,6 +29,33 @@ function timeoutSignal(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(timeoutMs);
 }
 
+function imageMediaType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 8
+      && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+      && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 12
+      && Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF"
+      && Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+  if (bytes.length >= 6) {
+    const sig = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
+    if (sig === "GIF87a" || sig === "GIF89a") return "image/gif";
+  }
+  return null;
+}
+
+function validatedImage(bytes: Uint8Array, id: string): { bytes: Uint8Array; media_type: string } {
+  const mediaType = imageMediaType(bytes);
+  if (!mediaType) throw new ProviderError(`${id} returned an unsupported or unrecognized image binary`);
+  return { bytes, media_type: mediaType };
+}
+
 export interface FreeLLMImageOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -95,14 +122,14 @@ export class FreeLLMImageProvider implements ImageProvider {
     const images: Array<{ bytes: Uint8Array; media_type: string }> = [];
     for (const item of body.data ?? []) {
       if (item.b64_json) {
-        images.push({ bytes: Uint8Array.from(Buffer.from(item.b64_json, "base64")), media_type: "image/png" });
+        images.push(validatedImage(Uint8Array.from(Buffer.from(item.b64_json, "base64")), this.id));
       } else if (item.url) {
         const dl = await this.fetchImpl(item.url, { signal: timeoutSignal(this.timeoutMs) });
         if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
-        images.push({
-          bytes: new Uint8Array(await dl.arrayBuffer()),
-          media_type: dl.headers.get("content-type") || "image/png",
-        });
+        const bytes = new Uint8Array(await dl.arrayBuffer());
+        // Prefer the bytes over an upstream Content-Type header: signed/CDN
+        // URLs frequently answer with application/octet-stream even for images.
+        images.push(validatedImage(bytes, this.id));
       }
     }
     if (images.length === 0) throw new ProviderError(`${this.id} returned no images`);
@@ -195,7 +222,10 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
 
     const audio = new Uint8Array(await res.arrayBuffer());
     if (!audio.length) throw new ProviderError(`${this.id} returned empty audio`);
-    const mediaType = res.headers.get("content-type") || "audio/mpeg";
+    const mediaType = (res.headers.get("content-type") || "audio/mpeg").split(";", 1)[0]!.trim().toLowerCase();
+    if (mediaType !== "audio/mpeg" && mediaType !== "audio/mp3") {
+      throw new ProviderError(`${this.id} requested mp3 but returned '${mediaType || "unknown"}'`);
+    }
     const provider = res.headers.get("x-provider");
     const actualModel = provider ? `${provider}/${this.model}` : this.model;
     const usage: Usage = {
@@ -208,7 +238,7 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     };
     return {
       audio,
-      media_type: mediaType,
+      media_type: "audio/mpeg",
       usage,
     };
   }
