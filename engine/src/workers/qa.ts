@@ -57,11 +57,15 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       if (assets.visual_review) {
         const remaining = assets.visual_review.remaining_flagged_shots?.length ?? 0;
-        checks.push(assets.visual_review.status === "unavailable"
-          ? { id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" }
-          : remaining > 0
-            ? { id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 }
-            : { id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
+        if (assets.visual_review.status === "unavailable") {
+          checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" });
+        } else if (remaining > 0) {
+          checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} shot(s) remain flagged after targeted regeneration: ${assets.visual_review.remaining_flagged_shots!.join(", ")}`, measured: remaining, threshold: 0 });
+        } else if (assets.visual_review.status === "warn") {
+          checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level visual review remains below its quality floor after targeted regeneration" });
+        } else {
+          checks.push({ id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
+        }
       }
 
       const clips = voice.clips?.length ?? 0;
