@@ -12,6 +12,7 @@ test("passes when every growth dimension and the average clear the bar", () => {
   const result = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores: passingScores() });
   assert.equal(result.passed, true); assert.equal(result.abandonRecommended, false); assert.deepEqual(result.failures, []);
   assert.ok(result.average >= WATCHABILITY_AVERAGE_THRESHOLD);
+  assert.equal(result.average, result.rawAverage);
 });
 
 test("an execution-level weakness blocks for revision without abandoning the topic", () => {
@@ -19,6 +20,22 @@ test("an execution-level weakness blocks for revision without abandoning the top
   const result = assessWatchability({ verdict: "revise", abandon_recommended: false, abandon_reason: "", scores });
   assert.equal(result.passed, false); assert.equal(result.abandonRecommended, false);
   assert.ok(result.failures.some((f) => f.startsWith("suspense=0.60")));
+});
+
+test("a rejected high-average draft can never outrank a genuinely passing draft", () => {
+  const rejectedScores = passingScores();
+  for (const key of Object.keys(rejectedScores)) rejectedScores[key] = 0.99;
+  rejectedScores["payoff"] = 0.74; // fails its 0.75 dimension despite a huge raw mean
+  const rejected = assessWatchability({ verdict: "revise", abandon_recommended: false, abandon_reason: "", scores: rejectedScores });
+
+  const passing = passingScores();
+  for (const key of Object.keys(passing)) passing[key] = 0.85;
+  const accepted = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores: passing });
+
+  assert.equal(rejected.passed, false);
+  assert.ok(rejected.rawAverage > accepted.rawAverage, "fixture must prove the rejected draft has the higher arithmetic mean");
+  assert.ok(rejected.average < WATCHABILITY_AVERAGE_THRESHOLD, "selection score for any rejected draft is capped below release");
+  assert.ok(accepted.average > rejected.average, "the service must never restore a rejected draft after a later pass");
 });
 
 test("material package weakness becomes an abandonment outcome", () => {
@@ -39,7 +56,7 @@ test("reports a missing dimension distinctly and malformed payload fails closed"
   const scores = passingScores(); delete scores["payoff"];
   assert.ok(assessWatchability({ scores }).failures.some((f) => f === "payoff=missing (requires 0.75)"));
   const malformed = assessWatchability(null);
-  assert.equal(malformed.passed, false); assert.equal(malformed.average, 0); assert.ok(malformed.failures.length > 0);
+  assert.equal(malformed.passed, false); assert.equal(malformed.average, 0); assert.equal(malformed.rawAverage, 0); assert.ok(malformed.failures.length > 0);
 });
 
 test("growth gate adds first30/package fidelity but does not restore retired explainer dimensions", () => {
