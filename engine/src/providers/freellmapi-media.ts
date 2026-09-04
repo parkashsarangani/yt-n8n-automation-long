@@ -24,13 +24,6 @@ function timeoutSignal(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(Math.max(1_000, timeoutMs));
 }
 
-function routedModel(res: Response, fallback: string): string {
-  return res.headers.get("x-routed-via")
-    ?? res.headers.get("x-model")
-    ?? res.headers.get("x-provider")
-    ?? fallback;
-}
-
 function wavDurationSeconds(bytes: Uint8Array): number | undefined {
   if (bytes.length < 44) return undefined;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -83,7 +76,10 @@ export class FreeLLMImageProvider implements ImageProvider {
     if (!key?.trim()) throw new ProviderError("FreeLLMImageProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = cleanBaseUrl(opts.baseUrl ?? process.env["FREELLMAPI_BASE_URL"]);
-    this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
+    // Pollinations `flux` is deliberately pinned for the experiment: it is
+    // keyless behind FreeLLMAPI and honors width/height, unlike several free
+    // adapters that currently force square output. Operators can override it.
+    this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux";
     this.timeoutMs = opts.timeoutMs ?? Number(process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"] || 120_000);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-image/${this.model}`;
@@ -131,7 +127,9 @@ export class FreeLLMImageProvider implements ImageProvider {
     }
     if (images.length === 0) throw new ProviderError(`${this.id} returned no images`);
 
-    const actualModel = body.model || body.provider || routedModel(res, this.model);
+    const actualModel = body.provider && body.model
+      ? `${body.provider}/${body.model}`
+      : body.model || body.provider || this.model;
     const usage: Usage = {
       input_tokens: 0,
       output_tokens: 0,
@@ -169,13 +167,12 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     if (!key?.trim()) throw new ProviderError("FreeLLMSpeechProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = cleanBaseUrl(opts.baseUrl ?? process.env["FREELLMAPI_BASE_URL"]);
-    // Pin one model for an entire episode. Using `auto` for per-scene TTS can
-    // switch providers and therefore narrator identity when a provider fails.
-    this.model = opts.model?.trim()
-      || process.env["FREELLMAPI_SPEECH_MODEL"]?.trim()
-      || "gemini-2.5-flash-preview-tts";
-    this.defaultVoice = opts.voice?.trim() || process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "Charon";
-    this.format = opts.format?.trim() || process.env["FREELLMAPI_SPEECH_FORMAT"]?.trim() || "wav";
+    // Pin one model for the whole episode. `openai-audio` is the v0.9.5
+    // Pollinations adapter, works without an upstream key, returns MP3, and
+    // preserves a single OpenAI-style voice name across every scene.
+    this.model = opts.model?.trim() || process.env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "openai-audio";
+    this.defaultVoice = opts.voice?.trim() || process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "onyx";
+    this.format = opts.format?.trim() || process.env["FREELLMAPI_SPEECH_FORMAT"]?.trim() || "mp3";
     this.timeoutMs = opts.timeoutMs ?? Number(process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"] || 120_000);
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-speech/${this.model}`;
@@ -193,7 +190,9 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
         body: JSON.stringify({
           model: this.model,
           input: req.text,
-          voice: req.voice?.trim() || this.defaultVoice,
+          // Do not forward ELEVENLABS_VOICE_ID from the unchanged voice worker.
+          // FreeLLM has its own explicitly configured episode narrator.
+          voice: this.defaultVoice,
           response_format: this.format,
         }),
         signal: timeoutSignal(this.timeoutMs),
@@ -208,7 +207,8 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
     const audio = new Uint8Array(await res.arrayBuffer());
     if (!audio.length) throw new ProviderError(`${this.id} returned empty audio`);
     const mediaType = res.headers.get("content-type") || (this.format === "wav" ? "audio/wav" : "audio/mpeg");
-    const actualModel = routedModel(res, this.model);
+    const provider = res.headers.get("x-provider");
+    const actualModel = provider ? `${provider}/${this.model}` : this.model;
     const usage: Usage = {
       input_tokens: 0,
       output_tokens: 0,
