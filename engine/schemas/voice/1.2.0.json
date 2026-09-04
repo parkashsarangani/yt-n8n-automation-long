@@ -25,8 +25,8 @@
             "audio_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
             "media_type": {
               "type": "string",
-              "enum": ["audio/mpeg", "audio/wav", "audio/ogg", "audio/aac", "audio/flac", "audio/L16"],
-              "description": "Actual media type of audio_uri. New voice artifacts persist the provider response type instead of assuming MP3."
+              "enum": ["audio/mpeg", "audio/wav", "audio/ogg", "audio/aac", "audio/flac", "audio/l16"],
+              "description": "Actual normalized media type of audio_uri. New voice artifacts persist the provider response type instead of assuming MP3."
             },
             "alignment_uri": {
               "type": "string",
