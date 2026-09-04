@@ -95,6 +95,16 @@ test("hero shots spend three generation candidates while normal shots spend one"
   assert.equal(ctx.calls.length, 10);
 });
 
+test("a retry reuses every unchanged successful shot pack instead of rerolling images", async () => {
+  const worker = makeIllustratedSceneAssetsWorker();
+  const ctx = ctxWithProvider(true);
+  const first = await worker.execute(inputs(), ctx);
+  const callsAfterFirst = ctx.calls.length;
+  (ctx as any).priorArtifact = { payload: first.payload };
+  await worker.execute(inputs(), ctx);
+  assert.equal(ctx.calls.length, callsAfterFirst, "unchanged primary shot packs must incur zero additional image-generation calls");
+});
+
 test("without an image provider the v2 manifest explicitly degrades scenes to placeholders", async () => {
   const out = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctxWithProvider(false));
   const payload = out.payload as any;
