@@ -147,7 +147,7 @@ test("YouTube audience-retention report parses elapsed ratio and watch ratio", a
 });
 
 test("retention report rejection is recorded as unavailable, not zero", async () => {
-  const { impl } = stubFetch(() => ({ status: 400, body: { error: { message: "The query is not supported", errors: [{ reason: "badRequest" }] } }));
+  const { impl } = stubFetch(() => ({ status: 400, body: { error: { message: "The query is not supported", errors: [{ reason: "badRequest" }] } } }));
   const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
   const result = await p.fetchAudienceRetention("vid", { start_date: "2026-07-18", end_date: "2026-08-14" });
   assert.equal(result.points, null); assert.match(result.unavailable ?? "", /rejected retention report/);
