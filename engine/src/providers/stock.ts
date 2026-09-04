@@ -2,12 +2,13 @@
  * Cartoon-first image provider compatibility adapter.
  *
  * IMAGE_PROVIDER_MODE selects the concrete generator without changing the graph:
- *   - freellmapi (experimental default): shared FreeLLMAPI media endpoint
+ *   - freellmapi: shared FreeLLMAPI media endpoint (production experiment)
  *   - fal: existing FLUX.2 + reference-conditioned edit path
  *
- * Fal remains the rollback path. FreeLLMAPI intentionally cannot preserve the
- * canonical-reference edit contract; generatePack therefore generates each
- * requested shot independently when the experiment is enabled.
+ * Unset mode stays on Fal for backward-compatible local/test behavior. Production
+ * explicitly sets freellmapi in Compose/deploy. FreeLLMAPI intentionally cannot
+ * preserve the canonical-reference edit contract; generatePack therefore
+ * generates each requested shot independently when the experiment is enabled.
  */
 
 import type { Aspect, ImageProvider, Usage } from "../provider.ts";
@@ -36,7 +37,9 @@ type PackCapable = ImageProvider & {
 };
 
 function imageProviderMode(): "freellmapi" | "fal" {
-  return process.env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "fal" ? "fal" : "freellmapi";
+  return process.env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi"
+    ? "freellmapi"
+    : "fal";
 }
 
 export class StockImageProvider implements ImageProvider {
@@ -67,9 +70,6 @@ export class StockImageProvider implements ImageProvider {
   async generatePack(req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) {
     if (this.delegate.generatePack) return this.delegate.generatePack(req);
 
-    // FreeLLMAPI's OpenAI-style image endpoint is text-to-image only. Preserve
-    // the worker contract for this experiment by generating each prompt in the
-    // pack independently; do not pretend the reference image was consumed.
     const images: GeneratedImage[] = [];
     let units = 0;
     for (const prompt of req.prompts) {
