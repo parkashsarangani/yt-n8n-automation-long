@@ -68,12 +68,16 @@ export function continuationBridgeErrors(payload: unknown): string[] {
   return errors;
 }
 
+function hard(errors: string[]): string[] {
+  return errors.map((error) => `${HARD_ERROR_PREFIX}${error}`);
+}
+
 export function agentSemanticValidationErrors(
   def: AgentDef,
   payload: unknown,
   _inputs: Record<string, Artifact>,
 ): string[] {
-  if (def.name === "episode_director") return unsafeDirectionTextPrompts(payload);
-  if (def.name === "growth_packager") return continuationBridgeErrors(payload);
+  if (def.name === "episode_director") return hard(unsafeDirectionTextPrompts(payload));
+  if (def.name === "growth_packager") return hard(continuationBridgeErrors(payload));
   return [];
 }
