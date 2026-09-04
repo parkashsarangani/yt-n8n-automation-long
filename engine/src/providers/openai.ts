@@ -4,10 +4,9 @@
  * Production is free-first: when LLM_ROUTER_MODE is not `direct`, requests go
  * to the shared FreeLLMAPI instance first. FreeLLMAPI's OpenAI-compatible
  * response is deliberately non-streaming because its router aggregates hosted
- * provider responses. If that route is unavailable/rejected and fail-open is
- * enabled, the exact original request is retried through direct OpenAI using
- * the existing streaming implementation. `LLM_ROUTER_MODE=direct` is the
- * immediate rollback switch.
+ * provider responses. Bounded free retries absorb transient transport/model
+ * formatting failures before the paid fail-open is considered. `direct`
+ * remains the immediate rollback switch.
  *
  * response_format stays at `json_object`; the registry remains the strict
  * authoritative schema validator after generation.
@@ -55,6 +54,10 @@ export interface OpenAIProviderOptions {
   maxOutputTokens?: number;
   effort?: CompletionRequest["effort"];
   fetchImpl?: typeof fetch;
+  /** Total FreeLLM attempts before paid fail-open. Default 2. */
+  freeAttempts?: number;
+  freeRetryDelayMs?: number;
+  sleepImpl?: (ms: number) => Promise<void>;
 }
 
 function cleanEnv(value: string | undefined): string | undefined {
@@ -71,7 +74,7 @@ export function defaultOpenAIBaseUrl(env: NodeJS.ProcessEnv = process.env): stri
 }
 
 function outputPrompt(prompt: string, schema: unknown): string {
-  return `${prompt}\n\nReturn only one JSON object matching this JSON Schema. Do not wrap it in markdown.\n${JSON.stringify(schema)}`;
+  return `${prompt}\n\nSTRUCTURED OUTPUT CONTRACT:\nReturn exactly one JSON object matching the JSON Schema below. Do not use markdown or commentary. Copy property names exactly; do not invent or rename keys; do not add properties where additionalProperties is false; include every required field; every array element must have the schema-declared type. The confidence envelope is required and confidence.overall must be a numeric value from 0 to 1. Before responding, silently verify the JSON structure against the schema.\n${JSON.stringify(schema)}`;
 }
 
 async function readOpenAIStream(res: Response): Promise<{ content: string; finishReason: string | null; usage: OpenAIStreamChunk["usage"] }> {
@@ -142,6 +145,16 @@ function parsedJson(providerRef: string, content: string): unknown {
   }
 }
 
+function retryableFreeReasoningError(err: unknown): boolean {
+  if (err instanceof ProviderRefusal) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  // Caller/policy errors will be identical on an immediate retry. Everything
+  // else gets one bounded free retry: network/timeout, 429/5xx, truncated/no
+  // content, or a model returning non-JSON despite json_object mode.
+  if (/request failed \((?:400|401|403|404|413)\)/.test(message)) return false;
+  return true;
+}
+
 export class OpenAIProvider implements ModelProvider {
   readonly id: string;
   private readonly model: string;
@@ -150,6 +163,9 @@ export class OpenAIProvider implements ModelProvider {
   private readonly defaultMaxTokens: number;
   private readonly defaultEffort: CompletionRequest["effort"];
   private readonly fetchImpl: typeof fetch;
+  private readonly freeAttempts: number;
+  private readonly freeRetryDelayMs: number;
+  private readonly sleepImpl: (ms: number) => Promise<void>;
 
   constructor(opts: OpenAIProviderOptions = {}) {
     this.model = opts.model ?? defaultOpenAIModel();
@@ -158,6 +174,9 @@ export class OpenAIProvider implements ModelProvider {
     this.defaultMaxTokens = opts.maxOutputTokens ?? 8192;
     this.defaultEffort = opts.effort ?? "medium";
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.freeAttempts = Math.max(1, Math.min(3, opts.freeAttempts ?? 2));
+    this.freeRetryDelayMs = Math.max(0, opts.freeRetryDelayMs ?? 350);
+    this.sleepImpl = opts.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const routing = llmRoutingConfig();
     this.id = routing.mode === "direct"
       ? `openai/${this.model}`
@@ -172,21 +191,29 @@ export class OpenAIProvider implements ModelProvider {
     const routing = llmRoutingConfig();
     if (routing.mode === "direct") return this.completeDirect(req);
 
-    try {
-      return await this.completeFree(req, routing);
-    } catch (freeError) {
-      if (!routing.failOpenToDirect) throw freeError;
-      if (!this.apiKey) {
-        const detail = freeError instanceof Error ? freeError.message : String(freeError);
-        throw new ProviderError(
-          `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not set for fail-open: ${detail}`,
-        );
+    let freeError: unknown;
+    for (let attempt = 1; attempt <= this.freeAttempts; attempt++) {
+      try {
+        return await this.completeFree(req, routing);
+      } catch (err) {
+        freeError = err;
+        if (!retryableFreeReasoningError(err) || attempt === this.freeAttempts) break;
+        console.warn(`[llm-routing] FreeLLMAPI reasoning attempt ${attempt}/${this.freeAttempts} failed; retrying free route`);
+        await this.sleepImpl(this.freeRetryDelayMs * attempt);
       }
-      // Cost-oriented signal only. Do not log prompts, response bodies, API
-      // keys, or the upstream error text because provider errors can echo input.
-      console.warn("[llm-routing] FreeLLMAPI reasoning failed; retrying through direct OpenAI");
-      return this.completeDirect(req);
     }
+
+    if (!routing.failOpenToDirect) throw freeError;
+    if (!this.apiKey) {
+      const detail = freeError instanceof Error ? freeError.message : String(freeError);
+      throw new ProviderError(
+        `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not set for fail-open: ${detail}`,
+      );
+    }
+    // Cost-oriented signal only. Do not log prompts, response bodies, API
+    // keys, or the upstream error text because provider errors can echo input.
+    console.warn("[llm-routing] FreeLLMAPI reasoning exhausted free retries; retrying through direct OpenAI");
+    return this.completeDirect(req);
   }
 
   private async completeFree(req: CompletionRequest, routing: LlmRoutingConfig): Promise<CompletionResult> {
