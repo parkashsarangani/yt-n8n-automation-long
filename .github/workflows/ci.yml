@@ -64,10 +64,6 @@ jobs:
               "yt-n8n-automation-shorts_default",
               'docker network connect "$SHARED_LLM_NETWORK" "$ENGINE_CID"',
               "http://freellmapi:3001/api/ping",
-              "http://freellmapi:3001/api/media",
-              "platform==='pollinations'",
-              "modality==='image'",
-              "enabled:true",
               "FREELLMAPI_API_KEY:",
               "LLM_ROUTER_MODE:",
               "IMAGE_PROVIDER_MODE:",
@@ -77,9 +73,17 @@ jobs:
               "/v1/images/generations",
               "/v1/audio/speech",
               "audio/wav",
+              "Models -> Image",
+              "Pollinations image row",
               "direct OpenAI fail-open",
           ):
               assert required in deploy, f"missing production shared-media contract: {required}"
+
+          # The unified key is inference-only in FreeLLMAPI v0.9.5. Long must
+          # never use it to impersonate a dashboard session or mutate /api/media.
+          assert "fetch(base+'/api/media')" not in deploy
+          assert "'/api/media/'" not in deploy
+          assert "x-dashboard-token" not in deploy.lower()
 
           assert "secrets." + "FREELLMAPI_API_KEY" in deploy
           assert "vars." + "LLM_ROUTER_MODE" in deploy
