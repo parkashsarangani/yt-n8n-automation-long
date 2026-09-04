@@ -28,11 +28,15 @@ test("package seed remains valid JSON inside intent's 2000-char contract", () =>
   assert.equal(decoded.genre, "drama"); assert.match(decoded.opening_line, /belt twice/);
 });
 
-test("only explicit creative abandonment authorizes topic failover", () => {
+test("creative terminal states authorize topic failover but infrastructure failures never do", () => {
   const parkedAbandon = { status: "waiting", waiting: [{ node_id: "creative_viability" }], failures: [] } as any;
   const blockedAbandon = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (ABANDON_TOPIC: weak premise)" }] } as any;
-  const revision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT)" }] } as any;
+  const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT)" }] } as any;
   const infrastructure = { status: "blocked", waiting: [], failures: [{ node_id: "render", error: "renderer unavailable" }] } as any;
-  assert.equal(creativeFailure(parkedAbandon), true); assert.equal(creativeFailure(blockedAbandon), true);
-  assert.equal(creativeFailure(revision), false); assert.equal(creativeFailure(infrastructure), false);
+  const technicalQa = { status: "waiting", waiting: [{ node_id: "approve_publish" }], failures: [] } as any;
+  assert.equal(creativeFailure(parkedAbandon), true);
+  assert.equal(creativeFailure(blockedAbandon), true);
+  assert.equal(creativeFailure(exhaustedRevision), true, "after service-level retries are exhausted the scheduler must advance the topic");
+  assert.equal(creativeFailure(infrastructure), false);
+  assert.equal(creativeFailure(technicalQa), false);
 });
