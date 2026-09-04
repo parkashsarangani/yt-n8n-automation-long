@@ -1,0 +1,35 @@
+{
+  "schema_id": "visual_asset_release",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Deterministic pre-render release record for illustrated assets. Exists only when the manifest has no visual condition already guaranteed to fail final QA.",
+  "produced_by": ["visual_asset_release"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["status", "blank_scenes", "fallback_scenes", "fallback_ratio", "remaining_hero_shots", "critical_failures", "warnings"],
+    "properties": {
+      "status": { "type": "string", "const": "pass" },
+      "blank_scenes": { "type": "integer", "minimum": 0 },
+      "fallback_scenes": { "type": "integer", "minimum": 0 },
+      "fallback_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+      "remaining_hero_shots": {
+        "type": "array",
+        "uniqueItems": true,
+        "maxItems": 30,
+        "items": { "type": "string", "pattern": "^[0-9]+:[0-2]$" }
+      },
+      "critical_failures": {
+        "type": "array",
+        "maxItems": 10,
+        "items": { "type": "string", "maxLength": 120 }
+      },
+      "warnings": {
+        "type": "array",
+        "maxItems": 30,
+        "items": { "type": "string", "maxLength": 1600 }
+      }
+    }
+  }
+}

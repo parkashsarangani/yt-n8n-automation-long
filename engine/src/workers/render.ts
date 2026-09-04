@@ -13,6 +13,7 @@ interface AssetScene {
   continuity_group?: string; shot_types?: string[];
 }
 interface GrowthPackage { next_video_bridge?: string }
+interface VisualAssetRelease { status?: unknown }
 type HybridRenderScene = RenderScene & { images?: Uint8Array[]; visual_mode?: "motion_graphic" | "ai_broll"; continuity_group?: string; shot_types?: string[] };
 type ContinuationRenderRequest = RenderRequest & { outro_line?: string };
 
@@ -57,7 +58,7 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
 
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
-    name: "render", kind: "worker", version: opts.version ?? "6",
+    name: "render", kind: "worker", version: opts.version ?? "7",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -65,11 +66,17 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       // RFC 0009 decision 11. Manual/legacy graphs have no growth package, so
       // this is deliberately optional; the illustrated growth graph wires it.
       { schema_id: "growth_package", range: "^1", as: "package", optional: true },
+      // The illustrated graph supplies this after episode-level visual review.
+      // It is optional for manual/legacy graphs, but when supplied it must be a
+      // successful deterministic release before the renderer is invoked.
+      { schema_id: "visual_asset_release", range: "^1", as: "visual_release", optional: true },
     ],
     produces: "rendered_video",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const renderer = ctx.media.renderer;
       if (!renderer) throw new Error("render worker requires a media renderer (media.renderer)");
+      const release = inputs["visual_release"]?.payload as VisualAssetRelease | undefined;
+      if (release && release.status !== "pass") throw new Error("render: visual asset release is not pass");
       const scenes = await buildScenes(inputs, ctx);
       const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
       // The continuation line is episode data, not renderer configuration.

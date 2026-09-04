@@ -16,6 +16,7 @@ import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
+import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
 
 export {
   makeVoiceWorker,
@@ -27,6 +28,7 @@ export {
   makeQaWorker,
   makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker,
+  makeVisualAssetReleaseWorker,
 };
 export { buildPrompt } from "./assets.ts";
 
@@ -50,6 +52,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     // behind this transformation id so focused tests and production exercise
     // the same multi-shot / hero / sequence-review code path.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
+    makeVisualAssetReleaseWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
