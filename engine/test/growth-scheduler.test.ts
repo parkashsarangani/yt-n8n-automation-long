@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { packageSeedOf, candidateOverallScore, viableCandidate, creativeFailure, creativeFailureKind, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
+import {
+  packageSeedOf,
+  candidateOverallScore,
+  viableCandidate,
+  creativeFailure,
+  creativeFailureKind,
+  watchabilityRetryState,
+  startGrowthScheduler,
+  type DiscoveryCandidate,
+} from "../src/growth-scheduler.ts";
 
 function candidate(overall = 0.8): DiscoveryCandidate {
   return {
@@ -43,22 +52,98 @@ test("a candidate missing package fields runs as a plain brief instead of failin
   assert.equal(packageSeedOf(partial), undefined, "manual/UI briefs have no tournament behind them");
 });
 
+test("watchability failover starts only after the bounded final evaluation", () => {
+  const retrying = {
+    status: "blocked", waiting: [],
+    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 5): average=0.769" }],
+  } as any;
+  const exhausted = {
+    status: "blocked", waiting: [],
+    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6): average=0.769" }],
+  } as any;
+  const packageContract = {
+    status: "blocked", waiting: [],
+    failures: [{ node_id: "watchability_release", error: "watchability release blocked (PACKAGE_CONTRACT): selected title does not match family" }],
+  } as any;
+
+  assert.equal(watchabilityRetryState(retrying), "retrying", "an intermediate blocked status belongs to the same run's unattended retry loop");
+  assert.equal(watchabilityRetryState(exhausted), "exhausted", "the sixth evaluation is the bounded terminal creative failure");
+  assert.equal(watchabilityRetryState(packageContract), null, "a structural package failure must never be disguised as creative exhaustion");
+  assert.equal(creativeFailureKind(retrying), null, "candidate N+1 must not start while candidate N is still retrying");
+  assert.equal(creativeFailureKind(exhausted), "watchability");
+  assert.equal(creativeFailureKind(packageContract), null);
+});
+
 test("creative terminal states authorize topic failover but infrastructure failures never do", () => {
   const parkedAbandon = { status: "waiting", waiting: [{ node_id: "creative_viability" }], failures: [] } as any;
-  const blockedAbandon = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (ABANDON_TOPIC: weak premise)" }] } as any;
-  const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT)" }] } as any;
+  const blockedAbandon = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (ABANDON_TOPIC: weak premise; attempt 6)" }] } as any;
+  const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6)" }] } as any;
   const infrastructure = { status: "blocked", waiting: [], failures: [{ node_id: "render", error: "renderer unavailable" }] } as any;
   const technicalQa = { status: "waiting", waiting: [{ node_id: "approve_publish" }], failures: [] } as any;
+  const packageContract = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (PACKAGE_CONTRACT): corrupt family lineage" }] } as any;
 
   assert.equal(creativeFailureKind(parkedAbandon), "creative_viability", "a parked viability gate must be terminally abandoned, not treated as a generic retry");
   assert.equal(creativeFailureKind(blockedAbandon), "watchability");
   assert.equal(creativeFailureKind(exhaustedRevision), "watchability");
   assert.equal(creativeFailureKind(infrastructure), null);
   assert.equal(creativeFailureKind(technicalQa), null);
+  assert.equal(creativeFailureKind(packageContract), null, "topic substitution must not conceal a package-contract bug");
 
   assert.equal(creativeFailure(parkedAbandon), true);
   assert.equal(creativeFailure(blockedAbandon), true);
   assert.equal(creativeFailure(exhaustedRevision), true, "after service-level retries are exhausted the scheduler must advance the topic");
   assert.equal(creativeFailure(infrastructure), false);
   assert.equal(creativeFailure(technicalQa), false);
+  assert.equal(creativeFailure(packageContract), false);
+});
+
+test("scheduled production ignores transient watchability blocks, then advances after true exhaustion", async () => {
+  const first = candidate(0.92);
+  first.brief = "The first ranked story repeatedly misses the opening promise despite several serious rewrites.";
+  const second = candidate(0.84);
+  second.brief = "The second ranked story clears its creative bar and becomes the episode produced this cycle.";
+
+  const started: string[] = [];
+  let firstReads = 0;
+  const fakeService = {
+    capabilities: () => [],
+    listRuns: () => [],
+    discoverTopics: async () => ({ candidates: { candidates: [first, second] }, history_count: 0, measured_episodes: 0 }),
+    startRun: async (brief: string) => {
+      started.push(brief);
+      return started.length === 1 ? "run_first" : "run_second";
+    },
+    getRun: (runId: string) => {
+      if (runId === "run_second") {
+        return { status: "completed", waiting: [], failures: [], kind: "production", created_at: new Date().toISOString() };
+      }
+      firstReads++;
+      // Stay transiently blocked for more than the old two-poll stability
+      // threshold. The scheduler must NOT mistake this for final exhaustion.
+      if (firstReads <= 3) {
+        return {
+          status: "blocked", waiting: [],
+          failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 5): average=0.769" }],
+        };
+      }
+      if (firstReads === 4) return { status: "running", waiting: [], failures: [] };
+      return {
+        status: "blocked", waiting: [],
+        failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6): average=0.769" }],
+      };
+    },
+    decide: async () => {},
+    measureAll: async () => ({ measured: [], skipped: [], failed: [] }),
+  } as any;
+
+  const scheduler = startGrowthScheduler(fakeService, { pollMs: 1, maxWaitMs: 100 });
+  try {
+    await scheduler.runNow("produce");
+  } finally {
+    scheduler.stop();
+  }
+
+  assert.deepEqual(started, [first.brief, second.brief], "candidate 2 starts exactly once, and only after candidate 1 reaches attempt 6");
+  assert.ok(firstReads >= 6, "the scheduler must observe the bounded final state rather than the earlier transient block");
+  assert.equal(scheduler.status().find((j) => j.id === "produce")?.last_error, null);
 });

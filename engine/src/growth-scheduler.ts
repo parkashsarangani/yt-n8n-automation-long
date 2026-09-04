@@ -1,5 +1,6 @@
 import type { RunView, VidGenService } from "./service.ts";
 import { Scheduler, type JobStatus } from "./scheduler.ts";
+import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
 
 type Genre = "moral_story" | "drama" | "true_story" | "short_story";
 interface CandidateVariant { family?: string; title?: string }
@@ -22,7 +23,14 @@ export interface PackageSeed {
 }
 
 export type CreativeFailureKind = "creative_viability" | "watchability";
+export type WatchabilityRetryState = "retrying" | "exhausted";
 export interface GrowthSchedulerHandle { status(): JobStatus[]; runNow(id: string): Promise<void>; stop(): void }
+export interface GrowthSchedulerOptions {
+  /** Test/embedding override only; production defaults to a three-second observation cadence. */
+  pollMs?: number;
+  /** Test/embedding override only; production allows long image/render stages up to 90 minutes. */
+  maxWaitMs?: number;
+}
 const POLL_MS = 3000, MAX_WAIT_MS = 90 * 60_000, MIN_COMPONENT_SCORE = 0.55, MIN_OVERALL_SCORE = 0.60;
 function bounded(value: string | undefined, max: number): string { return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max); }
 
@@ -67,13 +75,60 @@ export function viableCandidate(candidate: DiscoveryCandidate): boolean {
   return [s.clickability, s.story_potential, s.audience_size].every((v) => typeof v === "number" && Number.isFinite(v) && v >= MIN_COMPONENT_SCORE)
     && typeof s.overall === "number" && Number.isFinite(s.overall) && s.overall >= MIN_OVERALL_SCORE;
 }
+
+/**
+ * A watchability worker failure is not automatically a terminal topic failure.
+ * `VidGenService.startRun()` deliberately parks between each unattended script
+ * regeneration, so the scheduler can observe a transient `blocked` status
+ * while the same run is still about to retry. Advancing the tournament from
+ * one of those intermediate states can launch candidate N+1 while candidate N
+ * is still self-healing.
+ *
+ * The release worker includes the real evaluation number in creative failures.
+ * Only the bounded final evaluation is terminal for scheduler failover. A
+ * PACKAGE_CONTRACT (or any other watchability_release implementation failure)
+ * is deliberately excluded: changing topic must never hide a structural bug.
+ */
+export function watchabilityRetryState(view: RunView | null): WatchabilityRetryState | null {
+  if (!view || view.status !== "blocked") return null;
+  const creativeFailures = view.failures.filter((f) =>
+    f.node_id === "watchability_release" && /\((?:ABANDON_TOPIC|REVISE_SCRIPT)\b/i.test(f.error),
+  );
+  if (!creativeFailures.length) return null;
+
+  let highestAttempt: number | null = null;
+  for (const failure of creativeFailures) {
+    const match = /\battempt\s+(\d+)\b/i.exec(failure.error);
+    if (!match) continue;
+    const attempt = Number(match[1]);
+    if (Number.isInteger(attempt) && attempt > 0) highestAttempt = Math.max(highestAttempt ?? 0, attempt);
+  }
+  // Older persisted creative failures may predate the explicit attempt marker.
+  // They are already terminal records, so preserve historical failover rather
+  // than waiting forever for retry metadata that can never appear.
+  if (highestAttempt === null) return "exhausted";
+  return highestAttempt >= MAX_ATTEMPTS_BEFORE_ACCEPTING ? "exhausted" : "retrying";
+}
+
 function terminal(view: RunView | null): boolean { return Boolean(view && view.status !== "running"); }
-async function waitForTerminal(service: VidGenService, runId: string): Promise<RunView | null> {
+async function waitForTerminal(service: VidGenService, runId: string, opts: GrowthSchedulerOptions = {}): Promise<RunView | null> {
+  const pollMs = Math.max(1, Math.floor(opts.pollMs ?? POLL_MS));
+  const maxWaitMs = Math.max(pollMs, Math.floor(opts.maxWaitMs ?? MAX_WAIT_MS));
   let stable = 0;
-  for (let elapsed = 0; elapsed <= MAX_WAIT_MS; elapsed += POLL_MS) {
+  for (let elapsed = 0; elapsed <= maxWaitMs; elapsed += pollMs) {
     const view = service.getRun(runId);
-    if (terminal(view)) { stable++; if (stable >= 2) return view; } else stable = 0;
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    // A blocked attempts 1..N-1 watchability result is an intermediate state
+    // owned by driveUnattended(), not a scheduler terminal. Never count it as
+    // stable even if regeneration/persistence takes longer than two polls.
+    if (watchabilityRetryState(view) === "retrying") {
+      stable = 0;
+    } else if (terminal(view)) {
+      stable++;
+      if (stable >= 2) return view;
+    } else {
+      stable = 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   return service.getRun(runId);
 }
@@ -87,9 +142,7 @@ async function waitForTerminal(service: VidGenService, runId: string): Promise<R
 export function creativeFailureKind(view: RunView | null): CreativeFailureKind | null {
   if (!view) return null;
   if (view.status === "waiting" && view.waiting.some((w) => w.node_id === "creative_viability")) return "creative_viability";
-  if (view.status === "blocked" && view.failures.some((f) =>
-    f.node_id === "watchability_release" && /ABANDON_TOPIC|REVISE_SCRIPT|watchability release blocked/i.test(f.error),
-  )) return "watchability";
+  if (watchabilityRetryState(view) === "exhausted") return "watchability";
   return null;
 }
 
@@ -101,7 +154,7 @@ function mostRecentProduction(service: VidGenService): number | undefined {
   return service.listRuns().filter((r) => r.kind === "production").map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
 }
 
-export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHandle {
+export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedulerOptions = {}): GrowthSchedulerHandle {
   const raw = process.env["SCHEDULE_PRODUCE_HOURS"];
   const produceHours = raw === undefined || raw.trim() === "" ? 24 : Number(raw);
   const target = Number(process.env["SCHEDULE_PRODUCE_HOUR_UTC"] ?? 19);
@@ -131,7 +184,7 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
             ...(candidate.genre ? { genre: candidate.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
           });
-          const final = await waitForTerminal(service, runId);
+          const final = await waitForTerminal(service, runId, opts);
           if (final?.status === "completed") {
             console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`);
             return;
@@ -146,7 +199,7 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
             // explicit terminal decision, then verify it actually settled as a
             // persisted blocked gate before another topic is allowed to start.
             await service.decide(runId, "creative_viability", { result: "abandon", reason });
-            const abandoned = await waitForTerminal(service, runId);
+            const abandoned = await waitForTerminal(service, runId, opts);
             const settled = abandoned?.status === "blocked" && abandoned.failures.some((f) =>
               f.node_id === "creative_viability" && /abandoned:/i.test(f.error),
             );
