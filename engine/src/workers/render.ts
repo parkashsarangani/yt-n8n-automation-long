@@ -1,7 +1,7 @@
 /** Render worker: script + voice + asset_manifest -> rendered_video. */
 import type { Artifact, BlobRef } from "../artifact.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
-import type { RenderScene } from "../provider.ts";
+import type { RenderRequest, RenderScene } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface RenderWorkerOptions { captionStyle?: string; version?: string; thumbnail?: { text?: string; accent?: string } }
@@ -12,7 +12,9 @@ interface AssetScene {
   template_category?: string; template_data?: string; visual_mode?: "motion_graphic" | "ai_broll";
   continuity_group?: string; shot_types?: string[];
 }
+interface GrowthPackage { next_video_bridge?: string }
 type HybridRenderScene = RenderScene & { images?: Uint8Array[]; visual_mode?: "motion_graphic" | "ai_broll"; continuity_group?: string; shot_types?: string[] };
+type ContinuationRenderRequest = RenderRequest & { outro_line?: string };
 
 async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<HybridRenderScene[]> {
   const script = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;
@@ -55,19 +57,32 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
 
 export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
-    name: "render", kind: "worker", version: opts.version ?? "5",
+    name: "render", kind: "worker", version: opts.version ?? "6",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
+      // RFC 0009 decision 11. Manual/legacy graphs have no growth package, so
+      // this is deliberately optional; the illustrated growth graph wires it.
+      { schema_id: "growth_package", range: "^1", as: "package", optional: true },
     ],
     produces: "rendered_video",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const renderer = ctx.media.renderer;
       if (!renderer) throw new Error("render worker requires a media renderer (media.renderer)");
       const scenes = await buildScenes(inputs, ctx);
+      const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
+      // The continuation line is episode data, not renderer configuration.
+      // Passing it per request guarantees the package that won this run is the
+      // one whose session-continuation promise reaches the compositor.
+      const request: ContinuationRenderRequest = {
+        scenes,
+        caption_style: opts.captionStyle ?? "neutral",
+        ...(bridge ? { outro_line: bridge } : {}),
+        ...(opts.thumbnail ? { thumbnail: opts.thumbnail } : {}),
+      };
       let jobId: string | undefined;
-      const result = await renderer.render({ scenes, caption_style: opts.captionStyle ?? "neutral", ...(opts.thumbnail ? { thumbnail: opts.thumbnail } : {}) }, {
+      const result = await renderer.render(request, {
         onJob: async (id) => { jobId = id; await ctx.progress({ detail: "render job started", job_id: id }); },
       });
       if (renderer.id === "long-compose" && result.media_type === "video/mp4") assertYouTubeProductionGeometry(result.video);
