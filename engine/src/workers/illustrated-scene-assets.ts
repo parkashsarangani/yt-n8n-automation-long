@@ -66,54 +66,27 @@ export function validateEpisodeDirection(direction: { scenes: DirectionScene[]; 
 
 function stableSeed(value: string): number { let h = 2166136261; for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) & 0x7fffffff; }
 async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, budget: ImageBudget, reference?: GeneratedImage): Promise<GeneratedImage> {
-  // Charged here, immediately around the provider invocation, because this
-  // is the only place a real (billable) call happens.
   budget.chargeProviderCall();
   if (provider.generatePack) { const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image; }
   const out = await provider.generate({ prompt, aspect: "16:9", count: 1 }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
 }
+const MAX_ATTEMPTS_PER_ACCEPTED_IMAGE = 2;
 async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
   let lastError = new Error("image generation failed");
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_ACCEPTED_IMAGE; attempt++) {
     try {
       const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference);
       const [text, semantic] = await Promise.all([checkGeneratedImageForText(image), narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null)]);
       const failures: string[] = []; if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`); if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
-      if (!failures.length) return image; lastError = new Error(failures.join("; ")); logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/2: ${lastError.message}`);
-    } catch (err) { lastError = err instanceof Error ? err : new Error(String(err)); logger.warn(`[illustrated_scene_assets] ${shotId}: generation failed attempt ${attempt + 1}/2: ${lastError.message}`); }
+      if (!failures.length) return image; lastError = new Error(failures.join("; ")); logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/${MAX_ATTEMPTS_PER_ACCEPTED_IMAGE}: ${lastError.message}`);
+    } catch (err) { lastError = err instanceof Error ? err : new Error(String(err)); logger.warn(`[illustrated_scene_assets] ${shotId}: generation failed attempt ${attempt + 1}/${MAX_ATTEMPTS_PER_ACCEPTED_IMAGE}: ${lastError.message}`); }
   }
   throw lastError;
 }
-/**
- * Image spend, in one place, because this is the only stage that costs real
- * money per run.
- *
- * RFC 0009 decision 5 asks for unequal spend on hero beats, not uniform
- * best-of-N: the hook is the shot the whole episode is judged on, the other
- * hero beats matter more than connective tissue, and connective tissue gets
- * one image. Everything above the one-image-per-shot baseline is OPTIONAL
- * spend and is the first thing dropped when the run budget runs out -- the
- * baseline itself is never skipped, so every shot still reaches render.
- */
+
 const HOOK_CANDIDATES = 3;
 const HERO_CANDIDATES = 2;
 const MAX_REVIEW_REGENERATIONS = 4;
-/**
- * Two different limits, because they answer two different questions.
- *
- * OPTIONAL_SPEND_CEILING is where quality extras stop: additional hero
- * candidates and review-driven regenerations. Crossing it costs nothing but
- * polish.
- *
- * MAX_PROVIDER_CALLS is a genuine hard stop on invocations of the image
- * provider -- the thing that is actually billed. It has to be separate
- * because a shot is allowed up to two attempts internally (a vision-QA
- * rejection is retried), so a candidate count is NOT a call count. An
- * earlier version conflated the two and undercounted real spend by up to 2x.
- *
- * Past the hard stop a shot reuses the episode reference image instead of
- * generating: the episode still renders, it just stops buying new pixels.
- */
 const OPTIONAL_SPEND_CEILING = 70;
 const MAX_PROVIDER_CALLS = 120;
 
@@ -123,25 +96,21 @@ export class ImageBudgetExhausted extends Error {
 class ImageBudget {
   private calls = 0;
   constructor(private readonly logger: WorkerContext["logger"]) {}
-  /**
-   * Counted immediately around the provider invocation itself, so retries
-   * inside a single accepted-image attempt are visible in the total.
-   */
   chargeProviderCall(): void {
     if (this.calls >= MAX_PROVIDER_CALLS) throw new ImageBudgetExhausted(this.calls);
     this.calls += 1;
   }
-  /** Optional quality spend: allowed only while below the soft ceiling. */
-  canAfford(extra: number): boolean { return this.calls + extra <= OPTIONAL_SPEND_CEILING; }
+  /** Reserve the worst-case provider calls for OPTIONAL work, including retries. */
+  canAffordOptional(maxProviderCalls: number): boolean { return this.calls + maxProviderCalls <= OPTIONAL_SPEND_CEILING; }
   get spent(): number { return this.calls; }
   report(): void { this.logger.warn(`[illustrated_scene_assets] image provider calls this run: ${this.calls} (optional spend stops at ${OPTIONAL_SPEND_CEILING}, hard stop ${MAX_PROVIDER_CALLS})`); }
 }
 
-async function generateShot(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
+async function generateShot(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
   const seed = stableSeed(`${shotId}|${prompt}`);
   const wanted = shot.importance !== "hero" ? 1 : shot.hero_role === "hook" ? HOOK_CANDIDATES : HERO_CANDIDATES;
-  // Degrade to a single candidate rather than refusing the shot outright.
-  const count = wanted > 1 && budget.canAfford(wanted) ? wanted : 1;
+  const worstCaseCalls = wanted * MAX_ATTEMPTS_PER_ACCEPTED_IMAGE;
+  const count = allowMultipleCandidates && wanted > 1 && budget.canAffordOptional(worstCaseCalls) ? wanted : 1;
   if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
 
   const candidates: GeneratedImage[] = [];
@@ -162,7 +131,7 @@ function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: s
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
-    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "6",
+    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "7",
     consumes: [{ schema_id: "episode_direction", range: "^2", as: "direction" }, { schema_id: "script", range: "^1", as: "script" }, { schema_id: "intent", range: "^1", as: "intent" }],
     produces: "asset_manifest", produces_version: "1.9.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
@@ -190,7 +159,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
               if (!reference && prior.source === "primary") reference = image;
             }
             working.push(...reused); continue;
-          } catch { /* a swept/missing blob makes this scene regenerate normally */ }
+          } catch { }
         }
         for (const { shot, prompt } of fresh) {
           const id = `${scene.scene_index}:${shot.shot_index}`, narration = narrationBy.get(scene.scene_index) ?? "";
@@ -200,16 +169,6 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
             catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               if (reference) { item.image = reference; item.source = "fallback"; ctx.logger.warn(`[illustrated_scene_assets] ${id}: reusing reference after failure: ${message}`); }
-              // No reference exists YET -- which is the structural bad luck of
-              // going first, not a verdict on this shot. Scene 0 is generated
-              // before any other scene has succeeded, so it is both the most
-              // important image in the episode (it carries the hook) and the
-              // only one with nothing to fall back on. Defer it instead of
-              // conceding a blank frame: a later scene almost always succeeds
-              // and becomes the reference this shot never had. Confirmed in
-              // production -- scene 0 failed vision QA twice, shipped blank,
-              // and was then fixed by exactly this retry one full render pass
-              // later, after qa caught it.
               else { deferred.push(item); ctx.logger.warn(`[illustrated_scene_assets] ${id}: failed with no reference available yet; deferring one retry until a later scene establishes one: ${message}`); }
             }
           }
@@ -217,14 +176,10 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
         }
       }
 
-      // Second chance for the shots that went first, now that the episode has
-      // a reference image. This adds no generation for a healthy run (the list
-      // is empty) and never re-rolls a shot that already produced an image, so
-      // images are still generated once per shot per run.
       for (const item of deferred) {
-        if (!provider || !reference) break; // nothing succeeded anywhere; a true placeholder is honest
+        if (!provider || !reference) break;
         try {
-          item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `:deferred`, budget);
+          item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`, budget);
           item.source = "primary";
           ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry succeeded with reference conditioning; render receives a real image instead of a blank frame`);
         } catch (err) {
@@ -236,14 +191,15 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       const sequenceEntries = (): VisualSequenceEntry[] => working.filter((w): w is WorkingShot & { image: GeneratedImage } => Boolean(w.image)).map((w) => ({ shot_id: w.id, image: w.image, narration: w.narration, prompt: w.shot.image_prompt, shot_function: w.shot.shot_function, hero: w.shot.importance === "hero" }));
       let review = await reviewIllustratedSequence(sequenceEntries()); const regenerated: string[] = [];
       if (provider && review?.flagged_shots.length) {
-        // Targeted, capped, and budget-aware: the review can point at what is
-        // hurting the sequence, but it cannot turn into an open-ended reroll.
         for (const id of review.flagged_shots.slice(0, MAX_REVIEW_REGENERATIONS)) {
           const item = working.find((w) => w.id === id);
           if (!item) continue;
-          if (!budget.canAfford(1)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the run's image budget is spent; keeping the existing image`); break; }
-          try { item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget); item.source = "primary"; regenerated.push(id); }
-          catch (err) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted review regeneration failed: ${err instanceof Error ? err.message : String(err)}`); }
+          if (!budget.canAffordOptional(MAX_ATTEMPTS_PER_ACCEPTED_IMAGE)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`); break; }
+          try {
+            item.image = await generateShot(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
+            item.source = "primary";
+            regenerated.push(id);
+          } catch (err) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: targeted review regeneration failed: ${err instanceof Error ? err.message : String(err)}`); }
         }
         if (regenerated.length) review = await reviewIllustratedSequence(sequenceEntries());
       }
