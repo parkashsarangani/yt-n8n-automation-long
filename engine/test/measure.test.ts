@@ -14,7 +14,7 @@ import { FakeAnalyticsProvider } from "../src/providers/fake.ts";
 import { YouTubeAnalyticsProvider } from "../src/providers/youtube-analytics.ts";
 import { Runner } from "../src/runner.ts";
 import { makeMeasureWorker } from "../src/workers/index.ts";
-import { inferDurationSec, retentionAtSecond } from "../src/workers/measure.ts";
+import { effectiveAnalyticsWindow, inferDurationSec, retentionAtSecond } from "../src/workers/measure.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,11 +22,11 @@ const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
 const EPISODE = { target: "youtube", external_id: "dQw4w9WgXcQ", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", title: "Why Chile Is So Absurdly Long", published_at: "2026-07-01T10:00:00.000Z", synthetic_media_disclosed: true, thumbnail_set: true, privacy: "private" };
 interface PerfPayload { external_id: string; source: string; window: { start_date: string; end_date: string; days: number }; metrics: { views: number; average_view_percentage: number | null; impressions: number | null; click_through_rate: number | null; retention_curve: any[] | null; retention_5s: number | null; retention_15s: number | null; retention_30s: number | null; unavailable: string[] } }
 
-async function harness(analytics: any = new FakeAnalyticsProvider(), windowDays = 28) {
+async function harness(analytics: any = new FakeAnalyticsProvider(), windowDays = 28, episodePayload: any = EPISODE) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-measure-")), registry);
   const runner = new Runner({ store, registry, prompts: await PromptStore.load(path.join(ROOT, "prompts")), providers: new ProviderRouter({}), runLog: new MemoryRunLog(), logger: silent(), blobs: new MemoryBlobStore(), media: { analytics } });
-  const episode = (await store.put({ schema_id: "published_episode", payload: EPISODE, produced_by: { transformation: "publish", version: "1", run_id: "t", provider: null } })).artifact;
+  const episode = (await store.put({ schema_id: "published_episode", payload: episodePayload, produced_by: { transformation: "publish", version: "1", run_id: "t", provider: null } })).artifact;
   const worker = makeMeasureWorker({ windowDays, now: () => new Date("2026-08-15T12:00:00.000Z") });
   return { registry, store, runner, analytics, episode, worker };
 }
@@ -37,9 +37,27 @@ test("measure emits episode_performance@2 and keeps unavailable retention distin
   const artifact = await measure(h);
   const out = artifact.payload as PerfPayload;
   assert.equal(artifact.schema_version, "2.0.0"); assert.equal(out.window.end_date, "2026-08-14"); assert.equal(out.window.start_date, "2026-07-18");
+  assert.equal(out.window.days, 28);
   assert.equal(out.metrics.retention_curve, null); assert.equal(out.metrics.retention_30s, null);
   assert.ok(out.metrics.unavailable.some((u) => /audience retention/i.test(u)));
   assert.doesNotThrow(() => h.registry.validate("episode_performance", "2.0.0", out));
+});
+
+test("measurement window is clamped to actual episode age instead of labelling a young episode 28 days old", async () => {
+  const young = { ...EPISODE, external_id: "young", published_at: "2026-08-12T18:00:00.000Z" };
+  const out = (await measure(await harness(new FakeAnalyticsProvider(), 28, young))).payload as PerfPayload;
+  assert.deepEqual(out.window, { start_date: "2026-08-12", end_date: "2026-08-14", days: 3 });
+  assert.deepEqual(effectiveAnalyticsWindow(new Date("2026-08-15T12:00:00.000Z"), 28, young.published_at), {
+    window: { start_date: "2026-08-12", end_date: "2026-08-14" },
+    days: 3,
+  });
+});
+
+test("an episode with no completed analytics day is not measured on an invalid window", () => {
+  assert.throws(
+    () => effectiveAnalyticsWindow(new Date("2026-08-15T12:00:00.000Z"), 28, "2026-08-15T01:00:00.000Z"),
+    /no completed analytics day/i,
+  );
 });
 
 test("official retention curve is sampled at 5/15/30 seconds using inferred video duration", async () => {
@@ -97,6 +115,15 @@ test("YouTube aggregate provider negotiates thumbnail metrics", async () => {
   assert.match(calls[0]!, /videoThumbnailImpressions/); assert.equal(metrics.impressions, 50000); assert.equal(metrics.click_through_rate, 0.058);
 });
 
+test("aggregate report with no rows is unavailable, never synthetic zero performance", async () => {
+  const { impl } = stubFetch(() => ({ status: 200, body: { columnHeaders: [{ name: "views" }, { name: "averageViewPercentage" }], rows: [] } }));
+  const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+  await assert.rejects(
+    () => p.fetchEpisodeMetrics("fresh-video", { start_date: "2026-08-14", end_date: "2026-08-14" }),
+    /no rows.*unavailable.*zero performance/i,
+  );
+});
+
 test("thumbnail metric rejection retries core metrics and latches the capability", async () => {
   let call = 0;
   const { impl, calls } = stubFetch(() => {
@@ -120,7 +147,7 @@ test("YouTube audience-retention report parses elapsed ratio and watch ratio", a
 });
 
 test("retention report rejection is recorded as unavailable, not zero", async () => {
-  const { impl } = stubFetch(() => ({ status: 400, body: { error: { message: "The query is not supported", errors: [{ reason: "badRequest" }] } } }));
+  const { impl } = stubFetch(() => ({ status: 400, body: { error: { message: "The query is not supported", errors: [{ reason: "badRequest" }] } }));
   const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
   const result = await p.fetchAudienceRetention("vid", { start_date: "2026-07-18", end_date: "2026-08-14" });
   assert.equal(result.points, null); assert.match(result.unavailable ?? "", /rejected retention report/);
