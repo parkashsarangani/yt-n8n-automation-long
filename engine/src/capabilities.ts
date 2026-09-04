@@ -110,11 +110,11 @@ function failOpen(env: NodeJS.ProcessEnv): boolean {
 }
 
 function speechMode(env: NodeJS.ProcessEnv): "freellmapi" | "elevenlabs" {
-  return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "elevenlabs" ? "elevenlabs" : "freellmapi";
+  return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "elevenlabs";
 }
 
 function imageMode(env: NodeJS.ProcessEnv): "freellmapi" | "fal" {
-  return env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "fal" ? "fal" : "freellmapi";
+  return env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "fal";
 }
 
 function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
