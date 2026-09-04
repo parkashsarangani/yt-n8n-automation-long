@@ -15,6 +15,34 @@ interface RetentionCapableAnalytics {
 }
 const DAY_MS = 24 * 60 * 60 * 1000;
 function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+function utcDay(d: Date): Date { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
+
+export function effectiveAnalyticsWindow(
+  now: Date,
+  windowDays: number,
+  publishedAt?: string,
+): { window: AnalyticsWindow; days: number } {
+  const endDate = utcDay(new Date(now.getTime() - DAY_MS));
+  const requestedStart = new Date(endDate.getTime() - (windowDays - 1) * DAY_MS);
+  let startDate = requestedStart;
+
+  if (publishedAt) {
+    const parsed = new Date(publishedAt);
+    if (Number.isFinite(parsed.getTime())) {
+      const publishedDay = utcDay(parsed);
+      if (publishedDay.getTime() > endDate.getTime()) {
+        throw new Error("published episode has no completed analytics day yet");
+      }
+      if (publishedDay.getTime() > startDate.getTime()) startDate = publishedDay;
+    }
+  }
+
+  const days = Math.floor((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
+  return {
+    window: { start_date: isoDate(startDate), end_date: isoDate(endDate) },
+    days,
+  };
+}
 
 export function inferDurationSec(averageViewDurationSec: number, averageViewPercentage: number | null): number | null {
   if (!Number.isFinite(averageViewDurationSec) || averageViewDurationSec <= 0) return null;
@@ -47,10 +75,9 @@ export function makeMeasureWorker(opts: MeasureWorkerOptions = {}): WorkerDef {
       const analytics = ctx.media.analytics as RetentionCapableAnalytics | undefined;
       if (!analytics) throw new Error("measure worker needs an analytics provider; none was configured (analytics needs yt-analytics.readonly scope)");
       const end = now();
-      const endDate = new Date(end.getTime() - DAY_MS);
-      const startDate = new Date(endDate.getTime() - (windowDays - 1) * DAY_MS);
-      const window = { start_date: isoDate(startDate), end_date: isoDate(endDate) };
-      await ctx.progress({ detail: `measuring ${episode.external_id} over ${windowDays}d (${window.start_date} → ${window.end_date})` });
+      const effective = effectiveAnalyticsWindow(end, windowDays, episode.published_at);
+      const window = effective.window;
+      await ctx.progress({ detail: `measuring ${episode.external_id} over ${effective.days}d (${window.start_date} → ${window.end_date})` });
       const { metrics } = await analytics.fetchEpisodeMetrics(episode.external_id, window);
       const unavailable = [...metrics.unavailable];
       let retentionCurve: RetentionPoint[] | null = null;
@@ -72,7 +99,7 @@ export function makeMeasureWorker(opts: MeasureWorkerOptions = {}): WorkerDef {
           external_id: episode.external_id,
           ...(episode.url ? { url: episode.url } : {}),
           source: analytics.id,
-          window: { ...window, days: windowDays },
+          window: { ...window, days: effective.days },
           measured_at: end.toISOString(),
           metrics: {
             views: Math.round(metrics.views),
