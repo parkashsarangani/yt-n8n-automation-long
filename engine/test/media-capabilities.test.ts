@@ -2,9 +2,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { STAGES, capabilityReport, credentialsSatisfied } from "../src/capabilities.ts";
+import { CREDENTIALS } from "../src/config.ts";
 
 const speech = STAGES.find((s) => s.id === "speech")!;
 const images = STAGES.find((s) => s.id === "images")!;
+
+test("all experimental media controls are exposed through Long config", () => {
+  const settable = new Set(CREDENTIALS.map((c) => c.key));
+  for (const key of [
+    "IMAGE_PROVIDER_MODE",
+    "SPEECH_PROVIDER_MODE",
+    "FREELLMAPI_IMAGE_MODEL",
+    "FREELLMAPI_SPEECH_MODEL",
+    "FREELLMAPI_SPEECH_VOICE",
+    "FREELLMAPI_SPEECH_FORMAT",
+    "FREELLMAPI_MEDIA_TIMEOUT_MS",
+  ]) {
+    assert.equal(settable.has(key), true, `${key} must be saveable through the config UI`);
+  }
+});
 
 test("unset media modes retain ElevenLabs and Fal credential semantics", () => {
   assert.equal(credentialsSatisfied(speech, { ELEVENLABS_API_KEY: "el" }), true);
