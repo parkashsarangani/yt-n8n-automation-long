@@ -2,11 +2,11 @@
  * Config-selectable speech provider facade.
  *
  * SPEECH_PROVIDER_MODE selects:
- *   - freellmapi (experimental default): shared FreeLLMAPI /audio/speech
+ *   - freellmapi: shared FreeLLMAPI /audio/speech (production experiment)
  *   - elevenlabs: existing ElevenLabs with timestamps/prosody context
  *
- * The exported class name stays stable so the service/graph does not need to
- * know which vendor serves the speech capability.
+ * Unset mode stays on ElevenLabs for backward-compatible local/test behavior.
+ * Production explicitly sets freellmapi in Compose/deploy.
  */
 
 import { ProviderError, type SpeechProvider, type Usage } from "../provider.ts";
@@ -116,9 +116,9 @@ class DirectElevenLabsProvider implements SpeechProvider {
 }
 
 function speechProviderMode(): "freellmapi" | "elevenlabs" {
-  return process.env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "elevenlabs"
-    ? "elevenlabs"
-    : "freellmapi";
+  return process.env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi"
+    ? "freellmapi"
+    : "elevenlabs";
 }
 
 export class ElevenLabsProvider implements SpeechProvider {
@@ -126,9 +126,9 @@ export class ElevenLabsProvider implements SpeechProvider {
   private readonly delegate: SpeechProvider;
 
   constructor(opts: ElevenLabsOptions = {}) {
-    this.delegate = speechProviderMode() === "elevenlabs"
-      ? new DirectElevenLabsProvider(opts)
-      : new FreeLLMSpeechProvider({ ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+    this.delegate = speechProviderMode() === "freellmapi"
+      ? new FreeLLMSpeechProvider({ ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) })
+      : new DirectElevenLabsProvider(opts);
     this.id = this.delegate.id;
   }
 
