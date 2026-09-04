@@ -6,29 +6,23 @@
  * spending voice/image/render budget just because several drafts were tried.
  */
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
+import {
+  MATERIAL_WEAKNESS_FLOOR,
+  MAX_ATTEMPTS_BEFORE_ACCEPTING,
+  WATCHABILITY_AVERAGE_THRESHOLD,
+  WATCHABILITY_THRESHOLDS,
+  watchabilityReleaseDeficit,
+  type WatchabilityDimension,
+} from "../watchability-policy.ts";
 
-export const WATCHABILITY_THRESHOLDS = {
-  hook: 0.82,
-  first_30_fidelity: 0.80,
-  package_fidelity: 0.84,
-  suspense: 0.75,
-  watchability: 0.78,
-  entertainment: 0.72,
-  payoff: 0.75,
-  youtube_fit: 0.75,
-} as const;
-export const WATCHABILITY_AVERAGE_THRESHOLD = 0.79;
-export const MATERIAL_WEAKNESS_FLOOR = 0.55;
-/**
- * Compatibility bound consumed by the inherited pre-image best-of-N service
- * sequencing from main. Despite the historical constant name, RFC 0009 NEVER
- * accepts a below-bar script unconditionally. Setting this one beyond the
- * service's five automatic retry rounds lets it draft serious alternatives
- * before terminating/advancing the topic, while preserving main's rule that
- * script selection finishes before image generation can start.
- */
-export const MAX_ATTEMPTS_BEFORE_ACCEPTING = 6;
-type Dimension = keyof typeof WATCHABILITY_THRESHOLDS;
+export {
+  MATERIAL_WEAKNESS_FLOOR,
+  MAX_ATTEMPTS_BEFORE_ACCEPTING,
+  WATCHABILITY_AVERAGE_THRESHOLD,
+  WATCHABILITY_THRESHOLDS,
+} from "../watchability-policy.ts";
+
+type Dimension = WatchabilityDimension;
 type PackageFamily = "curiosity" | "conflict" | "reversal";
 type WatchabilityReport = { verdict?: unknown; abandon_recommended?: unknown; abandon_reason?: unknown; scores?: Partial<Record<Dimension, unknown>> };
 type GrowthVariant = { family?: unknown; title?: unknown; thumbnail_concept?: unknown };
@@ -107,17 +101,17 @@ export function enforceContinuationBridge(scriptPayload: unknown, packagePayload
 }
 
 /**
- * `average` is intentionally selection-safe, not merely a raw arithmetic mean.
- * The unattended service compares attempted scripts using this value before
- * image generation. A draft that failed ANY release threshold must never rank
- * above a later draft that actually passed just because its other dimensions
- * were unusually high. Rejected drafts are therefore capped immediately below
- * the aggregate release threshold. `rawAverage` preserves the diagnostic mean.
+ * `average` is the service's best-of-N selection score. Passing drafts retain
+ * their real arithmetic mean. Failed drafts stay strictly below 0.79, but are
+ * ordered by distance from the actual release surface rather than all being
+ * flattened to the same 0.789 ceiling. `rawAverage` remains the diagnostic mean
+ * shown to operators; `releaseDeficit` explains the selection ordering.
  */
 export function assessWatchability(payload: unknown): {
   passed: boolean;
   average: number;
   rawAverage: number;
+  releaseDeficit: number;
   failures: string[];
   abandonRecommended: boolean;
   abandonReason: string;
@@ -152,10 +146,12 @@ export function assessWatchability(payload: unknown): {
     ? report.abandon_reason.trim()
     : abandonRecommended ? "package/first-30/youtube-fit is materially below the viable floor" : "";
   const passed = failures.length === 0 && report.verdict !== "abandon";
+  const releaseDeficit = watchabilityReleaseDeficit(scores, rawAverage);
+  const failedCeiling = WATCHABILITY_AVERAGE_THRESHOLD - 0.001;
   const average = passed
     ? rawAverage
-    : Math.min(rawAverage, WATCHABILITY_AVERAGE_THRESHOLD - 0.001);
-  return { passed, average, rawAverage, failures, abandonRecommended, abandonReason };
+    : Math.max(0, Math.min(failedCeiling, failedCeiling - releaseDeficit + rawAverage * 0.00001));
+  return { passed, average, rawAverage, releaseDeficit, failures, abandonRecommended, abandonReason };
 }
 
 export function makeWatchabilityReleaseWorker(): WorkerDef {
