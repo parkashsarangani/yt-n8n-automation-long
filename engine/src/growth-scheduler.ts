@@ -21,6 +21,7 @@ export interface PackageSeed {
   scores: { clickability?: number; story_potential?: number; audience_size?: number; overall?: number };
 }
 
+export type CreativeFailureKind = "creative_viability" | "watchability";
 export interface GrowthSchedulerHandle { status(): JobStatus[]; runNow(id: string): Promise<void>; stop(): void }
 const POLL_MS = 3000, MAX_WAIT_MS = 90 * 60_000, MIN_COMPONENT_SCORE = 0.55, MIN_OVERALL_SCORE = 0.60;
 function bounded(value: string | undefined, max: number): string { return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max); }
@@ -76,21 +77,26 @@ async function waitForTerminal(service: VidGenService, runId: string): Promise<R
   }
   return service.getRun(runId);
 }
+
 /**
- * Only a creative-stage terminal state authorizes switching topics. Immediate
- * structural abandonment parks at creative_viability. A watchability_release
- * block means the service already exhausted its bounded script retries without
- * ever reaching direction/assets, so REVISE_SCRIPT is also a terminal creative
- * failure at this point. Render/QA/provider failures remain non-creative and
- * must never trigger topic substitution.
+ * Only creative-stage terminal states authorize switching topics. Keep the
+ * reason explicit because creative_viability is initially a WAITING gate and
+ * must be terminally abandoned before advancing, while watchability is already
+ * blocked after the service's bounded script retries are exhausted.
  */
-export function creativeFailure(view: RunView | null): boolean {
-  if (!view) return false;
-  if (view.status === "waiting" && view.waiting.some((w) => w.node_id === "creative_viability")) return true;
-  return view.status === "blocked" && view.failures.some((f) =>
+export function creativeFailureKind(view: RunView | null): CreativeFailureKind | null {
+  if (!view) return null;
+  if (view.status === "waiting" && view.waiting.some((w) => w.node_id === "creative_viability")) return "creative_viability";
+  if (view.status === "blocked" && view.failures.some((f) =>
     f.node_id === "watchability_release" && /ABANDON_TOPIC|REVISE_SCRIPT|watchability release blocked/i.test(f.error),
-  );
+  )) return "watchability";
+  return null;
 }
+
+export function creativeFailure(view: RunView | null): boolean {
+  return creativeFailureKind(view) !== null;
+}
+
 function mostRecentProduction(service: VidGenService): number | undefined {
   return service.listRuns().filter((r) => r.kind === "production").map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
 }
@@ -111,8 +117,12 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
       ...(lastProduction !== undefined ? { seedLastRun: lastProduction } : {}),
       async run() {
         const discovered = await service.discoverTopics();
-        const candidates = ((discovered.candidates as { candidates?: DiscoveryCandidate[] })?.candidates ?? []).filter(viableCandidate).sort((a, b) => candidateOverallScore(b) - candidateOverallScore(a)).slice(0, maxCandidateAttempts);
+        const candidates = ((discovered.candidates as { candidates?: DiscoveryCandidate[] })?.candidates ?? [])
+          .filter(viableCandidate)
+          .sort((a, b) => candidateOverallScore(b) - candidateOverallScore(a))
+          .slice(0, maxCandidateAttempts);
         if (!candidates.length) throw new Error("discovery returned no growth package above the viability floor");
+
         for (let i = 0; i < candidates.length; i++) {
           const candidate = candidates[i]!;
           console.log(`[growth-scheduler] candidate ${i + 1}/${candidates.length} score=${candidateOverallScore(candidate).toFixed(3)}: ${candidate.brief}`);
@@ -122,8 +132,35 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
             ...(seed ? { packageSeed: seed } : {}),
           });
           const final = await waitForTerminal(service, runId);
-          if (final?.status === "completed") { console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`); return; }
-          if (creativeFailure(final)) { console.log(`[growth-scheduler] candidate ${i + 1} failed the bounded creative search before asset spend; trying the next ranked package`); continue; }
+          if (final?.status === "completed") {
+            console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`);
+            return;
+          }
+
+          const failure = creativeFailureKind(final);
+          if (failure === "creative_viability") {
+            const wait = final?.waiting.find((w) => w.node_id === "creative_viability");
+            const reason = wait?.reason ?? "creative viability critic recommended abandoning this topic";
+            // A normal reject means "regenerate the upstream artifact" in the
+            // executor. That is the opposite of RFC 0009 decision 7. Use the
+            // explicit terminal decision, then verify it actually settled as a
+            // persisted blocked gate before another topic is allowed to start.
+            await service.decide(runId, "creative_viability", { result: "abandon", reason });
+            const abandoned = await waitForTerminal(service, runId);
+            const settled = abandoned?.status === "blocked" && abandoned.failures.some((f) =>
+              f.node_id === "creative_viability" && /abandoned:/i.test(f.error),
+            );
+            if (!settled) {
+              throw new Error(`candidate ${i + 1} was selected for abandonment but the creative_viability gate did not terminate cleanly`);
+            }
+            console.log(`[growth-scheduler] candidate ${i + 1} abandoned before asset spend; trying the next ranked package`);
+            continue;
+          }
+          if (failure === "watchability") {
+            console.log(`[growth-scheduler] candidate ${i + 1} exhausted the bounded script search before asset spend; trying the next ranked package`);
+            continue;
+          }
+
           throw new Error(`candidate ${i + 1} stopped for a non-creative reason; refusing to switch topic: ${final?.failures.map((f) => `${f.node_id}: ${f.error}`).join("; ") || final?.status || "unknown"}`);
         }
         throw new Error(`all ${candidates.length} viable ranked candidates failed the creative bar; no episode published this cycle`);
