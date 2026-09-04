@@ -146,7 +146,7 @@ test("pre-render visual release passes clean assets and only warns for bounded n
   assert.ok(bounded.warnings.some((warning) => /1\/20.*fallback/i.test(warning)));
 });
 
-test("illustrated graph releases assets before render and feeds released assets to final QA", async () => {
+test("illustrated graph requires a visual release before render while final QA still inspects raw assets", async () => {
   const graph = JSON.parse(await readFile(path.join(ROOT, "graphs", "illustrated_story.json"), "utf8")) as {
     version: string;
     nodes: Array<{ id: string; transformation?: string; in?: string[] }>;
@@ -156,7 +156,8 @@ test("illustrated graph releases assets before render and feeds released assets 
   const render = graph.nodes.find((node) => node.id === "render");
   const qa = graph.nodes.find((node) => node.id === "qa");
   assert.deepEqual(release?.in, ["assets"]);
+  assert.ok(render?.in?.includes("assets"));
   assert.ok(render?.in?.includes("visual_asset_release"));
-  assert.equal(render?.in?.includes("assets"), false);
-  assert.ok(qa?.in?.includes("visual_asset_release"));
+  assert.ok(qa?.in?.includes("assets"));
+  assert.equal(qa?.in?.includes("visual_asset_release"), false);
 });
