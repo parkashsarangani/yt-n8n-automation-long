@@ -1,7 +1,8 @@
 # RFC 0009: Growth Optimization System
 
-- **Status:** Implementing
+- **Status:** Implemented; current-head CI verification pending
 - **Date:** 2026-09-03
+- **Implementation PR:** #220 (`feat/rfc-0009-growth-optimization`)
 - **Builds on:** RFC 0008 (`0008-illustrated-story-format.md`)
 - **Objective:** Maximize channel growth rate by optimizing what viewers choose, watch, finish, and continue watching — not by adding more rendering complexity.
 
@@ -17,11 +18,13 @@ The governing principle of this RFC is:
 
 This RFC does **not** replace RFC 0008. It defines how the illustrated-story format should evolve if the operator's primary goal is to grow the YouTube channel as quickly as possible.
 
-## Implementation contract for PR #TBD
+## Implementation contract for PR #220
 
 The implementation branch `feat/rfc-0009-growth-optimization` is intentionally broad: the operator requested that the whole RFC be implemented together and reviewed as one coherent architecture change. Each decision below therefore has a concrete contract, graph, worker, prompt, storage, or policy change in the PR. Capabilities that depend on an external platform feature that is not exposed by the current provider API are represented as durable artifacts/metadata rather than falsely claimed as automated.
 
-The implementation must preserve RFC 0008's core format: single narrator, illustrated shots, deterministic camera/edit motion, no return to the retired semantic-diagram or host/lip-sync stack.
+The implementation preserves RFC 0008's core format: single narrator, illustrated shots, deterministic camera/edit motion, no return to the retired semantic-diagram or host/lip-sync stack.
+
+The RFC 0009 production path uses breaking v2 contracts for the changed direction, creative-review, analytics-memory, and multi-shot asset interfaces. Historical/manual v1 artifacts remain readable where required, but new production does not masquerade breaking shape changes as minor-version compatibility.
 
 ## Decision 1: Select a video package, not merely a topic
 
@@ -197,6 +200,8 @@ meets watchability floor?
 
 Abandoning a weak idea is cheaper than generating voice, images, thumbnail, render, and publication assets for a story that should never have shipped.
 
+The production graph therefore contains an explicit creative-viability boundary before voice/image/render spend. `revise` remains eligible for the existing writing retry path; `abandon` parks that topic so the unattended growth scheduler can advance to the next ranked candidate. Render, infrastructure, and technical-QA failures do not authorize topic substitution.
+
 ### Acceptance signal
 
 A failed creative search can terminate the topic cleanly and automatically advance to another ranked candidate without publishing below-bar content.
@@ -237,6 +242,8 @@ For each episode, persist and compare at least the metrics that are actually ava
 impressions
 click-through rate
 packaging experiment winner
+5-second retention
+15-second retention
 30-second retention
 midpoint retention / average percentage viewed
 average view duration
@@ -247,6 +254,8 @@ comments per view
 subscribers gained
 traffic source
 ```
+
+Audience retention is queried through the official retention report shape when available. Unsupported/insufficient-data responses remain explicit unknowns rather than synthetic zeroes or synthetic passes. Derived 5/15/30-second values are carried into the performance window so the strategist can distinguish an opening-retention problem from a later pacing problem.
 
 The strategic output must be causal/actionable editorial observations, not just metric summaries.
 
@@ -368,6 +377,10 @@ Best package + best script
       ↓
 First-30-second promise check
       ↓
+Creative viability boundary
+      ├─ abandon → next ranked package
+      └─ continue
+      ↓
 Shot director
       ↓
 1–3 illustrated shots per narration beat
@@ -394,15 +407,19 @@ Retention + CTR + satisfaction feedback
 
 ## Implementation priority
 
-The implementation PR is expected to cover all thirteen decisions, but still in dependency order:
+PR #220 implements all thirteen decisions in dependency order:
 
 1. package selection + first-30-second promise contract + three packaging variants;
 2. multi-shot direction + visual-change budget + hero-beat designation;
-3. multi-candidate hero generation + episode-level visual review + targeted regeneration contract;
+3. multi-candidate hero generation + episode-level visual review + targeted regeneration;
 4. topic abandonment instead of below-bar publication;
 5. analytics-derived editorial memory + early-channel emotional focus + continuation CTA metadata;
 6. bounded AI-video eligibility metadata, disabled unless audience evidence activates it;
-7. architecture-freeze guardrails/documentation and tests.
+7. architecture-freeze guardrails/documentation and regression tests.
+
+## Verification contract
+
+The PR is not reviewer-ready merely because the code paths exist. Before draft status is removed, the current head must pass the repository CI matrix: engine image build/typecheck/tests, compose/config contracts, Remotion typecheck/source contracts, motion render regression, and long-compose output-quality render tests. Any implementation claim in the PR description must be revised if current-head CI disproves it.
 
 ## Non-goals
 
