@@ -13,6 +13,7 @@ import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX 
 import { repairEnumValues } from "./schema-repair.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
+import { buildScriptRevisionContext } from "./script-revision.ts";
 import {
   ProviderError,
   ProviderRefusal,
@@ -42,6 +43,8 @@ export interface AgentDef {
   produces: string;
   produces_version?: string;
   prompt: string;
+  /** Optional cross-attempt feedback source; declared in agent data, not hardwired by name. */
+  revision_input?: "watchability";
   model: {
     capability: string;
     max_output_tokens?: number;
@@ -203,6 +206,42 @@ export class Runner {
     }
     for (const spec of def.consumes) {
       if (spec.optional && !(spec.as in vars)) vars[spec.as] = "null";
+    }
+
+    // External watchability retries used to be blind rerolls: regenerateNode()
+    // reran this agent with the exact same story/package and none of the critic
+    // output that caused the rejection. An agent must opt into this explicitly.
+    // The immutable sidecar becomes an additional ARTIFACT parent of the new
+    // script, while graph/run-record inputs remain the declared DAG edges so
+    // executor dependency reconstruction stays deterministic.
+    let artifactParents = inputIds;
+    if (def.revision_input === "watchability") {
+      const revision = await buildScriptRevisionContext({
+        runId,
+        nodeId: opts.nodeId,
+        runLog: this.deps.runLog,
+        store: this.deps.store,
+      });
+      vars["revision"] = revision ? JSON.stringify(revision.payload, null, 2) : "null";
+      if (revision) {
+        const { artifact: revisionArtifact } = await this.deps.store.put({
+          schema_id: "script_revision_context",
+          schema_version: "1.0.0",
+          payload: revision.payload,
+          produced_by: {
+            transformation: "script_revision_controller",
+            version: "1",
+            run_id: runId,
+            provider: null,
+          },
+          parents: revision.parents,
+        });
+        artifactParents = [...inputIds, revisionArtifact.artifact_id];
+        this.deps.logger?.log(
+          `[${def.name}] external attempt ${revision.payload.attempt}: ${revision.payload.mode}; ` +
+          `${revision.payload.release_failures.length} release constraint(s) to repair`,
+        );
+      }
     }
 
     let lastErrors: string[] = [];
@@ -434,7 +473,7 @@ export class Runner {
         schema_version: version,
         payload,
         produced_by: producedBy,
-        parents: inputIds,
+        parents: artifactParents,
         confidence,
         ...(opts.labels ? { labels: opts.labels } : {}),
       });
