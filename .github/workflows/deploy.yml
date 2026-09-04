@@ -7,12 +7,9 @@ name: Deploy to Production
 #   VidGen long-compose 127.0.0.1:4001    (Shorts uses 4000)
 #   legacy n8n          127.0.0.1:5679    (Shorts uses 5678) — not started here
 #
-# LLM infrastructure is shared differently: Shorts owns the one FreeLLMAPI
-# container/volume; this deployment attaches only the engine container to the
-# Shorts runtime network so it can reach freellmapi:3001 internally.
-#
-# The UI is loopback-bound and unauthenticated. Reach it from a laptop with an
-# SSH tunnel, never by publishing the port. See README "Running on the server".
+# Shorts owns the one FreeLLMAPI container/volume. Long attaches only its engine
+# container to the Shorts runtime network and can use that shared service for
+# reasoning, vision QA, and (experimentally) image + speech generation.
 
 on:
   push:
@@ -33,18 +30,11 @@ jobs:
         with:
           clean: true
 
-      # One-time move from the pre-VidGen compose project name. Idempotent: a
-      # no-op on every deploy after the first.
       - name: Migrate compose project name (yt-longform -> vidgen)
         run: bash scripts/migrate-from-yt-longform.sh
 
       - name: Build and deploy
         env:
-          # FreeLLMAPI is owned by the Shorts stack. GitHub secrets are not
-          # repository-global, so use a Long repo/environment secret (or an org
-          # secret exposed to both repositories) containing the same unified
-          # FreeLLMAPI key. If it is absent, direct fail-open keeps production
-          # working until the key is configured.
           FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
           LLM_ROUTER_MODE: ${{ vars.LLM_ROUTER_MODE || 'freellmapi' }}
           LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
@@ -53,8 +43,17 @@ jobs:
           FREELLMAPI_VISION_MODEL: ${{ vars.FREELLMAPI_VISION_MODEL || 'auto:smart' }}
           SHARED_LLM_NETWORK: ${{ vars.SHARED_LLM_NETWORK || 'yt-n8n-automation-shorts_default' }}
 
-          # Paid OpenAI remains the fail-open/direct rollback route.
-          # The repo secret is named OPEN_AI_KEY (not OPENAI_API_KEY).
+          # Experimental media defaults. Set IMAGE_PROVIDER_MODE=fal and/or
+          # SPEECH_PROVIDER_MODE=elevenlabs for immediate rollback on redeploy.
+          IMAGE_PROVIDER_MODE: ${{ vars.IMAGE_PROVIDER_MODE || 'freellmapi' }}
+          SPEECH_PROVIDER_MODE: ${{ vars.SPEECH_PROVIDER_MODE || 'freellmapi' }}
+          FREELLMAPI_IMAGE_MODEL: ${{ vars.FREELLMAPI_IMAGE_MODEL || 'flux' }}
+          FREELLMAPI_SPEECH_MODEL: ${{ vars.FREELLMAPI_SPEECH_MODEL || 'openai-audio' }}
+          FREELLMAPI_SPEECH_VOICE: ${{ vars.FREELLMAPI_SPEECH_VOICE || 'onyx' }}
+          FREELLMAPI_SPEECH_FORMAT: ${{ vars.FREELLMAPI_SPEECH_FORMAT || 'mp3' }}
+          FREELLMAPI_MEDIA_TIMEOUT_MS: ${{ vars.FREELLMAPI_MEDIA_TIMEOUT_MS || '120000' }}
+
+          # Existing paid providers remain configured for config-only rollback.
           OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
@@ -66,24 +65,30 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_ACCESS_TOKEN: ${{ secrets.YOUTUBE_ACCESS_TOKEN }}
-          # Publishing enabled. Uploads are always PRIVATE regardless.
           AMOS_ALLOW_PUBLISH: "1"
         run: |
           set -euo pipefail
 
           echo "=== Building ==="
-          # Layer cache kept: npm ci only reruns when package*.json changes.
           docker compose build engine long-compose
 
           echo "=== Starting ==="
-          # up -d recreates changed services and leaves the rest alone. The
-          # legacy n8n profile is not included, so it stays down.
           docker compose up -d --remove-orphans postgres engine long-compose
 
           echo "=== Attaching engine to shared FreeLLMAPI network ==="
           ENGINE_CID="$(docker compose ps -q engine)"
           if [ -z "$ENGINE_CID" ]; then
             echo "::error::cannot locate running VidGen engine container"
+            exit 1
+          fi
+
+          FREE_MEDIA_REQUIRED=0
+          if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ] || [ "$SPEECH_PROVIDER_MODE" = "freellmapi" ]; then
+            FREE_MEDIA_REQUIRED=1
+          fi
+
+          if [ "$FREE_MEDIA_REQUIRED" = "1" ] && [ -z "${FREELLMAPI_API_KEY:-}" ]; then
+            echo "::error::FreeLLMAPI media is selected but FREELLMAPI_API_KEY is not configured"
             exit 1
           fi
 
@@ -95,19 +100,34 @@ jobs:
               echo "engine attached to $SHARED_LLM_NETWORK"
             fi
 
-            # This is intentionally warning-only. A FreeLLMAPI outage must not
-            # make deployment fail when direct OpenAI fail-open is available.
-            if docker exec "$ENGINE_CID" node -e "fetch('http://freellmapi:3001/api/ping').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(()=>console.log('shared FreeLLMAPI reachable')).catch(e=>{console.error(e.message);process.exit(1)})"; then
+            if docker exec "$ENGINE_CID" node -e "fetch('http://freellmapi:3001/api/ping').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(()=>console.log('shared FreeLLMAPI reachable')).catch(()=>process.exit(1))"; then
               echo "shared FreeLLMAPI network path OK"
+            elif [ "$FREE_MEDIA_REQUIRED" = "1" ]; then
+              echo "::error::FreeLLMAPI media is selected but the engine cannot reach the shared service"
+              exit 1
             else
-              echo "::warning::engine cannot currently reach shared FreeLLMAPI; LLM calls will use configured direct fail-open"
+              echo "::warning::engine cannot currently reach shared FreeLLMAPI; reasoning may use configured direct fail-open"
             fi
+          elif [ "$FREE_MEDIA_REQUIRED" = "1" ]; then
+            echo "::error::FreeLLMAPI media is selected but shared network $SHARED_LLM_NETWORK is absent"
+            exit 1
           else
-            echo "::warning::shared network $SHARED_LLM_NETWORK is absent; Long remains operational through direct LLM fail-open"
+            echo "::warning::shared network $SHARED_LLM_NETWORK is absent; reasoning may use direct LLM fail-open"
           fi
 
           if [ "${LLM_ROUTER_MODE}" != "direct" ] && [ -z "${FREELLMAPI_API_KEY:-}" ]; then
-            echo "::warning::FREELLMAPI_API_KEY is not configured for this repository/environment; free-first routing will fail open to direct OpenAI"
+            echo "::warning::FREELLMAPI_API_KEY is not configured for reasoning; direct OpenAI fail-open will be used"
+          fi
+
+          # Exercise the exact selected media endpoints before declaring the
+          # deployment healthy. These are tiny free-tier smoke calls and do not
+          # log the unified key or generated media.
+          if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ]; then
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_IMAGE_MODEL||'flux';fetch('http://freellmapi:3001/v1/images/generations',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,prompt:'simple empty landscape, no text',n:1,size:'512x512',response_format:'b64_json'})}).then(async r=>{if(!r.ok)throw new Error('image smoke '+r.status);const j=await r.json();if(!j.data?.length)throw new Error('image smoke empty');console.log('FreeLLMAPI image smoke OK: '+(j.provider||'unknown')+'/'+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+          fi
+
+          if [ "$SPEECH_PROVIDER_MODE" = "freellmapi" ]; then
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_SPEECH_MODEL||'openai-audio',v=process.env.FREELLMAPI_SPEECH_VOICE||'onyx';fetch('http://freellmapi:3001/v1/audio/speech',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,input:'Media smoke test.',voice:v,response_format:'mp3'})}).then(async r=>{if(!r.ok)throw new Error('speech smoke '+r.status);const b=await r.arrayBuffer();if(!b.byteLength)throw new Error('speech smoke empty');console.log('FreeLLMAPI speech smoke OK: '+(r.headers.get('x-provider')||'unknown')+'/'+m)}).catch(e=>{console.error(e.message);process.exit(1)})"
           fi
 
       - name: Health check
@@ -130,8 +150,6 @@ jobs:
           }
 
           check long-compose http://127.0.0.1:4001/topic-history
-          # The Host header matters: the UI refuses any request that did not
-          # arrive at localhost, and curl would otherwise send "127.0.0.1".
           check engine http://127.0.0.1:4321/api/config "Host: localhost"
 
       - name: Report
@@ -141,25 +159,18 @@ jobs:
           config=$(curl -sf -H "Host: localhost" http://127.0.0.1:4321/api/config)
           echo "$config" | jq '{graph, providers: [.providers[] | {role, provider, real}]}'
 
-          # Cartoon publishing requires generated recurring-character artwork.
-          # A deploy with a missing/empty FAL_KEY must fail here instead of
-          # quietly putting FakeImageProvider in front of the real compositor.
           if ! echo "$config" | jq -e '.providers[] | select(.role == "images" and .real == true)' > /dev/null; then
-            echo "::error::cartoon image provider is not live after deploy; verify the production FAL_KEY secret"
+            echo "::error::selected image provider is not live after deploy"
+            exit 1
+          fi
+          if ! echo "$config" | jq -e '.providers[] | select(.role == "speech" and .real == true)' > /dev/null; then
+            echo "::error::selected speech provider is not live after deploy"
             exit 1
           fi
 
       - name: Cleanup
         run: |
-          # `docker image prune -f` only removes dangling images and does not
-          # touch the build cache at all. Every deploy adds layers, so the cache
-          # grew unbounded — it reached 103 GB on an 84%-full disk before anyone
-          # looked, which would eventually have failed renders and deploys with
-          # an error pointing nowhere near the cause.
           docker builder prune -f --keep-storage 20GB
-          # Unused images older than a week. Recent ones stay so rebuilds are
-          # still fast; -a without the filter would evict base images on every
-          # deploy and make each build re-pull them.
           docker image prune -af --filter "until=168h"
 
           echo "=== Deploy complete ==="
@@ -170,8 +181,6 @@ jobs:
         run: |
           df -h / | tail -1
           docker system df
-          # Fail the deploy loudly while there is still room to fix it, rather
-          # than silently at 100% during a render.
           used=$(df --output=pcent / | tail -1 | tr -dc '0-9')
           if [ "$used" -ge 85 ]; then
             echo "::error::disk is ${used}% full after cleanup — investigate before it fills"
