@@ -15,21 +15,18 @@ function agent(file: string): AgentDef {
   return JSON.parse(readFileSync(new URL(`../agents/${file}`, import.meta.url), "utf8")) as AgentDef;
 }
 
-// RFC 0009 decision 1 moved discovery off this list deliberately: it is no
-// longer a cheap topic-lister but generates and ranks a 20-30 candidate
-// package tournament (premise, audience, curiosity gap, title and thumbnail
-// concepts, opening promise, three scores), and that ranking is the decision
-// the entire run is built on. Demoting it back to the fast tier is a real
-// quality/cost trade -- change this comment with it, don't do it silently.
 test("low-risk agents still request low-effort fast reasoning", () => {
-  // channel_strategist left this list for the same reason as discovery: RFC
-  // 0009 decision 9 turned it from a metric summarizer into the agent that
-  // derives causal editorial memory (pattern -> implication -> evidence ->
-  // calibrated confidence) which then steers candidate ranking. It is capped
-  // by the budget test below rather than by the cheap-tier rule.
+  // RFC 0009 grew what these agents PRODUCE -- a 20-30 candidate package
+  // tournament, three packaging propositions, causal editorial memory -- but
+  // not how hard they have to think. They stay on the cheap tier and are
+  // bounded by output budget instead. This pipeline runs daily, so the
+  // reasoning tier is the recurring bill; moving an agent off this list is a
+  // real cost decision and should be argued for, not slipped in.
   const lowRisk = [
+    "discovery.json",
     "seo_optimizer.json",
     "thumbnail_designer.json",
+    "channel_strategist.json",
   ];
 
   for (const file of lowRisk) {
@@ -57,9 +54,9 @@ test("agent output budgets stay bounded", () => {
   const ceilings: Record<string, number> = {
     // Raised from 3000 for RFC 0009's package tournament: 20-30 candidates,
     // each carrying premise/audience/curiosity gap/titles/thumbnails/scores,
-    // physically cannot serialize into 3000 output tokens. Still an explicit
-    // ceiling -- the point of this test is that no agent is unbounded.
-    "discovery.json": 18000,
+    // physically cannot serialize into 3000 output tokens. Volume, not
+    // difficulty -- discovery stays on the cheap reasoning tier above.
+    "discovery.json": 12000,
     // 2500 for RFC 0009 decision 8: three materially different packaging
     // propositions (curiosity / injustice / reversal), not one title plus
     // synonyms, do not fit the old single-package budget.

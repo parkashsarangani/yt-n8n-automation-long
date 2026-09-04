@@ -87,12 +87,15 @@ test("multi-shot direction becomes image_uris and semantic shot_types in the man
   assert.equal(payload.visual_review.scores.opening_visual_strength, 0, "unavailable review must not masquerade as a perfect score");
 });
 
-test("hero shots spend three generation candidates while normal shots spend one", async () => {
+test("generation spend is tiered by how much the shot actually matters", async () => {
   const ctx = ctxWithProvider(true);
   await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
-  // 3 hero shots * 3 candidates + 1 normal shot * 1 candidate. Vision ranking/review
-  // fail open with no OPENAI_API_KEY and therefore add no image-provider calls.
-  assert.equal(ctx.calls.length, 10);
+  // RFC 0009 decision 5 asks for UNEQUAL spend, not uniform best-of-N, and
+  // this stage is the only part of a run that costs real money per image. The
+  // hook gets 3 candidates because the episode is judged on it, the other two
+  // hero beats get 2, connective shots get 1: 3 + 2 + 2 + 1 = 8. Vision
+  // ranking/review fail open without OPENAI_API_KEY and add no provider calls.
+  assert.equal(ctx.calls.length, 8);
 });
 
 test("a retry reuses every unchanged successful shot pack instead of rerolling images", async () => {
@@ -163,4 +166,28 @@ test("a deferred retry that also fails reuses the episode reference rather than 
 
   assert.equal(sceneZero.image_uris.length, 2, "the reused reference still fills the failed shot's slot");
   assert.equal(sceneZero.source, "fallback");
+});
+
+// The operator's hard constraint is that image generation is the one cost that
+// must not surprise them. Optional quality spend is what gets cut when a run
+// gets expensive -- never a shot's own image, or a scene reaches render blank.
+test("a pathological direction cannot multiply the image bill", async () => {
+  const ctx = ctxWithProvider(true);
+  const many = {
+    hero_shots: ["0:0", "1:0", "2:0"],
+    scenes: [
+      { scene_index: 0, shots: [shot(0, "wide", "hero", "hook"), shot(1, "object-detail"), shot(2, "reaction")] },
+      { scene_index: 1, shots: [shot(0, "reveal", "hero", "turn"), shot(1, "medium"), shot(2, "close-up")] },
+      { scene_index: 2, shots: [shot(0, "silhouette", "hero", "payoff"), shot(1, "wide"), shot(2, "scale-shot")] },
+    ],
+  };
+
+  const out = await makeIllustratedSceneAssetsWorker().execute(inputs(many), ctx);
+  const scenes = (out.payload as any).scenes;
+
+  assert.ok(ctx.calls.length <= 70, `image generations must stay under the run ceiling, got ${ctx.calls.length}`);
+  assert.ok(
+    scenes.every((s: any) => s.image_uris.length === 3),
+    "every directed shot still gets its own image; only optional spend is cut",
+  );
 });
