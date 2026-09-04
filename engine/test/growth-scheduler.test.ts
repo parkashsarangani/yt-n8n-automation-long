@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { briefWithPackageSeed, candidateOverallScore, viableCandidate, creativeFailure, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
+import { packageSeedOf, candidateOverallScore, viableCandidate, creativeFailure, type DiscoveryCandidate } from "../src/growth-scheduler.ts";
 
 function candidate(overall = 0.8): DiscoveryCandidate {
   return {
@@ -20,12 +20,27 @@ test("viability floor rejects weak packages before production spend", () => {
   assert.equal(viableCandidate(weak), false); assert.equal(candidateOverallScore(candidate(0.91)), 0.91);
 });
 
-test("package seed remains valid JSON inside intent's 2000-char contract", () => {
-  const c = candidate(); c.evidence = "e".repeat(1000);
-  const brief = briefWithPackageSeed(c);
-  assert.ok(brief.length <= 2000); assert.match(brief, /^RFC0009_PACKAGE_JSON:/);
-  const decoded = JSON.parse(brief.slice("RFC0009_PACKAGE_JSON:".length));
-  assert.equal(decoded.genre, "drama"); assert.match(decoded.opening_line, /belt twice/);
+// The old version of this asserted the scheduler emitted RFC0009_PACKAGE_JSON:
+// -- which is precisely the marker the growth_packager prompt does NOT read.
+// The test passed, the contract was broken, and the tournament winner was
+// silently discarded on every scheduled run. Assert the typed field instead.
+test("the tournament winner becomes a typed package seed, not prose", () => {
+  const seed = packageSeedOf(candidate());
+  assert.ok(seed, "a complete candidate must produce a seed");
+  assert.match(seed!.opening_line, /belt twice/);
+  assert.equal(seed!.title_concepts.length, 3);
+  assert.equal(seed!.thumbnail_concepts.length, 3);
+  assert.deepEqual(
+    seed!.title_concepts.map((v) => v.family).sort(),
+    ["conflict", "curiosity", "reversal"],
+    "all three packaging families must survive into the seed",
+  );
+});
+
+test("a candidate missing package fields runs as a plain brief instead of failing", () => {
+  const partial = candidate();
+  delete partial.curiosity_gap;
+  assert.equal(packageSeedOf(partial), undefined, "manual/UI briefs have no tournament behind them");
 });
 
 test("creative terminal states authorize topic failover but infrastructure failures never do", () => {

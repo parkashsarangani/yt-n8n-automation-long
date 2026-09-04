@@ -65,15 +65,18 @@ export function validateEpisodeDirection(direction: { scenes: DirectionScene[]; 
 }
 
 function stableSeed(value: string): number { let h = 2166136261; for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) & 0x7fffffff; }
-async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, reference?: GeneratedImage): Promise<GeneratedImage> {
+async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, budget: ImageBudget, reference?: GeneratedImage): Promise<GeneratedImage> {
+  // Charged here, immediately around the provider invocation, because this
+  // is the only place a real (billable) call happens.
+  budget.chargeProviderCall();
   if (provider.generatePack) { const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image; }
   const out = await provider.generate({ prompt, aspect: "16:9", count: 1 }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
 }
-async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string): Promise<GeneratedImage> {
+async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
   let lastError = new Error("image generation failed");
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, reference);
+      const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference);
       const [text, semantic] = await Promise.all([checkGeneratedImageForText(image), narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null)]);
       const failures: string[] = []; if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`); if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
       if (!failures.length) return image; lastError = new Error(failures.join("; ")); logger.warn(`[illustrated_scene_assets] ${shotId}: vision QA failed attempt ${attempt + 1}/2: ${lastError.message}`);
@@ -96,22 +99,42 @@ const HOOK_CANDIDATES = 3;
 const HERO_CANDIDATES = 2;
 const MAX_REVIEW_REGENERATIONS = 4;
 /**
- * Ceiling on provider calls for one run, sized so a normal episode never
- * touches it: ~40 shots plus hero extras plus targeted regenerations. It
- * exists so a pathological direction (many scenes x 3 shots x hero beats)
- * cannot quietly turn into a multiple of the expected bill.
+ * Two different limits, because they answer two different questions.
+ *
+ * OPTIONAL_SPEND_CEILING is where quality extras stop: additional hero
+ * candidates and review-driven regenerations. Crossing it costs nothing but
+ * polish.
+ *
+ * MAX_PROVIDER_CALLS is a genuine hard stop on invocations of the image
+ * provider -- the thing that is actually billed. It has to be separate
+ * because a shot is allowed up to two attempts internally (a vision-QA
+ * rejection is retried), so a candidate count is NOT a call count. An
+ * earlier version conflated the two and undercounted real spend by up to 2x.
+ *
+ * Past the hard stop a shot reuses the episode reference image instead of
+ * generating: the episode still renders, it just stops buying new pixels.
  */
-const MAX_IMAGE_GENERATIONS = 70;
+const OPTIONAL_SPEND_CEILING = 70;
+const MAX_PROVIDER_CALLS = 120;
 
+export class ImageBudgetExhausted extends Error {
+  constructor(calls: number) { super(`image provider call ceiling reached (${calls}/${MAX_PROVIDER_CALLS})`); }
+}
 class ImageBudget {
-  private used = 0;
-  constructor(private readonly logger: WorkerContext["logger"], private readonly ceiling = MAX_IMAGE_GENERATIONS) {}
-  /** Baseline work: always allowed, so no shot is dropped for budget reasons. */
-  spend(): void { this.used += 1; }
-  /** Optional quality spend: allowed only while headroom remains. */
-  canAfford(extra: number): boolean { return this.used + extra <= this.ceiling; }
-  get spent(): number { return this.used; }
-  report(): void { this.logger.warn(`[illustrated_scene_assets] image generations this run: ${this.used}/${this.ceiling}`); }
+  private calls = 0;
+  constructor(private readonly logger: WorkerContext["logger"]) {}
+  /**
+   * Counted immediately around the provider invocation itself, so retries
+   * inside a single accepted-image attempt are visible in the total.
+   */
+  chargeProviderCall(): void {
+    if (this.calls >= MAX_PROVIDER_CALLS) throw new ImageBudgetExhausted(this.calls);
+    this.calls += 1;
+  }
+  /** Optional quality spend: allowed only while below the soft ceiling. */
+  canAfford(extra: number): boolean { return this.calls + extra <= OPTIONAL_SPEND_CEILING; }
+  get spent(): number { return this.calls; }
+  report(): void { this.logger.warn(`[illustrated_scene_assets] image provider calls this run: ${this.calls} (optional spend stops at ${OPTIONAL_SPEND_CEILING}, hard stop ${MAX_PROVIDER_CALLS})`); }
 }
 
 async function generateShot(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
@@ -119,12 +142,11 @@ async function generateShot(provider: ReferenceCapableProvider, prompt: string, 
   const wanted = shot.importance !== "hero" ? 1 : shot.hero_role === "hook" ? HOOK_CANDIDATES : HERO_CANDIDATES;
   // Degrade to a single candidate rather than refusing the shot outright.
   const count = wanted > 1 && budget.canAfford(wanted) ? wanted : 1;
-  if (count === 1) { budget.spend(); return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId); }
+  if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
 
   const candidates: GeneratedImage[] = [];
   for (let i = 0; i < count; i++) {
-    budget.spend();
-    try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`)); }
+    try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`, budget)); }
     catch (err) { logger.warn(`[illustrated_scene_assets] ${shotId}: hero candidate ${i + 1}/${count} unavailable: ${err instanceof Error ? err.message : String(err)}`); }
   }
   if (!candidates.length) throw new Error(`all hero candidates failed for ${shotId}`); if (candidates.length === 1) return candidates[0]!;

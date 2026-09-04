@@ -9,24 +9,55 @@ export interface DiscoveryCandidate {
   opening_visual?: string; opening_line?: string; title_concepts?: CandidateVariant[]; thumbnail_concepts?: ThumbnailVariant[];
   scores?: { clickability?: number; story_potential?: number; audience_size?: number; overall?: number }; evidence?: string;
 }
+/**
+ * Mirrors intent@1.3.0 `package_seed` exactly. Kept as one exported type so
+ * the scheduler, the service and the schema cannot drift apart silently.
+ */
+export interface PackageSeed {
+  angle: string; target_audience: string; curiosity_gap: string; emotional_engine: string;
+  opening_visual: string; opening_line: string;
+  title_concepts: Array<{ family: string; title: string }>;
+  thumbnail_concepts: Array<{ family: string; concept: string }>;
+  scores: { clickability?: number; story_potential?: number; audience_size?: number; overall?: number };
+}
+
 export interface GrowthSchedulerHandle { status(): JobStatus[]; runNow(id: string): Promise<void>; stop(): void }
 const POLL_MS = 3000, MAX_WAIT_MS = 90 * 60_000, MIN_COMPONENT_SCORE = 0.55, MIN_OVERALL_SCORE = 0.60;
 function bounded(value: string | undefined, max: number): string { return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max); }
 
-export function briefWithPackageSeed(candidate: DiscoveryCandidate): string {
-  const essential = {
-    brief: bounded(candidate.brief, 330), ...(candidate.genre ? { genre: candidate.genre } : {}), angle: bounded(candidate.angle, 180),
-    curiosity_gap: bounded(candidate.curiosity_gap, 150), emotional_engine: bounded(candidate.emotional_engine, 130),
-    opening_visual: bounded(candidate.opening_visual, 240), opening_line: bounded(candidate.opening_line, 170),
-    title_concepts: (candidate.title_concepts ?? []).slice(0, 3).map((v) => ({ family: v.family, title: bounded(v.title, 90) })),
-    thumbnail_concepts: (candidate.thumbnail_concepts ?? []).slice(0, 3).map((v) => ({ family: v.family, concept: bounded(v.concept, 170) })),
+/**
+ * The tournament winner, as typed data for `intent.package_seed`.
+ *
+ * This used to be a JSON blob prefixed onto the brief string. Two things were
+ * wrong with that: the marker the scheduler wrote (`RFC0009_PACKAGE_JSON:`)
+ * never matched the one the prompt read (`RFC0009_PACKAGE_SEED=`), and the
+ * brief carried no human-facing prose before the marker for the packager to
+ * take `premise` from. So the authoritative selection RFC 0009 decision 1 is
+ * built on was, in practice, discarded -- the packager saw an unparseable
+ * brief and reinvented the proposition. A typed field cannot drift like that:
+ * the schema either accepts it or the run fails loudly.
+ */
+export function packageSeedOf(candidate: DiscoveryCandidate): PackageSeed | undefined {
+  const seed = {
+    angle: bounded(candidate.angle, 300),
+    target_audience: bounded(candidate.target_audience, 220),
+    curiosity_gap: bounded(candidate.curiosity_gap, 220),
+    emotional_engine: bounded(candidate.emotional_engine, 180),
+    opening_visual: bounded(candidate.opening_visual, 300),
+    opening_line: bounded(candidate.opening_line, 220),
+    title_concepts: (candidate.title_concepts ?? []).slice(0, 3).map((v) => ({ family: v.family!, title: bounded(v.title, 90) })),
+    thumbnail_concepts: (candidate.thumbnail_concepts ?? []).slice(0, 3).map((v) => ({ family: v.family!, concept: bounded(v.concept, 170) })),
+    scores: candidate.scores!,
   };
-  const richer = { ...essential, target_audience: bounded(candidate.target_audience, 150), ...(candidate.scores ? { scores: candidate.scores } : {}), ...(candidate.evidence ? { evidence: bounded(candidate.evidence, 180) } : {}) };
-  const prefix = "RFC0009_PACKAGE_JSON:";
-  for (const seed of [richer, essential, { brief: essential.brief, ...(candidate.genre ? { genre: candidate.genre } : {}), angle: essential.angle, opening_visual: essential.opening_visual, opening_line: essential.opening_line, title_concepts: essential.title_concepts, thumbnail_concepts: essential.thumbnail_concepts }]) {
-    const out = prefix + JSON.stringify(seed); if (out.length <= 2000) return out;
-  }
-  return prefix + JSON.stringify({ brief: bounded(candidate.brief, 240), ...(candidate.genre ? { genre: candidate.genre } : {}), angle: bounded(candidate.angle, 120), opening_visual: bounded(candidate.opening_visual, 170), opening_line: bounded(candidate.opening_line, 120) });
+  // intent@1.3.0 requires every one of these. A partial candidate is passed
+  // through as a plain brief rather than failing the run: manual/UI briefs
+  // legitimately have no tournament behind them.
+  const complete = seed.angle && seed.target_audience && seed.curiosity_gap && seed.emotional_engine
+    && seed.opening_visual && seed.opening_line
+    && seed.title_concepts.length === 3 && seed.title_concepts.every((v) => v.family && v.title)
+    && seed.thumbnail_concepts.length === 3 && seed.thumbnail_concepts.every((v) => v.family && v.concept)
+    && candidate.scores !== undefined;
+  return complete ? seed : undefined;
 }
 export function candidateOverallScore(candidate: DiscoveryCandidate): number { const v = candidate.scores?.overall; return typeof v === "number" && Number.isFinite(v) ? v : -1; }
 export function viableCandidate(candidate: DiscoveryCandidate): boolean {
@@ -85,7 +116,11 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
         for (let i = 0; i < candidates.length; i++) {
           const candidate = candidates[i]!;
           console.log(`[growth-scheduler] candidate ${i + 1}/${candidates.length} score=${candidateOverallScore(candidate).toFixed(3)}: ${candidate.brief}`);
-          const runId = await service.startRun(briefWithPackageSeed(candidate), 180, { ...(candidate.genre ? { genre: candidate.genre } : {}) });
+          const seed = packageSeedOf(candidate);
+          const runId = await service.startRun(candidate.brief!, 180, {
+            ...(candidate.genre ? { genre: candidate.genre } : {}),
+            ...(seed ? { packageSeed: seed } : {}),
+          });
           const final = await waitForTerminal(service, runId);
           if (final?.status === "completed") { console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`); return; }
           if (creativeFailure(final)) { console.log(`[growth-scheduler] candidate ${i + 1} failed the bounded creative search before asset spend; trying the next ranked package`); continue; }

@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 
 import { ComposeRenderer } from "../src/providers/compose.ts";
 
-test("long-compose requests a YouTube-native engagement outro instead of legacy follow copy", async () => {
+// Rewritten for RFC 0009 decision 11. This used to assert that the renderer
+// ALWAYS sent "What should we explain next? Subscribe." -- a generic platform
+// ask hardcoded as the default, which is precisely what decision 11 says to
+// stop spending runtime on. There is no default any more: a continuation line
+// is sent when one has been resolved, and nothing is sent when one has not.
+test("no outro line is requested unless a continuation line was actually resolved", async () => {
   const submitted: Record<string, unknown>[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
@@ -33,8 +38,36 @@ test("long-compose requests a YouTube-native engagement outro instead of legacy 
 
   const body = submitted[0];
   assert.ok(body);
-  assert.equal(body.outro_line, "What should we explain next? Subscribe.");
-  assert.doesNotMatch(String(body.outro_line), /follow/i);
+  assert.equal("outro_line" in body, false, "no generic engagement CTA may be sent by default");
+});
+
+test("a resolved continuation line is passed through to the compositor", async () => {
+  const seen: Record<string, unknown>[] = [];
+  const fetchImpl2: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/compose") && init?.method === "POST") {
+      seen.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ job_id: "job-1" }), { status: 200 });
+    }
+    if (url.endsWith("/compose-status/job-1")) {
+      return new Response(JSON.stringify({ status: "done", success: true, output_path: "/app/outputs/out.mp4" }), { status: 200 });
+    }
+    if (url.endsWith("/outputs/out.mp4")) return new Response(new Uint8Array([0, 1, 2, 3]), { status: 200 });
+    return new Response("not found", { status: 404 });
+  };
+
+  const renderer2 = new ComposeRenderer({
+    baseUrl: "http://compose.test",
+    pollIntervalSec: 0,
+    sleepImpl: async () => {},
+    fetchImpl: fetchImpl2,
+    outroLine: "But this was not the strangest time everyone underestimated the wrong person.",
+  });
+
+  await renderer2.render({ scenes: [{ scene_index: 0, audio: new Uint8Array([1]), audio_media_type: "audio/mpeg" }] });
+
+  assert.match(String(seen[0]!.outro_line), /underestimated the wrong person/);
+  assert.doesNotMatch(String(seen[0]!.outro_line), /subscribe|like and share/i);
 });
 
 test("a real spoken outro scene's own template content is not discarded for a blank kinetic-text card", async () => {

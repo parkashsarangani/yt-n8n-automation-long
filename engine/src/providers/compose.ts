@@ -85,7 +85,13 @@ export class ComposeRenderer implements MediaRenderer {
   private readonly baseUrl: string;
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
-  private readonly outroLine: string;
+  /**
+   * RFC 0009 decision 11: the end of an episode should open a loop into the
+   * next one, not spend runtime on a generic platform ask. There is no
+   * default any more -- when no continuation line has been resolved, no outro
+   * card is requested at all.
+   */
+  private readonly outroLine: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -93,7 +99,7 @@ export class ComposeRenderer implements MediaRenderer {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.pollIntervalMs = (opts.pollIntervalSec ?? 15) * 1000;
     this.timeoutMs = (opts.timeoutSec ?? 3600) * 1000;
-    this.outroLine = opts.outroLine ?? "What should we explain next? Subscribe.";
+    this.outroLine = opts.outroLine;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleepImpl = opts.sleepImpl ?? sleep;
   }
@@ -164,7 +170,7 @@ export class ComposeRenderer implements MediaRenderer {
     const body = {
       caption_style: req.caption_style ?? "neutral",
       comment_hook: req.comment_hook ?? null,
-      outro_line: this.outroLine,
+      ...(this.outroLine ? { outro_line: this.outroLine } : {}),
       ...(req.thumbnail
         ? {
           thumbnail: {

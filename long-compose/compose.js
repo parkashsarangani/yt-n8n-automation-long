@@ -80,11 +80,13 @@ const FAL_VIDEO_MODEL = process.env.FAL_VIDEO_MODEL || "fal-ai/ltx-video/image-t
 const FAL_VIDEO_PROMPT =
   "Subtle cinematic camera motion - a slow push-in with gentle parallax. Keep the subject, composition and scene EXACTLY as in the source image; only add natural camera movement and soft ambient motion. Photorealistic and stable. No warping, no morphing, no new or changing objects, no distortion of faces or text.";
 
-// Fixed engagement outro appended to every video. 2.5s gives the four
-// asks (comment, like, share, follow) room to land - the KineticText
-// template reveals words one at a time, so a bare 2s felt rushed.
+// Duration of the optional end card. RFC 0009 decision 11: the primary
+// end-of-video action is continuation into another relevant episode, not a
+// generic platform ask, so there is deliberately no default engagement line.
+// A caller that wants an end card supplies the line (normally resolved from
+// the package next_video_bridge); a caller that supplies none gets no card,
+// rather than a generic CTA eating runtime right after the payoff.
 const OUTRO_DURATION_SEC = 2.5;
-const DEFAULT_OUTRO_LINE = "Comment, like, share, and follow";
 
 // ---------------------------------------------------------------------------
 // Endpoints: Topic History
@@ -1774,20 +1776,42 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         scenes.push(outro);
         console.warn(`[job ${jobId}] moved script outro from index ${outroIndex} to final position`);
       }
-    } else {
+    } else if (reqBody.outro_line) {
       const outroAudioBase64 = await generateSilentAudioBase64(OUTRO_DURATION_SEC);
       scenes.push({
         scene_index: scenes.length,
         visual_source: "template",
         template_name: "kinetic_text",
-        template_data: { line: reqBody.outro_line || DEFAULT_OUTRO_LINE, is_outro: true },
+        template_data: { line: reqBody.outro_line, is_outro: true },
         audio: { audio_base64: outroAudioBase64 },
       });
+    } else {
+      console.log(`[job ${jobId}] no outro scene and no continuation line supplied - ending on the payoff`);
     }
 
     // The payoff/reveal scene = the last content scene before the outro card.
     // It gets a stronger emphasis push-in (video) and a riser+impact accent.
     const emphasisIdx = scenes.length - 2;
+
+    // RFC 0009 decision 12: generated motion is an evidence-triggered
+    // enhancement to specific hero beats, not a globally enabled feature.
+    // FAL_VIDEO_ENABLED remains a kill switch, but on its own it authorizes
+    // nothing -- the caller must also present an analytics-backed motion
+    // authorization naming the exact scenes it covers. Without that, flipping
+    // one environment variable would silently bypass the entire evidence gate.
+    const motionAuth = reqBody.motion_authorization && typeof reqBody.motion_authorization === "object"
+      ? reqBody.motion_authorization
+      : null;
+    const motionEligible = new Set(
+      motionAuth && motionAuth.authorized === true && Array.isArray(motionAuth.eligible_scene_indexes)
+        ? motionAuth.eligible_scene_indexes.filter((n) => Number.isInteger(n))
+        : [],
+    );
+    if (FAL_VIDEO_ENABLED && FAL_KEY && motionEligible.size === 0) {
+      console.log(`[job ${jobId}] generated motion is enabled but no evidence-backed authorization was supplied - rendering deterministic camera motion only`);
+    } else if (motionEligible.size > 0) {
+      console.log(`[job ${jobId}] motion authorized for scene(s) ${[...motionEligible].join(", ")}` + (motionAuth.experiment_id ? ` under experiment ${motionAuth.experiment_id}` : ""));
+    }
 
     console.log(`[job ${jobId}] Composing ${scenes.length} scenes (mood: ${mood})`);
 
@@ -1885,8 +1909,8 @@ async function runComposeJob(reqBody, jobId, tmpDir) {
         // (no key, model error, timeout) falls back to the still so a bad
         // clip never breaks the video. Never animate a gradient placeholder.
         const animationSourceUrl = Array.isArray(imageUrls) && imageUrls.length ? imageUrls[0] : null;
-        const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && Boolean(animationSourceUrl) && (i === 0 || i === emphasisIdx);
-        if (!degraded && FAL_VIDEO_ENABLED && FAL_KEY && !animationSourceUrl && Array.isArray(imageBase64s) && imageBase64s.length && (i === 0 || i === emphasisIdx)) {
+        const animate = !degraded && FAL_VIDEO_ENABLED && FAL_KEY && Boolean(animationSourceUrl) && motionEligible.has(i);
+        if (!degraded && FAL_VIDEO_ENABLED && FAL_KEY && !animationSourceUrl && Array.isArray(imageBase64s) && imageBase64s.length && motionEligible.has(i)) {
           console.log(`[ltx] scene ${i} uses inline image bytes; skipping URL-only image-to-video and keeping deterministic Ken Burns motion`);
         }
         let animated = false;
