@@ -45,11 +45,20 @@ async function waitForTerminal(service: VidGenService, runId: string): Promise<R
   }
   return service.getRun(runId);
 }
-/** Only explicit structural abandonment authorizes switching to another topic. */
+/**
+ * Only a creative-stage terminal state authorizes switching topics. Immediate
+ * structural abandonment parks at creative_viability. A watchability_release
+ * block means the service already exhausted its bounded script retries without
+ * ever reaching direction/assets, so REVISE_SCRIPT is also a terminal creative
+ * failure at this point. Render/QA/provider failures remain non-creative and
+ * must never trigger topic substitution.
+ */
 export function creativeFailure(view: RunView | null): boolean {
   if (!view) return false;
   if (view.status === "waiting" && view.waiting.some((w) => w.node_id === "creative_viability")) return true;
-  return view.status === "blocked" && view.failures.some((f) => f.node_id === "watchability_release" && /ABANDON_TOPIC/i.test(f.error));
+  return view.status === "blocked" && view.failures.some((f) =>
+    f.node_id === "watchability_release" && /ABANDON_TOPIC|REVISE_SCRIPT|watchability release blocked/i.test(f.error),
+  );
 }
 function mostRecentProduction(service: VidGenService): number | undefined {
   return service.listRuns().filter((r) => r.kind === "production").map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
@@ -79,10 +88,10 @@ export function startGrowthScheduler(service: VidGenService): GrowthSchedulerHan
           const runId = await service.startRun(briefWithPackageSeed(candidate), 180, { ...(candidate.genre ? { genre: candidate.genre } : {}) });
           const final = await waitForTerminal(service, runId);
           if (final?.status === "completed") { console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`); return; }
-          if (creativeFailure(final)) { console.log(`[growth-scheduler] candidate ${i + 1} was structurally abandoned before asset spend; trying the next ranked package`); continue; }
+          if (creativeFailure(final)) { console.log(`[growth-scheduler] candidate ${i + 1} failed the bounded creative search before asset spend; trying the next ranked package`); continue; }
           throw new Error(`candidate ${i + 1} stopped for a non-creative reason; refusing to switch topic: ${final?.failures.map((f) => `${f.node_id}: ${f.error}`).join("; ") || final?.status || "unknown"}`);
         }
-        throw new Error(`all ${candidates.length} viable ranked candidates were abandoned; no episode published this cycle`);
+        throw new Error(`all ${candidates.length} viable ranked candidates failed the creative bar; no episode published this cycle`);
       },
     },
     { id: "measure", everyHours: Number.isFinite(measureHours) && measureHours > 0 ? measureHours : 24, enabled: analyticsReal && Number.isFinite(measureHours) && measureHours > 0, description: "measure public episodes and refresh retention/editorial evidence", async run() { await service.measureAll(); } },
