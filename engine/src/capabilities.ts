@@ -20,8 +20,6 @@ export const STAGES: StageSpec[] = [
   {
     id: "reasoning",
     label: "Story, dialogue, visual direction, thumbnail planning and visual QA",
-    // Free-first is the production default. With fail-open enabled, direct
-    // OpenAI alone is also a complete route while FreeLLMAPI is being set up.
     requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
     optional: [
       "LLM_ROUTER_MODE",
@@ -39,21 +37,19 @@ export const STAGES: StageSpec[] = [
   {
     id: "speech",
     label: "Narrator voice",
-    requires: [["ELEVENLABS_API_KEY"]],
-    optional: ["ELEVENLABS_VOICE_ID"],
-    real: "elevenlabs",
+    requires: [["FREELLMAPI_API_KEY"], ["ELEVENLABS_API_KEY"]],
+    real: "freellmapi-speech/${FREELLMAPI_SPEECH_MODEL:-openai-audio}",
     fallback: "fake",
-    consequence: "silent placeholder audio; the video renders but has no usable narration",
+    consequence: "silent placeholder audio; set SPEECH_PROVIDER_MODE=elevenlabs to roll back to ElevenLabs",
   },
   {
     id: "images",
     label: "Illustrated stills and thumbnail artwork",
-    requires: [["FAL_KEY"]],
-    real: "fal/flux-2 + flux-2/edit",
+    requires: [["FREELLMAPI_API_KEY"], ["FAL_KEY"]],
+    real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-flux}",
     fallback: "unavailable",
     consequence:
-      "without FAL_KEY every scene degrades to a placeholder still; RFC 0008's illustrated-story format has no " +
-      "deterministic fallback renderer to fall back to the way the retired motion-graphics stack did",
+      "without the selected image provider every scene degrades to a placeholder; set IMAGE_PROVIDER_MODE=fal to restore reference-conditioned FLUX.2 editing",
   },
   {
     id: "renderer",
@@ -113,14 +109,36 @@ function failOpen(env: NodeJS.ProcessEnv): boolean {
   return v === undefined || !["false", "0", "off", "no"].includes(v);
 }
 
+function speechMode(env: NodeJS.ProcessEnv): "freellmapi" | "elevenlabs" {
+  return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "elevenlabs" ? "elevenlabs" : "freellmapi";
+}
+
+function imageMode(env: NodeJS.ProcessEnv): "freellmapi" | "fal" {
+  return env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "fal" ? "fal" : "freellmapi";
+}
+
 function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
   if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY");
   if (isSet(env, "FREELLMAPI_API_KEY")) return true;
   return failOpen(env) && isSet(env, "OPENAI_API_KEY");
 }
 
+function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
+  return speechMode(env) === "elevenlabs"
+    ? isSet(env, "ELEVENLABS_API_KEY")
+    : isSet(env, "FREELLMAPI_API_KEY");
+}
+
+function imagesSatisfied(env: NodeJS.ProcessEnv): boolean {
+  return imageMode(env) === "fal"
+    ? isSet(env, "FAL_KEY")
+    : isSet(env, "FREELLMAPI_API_KEY");
+}
+
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
+  if (spec.id === "speech") return speechSatisfied(env);
+  if (spec.id === "images") return imagesSatisfied(env);
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -128,6 +146,14 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
   if (spec.id === "reasoning") {
     if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY") ? [] : ["OPENAI_API_KEY"];
     if (!isSet(env, "FREELLMAPI_API_KEY") && !failOpen(env)) return ["FREELLMAPI_API_KEY"];
+  }
+  if (spec.id === "speech") {
+    const key = speechMode(env) === "elevenlabs" ? "ELEVENLABS_API_KEY" : "FREELLMAPI_API_KEY";
+    return isSet(env, key) ? [] : [key];
+  }
+  if (spec.id === "images") {
+    const key = imageMode(env) === "fal" ? "FAL_KEY" : "FREELLMAPI_API_KEY";
+    return isSet(env, key) ? [] : [key];
   }
   return spec.requires
     .map((group) => group.filter((k) => !isSet(env, k)))
@@ -146,17 +172,29 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
   return `openai/${openaiModel} (FreeLLMAPI unconfigured; fail-open)`;
 }
 
+function speechProvider(env: NodeJS.ProcessEnv): string {
+  if (speechMode(env) === "elevenlabs") return "elevenlabs";
+  return `freellmapi/${env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "openai-audio"}`;
+}
+
+function imageProvider(env: NodeJS.ProcessEnv): string {
+  if (imageMode(env) === "fal") return "fal/flux-2 + flux-2/edit";
+  return `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux"} (text-to-image; no reference edit)`;
+}
+
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
   const env = opts.env ?? process.env;
   return STAGES.map((spec) => {
     const hasCreds = credentialsSatisfied(spec, env);
     const gateOpen = spec.gatedBy ? opts.allowPublish : true;
     const real = hasCreds && gateOpen;
-    const provider = spec.id === "reasoning" && real
-      ? reasoningProvider(env)
-      : real
-        ? spec.real.replace("${OPENAI_MODEL:-gpt-5.6-luna}", env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna")
-        : spec.fallback;
+    let provider: string;
+    if (!real) provider = spec.fallback;
+    else if (spec.id === "reasoning") provider = reasoningProvider(env);
+    else if (spec.id === "speech") provider = speechProvider(env);
+    else if (spec.id === "images") provider = imageProvider(env);
+    else provider = spec.real.replace("${OPENAI_MODEL:-gpt-5.6-luna}", env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna");
+
     return {
       id: spec.id,
       label: spec.label,
