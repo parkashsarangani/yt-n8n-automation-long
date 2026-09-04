@@ -81,6 +81,8 @@ async function generateOne(provider: ReferenceCapableProvider, prompt: string, s
   const out = await provider.generate({ prompt, aspect: "16:9", count: 1 }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
 }
 const MAX_ATTEMPTS_PER_ACCEPTED_IMAGE = 2;
+const MAX_TEXT_RECOVERY_CALLS = MAX_ATTEMPTS_PER_ACCEPTED_IMAGE;
+const MAX_SINGLE_WITH_TEXT_RECOVERY_CALLS = MAX_ATTEMPTS_PER_ACCEPTED_IMAGE + MAX_TEXT_RECOVERY_CALLS;
 async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
   let lastError = new Error("image generation failed");
   for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_ACCEPTED_IMAGE; attempt++) {
@@ -119,7 +121,10 @@ class ImageBudget {
 async function generateShot(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
   const seed = stableSeed(`${shotId}|${prompt}`);
   const wanted = shot.importance !== "hero" ? 1 : shot.hero_role === "hook" ? HOOK_CANDIDATES : HERO_CANDIDATES;
-  const worstCaseCalls = wanted * MAX_ATTEMPTS_PER_ACCEPTED_IMAGE;
+  // If optional hero best-of-N is admitted, reserve its full retry budget plus
+  // one possible text-safe recovery. Baseline single-candidate correctness may
+  // still cross the soft ceiling; only the hard 120-call ceiling applies there.
+  const worstCaseCalls = wanted * MAX_ATTEMPTS_PER_ACCEPTED_IMAGE + MAX_TEXT_RECOVERY_CALLS;
   const count = allowMultipleCandidates && wanted > 1 && budget.canAffordOptional(worstCaseCalls) ? wanted : 1;
   if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
 
@@ -227,7 +232,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
         for (const id of review.flagged_shots.slice(0, MAX_REVIEW_REGENERATIONS)) {
           const item = working.find((w) => w.id === id);
           if (!item) continue;
-          if (!budget.canAffordOptional(MAX_ATTEMPTS_PER_ACCEPTED_IMAGE)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`); break; }
+          if (!budget.canAffordOptional(MAX_SINGLE_WITH_TEXT_RECOVERY_CALLS)) { ctx.logger.warn(`[illustrated_scene_assets] ${id}: flagged by review but the optional-spend budget is spent; keeping the existing image`); break; }
           try {
             item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
             item.source = "primary";
