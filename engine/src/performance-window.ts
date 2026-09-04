@@ -327,9 +327,15 @@ async function describeAncestors(
     assign("opening_line", payload["opening_line"]);
     assign("next_video_bridge", payload["next_video_bridge"]);
 
-    const titleFamily = selectedFamily(payload, "title", payload["selected_title"]);
+    const explicitTitleFamily = payload["selected_title_family"];
+    const titleFamily = isPackageFamily(explicitTitleFamily)
+      ? explicitTitleFamily
+      : selectedFamily(payload, "title", payload["selected_title"]);
     if (titleFamily) creative.selected_title_family = titleFamily;
-    const thumbnailFamily = selectedFamily(payload, "thumbnail_concept", payload["selected_thumbnail_concept"]);
+    const explicitThumbnailFamily = payload["selected_thumbnail_family"];
+    const thumbnailFamily = isPackageFamily(explicitThumbnailFamily)
+      ? explicitThumbnailFamily
+      : selectedFamily(payload, "thumbnail_concept", payload["selected_thumbnail_concept"]);
     if (thumbnailFamily) creative.selected_thumbnail_family = thumbnailFamily;
 
     const first30 = payload["first_30_seconds"];
