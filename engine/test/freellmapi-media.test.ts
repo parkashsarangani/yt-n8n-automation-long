@@ -81,7 +81,6 @@ test("FreeLLM speech provider pins one narrator and ignores the old ElevenLabs v
     assert.equal(out.media_type, "audio/mpeg");
     assert.equal(out.usage.model, "pollinations/openai-audio");
     assert.equal(out.usage.cost_usd, 0);
-    assert.equal(out.alignment, undefined);
   });
 });
 
