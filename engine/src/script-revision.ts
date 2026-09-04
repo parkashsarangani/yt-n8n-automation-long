@@ -123,17 +123,15 @@ export async function buildScriptRevisionContext(opts: {
   const previousScript = await opts.store.get<Record<string, unknown>>(priorScriptRecord.output);
   if (!previousScript || previousScript.schema_id !== "script") return null;
 
-  const reportRecords = successful(records, "watchability_report");
-  let reportArtifact = null as Awaited<ReturnType<ArtifactStore["get"]>>;
-  for (const record of [...reportRecords].reverse()) {
-    if (!record.output) continue;
-    const candidate = await opts.store.get(record.output);
-    if (candidate?.schema_id === "watchability_report" && candidate.parents.includes(previousScript.artifact_id)) {
-      reportArtifact = candidate;
-      break;
-    }
-  }
-  if (!reportArtifact) return null;
+  // Run records are the authoritative per-production provenance when an
+  // artifact is content-deduped. Match the critic execution by its ACTUAL
+  // inputs rather than trusting the artifact envelope's first-writer parents.
+  const reportRecord = [...successful(records, "watchability_report")]
+    .reverse()
+    .find((record) => record.inputs.includes(previousScript.artifact_id));
+  if (!reportRecord?.output) return null;
+  const reportArtifact = await opts.store.get(reportRecord.output);
+  if (!reportArtifact || reportArtifact.schema_id !== "watchability_report") return null;
 
   const report = reportArtifact.payload && typeof reportArtifact.payload === "object"
     ? reportArtifact.payload as CriticPayload
