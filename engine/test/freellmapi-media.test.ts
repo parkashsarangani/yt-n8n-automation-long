@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { FreeLLMImageProvider, FreeLLMSpeechProvider } from "../src/providers/freellmapi-media.ts";
 import { StockImageProvider } from "../src/providers/stock.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
+import { FreeMediaTerminalError } from "../src/free-media-policy.ts";
 
 const ENV_KEYS = [
   "FREELLMAPI_API_KEY",
@@ -55,10 +56,11 @@ async function withEnv(values: Partial<Record<(typeof ENV_KEYS)[number], string>
   }
 }
 
-test("FreeLLM image provider uses registry-portable auto and records the actual image model", async () => {
+test("FreeLLM image provider uses lower-cost 1024-class output and records the actual image model", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     let requestBody: any;
     const provider = new FreeLLMImageProvider({
+      maxAttempts: 1,
       fetchImpl: (async (input, init) => {
         assert.equal(String(input), "http://freellmapi:3001/v1/images/generations");
         assert.equal((init?.headers as Record<string, string>).Authorization, "Bearer free-key");
@@ -73,13 +75,57 @@ test("FreeLLM image provider uses registry-portable auto and records the actual 
 
     const out = await provider.generate({ prompt: "a quiet street", aspect: "16:9", count: 1 });
     assert.equal(requestBody.model, "auto");
-    assert.equal(requestBody.size, "1792x1024");
+    assert.equal(requestBody.size, "1024x576");
     assert.equal(requestBody.response_format, "b64_json");
     assert.deepEqual(out.images[0]!.bytes, JPEG_BYTES);
     assert.equal(out.images[0]!.media_type, "image/jpeg");
     assert.equal(out.usage.provider, "freellmapi");
     assert.equal(out.usage.model, "pollinations/pollinations-image-model");
     assert.equal(out.usage.cost_usd, 0);
+  });
+});
+
+test("FreeLLM image provider pre-emptively makes clock/calendar prompts text-safe", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    let prompt = "";
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 1,
+      fetchImpl: (async (_input, init) => {
+        prompt = JSON.parse(String(init?.body)).prompt;
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: "image-model",
+          provider: "cloudflare",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+    await provider.generate({ prompt: "a woman points at a wall clock beside a calendar", aspect: "16:9" });
+    assert.match(prompt, /Clock\/watch faces must not be visible/i);
+    assert.match(prompt, /Calendars and papers must be blank/i);
+    assert.match(prompt, /No words, letters, numbers, logos/i);
+  });
+});
+
+test("FreeLLM image provider retries one transient gateway failure before succeeding", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    let calls = 0;
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 2,
+      retryDelayMs: 0,
+      sleepImpl: async () => {},
+      fetchImpl: (async () => {
+        calls++;
+        if (calls === 1) return new Response("temporary", { status: 503 });
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: "image-model",
+          provider: "pollinations",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+    const out = await provider.generate({ prompt: "a quiet park", aspect: "16:9" });
+    assert.equal(calls, 2);
+    assert.equal(out.images.length, 1);
   });
 });
 
@@ -167,6 +213,7 @@ test("config-selected FreeLLM image packs use auto and generate every requested 
     assert.deepEqual(bodies.map((b) => b.model), ["auto", "auto"]);
     assert.deepEqual(bodies.map((b) => b.prompt), ["shot one", "shot two"]);
     assert.equal(out.images.every((image) => image.media_type === "image/png"), true);
+    assert.equal(out.usage?.model, "pollinations/anonymous-image");
     assert.equal(out.usage?.cost_usd, 0);
   });
 });
@@ -205,5 +252,37 @@ test("provider modes roll back to Fal and ElevenLabs without code changes", asyn
     assert.equal(body.next_text, "after");
     assert.equal(out.duration_sec, 0.2);
     assert.equal(out.usage.provider, "elevenlabs");
+  });
+});
+
+// Keep this last: the provider intentionally holds a process-local circuit
+// until the next UTC reset so unattended retries cannot hit the same dead daily
+// allocation again.
+test("daily Cloudflare image allocation exhaustion is terminal and opens a no-call circuit", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "quota-key" }, async () => {
+    let calls = 0;
+    const now = Date.UTC(2026, 8, 4, 22, 0, 0);
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 2,
+      retryDelayMs: 0,
+      now: () => now,
+      sleepImpl: async () => {},
+      fetchImpl: (async () => {
+        calls++;
+        return new Response(JSON.stringify({ error: { message: "cloudflare 429: you have used up your daily free allocation of 10,000 neurons" } }), { status: 429 });
+      }) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => provider.generate({ prompt: "one image", aspect: "16:9" }),
+      (err: unknown) => err instanceof FreeMediaTerminalError && /daily free image allocation/i.test(err.message),
+    );
+    assert.equal(calls, 1, "hard daily quota must never receive the generic transient retry");
+
+    await assert.rejects(
+      () => provider.generate({ prompt: "another image", aspect: "16:9" }),
+      /circuit-broken until 2026-09-05T00:00:05.000Z/,
+    );
+    assert.equal(calls, 1, "subsequent scheduler/worker retries must make zero upstream calls before reset");
   });
 });
