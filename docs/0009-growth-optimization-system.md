@@ -6,6 +6,8 @@
 - **Builds on:** RFC 0008 (`0008-illustrated-story-format.md`)
 - **Objective:** Maximize channel growth rate by optimizing what viewers choose, watch, finish, and continue watching — not by adding more rendering complexity.
 
+> Verification note (2026-09-04): this documentation-only synchronization commit exists solely to force current-head PR verification after the implementation/test migration pass. It must not be interpreted as evidence that CI passed.
+
 ## Context
 
 RFC 0008 deliberately simplified the product to a single-narrator illustrated-story format. That decision removed a large semantic/motion-graphics stack that was technically sophisticated but repeatedly produced output that was correct, valid, and not compelling enough to watch.
