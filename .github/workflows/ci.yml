@@ -61,6 +61,48 @@ jobs:
             exit 1
           }
 
+      - name: Shared FreeLLMAPI deployment contract
+        # These assertions deliberately run on the repository checkout rather
+        # than inside the engine image: docker-compose.yml and deploy.yml are
+        # repo-level deployment artifacts and are not part of ./engine's Docker
+        # build context.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          compose = Path("docker-compose.yml").read_text()
+          deploy = Path(".github/workflows/deploy.yml").read_text()
+
+          for required in (
+              "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
+              "FREELLMAPI_API_KEY:",
+              "FREELLMAPI_TEXT_MODEL:",
+              "FREELLMAPI_VISION_MODEL:",
+          ):
+              assert required in compose, f"missing shared FreeLLMAPI client contract: {required}"
+
+          for forbidden in (
+              r"(?m)^  freellmapi:\s*$",
+              r"(?m)^  llm-gateway:\s*$",
+              r"(?m)^  freellmapi_data:\s*$",
+          ):
+              assert not re.search(forbidden, compose), f"Long must not own shared FreeLLMAPI infrastructure: {forbidden}"
+
+          for required in (
+              "yt-n8n-automation-shorts_default",
+              'docker network connect "$SHARED_LLM_NETWORK" "$ENGINE_CID"',
+              "http://freellmapi:3001/api/ping",
+              "FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}",
+              "LLM_ROUTER_MODE: ${{ vars.LLM_ROUTER_MODE || 'freellmapi' }}",
+              "warning::shared network",
+              "direct LLM fail-open",
+          ):
+              assert required in deploy, f"missing production shared-network contract: {required}"
+
+          print("Shared FreeLLMAPI deployment contract OK")
+          PY
+
   engine:
     name: Engine build and test
     # GitHub-hosted, deliberately: this job only builds/tests isolated Docker
