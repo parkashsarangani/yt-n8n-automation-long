@@ -71,15 +71,20 @@ only portable default across FreeLLMAPI catalog revisions/installations.
 ### Images
 
 FreeLLMAPI v0.9.5 treats Pollinations as keyless-capable for image generation.
-When `IMAGE_PROVIDER_MODE=freellmapi`, Long deployment reads FreeLLMAPI's own
-`/api/media` registry. If an existing Pollinations image row is present but
-disabled, deployment enables that row and then smoke-tests
-`/v1/images/generations` with `model=auto`. It never fabricates a model id and it
-never enables a provider that requires a credential.
+That means a Pollinations image row needs no provider credential, but the row
+still has to exist and be enabled in FreeLLMAPI's separate media registry.
 
-If the registry contains no Pollinations image row at all, deployment fails and
-prints the image rows it actually found. That is a catalog/state problem in the
-shared FreeLLMAPI instance rather than something Long can safely guess around.
+Long deliberately does **not** read or mutate `/api/media`: FreeLLMAPI protects
+that dashboard/admin surface with a dashboard session token, while
+`FREELLMAPI_API_KEY` authorizes only `/v1` inference. The Shorts-owned FreeLLM
+instance therefore keeps ownership of its media configuration.
+
+When `IMAGE_PROVIDER_MODE=freellmapi`, deployment smoke-tests
+`/v1/images/generations` with `model=auto`. If FreeLLM answers that no usable image
+provider is enabled, deployment fails with an explicit instruction to open the
+shared FreeLLMAPI dashboard, go to **Models → Image**, enable a Pollinations image
+row, and redeploy. No API credential is required for that Pollinations row on
+v0.9.5.
 
 The architectural limitation remains explicit: FreeLLMAPI's OpenAI-style image
 surface is text-to-image. It does not carry Fal's reference-conditioned
@@ -136,9 +141,9 @@ When FreeLLM media is selected, deployment validates the real shared instance
 rather than trusting static configuration:
 
 - reach `freellmapi:3001` from inside the Long engine container;
-- inspect `/api/media` before image generation;
-- enable only an existing keyless Pollinations image row when necessary;
-- smoke-test `/v1/images/generations` with `model=auto`;
+- smoke-test `/v1/images/generations` with `model=auto` without attempting an
+  admin-session bypass;
+- give the exact dashboard action if no usable image row is enabled;
 - smoke-test `/v1/audio/speech` with `model=auto` and accept/log the actual audio
   content type returned by the provider;
 - require both selected media capabilities to report `real=true` from
@@ -156,9 +161,8 @@ retain their existing paid cost accounting when rollback modes are selected.
 ## Lifecycle caveat
 
 The shared Docker network and FreeLLM media registry are owned by the Shorts
-FreeLLMAPI deployment. Long may enable an **existing keyless Pollinations image
-row** only while its FreeLLM image experiment is selected; it does not add keys,
-create media rows, or take ownership of the shared state.
+FreeLLMAPI deployment. Long does not add keys, create/toggle media rows, reuse a
+dashboard session, or otherwise take ownership of that administrative state.
 
 If the Shorts network is removed/recreated, redeploy Long after Shorts is
 healthy. With FreeLLM media selected, Long intentionally refuses to report a
