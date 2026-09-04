@@ -102,7 +102,7 @@ jobs:
           # image row if catalog-sync delivered it but it is disabled. Never
           # enable a keyed provider and never manufacture a model id.
           if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ]; then
-            docker exec "$ENGINE_CID" node - <<'NODE'
+            docker exec "$ENGINE_CID" node --input-type=module - <<'NODE'
           const base='http://freellmapi:3001';
           const fail=(m)=>{console.error(m);process.exit(1)};
           const r=await fetch(base+'/api/media');
