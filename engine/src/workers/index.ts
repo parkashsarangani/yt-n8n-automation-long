@@ -16,7 +16,6 @@ import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
-import { makeIllustratedGrowthAssetsWorker, type IllustratedGrowthAssetsWorkerOptions } from "./illustrated-growth-assets.ts";
 
 export {
   makeVoiceWorker,
@@ -28,14 +27,13 @@ export {
   makeQaWorker,
   makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker,
-  makeIllustratedGrowthAssetsWorker,
 };
 export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
   assets?: AssetWorkerOptions;
-  illustratedAssets?: IllustratedGrowthAssetsWorkerOptions;
+  illustratedAssets?: IllustratedSceneAssetsWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
   measure?: MeasureWorkerOptions;
@@ -48,10 +46,10 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
-    // RFC 0009 implementation of the same transformation id. The old factory
-    // remains exported for historical/focused tests but is no longer the
-    // production registration.
-    makeIllustratedGrowthAssetsWorker(opts.illustratedAssets ?? {}),
+    // RFC 0009 canonical implementation. There is deliberately one worker
+    // behind this transformation id so focused tests and production exercise
+    // the same multi-shot / hero / sequence-review code path.
+    makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
