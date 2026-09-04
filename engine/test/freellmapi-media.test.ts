@@ -60,7 +60,7 @@ test("FreeLLM image provider uses the shared OpenAI-compatible image endpoint wi
   });
 });
 
-test("FreeLLM speech provider pins one narrator and ignores the old ElevenLabs voice id", async () => {
+test("FreeLLM speech provider pins one narrator and keeps the renderer-safe MP3 contract", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     let requestBody: any;
     const provider = new FreeLLMSpeechProvider({
@@ -81,6 +81,18 @@ test("FreeLLM speech provider pins one narrator and ignores the old ElevenLabs v
     assert.equal(out.media_type, "audio/mpeg");
     assert.equal(out.usage.model, "pollinations/openai-audio");
     assert.equal(out.usage.cost_usd, 0);
+  });
+});
+
+test("FreeLLM speech refuses formats the current voice/render artifact would mislabel", async () => {
+  await withEnv({
+    FREELLMAPI_API_KEY: "free-key",
+    FREELLMAPI_SPEECH_FORMAT: "wav",
+  }, async () => {
+    assert.throws(
+      () => new FreeLLMSpeechProvider(),
+      /currently requires mp3 output/,
+    );
   });
 });
 
