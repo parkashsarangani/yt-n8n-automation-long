@@ -22,7 +22,22 @@ export const MATERIAL_WEAKNESS_FLOOR = 0.55;
 type Dimension = keyof typeof WATCHABILITY_THRESHOLDS;
 type WatchabilityReport = { verdict?: unknown; abandon_recommended?: unknown; abandon_reason?: unknown; scores?: Partial<Record<Dimension, unknown>> };
 
-export function assessWatchability(payload: unknown): { passed: boolean; average: number; failures: string[]; abandonRecommended: boolean; abandonReason: string } {
+/**
+ * `average` is intentionally selection-safe, not merely a raw arithmetic mean.
+ * The unattended service compares attempted scripts using this value before
+ * image generation. A draft that failed ANY release threshold must never rank
+ * above a later draft that actually passed just because its other dimensions
+ * were unusually high. Rejected drafts are therefore capped immediately below
+ * the aggregate release threshold. `rawAverage` preserves the diagnostic mean.
+ */
+export function assessWatchability(payload: unknown): {
+  passed: boolean;
+  average: number;
+  rawAverage: number;
+  failures: string[];
+  abandonRecommended: boolean;
+  abandonReason: string;
+} {
   const report = payload && typeof payload === "object" ? payload as WatchabilityReport : {};
   const scores = report.scores ?? {};
   const failures: string[] = [];
@@ -39,8 +54,12 @@ export function assessWatchability(payload: unknown): { passed: boolean; average
     if (score < threshold) failures.push(`${dimension}=${score.toFixed(2)} (requires ${threshold.toFixed(2)})`);
     if (score < MATERIAL_WEAKNESS_FLOOR) materiallyWeak = true;
   }
-  const average = values.length === Object.keys(WATCHABILITY_THRESHOLDS).length ? values.reduce((sum, score) => sum + score, 0) / values.length : 0;
-  if (average < WATCHABILITY_AVERAGE_THRESHOLD) failures.push(`average=${average.toFixed(3)} (requires ${WATCHABILITY_AVERAGE_THRESHOLD.toFixed(2)})`);
+  const rawAverage = values.length === Object.keys(WATCHABILITY_THRESHOLDS).length
+    ? values.reduce((sum, score) => sum + score, 0) / values.length
+    : 0;
+  if (rawAverage < WATCHABILITY_AVERAGE_THRESHOLD) {
+    failures.push(`average=${rawAverage.toFixed(3)} (requires ${WATCHABILITY_AVERAGE_THRESHOLD.toFixed(2)})`);
+  }
   const criticSaysAbandon = report.verdict === "abandon" || report.abandon_recommended === true;
   const structuralWeakness = [scores.package_fidelity, scores.first_30_fidelity, scores.youtube_fit]
     .some((v) => typeof v === "number" && Number.isFinite(v) && v < MATERIAL_WEAKNESS_FLOOR);
@@ -48,7 +67,11 @@ export function assessWatchability(payload: unknown): { passed: boolean; average
   const abandonReason = typeof report.abandon_reason === "string" && report.abandon_reason.trim()
     ? report.abandon_reason.trim()
     : abandonRecommended ? "package/first-30/youtube-fit is materially below the viable floor" : "";
-  return { passed: failures.length === 0 && report.verdict !== "abandon", average, failures, abandonRecommended, abandonReason };
+  const passed = failures.length === 0 && report.verdict !== "abandon";
+  const average = passed
+    ? rawAverage
+    : Math.min(rawAverage, WATCHABILITY_AVERAGE_THRESHOLD - 0.001);
+  return { passed, average, rawAverage, failures, abandonRecommended, abandonReason };
 }
 
 export function makeWatchabilityReleaseWorker(): WorkerDef {
