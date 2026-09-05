@@ -791,6 +791,26 @@ export class VidGenService {
         return;
       }
 
+      // visual_asset_release is a pure deterministic check over the already-
+      // materialized asset_manifest (fallback ratio, flagged hero shots,
+      // episode-level review scores) -- it makes no provider call of its own
+      // and nothing in this driveUnattended() loop regenerates assets in
+      // response to it (image generation runs at most once per run; see the
+      // hard operator constraint in this method's own docstring). A bare
+      // retry() therefore re-checks byte-identical inputs and must reproduce
+      // the identical verdict every time. Real production case (run
+      // af319994): the same "1/7 scenes fallback (14%)" verdict repeated
+      // across all 5 auto-retries with nothing ever changing between them.
+      // Give up immediately rather than spend the retry budget re-confirming
+      // a decision that was already final.
+      if (view.failures.some((f) => f.node_id === "visual_asset_release")) {
+        console.log(
+          `[run ${runId.slice(4, 12)}] unattended: visual_asset_release is a deterministic check on already-generated ` +
+            `assets -- retrying cannot change its verdict; needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
+        );
+        return;
+      }
+
       if (round >= maxRetries) {
         console.log(
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +

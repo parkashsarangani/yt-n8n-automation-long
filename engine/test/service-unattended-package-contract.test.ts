@@ -105,6 +105,24 @@ test("a growth_package_release node failure (not just watchability_release's def
   assert.equal(retryCalls(), 0);
 });
 
+test("a deterministic visual_asset_release block is never blindly retried", async () => {
+  const service = await makeService();
+  const runId = "run_visual_asset_release_unattended";
+  seedBlockedRun(service, runId, [
+    { node_id: "visual_asset_release", error: "visual asset release blocked before render: 1/7 scene(s) contain fallback imagery (14%); maximum is 10%" },
+  ]);
+  const executorCalls = spyExecutor(service);
+  const retryCalls = spyRetry(service, () => {
+    throw new Error("retry() must never be called for visual_asset_release -- it is a pure check over the already-generated asset_manifest and reproduces identically");
+  });
+
+  await (service as unknown as { driveUnattended: (id: string) => Promise<void> }).driveUnattended(runId);
+
+  assert.equal(executorCalls.regenerateNode, 0, "visual_asset_release cannot be repaired by regenerating the script");
+  assert.equal(executorCalls.pinNodeOutput, 0, "visual_asset_release is not a watchability best-of-N situation");
+  assert.equal(retryCalls(), 0, "run af319994: the same 14% verdict repeated across all 5 auto-retries with nothing ever changing");
+});
+
 test("a genuine WATCHABILITY_BLOCKED score deficiency still regenerates the script exactly like before", async () => {
   const service = await makeService();
   const runId = "run_watchability_blocked_unattended";
