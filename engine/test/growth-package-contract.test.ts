@@ -8,6 +8,7 @@ import { agentSemanticValidationErrors, HARD_ERROR_PREFIX } from "../src/agent-v
 import {
   PACKAGE_CONTRACT_MARKER,
   repairGrowthPackageSelection,
+  validateGrowthPackageReleaseability,
   validateGrowthPackageSelection,
 } from "../src/growth-package-contract.ts";
 import { makeGrowthPackageReleaseWorker } from "../src/workers/growth-package-release.ts";
@@ -74,10 +75,13 @@ test("family choice is authoritative and duplicated selected strings are canonic
   assert.equal(repaired.selected_title_family, "curiosity");
   assert.equal(repaired.selected_thumbnail_family, "reversal");
   assert.deepEqual(validateGrowthPackageSelection(repaired), []);
+  assert.equal(broken.selected_title, "Wrong duplicated title");
+  assert.equal(broken.selected_thumbnail_concept, "Wrong duplicated thumbnail concept");
 });
 
-test("growth_packager semantic validation repairs the duplicate fields before storage", () => {
+test("growth_packager semantic validation accepts repairable drift without mutating provider output", () => {
   const payload = packagePayload();
+  const before = structuredClone(payload);
   const errors = agentSemanticValidationErrors(
     { name: "growth_packager" } as never,
     payload,
@@ -85,8 +89,8 @@ test("growth_packager semantic validation repairs the duplicate fields before st
   );
 
   assert.deepEqual(errors, []);
-  assert.equal(payload.selected_title, payload.variants[0]!.title);
-  assert.equal(payload.selected_thumbnail_concept, payload.variants[2]!.thumbnail_concept);
+  assert.deepEqual(validateGrowthPackageReleaseability(payload), []);
+  assert.deepEqual(payload, before, "semantic preflight must preserve the raw agent artifact");
 });
 
 test("unrepairable package relationship remains a hard semantic error", () => {
@@ -102,8 +106,9 @@ test("unrepairable package relationship remains a hard semantic error", () => {
   assert.ok(errors.some((error) => error.includes("selected title does not exactly match the curiosity variant")));
 });
 
-test("package_release repairs a schema-valid mismatch before any creative downstream node consumes it", async () => {
+test("package_release repairs a schema-valid mismatch without mutating its parent artifact payload", async () => {
   const payload = packagePayload();
+  const before = structuredClone(payload);
   const warnings: string[] = [];
   const worker = makeGrowthPackageReleaseWorker();
   const output = await worker.execute(
@@ -121,6 +126,7 @@ test("package_release repairs a schema-valid mismatch before any creative downst
   assert.deepEqual(validateGrowthPackageSelection(released), []);
   assert.equal(released.selected_title, released.variants[0]!.title);
   assert.equal(released.selected_thumbnail_concept, released.variants[2]!.thumbnail_concept);
+  assert.deepEqual(payload, before, "release must create a new payload instead of rewriting its parent");
   assert.equal(warnings.length, 1);
 });
 
