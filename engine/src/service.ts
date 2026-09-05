@@ -711,20 +711,31 @@ export class VidGenService {
    *    as before -- regenerating assets would not fix it and would just
    *    spend money in a loop.
    *
-   * Hard operator constraint: illustrated_scene_assets (image generation)
-   * runs at most once per run, ever -- the only exception is the narrow,
-   * explicitly-scoped blank-scene repair in case 2 above, which regenerates
-   * individual flagged scenes, never the whole set. Best-of-N script
-   * selection (below) therefore MUST resolve before the graph ever reaches
-   * direction/assets, not after: once watchability_release accepts a script
-   * (on the bar or via the escape hatch), the executor cascades everything
-   * downstream -- including image generation -- inside that SAME resume()
-   * call, with no pause point to intervene at. An earlier version of this
-   * tried to fix that up afterward (pin the better attempt, invalidate, let
-   * assets regenerate) and it violated the constraint outright.
+   * 3. visual_asset_release blocks pre-render on the already-generated
+   *    asset_manifest (fallback ratio, flagged hero shots, episode-level
+   *    review scores). Regenerating illustrated_scene_assets is safe here
+   *    for the same reason as case 2: its own prior-artifact reuse only
+   *    trusts a scene marked "primary", so every "fallback"/flagged scene
+   *    gets a fresh, independent attempt while every already-successful
+   *    scene is reused for free. Bounded by maxVisualReleaseRegens.
+   *
+   * illustrated_scene_assets (image generation) used to run at most once per
+   * run, ever, with the blank-scene repair in case 2 as the sole exception --
+   * written when image generation meant paid Fal calls. Cases 2 and 3 are
+   * now the two explicitly-scoped exceptions to that: image generation on the
+   * free path is cheap and non-deterministic, so a targeted regeneration is
+   * real additional value, not wasted spend. Best-of-N script selection
+   * (below) still MUST resolve before the graph ever reaches direction/assets,
+   * not after -- that constraint is about sequencing, not cost, and is
+   * untouched here: once watchability_release accepts a script (on the bar or
+   * via the escape hatch), the executor cascades everything downstream --
+   * including image generation -- inside that SAME resume() call, with no
+   * pause point to intervene at. Cases 2 and 3 only ever regenerate a node
+   * that is already strictly downstream of a settled script decision.
    */
-  private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2): Promise<void> {
+  private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2, maxVisualReleaseRegens = 3): Promise<void> {
     let assetRegens = 0;
+    let visualReleaseRegens = 0;
     // Best-of-N for watchability_release's regenerated scripts (operator
     // decision: "the strongest attempt should be counted, not the last").
     // Real production case: attempt 1 scored 0.723, attempt 2 scored 0.757
@@ -791,22 +802,39 @@ export class VidGenService {
         return;
       }
 
-      // visual_asset_release is a pure deterministic check over the already-
-      // materialized asset_manifest (fallback ratio, flagged hero shots,
-      // episode-level review scores) -- it makes no provider call of its own
-      // and nothing in this driveUnattended() loop regenerates assets in
-      // response to it (image generation runs at most once per run; see the
-      // hard operator constraint in this method's own docstring). A bare
-      // retry() therefore re-checks byte-identical inputs and must reproduce
-      // the identical verdict every time. Real production case (run
-      // af319994): the same "1/7 scenes fallback (14%)" verdict repeated
-      // across all 5 auto-retries with nothing ever changing between them.
-      // Give up immediately rather than spend the retry budget re-confirming
-      // a decision that was already final.
+      // visual_asset_release itself is a pure deterministic check (fallback
+      // ratio, flagged hero shots, episode-level review scores) over the
+      // already-materialized asset_manifest -- a BARE retry() re-checks
+      // byte-identical inputs and must reproduce the identical verdict every
+      // time (real production case, run af319994: "1/7 scenes fallback
+      // (14%)" repeated across all 5 auto-retries with nothing changing).
+      // But unlike a genuine structural defect, this one IS repairable: image
+      // generation is cheap and non-deterministic on the free path now (the
+      // old "runs at most once per run, ever" constraint below was written
+      // for paid Fal calls), and illustrated-scene-assets.ts's own prior-
+      // artifact reuse only trusts a scene marked "primary" -- every
+      // "fallback"/flagged scene is a fresh, independent attempt on
+      // regeneration, while every already-successful scene is still reused
+      // for free. Give this a bounded number of targeted regeneration passes
+      // before finally giving up, so the run gets real additional chances at
+      // a publishable episode instead of failing on the first miss.
       if (view.failures.some((f) => f.node_id === "visual_asset_release")) {
+        const reason = view.failures.find((f) => f.node_id === "visual_asset_release")!.error;
+        if (visualReleaseRegens < maxVisualReleaseRegens) {
+          visualReleaseRegens++;
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: visual_asset_release blocked -- regenerating flagged/fallback ` +
+              `scenes only (attempt ${visualReleaseRegens}/${maxVisualReleaseRegens}): ${reason}`,
+          );
+          const state = this.runs.get(runId)!;
+          const graph = this.resolveRunGraph(state.graph);
+          await this.executor.regenerateNode(graph, runId, "assets", `visual_asset_release blocked: ${reason}`);
+          await this.retry(runId);
+          continue;
+        }
         console.log(
-          `[run ${runId.slice(4, 12)}] unattended: visual_asset_release is a deterministic check on already-generated ` +
-            `assets -- retrying cannot change its verdict; needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
+          `[run ${runId.slice(4, 12)}] unattended: visual_asset_release still blocked after ${maxVisualReleaseRegens} ` +
+            `targeted regenerations -- needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
         return;
       }

@@ -206,7 +206,7 @@ function reviewPayload(review: VisualSequenceReviewResult | null, regenerated: s
 
 export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWorkerOptions = {}): WorkerDef {
   return {
-    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "9",
+    name: "illustrated_scene_assets", kind: "worker", version: opts.version ?? "10",
     consumes: [{ schema_id: "episode_direction", range: "^2", as: "direction" }, { schema_id: "script", range: "^1", as: "script" }, { schema_id: "intent", range: "^1", as: "intent" }],
     produces: "asset_manifest", produces_version: "1.9.0",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
@@ -232,7 +232,14 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
         const freshAggregate = aggregatePrompt(fresh);
         const prior = priorMap.get(scene.scene_index);
         const priorUris = prior?.image_uris?.length ? prior.image_uris : prior?.image_uri ? [prior.image_uri] : [];
-        if (prior && prior.source !== "placeholder" && prior.prompt === freshAggregate && priorUris.length === fresh.length) {
+        // Only a genuinely successful "primary" prior scene is free to reuse.
+        // "fallback" already means the previous attempt could not produce a
+        // real image for this scene and silently reused a reference instead --
+        // treating that as settled would make a targeted visual_asset_release
+        // regeneration (service.ts's driveUnattended()) a permanent no-op,
+        // since every fallback scene would keep reusing the same fallback
+        // image forever instead of getting a fresh, independent attempt.
+        if (prior && prior.source === "primary" && prior.prompt === freshAggregate && priorUris.length === fresh.length) {
           try {
             const reused: WorkingShot[] = [];
             for (let i = 0; i < fresh.length; i++) {

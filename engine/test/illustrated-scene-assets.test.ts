@@ -140,6 +140,43 @@ test("a retry reuses every unchanged successful shot pack instead of rerolling i
   assert.equal(ctx.calls.length, callsAfterFirst, "unchanged primary shot packs must incur zero additional image-generation calls");
 });
 
+test("a fallback scene gets a fresh independent regeneration attempt on retry, while primary scenes are reused for free", async () => {
+  // Regression coverage for service.ts's targeted visual_asset_release
+  // regeneration: a "fallback" source used to be treated the same as
+  // "primary" for reuse purposes, so regenerateNode(assets) was a permanent
+  // no-op on exactly the scenes it was meant to fix.
+  const ctx = ctxWithProvider(true, "cartoon-art/freellmapi-image/auto");
+  const realGenerate = (ctx.media as any).images.generate;
+  let forceSceneOneFailure = true;
+  (ctx.media as any).images.generate = async (req: { prompt: string }) => {
+    if (forceSceneOneFailure && req.prompt.includes("for reaction shot 0")) {
+      throw new Error("simulated generation failure");
+    }
+    return realGenerate(req);
+  };
+
+  const first = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
+  const sceneOneFirst = (first.payload as any).scenes.find((s: any) => s.scene_index === 1);
+  assert.equal(sceneOneFirst.source, "fallback", "scene 1 should fall back to the established reference after generation fails");
+
+  forceSceneOneFailure = false;
+  (ctx as any).priorArtifact = { payload: first.payload };
+  const secondCallPrompts: string[] = [];
+  (ctx.media as any).images.generate = async (req: { prompt: string }) => {
+    secondCallPrompts.push(req.prompt);
+    return realGenerate(req);
+  };
+  const second = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
+  const sceneOneSecond = (second.payload as any).scenes.find((s: any) => s.scene_index === 1);
+
+  assert.equal(sceneOneSecond.source, "primary", "the fresh regeneration attempt succeeds and must be recorded as primary");
+  assert.ok(secondCallPrompts.some((p) => p.includes("for reaction shot 0")), "the fallback scene must get a fresh, independent generation call on retry");
+  assert.ok(
+    !secondCallPrompts.some((p) => p.includes("for wide shot 0") || p.includes("for reveal shot 0")),
+    "already-successful primary scenes must still be reused for free, not regenerated",
+  );
+});
+
 test("without an image provider the manifest explicitly degrades scenes to placeholders", async () => {
   const out = await makeIllustratedSceneAssetsWorker().execute(inputs(), ctxWithProvider(false));
   const payload = out.payload as any;
