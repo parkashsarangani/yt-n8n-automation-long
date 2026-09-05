@@ -44,6 +44,10 @@ jobs:
           FREELLMAPI_SPEECH_VOICE: ${{ vars.FREELLMAPI_SPEECH_VOICE || 'onyx' }}
           FREELLMAPI_SPEECH_FORMAT: ${{ vars.FREELLMAPI_SPEECH_FORMAT || 'mp3' }}
           FREELLMAPI_MEDIA_TIMEOUT_MS: ${{ vars.FREELLMAPI_MEDIA_TIMEOUT_MS || '120000' }}
+          # Opt-in hero-shot escalation (RFC 0009's 3-5 hero shots only). Empty
+          # by default -- deliberately not spent unless an operator sets it.
+          FREELLMAPI_HERO_IMAGE_MODEL: ${{ vars.FREELLMAPI_HERO_IMAGE_MODEL || '' }}
+          FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${{ vars.FREELLMAPI_HERO_IMAGE_MAX_CALLS || '10' }}
 
           OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
