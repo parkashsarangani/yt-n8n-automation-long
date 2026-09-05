@@ -1,7 +1,9 @@
 import type { BlobRef } from "../artifact.ts";
 import { checkGeneratedImageForText, checkGeneratedImageMatchesNarration } from "../image-qa.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { scoreVisualBeatImage } from "../visual-beat-qa.ts";
 import {
+  candidateAccepted,
   selectVisualMode,
   validateVisualBeatPlan,
   type VisualBeat,
@@ -60,7 +62,7 @@ function promptForBeat(beat: VisualBeat, repair = false): string {
     "No readable text, letters, numbers, logos, watermarks, captions, or UI typography unless the visual meaning absolutely requires a symbolic mark; prefer non-text visual communication.",
   ].filter(Boolean).join(" ");
   return repair
-    ? `${base} REPAIR: the previous candidate failed visual QA. Make the required subject/action unmistakable at first glance and remove any accidental typography or narration contradiction.`
+    ? `${base} REPAIR: the previous candidate failed visual QA. Make every required concept and action unmistakable at first glance, strengthen the composition, preserve recurring identities, and remove accidental typography or narration contradiction.`
     : base;
 }
 
@@ -84,14 +86,15 @@ async function generateVerifiedImage(
       continue;
     }
 
-    const [textQa, semanticQa] = await Promise.all([
+    const [textQa, contradictionQa, beatQa] = await Promise.all([
       checkGeneratedImageForText(image),
       checkGeneratedImageMatchesNarration(image, beat.narration),
+      scoreVisualBeatImage(image, beat),
     ]);
 
-    // Benchmark path fails closed. The old production path deliberately lets
-    // vision outages pass; RFC 0010 cannot measure semantic quality that way.
-    if (!textQa || !semanticQa) {
+    // Benchmark path fails closed. RFC 0010 is specifically trying to prove
+    // visual relevance, so a missing VLM judgment is not equivalent to pass.
+    if (!textQa || !contradictionQa || !beatQa) {
       lastFailure = "visual QA unavailable; candidate was not admitted unverified";
       continue;
     }
@@ -99,8 +102,13 @@ async function generateVerifiedImage(
       lastFailure = `visible text: ${textQa.reason}`;
       continue;
     }
-    if (semanticQa.contradictsNarration) {
-      lastFailure = `narration contradiction: ${semanticQa.reason}`;
+    if (contradictionQa.contradictsNarration) {
+      lastFailure = `narration contradiction: ${contradictionQa.reason}`;
+      continue;
+    }
+    if (!candidateAccepted(beatQa.scores)) {
+      const s = beatQa.scores;
+      lastFailure = `beat QA below floor (semantic=${s.semantic_match.toFixed(2)}, action=${s.action_match.toFixed(2)}, interest=${s.visual_interest.toFixed(2)}, continuity=${s.continuity.toFixed(2)}): ${beatQa.reason}`;
       continue;
     }
 
