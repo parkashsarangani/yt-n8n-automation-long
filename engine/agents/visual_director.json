@@ -4,6 +4,7 @@
   "version": "1",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "voice", "range": "^1", "as": "voice" },
     { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
   ],
   "produces": "visual_beat_plan",
