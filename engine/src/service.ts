@@ -44,6 +44,7 @@ import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { assessWatchability, MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
+import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
@@ -770,6 +771,25 @@ export class VidGenService {
       }
 
       if (view.status !== "blocked" || (view.failures?.length ?? 0) === 0) return;
+
+      // A package-contract defect (growth_package_release's own boundary, or
+      // watchability_release's exact-membership check as defense in depth) is
+      // a structural bug, not a creative shortfall. Regenerating the script
+      // cannot repair it -- both are pure functions over already-materialized
+      // artifacts, so a bare retry() would reproduce the identical failure
+      // every time. Give up immediately, on the very first occurrence, so a
+      // package defect can never consume the script/watchability retry
+      // budget the way it did in production (run fcb88a7e: three separate
+      // PACKAGE_CONTRACT blocks each spent a script-regeneration attempt,
+      // including the final one, which wastefully "restored the best of 5"
+      // for a defect no script content could have fixed).
+      if (view.failures.some((f) => isPackageContractFailureMessage(f.error))) {
+        console.log(
+          `[run ${runId.slice(4, 12)}] unattended: a structural package-contract defect cannot be repaired by ` +
+            `regenerating the script -- needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
+        );
+        return;
+      }
 
       if (round >= maxRetries) {
         console.log(

@@ -104,7 +104,7 @@ test("growth_package.next_video_bridge reaches the episode render request", asyn
     scenes: [{ scene_index: 0, source: "placeholder", prompt: "mechanic points at a frayed belt" }],
     degraded_count: 1,
   }, "illustrated_scene_assets");
-  const growthPackage = await put("growth_package", PACKAGE, "growth_packager");
+  const growthPackage = await put("growth_package", PACKAGE, "growth_package_release");
 
   await runner.run(makeRenderWorker(), [
     script.artifact_id,
