@@ -30,7 +30,7 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_VISION_MODEL",
       "OPENAI_MODEL",
     ],
-    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-auto:smart}",
+    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}",
     fallback: "unavailable",
     consequence: "runs fail at the first reasoning node — there is no offline model fallback for creative planning",
   },
@@ -53,20 +53,12 @@ export const STAGES: StageSpec[] = [
   },
   {
     id: "images",
-    label: "Illustrated stills and thumbnail artwork",
-    requires: [["FREELLMAPI_API_KEY"], ["FAL_KEY"]],
-    optional: [
-      "IMAGE_PROVIDER_MODE",
-      "FREELLMAPI_BASE_URL",
-      "FREELLMAPI_IMAGE_MODEL",
-      "FREELLMAPI_HERO_IMAGE_MODEL",
-      "FREELLMAPI_HERO_IMAGE_MAX_CALLS",
-      "FREELLMAPI_MEDIA_TIMEOUT_MS",
-    ],
-    real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-auto}",
+    label: "Generated visual beats, illustrated stills and thumbnail artwork",
+    requires: [["FAL_KEY"]],
+    optional: ["FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE"],
+    real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
     fallback: "unavailable",
-    consequence:
-      "without the selected image provider every scene degrades to a placeholder; set IMAGE_PROVIDER_MODE=fal to restore reference-conditioned FLUX.2 editing",
+    consequence: "generated-image beats cannot be produced; RFC 0010 never falls back to FreeLLMAPI image generation",
   },
   {
     id: "renderer",
@@ -130,10 +122,6 @@ function speechMode(env: NodeJS.ProcessEnv): "freellmapi" | "elevenlabs" {
   return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "elevenlabs";
 }
 
-function imageMode(env: NodeJS.ProcessEnv): "freellmapi" | "fal" {
-  return env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "fal";
-}
-
 function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
   if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY");
   if (isSet(env, "FREELLMAPI_API_KEY")) return true;
@@ -146,16 +134,9 @@ function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
     : isSet(env, "FREELLMAPI_API_KEY");
 }
 
-function imagesSatisfied(env: NodeJS.ProcessEnv): boolean {
-  return imageMode(env) === "fal"
-    ? isSet(env, "FAL_KEY")
-    : isSet(env, "FREELLMAPI_API_KEY");
-}
-
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
   if (spec.id === "speech") return speechSatisfied(env);
-  if (spec.id === "images") return imagesSatisfied(env);
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -168,10 +149,6 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
     const key = speechMode(env) === "elevenlabs" ? "ELEVENLABS_API_KEY" : "FREELLMAPI_API_KEY";
     return isSet(env, key) ? [] : [key];
   }
-  if (spec.id === "images") {
-    const key = imageMode(env) === "fal" ? "FAL_KEY" : "FREELLMAPI_API_KEY";
-    return isSet(env, key) ? [] : [key];
-  }
   return spec.requires
     .map((group) => group.filter((k) => !isSet(env, k)))
     .sort((a, b) => a.length - b.length)[0] ?? [];
@@ -181,7 +158,7 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
   const openaiModel = env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
   if (routerMode(env) === "direct") return `openai/${openaiModel}`;
   if (isSet(env, "FREELLMAPI_API_KEY")) {
-    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "auto:smart";
+    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "gemini-2.5-flash";
     return failOpen(env) && isSet(env, "OPENAI_API_KEY")
       ? `freellmapi/${freeModel} → openai/${openaiModel} fail-open`
       : `freellmapi/${freeModel}`;
@@ -195,10 +172,9 @@ function speechProvider(env: NodeJS.ProcessEnv): string {
 }
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
-  if (imageMode(env) === "fal") return "fal/flux-2 + flux-2/edit";
-  const base = `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto"} (text-to-image; no reference edit)`;
-  const heroModel = env["FREELLMAPI_HERO_IMAGE_MODEL"]?.trim();
-  return heroModel ? `${base} + hero-shot escalation to ${heroModel}` : base;
+  const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
+  const editModel = env["FAL_EDIT_MODEL"]?.trim() || `${model}/edit`;
+  return `fal/${model} + ${editModel}`;
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
