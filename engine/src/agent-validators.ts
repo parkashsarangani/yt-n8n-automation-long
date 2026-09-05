@@ -11,6 +11,10 @@
  */
 import type { AgentDef } from "./runner.ts";
 import type { Artifact } from "./artifact.ts";
+import {
+  repairGrowthPackageSelection,
+  validateGrowthPackageSelection,
+} from "./growth-package-contract.ts";
 
 export const HARD_ERROR_PREFIX = "HARD:";
 
@@ -72,12 +76,34 @@ function hard(errors: string[]): string[] {
   return errors.map((error) => `${HARD_ERROR_PREFIX}${error}`);
 }
 
+/**
+ * growth_package carries both a selected family and a duplicated selected
+ * string. The family is the decision; the selected string is derived data.
+ * Normalize the duplicate in-place before the artifact is stored so a harmless
+ * LLM paraphrase cannot survive several expensive stages and fail later in
+ * watchability_release. If the package is not safely repairable, the shared
+ * relational validator still rejects it as a hard semantic error here.
+ */
+function normalizeGrowthPackageSelection(payload: unknown): void {
+  const { data, repairs } = repairGrowthPackageSelection(payload);
+  if (repairs.length === 0 || data === payload) return;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return;
+  Object.assign(payload as Record<string, unknown>, data as Record<string, unknown>);
+}
+
 export function agentSemanticValidationErrors(
   def: AgentDef,
   payload: unknown,
   _inputs: Record<string, Artifact>,
 ): string[] {
   if (def.name === "episode_director") return hard(unsafeDirectionTextPrompts(payload));
-  if (def.name === "growth_packager") return hard(continuationBridgeErrors(payload));
+  if (def.name === "growth_packager") {
+    normalizeGrowthPackageSelection(payload);
+    return hard([
+      ...continuationBridgeErrors(payload),
+      ...validateGrowthPackageSelection(payload),
+    ]);
+  }
   return [];
 }
