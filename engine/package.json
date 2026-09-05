@@ -9,6 +9,7 @@
     "test:integration": "node --import tsx --test test/*.itest.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "node --env-file-if-exists=.env --import tsx scripts/smoke.ts",
+    "visual:benchmark": "node --env-file-if-exists=.env --import tsx scripts/visual-benchmark.ts",
     "ui": "node --env-file-if-exists=.env --import tsx scripts/serve.ts",
     "youtube-token": "node --import tsx ../scripts/youtube-token.ts",
     "youtube-auth": "node --import tsx ../scripts/youtube-token.ts --auth"
