@@ -82,11 +82,17 @@ async function requestVisionJson(
     model: string;
     content: Array<Record<string, unknown>>;
     maxCompletionTokens: number;
+    timeoutMs?: number;
+    // Only for diagnostics: which caller/route this is, so a failure log
+    // line says *what* went dark (e.g. "episode-visual-review via direct")
+    // without ever including prompts, responses, or provider error bodies.
+    label?: string;
   },
   fetchImpl: FetchLike,
 ): Promise<Record<string, unknown> | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS);
+  const label = opts.label ?? "vision QA";
   try {
     const res = await fetchImpl(`${opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -99,13 +105,28 @@ async function requestVisionJson(
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[image-qa] ${label} request failed: HTTP ${res.status}`);
+      return null;
+    }
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const text = data.choices?.[0]?.message?.content;
-    if (typeof text !== "string") return null;
-    const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
-  } catch {
+    if (typeof text !== "string") {
+      console.warn(`[image-qa] ${label} request returned no message content`);
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+      console.warn(`[image-qa] ${label} response was not a JSON object`);
+      return null;
+    } catch {
+      console.warn(`[image-qa] ${label} response was not valid JSON`);
+      return null;
+    }
+  } catch (err) {
+    const reason = err instanceof Error && err.name === "AbortError" ? `timed out after ${opts.timeoutMs ?? TIMEOUT_MS}ms` : "network error";
+    console.warn(`[image-qa] ${label} request failed: ${reason}`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -117,6 +138,7 @@ async function askVisionMany(
   instruction: string,
   fetchImpl: FetchLike,
   maxCompletionTokens = 500,
+  opts: { timeoutMs?: number; label?: string } = {},
 ): Promise<Record<string, unknown> | null> {
   if (images.length === 0) return null;
 
@@ -130,6 +152,7 @@ async function askVisionMany(
   const directApiKey = process.env["OPENAI_API_KEY"]?.trim();
   const directBaseUrl = (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
   const directModel = process.env["OPENAI_IMAGE_QA_MODEL"] ?? process.env["OPENAI_MODEL"] ?? "gpt-5.6-luna";
+  const label = opts.label ?? "vision QA";
 
   if (routing.mode === "freellmapi") {
     if (routing.apiKey) {
@@ -139,11 +162,13 @@ async function askVisionMany(
         model: routing.visionModel,
         content,
         maxCompletionTokens,
+        timeoutMs: opts.timeoutMs,
+        label: `${label} (freellmapi)`,
       }, fetchImpl);
       if (free) return free;
       if (!routing.failOpenToDirect) return null;
-      // Deliberately omit prompts, responses and provider error bodies.
-      console.warn("[llm-routing] FreeLLMAPI vision QA failed; retrying through direct OpenAI");
+      // Per-request failure reason is already logged by requestVisionJson.
+      console.warn(`[llm-routing] FreeLLMAPI ${label} failed; retrying through direct OpenAI`);
     } else if (!routing.failOpenToDirect) {
       return null;
     }
@@ -156,6 +181,8 @@ async function askVisionMany(
     model: directModel,
     content,
     maxCompletionTokens,
+    timeoutMs: opts.timeoutMs,
+    label: `${label} (direct)`,
   }, fetchImpl);
 }
 
@@ -292,6 +319,16 @@ export async function reviewIllustratedSequence(
       `Review this ORDERED window from one illustrated YouTube episode. Image order exactly matches this list:\n${index}\n\nScore 0..1: opening_visual_strength (first episode shot must be the strongest attention-grabber), scene_relevance, subject_legibility, emotional_readability, shot_variety, visual_redundancy (1 means little harmful repetition), continuity, style_consistency, ai_artifacts (1 means clean/no obvious artefacts), payoff_visual_strength (final episode shot should visibly resolve/land the story). Flag ONLY shot ids that should be regenerated before render because a concrete visual defect/repetition/irrelevance is materially hurting the episode. Do not flag merely because the art is stylised or calm. Respond ONLY JSON: {\"scores\":{\"opening_visual_strength\":0.0,\"scene_relevance\":0.0,\"subject_legibility\":0.0,\"emotional_readability\":0.0,\"shot_variety\":0.0,\"visual_redundancy\":0.0,\"continuity\":0.0,\"style_consistency\":0.0,\"ai_artifacts\":0.0,\"payoff_visual_strength\":0.0},\"flagged_shots\":[\"scene:shot\"],\"reason\":\"short concrete summary\"}`,
       fetchImpl,
       900,
+      // This window can carry up to 12 full images plus a 10-dimension,
+      // flagged-shot, free-text-reason response -- a much heavier request
+      // than the single-image per-shot checks that share this function's
+      // default 20s budget. Production run 31e171c3 saw this window
+      // silently time out twice in a row (visual_asset_release reported
+      // "episode-level visual review unavailable", burning two of the three
+      // targeted-regeneration attempts on infrastructure latency rather than
+      // real content feedback) before a third attempt finally completed and
+      // returned a genuine, specific verdict.
+      { timeoutMs: 45000, label: "episode-visual-review" },
     );
     if (!parsed || typeof parsed["scores"] !== "object" || parsed["scores"] === null) continue;
     completed++;
