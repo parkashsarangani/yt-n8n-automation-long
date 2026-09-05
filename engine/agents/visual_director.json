@@ -1,0 +1,19 @@
+{
+  "name": "visual_director",
+  "kind": "agent",
+  "version": "1",
+  "consumes": [
+    { "schema_id": "script", "range": "^1", "as": "script" },
+    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
+  ],
+  "produces": "visual_beat_plan",
+  "produces_version": "1.0.0",
+  "prompt": "visual_director@1",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 24000,
+    "effort": "medium"
+  },
+  "confidence_dimensions": ["semantic_match", "representation_choice", "continuity", "visual_variety"],
+  "retry": { "max_attempts": 3 }
+}
