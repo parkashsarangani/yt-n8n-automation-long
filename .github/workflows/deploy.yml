@@ -37,8 +37,8 @@ jobs:
           IMAGE_PROVIDER_MODE: ${{ vars.IMAGE_PROVIDER_MODE || 'freellmapi' }}
           SPEECH_PROVIDER_MODE: ${{ vars.SPEECH_PROVIDER_MODE || 'freellmapi' }}
           # Media model ids come from FreeLLM's separate media registry. `auto`
-          # is portable; deployment validates the enabled registry state through
-          # the inference endpoint rather than guessing a dashboard model id.
+          # remains portable only while no separately-metered hero row is
+          # enabled; hero escalation requires a concrete standard image model.
           FREELLMAPI_IMAGE_MODEL: ${{ vars.FREELLMAPI_IMAGE_MODEL || 'auto' }}
           FREELLMAPI_SPEECH_MODEL: ${{ vars.FREELLMAPI_SPEECH_MODEL || 'auto' }}
           FREELLMAPI_SPEECH_VOICE: ${{ vars.FREELLMAPI_SPEECH_VOICE || 'onyx' }}
@@ -48,6 +48,7 @@ jobs:
           # by default -- deliberately not spent unless an operator sets it.
           FREELLMAPI_HERO_IMAGE_MODEL: ${{ vars.FREELLMAPI_HERO_IMAGE_MODEL || '' }}
           FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${{ vars.FREELLMAPI_HERO_IMAGE_MAX_CALLS || '10' }}
+          FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS: ${{ vars.FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS || '1000' }}
 
           OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
@@ -63,6 +64,22 @@ jobs:
           AMOS_ALLOW_PUBLISH: "1"
         run: |
           set -euo pipefail
+
+          # FreeLLM `auto` means every enabled image row in priority order. Once
+          # a scarce NVIDIA/custom row is reserved for hero shots, allowing the
+          # standard path to stay on auto makes ordinary shots capable of
+          # consuming that same quota invisibly. Refuse the deployment before
+          # restarting a working engine rather than discovering this mid-run.
+          if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ] && [ -n "${FREELLMAPI_HERO_IMAGE_MODEL:-}" ]; then
+            if [ -z "${FREELLMAPI_IMAGE_MODEL:-}" ] || [ "$FREELLMAPI_IMAGE_MODEL" = "auto" ]; then
+              echo "::error::FREELLMAPI_HERO_IMAGE_MODEL is enabled, so FREELLMAPI_IMAGE_MODEL must be the exact model_id of the intended standard image row (for example the enabled Sana row), not 'auto'."
+              exit 1
+            fi
+            if [ "$FREELLMAPI_IMAGE_MODEL" = "$FREELLMAPI_HERO_IMAGE_MODEL" ]; then
+              echo "::error::FREELLMAPI_IMAGE_MODEL and FREELLMAPI_HERO_IMAGE_MODEL must be different; otherwise ordinary shots consume the hero quota."
+              exit 1
+            fi
+          fi
 
           echo "=== Building ==="
           docker compose build engine long-compose
@@ -106,7 +123,7 @@ jobs:
           # /v1 inference. Long validates media through the same inference API
           # production will use and never bypasses the Shorts-owned admin state.
           if [ "$IMAGE_PROVIDER_MODE" = "freellmapi" ]; then
-            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_IMAGE_MODEL||'auto';fetch('http://freellmapi:3001/v1/images/generations',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,prompt:'simple empty landscape, no text',n:1,size:'512x512',response_format:'b64_json'})}).then(async r=>{if(!r.ok){const body=(await r.text()).slice(0,300);if(r.status===502&&/no usable keys/i.test(body))throw new Error('image smoke 502: no usable image provider is enabled. In the shared FreeLLMAPI dashboard open Models -> Image and enable a Pollinations image row (v0.9.5 supports Pollinations image generation without a provider key), then redeploy.');throw new Error('image smoke '+r.status+': '+body)}const j=await r.json();if(!j.data?.length)throw new Error('image smoke empty');console.log('FreeLLMAPI image smoke OK: '+(j.provider||'registry')+'/'+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_IMAGE_MODEL||'auto';fetch('http://freellmapi:3001/v1/images/generations',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,prompt:'simple empty landscape, no text',n:1,size:'512x512',response_format:'b64_json'})}).then(async r=>{if(!r.ok){const body=(await r.text()).slice(0,300);if(r.status===502&&/no usable keys/i.test(body))throw new Error('image smoke 502: no usable image provider is enabled. In the shared FreeLLMAPI dashboard open Models -> Image and enable a standard image row, then set FREELLMAPI_IMAGE_MODEL to that row model_id and redeploy.');throw new Error('image smoke '+r.status+': '+body)}const j=await r.json();if(!j.data?.length)throw new Error('image smoke empty');console.log('FreeLLMAPI image smoke OK: '+(j.provider||'registry')+'/'+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
           fi
 
           # `auto` is live-proven on the shared instance. Google currently
