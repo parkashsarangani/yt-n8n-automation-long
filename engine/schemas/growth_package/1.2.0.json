@@ -2,8 +2,8 @@
   "schema_id": "growth_package",
   "version": "1.2.0",
   "status": "active",
-  "description": "RFC 0009 production contract. Keeps explicit package families and makes the session-continuation bridge mandatory so every produced episode has an authoritative next-video outro before TTS/render.",
-  "produced_by": ["growth_packager"],
+  "description": "RFC 0009 production contract. Keeps explicit package families, supports deterministic package-release canonicalization of duplicated selected strings, and makes the session-continuation bridge mandatory so every produced episode has an authoritative next-video outro before TTS/render.",
+  "produced_by": ["growth_packager", "growth_package_release"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "GrowthPackageArtifact",
