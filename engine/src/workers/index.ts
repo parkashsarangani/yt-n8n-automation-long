@@ -17,7 +17,7 @@ import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeGrowthPackageReleaseWorker } from "./growth-package-release.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
-import { makeVisualBeatAssetsWorker, type VisualBeatAssetsWorkerOptions } from "./visual-beat-assets.ts";
+import { makeVisualBeatAssetsWorker, type VisualBeatAssetsWorkerOptions } from "./visual-beat-resolver.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
 
 export {
@@ -54,11 +54,11 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
-    // RFC 0009 production control path remains unchanged until RFC 0010 passes
-    // its comparison benchmark.
+    // RFC 0009 remains the production control until RFC 0010 passes its rendered
+    // comparison benchmark.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
-    // RFC 0010 isolated benchmark worker. It emits its own beat-level artifact
-    // and therefore cannot accidentally change the production render contract.
+    // RFC 0010 resolves on measured ElevenLabs timing and emits an isolated
+    // beat-level asset artifact; it cannot change production by itself.
     makeVisualBeatAssetsWorker(opts.visualBeatAssets ?? {}),
     makeVisualAssetReleaseWorker(),
     makeRenderWorker(opts.render ?? {}),
@@ -67,7 +67,7 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeQaWorker(opts.qa ?? {}),
     ...(opts.publish ? [makePublishWorker(opts.publish)] : []),
   ];
-  return new Map(workers.map((w) => [w.name, w]));
+  return new Map(workers.map((worker) => [worker.name, worker]));
 }
 
 export function allTransformations(
