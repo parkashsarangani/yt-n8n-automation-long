@@ -116,6 +116,18 @@ export function repairGrowthPackageSelection(payload: unknown): {
   return { data: repairs.length > 0 ? out : payload, repairs };
 }
 
+/**
+ * Pure preflight for the reasoning-agent boundary. A duplicated selected string
+ * is not a reason to spend another model call when the declared family makes the
+ * correction deterministic. Validate the would-be released value without
+ * mutating the provider payload; the release worker is the only transformation
+ * allowed to materialize that correction as a new artifact.
+ */
+export function validateGrowthPackageReleaseability(payload: unknown): string[] {
+  const { data } = repairGrowthPackageSelection(payload);
+  return validateGrowthPackageSelection(data);
+}
+
 export const PACKAGE_CONTRACT_MARKER = "PACKAGE_CONTRACT";
 
 export function isPackageContractFailureMessage(error: string): boolean {
