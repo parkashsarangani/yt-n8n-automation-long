@@ -32,6 +32,13 @@ export interface GrowthSchedulerOptions {
   maxWaitMs?: number;
 }
 const POLL_MS = 3000, MAX_WAIT_MS = 90 * 60_000, MIN_COMPONENT_SCORE = 0.55, MIN_OVERALL_SCORE = 0.60;
+/**
+ * The Turning Point has one channel-level illustration identity. Keep scheduled
+ * production deterministic instead of letting genre defaults silently move a
+ * moral story back to the legacy faceless stickman treatment. The concrete
+ * visual language for this preset lives in illustrated-scene-assets.ts.
+ */
+export const SCHEDULED_IMAGE_STYLE = "flat_comic_expressive" as const;
 function bounded(value: string | undefined, max: number): string { return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max); }
 
 /**
@@ -182,6 +189,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           const seed = packageSeedOf(candidate);
           const runId = await service.startRun(candidate.brief!, 180, {
             ...(candidate.genre ? { genre: candidate.genre } : {}),
+            imageStyle: SCHEDULED_IMAGE_STYLE,
             ...(seed ? { packageSeed: seed } : {}),
           });
           const final = await waitForTerminal(service, runId, opts);
