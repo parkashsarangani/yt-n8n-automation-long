@@ -1,0 +1,185 @@
+{
+  "schema_id": "visual_beat_plan",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "RFC 0010 visual source of truth. Splits narration into 2-6 second semantic/retention beats and declares required imagery, forbidden imagery, routing, continuity, and novelty intent without performing media side effects.",
+  "produced_by": ["visual_director"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "VisualBeatPlanArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["beats"],
+    "properties": {
+      "beats": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 400,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "scene_index",
+            "beat_index",
+            "start_sec",
+            "end_sec",
+            "narration",
+            "context",
+            "intent",
+            "visual_contract",
+            "routing",
+            "continuity",
+            "retention",
+            "asset_brief"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^beat_[0-9]{3,4}$"
+            },
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "beat_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "start_sec": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end_sec": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "narration": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 600
+            },
+            "context": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["previous", "next"],
+              "properties": {
+                "previous": {"type": "string", "maxLength": 600},
+                "next": {"type": "string", "maxLength": 600}
+              }
+            },
+            "intent": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["purpose", "information", "emotion", "importance"],
+              "properties": {
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "ESTABLISH",
+                    "EXPLAIN",
+                    "MAKE_SCALE_INTUITIVE",
+                    "SHOW_CAUSE",
+                    "SHOW_EFFECT",
+                    "SHOW_PROCESS",
+                    "SHOW_LOCATION",
+                    "SHOW_EVIDENCE",
+                    "BUILD_SUSPENSE",
+                    "REVEAL",
+                    "EMOTIONALIZE",
+                    "CONTRAST",
+                    "TRANSITION",
+                    "PAYOFF"
+                  ]
+                },
+                "information": {"type": "string", "minLength": 1, "maxLength": 400},
+                "emotion": {
+                  "type": "string",
+                  "enum": ["neutral", "curiosity", "awe", "tension", "unease", "surprise", "empathy", "urgency", "relief", "satisfaction"]
+                },
+                "importance": {"type": "number", "minimum": 0, "maximum": 1}
+              }
+            },
+            "visual_contract": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["required", "forbidden", "required_action", "viewer_takeaway"],
+              "properties": {
+                "required": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 120}
+                },
+                "forbidden": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 120}
+                },
+                "required_action": {"type": "string", "maxLength": 220},
+                "viewer_takeaway": {"type": "string", "minLength": 1, "maxLength": 300}
+              }
+            },
+            "routing": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["preferred", "fallback"],
+              "properties": {
+                "preferred": {
+                  "type": "string",
+                  "enum": ["stock_video", "generated_image", "motion_graphic", "generated_video"]
+                },
+                "fallback": {
+                  "type": "string",
+                  "enum": ["stock_video", "generated_image", "motion_graphic", "generated_video"]
+                }
+              }
+            },
+            "continuity": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["group", "entities"],
+              "properties": {
+                "group": {"type": "string", "maxLength": 80},
+                "entities": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"}
+                }
+              }
+            },
+            "retention": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["novelty_required", "visual_change_strength", "composition"],
+              "properties": {
+                "novelty_required": {"type": "boolean"},
+                "visual_change_strength": {"type": "number", "minimum": 0, "maximum": 1},
+                "composition": {
+                  "type": "string",
+                  "enum": ["wide_environment", "medium_action", "close_detail", "subject_off_center", "overhead", "split_comparison", "diagrammatic", "map", "timeline", "full_frame_reveal"]
+                }
+              }
+            },
+            "asset_brief": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["query", "generation_prompt", "motion_graphic_brief"],
+              "properties": {
+                "query": {"type": "string", "maxLength": 240},
+                "generation_prompt": {"type": "string", "maxLength": 1200},
+                "motion_graphic_brief": {"type": "string", "maxLength": 600}
+              }
+            },
+            "hero_role": {
+              "type": "string",
+              "enum": ["hook", "first-escalation", "low-point", "turn", "payoff"]
+            }
+          }
+        }
+      }
+    }
+  }
+}
