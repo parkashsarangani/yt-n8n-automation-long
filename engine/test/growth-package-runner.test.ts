@@ -14,6 +14,7 @@ import { ProviderRouter } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
 import { Runner } from "../src/runner.ts";
 import { loadAgentDefs } from "../src/catalog.ts";
+import { makeGrowthPackageReleaseWorker } from "../src/workers/growth-package-release.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -61,7 +62,7 @@ function inconsistentPackage() {
   };
 }
 
-test("real runner stores a canonical package on the first attempt despite duplicated-string drift", async () => {
+test("real runner preserves raw package and releases canonical child without another model call", async () => {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-package-")), registry);
@@ -103,20 +104,45 @@ test("real runner stores a canonical package on the first attempt despite duplic
     produced_by: { transformation: "channel_strategist", version: "2", run_id: "run_seed", provider: null },
   });
 
-  const out = await runner.run(
+  const raw = await runner.run(
     agents.get("growth_packager")!,
     [intent.artifact.artifact_id, insights.artifact.artifact_id],
     { runId: "run_package_contract", nodeId: "package", graphId: "illustrated_story@7" },
   );
-  const payload = out.artifact.payload as ReturnType<typeof inconsistentPackage>;
+  const rawPayload = raw.artifact.payload as ReturnType<typeof inconsistentPackage>;
 
-  assert.equal(out.attempts, 1, "deterministic canonicalization must not spend another model call");
+  assert.equal(raw.attempts, 1, "repairable duplicated-string drift must not spend another model call");
   assert.equal(provider.calls.length, 1);
-  assert.equal(payload.selected_title, payload.variants[0]!.title);
-  assert.equal(payload.selected_thumbnail_concept, payload.variants[2]!.thumbnail_concept);
-  assert.equal(payload.selected_title_family, "curiosity");
-  assert.equal(payload.selected_thumbnail_family, "reversal");
+  assert.equal(raw.artifact.schema_version, "1.2.0");
+  assert.equal(raw.artifact.produced_by.transformation, "growth_packager");
+  assert.equal(rawPayload.selected_title, "A paraphrase the model should not be trusted to repeat");
+  assert.equal(rawPayload.selected_thumbnail_concept, "Another paraphrase instead of the selected family member");
+  assert.equal(rawPayload.selected_title_family, "curiosity");
+  assert.equal(rawPayload.selected_thumbnail_family, "reversal");
+
+  const released = await runner.run(
+    makeGrowthPackageReleaseWorker(),
+    [raw.artifact.artifact_id],
+    { runId: "run_package_contract", nodeId: "package_release", graphId: "illustrated_story@7" },
+  );
+  const releasedPayload = released.artifact.payload as ReturnType<typeof inconsistentPackage>;
+
+  assert.equal(provider.calls.length, 1, "release worker must not invoke a model");
+  assert.equal(released.artifact.schema_version, "1.3.0");
+  assert.equal(released.artifact.produced_by.transformation, "growth_package_release");
+  assert.equal(released.artifact.produced_by.provider, null);
+  assert.deepEqual(released.artifact.parents, [raw.artifact.artifact_id]);
+  assert.equal(releasedPayload.selected_title, releasedPayload.variants[0]!.title);
+  assert.equal(releasedPayload.selected_thumbnail_concept, releasedPayload.variants[2]!.thumbnail_concept);
+  assert.equal(releasedPayload.selected_title_family, "curiosity");
+  assert.equal(releasedPayload.selected_thumbnail_family, "reversal");
+
+  const persistedRaw = await store.get(raw.artifact.artifact_id);
+  assert.equal(
+    (persistedRaw?.payload as ReturnType<typeof inconsistentPackage>).selected_title,
+    "A paraphrase the model should not be trusted to repeat",
+  );
 
   const records = await runLog.all();
-  assert.deepEqual(records.map((record) => record.status), ["ok"]);
+  assert.deepEqual(records.map((record) => record.status), ["ok", "ok"]);
 });
