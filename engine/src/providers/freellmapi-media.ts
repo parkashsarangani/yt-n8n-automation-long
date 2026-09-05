@@ -260,12 +260,19 @@ export class FreeLLMImageProvider implements ImageProvider {
 
   private async requestOnce(model: string, req: { prompt: string; aspect: Aspect; count?: number }) {
     const count = Math.max(1, Math.min(4, req.count ?? 1));
-    const expandedPrompt = freeImagePrompt(req.prompt);
-    const prompt = this.heroModel && model === this.heroModel
-      ? compactImagePrompt(expandedPrompt, this.heroPromptMaxChars)
-      : expandedPrompt;
-    if (prompt.length < expandedPrompt.length) {
-      console.warn(`[freellmapi-image] compacted hero prompt ${expandedPrompt.length}->${prompt.length} chars for '${model}'`);
+    // The hero route skips the generic pre-emptive text-safety expansion:
+    // every illustrated prompt's own style bundle already ends in an EXCLUDE
+    // clause naming text/letters/logos, so expanding first and compacting
+    // after would let compaction's tail window land on the generic appended
+    // suffix instead of the story's own exclude/style intent -- exactly
+    // backwards for a model reserved for the shots that matter most. NVIDIA
+    // Klein is a stronger model than the free-tier baseline that suffix was
+    // written for, and the existing post-generation text-detection recovery
+    // in illustrated-scene-assets.ts still applies regardless of provider.
+    const isHero = Boolean(this.heroModel) && model === this.heroModel;
+    const prompt = isHero ? compactImagePrompt(req.prompt, this.heroPromptMaxChars) : freeImagePrompt(req.prompt);
+    if (isHero && prompt.length < req.prompt.length) {
+      console.warn(`[freellmapi-image] compacted hero prompt ${req.prompt.length}->${prompt.length} chars for '${model}'`);
     }
     const providerRef = `freellmapi-image/${model}`;
     let res: Response | undefined;
