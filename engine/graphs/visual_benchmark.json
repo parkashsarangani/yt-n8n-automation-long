@@ -1,6 +1,6 @@
 {
   "graph_id": "visual_benchmark",
-  "version": "1",
+  "version": "1.0.0",
   "description": "RFC 0010 isolated benchmark. Starts from an existing approved script, generates beat-level visual direction, and resolves only semantically controlled benchmark assets. It intentionally does not publish and does not replace the illustrated_story production graph until the acceptance gate is passed.",
   "nodes": [
     {
