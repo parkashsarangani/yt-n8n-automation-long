@@ -22,7 +22,7 @@ export function makeGrowthPackageReleaseWorker(): WorkerDef {
     version: "1",
     consumes: [{ schema_id: "growth_package", range: "^1", as: "package" }],
     produces: "growth_package",
-    produces_version: "1.2.0",
+    produces_version: "1.3.0",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const original = inputs["package"]!.payload;
       const { data, repairs } = repairGrowthPackageSelection(original);
