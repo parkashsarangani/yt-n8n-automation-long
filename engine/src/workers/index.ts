@@ -1,11 +1,4 @@
-/**
- * Worker registry.
- *
- * Agents load from disk as data (RFC 0003); workers are code and register here.
- * That asymmetry is intentional: reasoning should be cheap to add, side effects
- * should not be.
- */
-
+/** Worker registry: agents reason; workers own deterministic effects. */
 import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions } from "./voice.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
@@ -18,20 +11,17 @@ import { makeGrowthPackageReleaseWorker } from "./growth-package-release.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
 import { makeVisualBeatAssetsWorker, type VisualBeatAssetsWorkerOptions } from "./visual-beat-resolver.ts";
+import { makeVisualTimelineWorker } from "./visual-timeline.ts";
+import { makeVisualBenchmarkRenderWorker } from "./visual-benchmark-render.ts";
+import { makeVisualBenchmarkQaWorker } from "./visual-benchmark-qa.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
 
 export {
-  makeVoiceWorker,
-  makeAssetWorker,
-  makeRenderWorker,
-  makeThumbnailWorker,
-  makePublishWorker,
-  makeMeasureWorker,
-  makeQaWorker,
-  makeGrowthPackageReleaseWorker,
-  makeWatchabilityReleaseWorker,
-  makeIllustratedSceneAssetsWorker,
-  makeVisualBeatAssetsWorker,
+  makeVoiceWorker, makeAssetWorker, makeRenderWorker, makeThumbnailWorker,
+  makePublishWorker, makeMeasureWorker, makeQaWorker,
+  makeGrowthPackageReleaseWorker, makeWatchabilityReleaseWorker,
+  makeIllustratedSceneAssetsWorker, makeVisualBeatAssetsWorker,
+  makeVisualTimelineWorker, makeVisualBenchmarkRenderWorker, makeVisualBenchmarkQaWorker,
   makeVisualAssetReleaseWorker,
 };
 export { buildPrompt } from "./assets.ts";
@@ -54,12 +44,13 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
-    // RFC 0009 remains the production control until RFC 0010 passes its rendered
-    // comparison benchmark.
+    // RFC 0009 remains the untouched production control.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
-    // RFC 0010 resolves on measured ElevenLabs timing and emits an isolated
-    // beat-level asset artifact; it cannot change production by itself.
+    // RFC 0010 is an isolated end-to-end benchmark path.
     makeVisualBeatAssetsWorker(opts.visualBeatAssets ?? {}),
+    makeVisualTimelineWorker(),
+    makeVisualBenchmarkRenderWorker(),
+    makeVisualBenchmarkQaWorker(),
     makeVisualAssetReleaseWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
@@ -70,15 +61,10 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   return new Map(workers.map((worker) => [worker.name, worker]));
 }
 
-export function allTransformations(
-  agents: Map<string, TransformationDef>,
-  workers: Map<string, TransformationDef>,
-): Map<string, TransformationDef> {
+export function allTransformations(agents: Map<string, TransformationDef>, workers: Map<string, TransformationDef>): Map<string, TransformationDef> {
   const merged = new Map(agents);
   for (const [name, def] of workers) {
-    if (merged.has(name)) {
-      throw new Error(`transformation "${name}" is registered as both an agent and a worker`);
-    }
+    if (merged.has(name)) throw new Error(`transformation "${name}" is registered as both an agent and a worker`);
     merged.set(name, def);
   }
   return merged;
