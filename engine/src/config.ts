@@ -94,6 +94,22 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "auto",
   },
   {
+    key: "FREELLMAPI_HERO_IMAGE_MODEL",
+    label: "FreeLLMAPI hero-shot image model",
+    secret: false,
+    placeholder: "",
+    help: "Optional, separately-registered model reserved for the 3-5 RFC 0009 hero shots per episode only (e.g. a hosted trial API on its own quota). Empty disables the escalation; non-hero shots never use it.",
+    fallback: "unset; all shots use FREELLMAPI_IMAGE_MODEL",
+  },
+  {
+    key: "FREELLMAPI_HERO_IMAGE_MAX_CALLS",
+    label: "FreeLLMAPI hero-shot call ceiling",
+    secret: false,
+    placeholder: "10",
+    help: "Hard, process-lifetime cap on hero-model calls (not per-episode, not daily-reset) -- protects a small trial allowance from being exhausted across many runs. A shot falls back to the standard model once reached.",
+    fallback: "10",
+  },
+  {
     key: "SPEECH_PROVIDER_MODE",
     label: "Speech provider mode",
     secret: false,

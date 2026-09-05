@@ -76,6 +76,12 @@ export interface ImageProvider {
     prompt: string;
     aspect: Aspect;
     count?: number;
+    /**
+     * Optional hint for providers that reserve a separate, more expensive or
+     * quota-limited model for a small number of difficult/important shots
+     * (RFC 0009 hero shots). Providers without such a route ignore it.
+     */
+    tier?: "hero" | "standard";
   }): Promise<{
     images: Array<{ bytes: Uint8Array; media_type: string }>;
     usage: Usage;

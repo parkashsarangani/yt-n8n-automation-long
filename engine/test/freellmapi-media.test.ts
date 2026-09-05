@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { FreeLLMImageProvider, FreeLLMSpeechProvider } from "../src/providers/freellmapi-media.ts";
+import { FreeLLMImageProvider, FreeLLMSpeechProvider, __resetFreeLLMHeroBudgetForTests } from "../src/providers/freellmapi-media.ts";
 import { StockImageProvider } from "../src/providers/stock.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FreeMediaTerminalError } from "../src/free-media-policy.ts";
@@ -126,6 +126,89 @@ test("FreeLLM image provider retries one transient gateway failure before succee
     const out = await provider.generate({ prompt: "a quiet park", aspect: "16:9" });
     assert.equal(calls, 2);
     assert.equal(out.images.length, 1);
+  });
+});
+
+test("hero tier routes to the reserved hero model and reports its real usage, without touching it when not requested", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMHeroBudgetForTests();
+    const modelsRequested: string[] = [];
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 1,
+      heroModel: "black-forest-labs/flux.2-klein-4b",
+      heroMaxCalls: 5,
+      fetchImpl: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body));
+        modelsRequested.push(body.model);
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: body.model,
+          provider: "nvidia",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+
+    const standard = await provider.generate({ prompt: "a busy street background", aspect: "16:9" });
+    assert.equal(standard.usage.model, "nvidia/auto", "no tier requested must use the standard model");
+
+    const hero = await provider.generate({ prompt: "the hero payoff shot", aspect: "16:9", tier: "hero" });
+    assert.equal(hero.usage.model, "nvidia/black-forest-labs/flux.2-klein-4b");
+    assert.deepEqual(modelsRequested, ["auto", "black-forest-labs/flux.2-klein-4b"]);
+  });
+});
+
+test("hero model failure falls back to the standard model within the same call", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMHeroBudgetForTests();
+    const modelsRequested: string[] = [];
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 1,
+      heroModel: "black-forest-labs/flux.2-klein-4b",
+      heroMaxCalls: 5,
+      fetchImpl: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body));
+        modelsRequested.push(body.model);
+        if (body.model === "black-forest-labs/flux.2-klein-4b") return new Response("trial exhausted", { status: 402 });
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: body.model,
+          provider: "pollinations",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+
+    const out = await provider.generate({ prompt: "the hero payoff shot", aspect: "16:9", tier: "hero" });
+    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "auto"]);
+    assert.equal(out.usage.model, "pollinations/auto");
+  });
+});
+
+test("hero call ceiling stops attempting the hero model and uses the standard model instead", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMHeroBudgetForTests();
+    const modelsRequested: string[] = [];
+    const provider = new FreeLLMImageProvider({
+      maxAttempts: 1,
+      heroModel: "black-forest-labs/flux.2-klein-4b",
+      heroMaxCalls: 1,
+      fetchImpl: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body));
+        modelsRequested.push(body.model);
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: body.model,
+          provider: "nvidia",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+
+    await provider.generate({ prompt: "hero shot one", aspect: "16:9", tier: "hero" });
+    await provider.generate({ prompt: "hero shot two", aspect: "16:9", tier: "hero" });
+    // The ceiling is 1: the first hero request spends it, the second must not
+    // attempt the hero model at all -- not even as a failed call -- because a
+    // hosted trial with no visible remaining-quota signal must never be
+    // approached optimistically once the configured budget is spent.
+    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "auto"]);
   });
 });
 

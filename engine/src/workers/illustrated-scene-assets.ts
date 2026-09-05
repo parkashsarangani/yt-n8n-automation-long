@@ -22,7 +22,7 @@ interface ScriptScene { scene_index: number; narration?: string; is_outro?: bool
 interface IntentPayload { image_style?: ImageStyle }
 interface GeneratedImage { bytes: Uint8Array; media_type: string }
 interface PriorScene { scene_index?: number; source?: "primary" | "fallback" | "placeholder"; image_uri?: string; image_uris?: string[]; prompt?: string }
-interface ReferenceCapableProvider extends ImageProvider { generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) => Promise<{ images: GeneratedImage[] }> }
+interface ReferenceCapableProvider extends ImageProvider { generatePack?: (req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage; tier?: "hero" | "standard" }) => Promise<{ images: GeneratedImage[] }> }
 export interface IllustratedSceneAssetsWorkerOptions { version?: string }
 
 const DEFAULT_STYLE: ImageStyle = "ink_wash_stickman";
@@ -103,19 +103,19 @@ class ImageBudget {
   report(): void { this.logger.warn(`[illustrated_scene_assets] image provider calls this run: ${this.calls} (optional spend stops at ${this.optionalCeiling}, hard stop ${this.maxCalls}${this.freeMode ? ", free-mode" : ""})`); }
 }
 
-async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, budget: ImageBudget, reference?: GeneratedImage): Promise<GeneratedImage> {
+async function generateOne(provider: ReferenceCapableProvider, prompt: string, seed: number, budget: ImageBudget, reference?: GeneratedImage, tier?: "hero" | "standard"): Promise<GeneratedImage> {
   budget.chargeProviderCall();
-  if (provider.generatePack) { const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image; }
-  const out = await provider.generate({ prompt, aspect: "16:9", count: 1 }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
+  if (provider.generatePack) { const out = await provider.generatePack({ prompts: [prompt], aspect: "16:9", seed, ...(reference ? { reference } : {}), ...(tier ? { tier } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image; }
+  const out = await provider.generate({ prompt, aspect: "16:9", count: 1, ...(tier ? { tier } : {}) }); const image = out.images[0]; if (!image) throw new Error("image provider returned no image"); return image;
 }
 
 function qualityAttempts(provider: ReferenceCapableProvider): number { return isFreeProvider(provider) ? 1 : 2; }
-async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget): Promise<GeneratedImage> {
+async function generateAccepted(provider: ReferenceCapableProvider, prompt: string, seed: number, reference: GeneratedImage | undefined, narration: string, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, tier?: "hero" | "standard"): Promise<GeneratedImage> {
   const maxAttempts = qualityAttempts(provider);
   let lastError = new Error("image generation failed");
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference);
+      const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference, tier);
       const [text, semantic] = await Promise.all([checkGeneratedImageForText(image), narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null)]);
       const failures: string[] = [];
       if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`);
@@ -149,12 +149,17 @@ async function generateShot(provider: ReferenceCapableProvider, prompt: string, 
   const perCandidate = qualityAttempts(provider);
   const worstCaseCalls = wanted * perCandidate + perCandidate;
   const count = allowMultipleCandidates && wanted > 1 && budget.canAffordOptional(worstCaseCalls) ? wanted : 1;
-  if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget);
+  // On the free path, an operator may reserve a separate, quota-limited model
+  // for hero shots only (RFC 0009 hero shots are the 3-5 declared per
+  // episode). Non-hero shots never carry this hint, so a scarce hosted model
+  // is never spent on generic backgrounds.
+  const tier: "hero" | "standard" | undefined = isFreeProvider(provider) && shot.importance === "hero" ? "hero" : undefined;
+  if (count === 1) return generateAccepted(provider, prompt, seed, reference, narration, logger, shotId, budget, tier);
 
   const candidates: GeneratedImage[] = [];
   const candidateErrors: string[] = [];
   for (let i = 0; i < count; i++) {
-    try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`, budget)); }
+    try { candidates.push(await generateAccepted(provider, prompt, (seed + i * 101) & 0x7fffffff, reference, narration, logger, `${shotId}#${i}`, budget, tier)); }
     catch (err) {
       if (isTerminalFreeMediaFailure(err)) throw err;
       const message = err instanceof Error ? err.message : String(err);

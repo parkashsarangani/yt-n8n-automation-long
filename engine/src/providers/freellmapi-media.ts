@@ -102,6 +102,20 @@ const TRANSIENT_IMAGE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 let imageCapacityBlockedUntil = 0;
 let imageCapacityReason = "";
 
+// A hosted hero-tier model (e.g. a trial API) typically has a small total
+// call allowance with no rate-limit headers exposing the remaining count.
+// Track spend for the whole process lifetime -- not per run, not daily reset
+// -- and stop trying once the configured ceiling is reached, so a run of bad
+// luck across many episodes can never quietly exhaust a real account limit.
+// Reserved optimistically (before the call, not after success) because a
+// failed hosted request may still count against the provider's own quota.
+let heroCallsUsed = 0;
+
+/** Test-only: reset the shared hero-call counter between test cases. */
+export function __resetFreeLLMHeroBudgetForTests(): void {
+  heroCallsUsed = 0;
+}
+
 export interface FreeLLMImageOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -113,6 +127,15 @@ export interface FreeLLMImageOptions {
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
   now?: () => number;
+  /**
+   * A separately-registered FreeLLM model reserved for RFC 0009 hero shots
+   * only (e.g. a hosted trial API routed through its own custom row). Unset
+   * by default: operators opt in deliberately, since this is meant to be a
+   * scarce, quota-bounded escalation, never the default image route.
+   */
+  heroModel?: string;
+  /** Hard, process-lifetime ceiling on hero-model calls. Default 10. */
+  heroMaxCalls?: number;
 }
 
 interface FreeLLMImageResponse {
@@ -126,6 +149,8 @@ export class FreeLLMImageProvider implements ImageProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly heroModel: string;
+  private readonly heroMaxCalls: number;
   private readonly timeoutMs: number;
   private readonly maxAttempts: number;
   private readonly retryDelayMs: number;
@@ -142,6 +167,8 @@ export class FreeLLMImageProvider implements ImageProvider {
     // portable default across installations; deployment verifies that the
     // registry has a usable image row before enabling this experiment.
     this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
+    this.heroModel = opts.heroModel?.trim() || process.env["FREELLMAPI_HERO_IMAGE_MODEL"]?.trim() || "";
+    this.heroMaxCalls = Math.max(0, Math.floor(opts.heroMaxCalls ?? Number(process.env["FREELLMAPI_HERO_IMAGE_MAX_CALLS"] ?? 10)));
     this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.maxAttempts = Math.max(1, Math.min(3, opts.maxAttempts ?? 2));
     this.retryDelayMs = Math.max(0, opts.retryDelayMs ?? 600);
@@ -151,7 +178,26 @@ export class FreeLLMImageProvider implements ImageProvider {
     this.id = `freellmapi-image/${this.model}`;
   }
 
-  async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
+  async generate(req: { prompt: string; aspect: Aspect; count?: number; tier?: "hero" | "standard" }) {
+    if (req.tier === "hero" && this.heroModel) {
+      if (heroCallsUsed < this.heroMaxCalls) {
+        heroCallsUsed += 1;
+        const spent = heroCallsUsed;
+        try {
+          const result = await this.requestOnce(this.heroModel, req);
+          console.warn(`[freellmapi-image] hero call ${spent}/${this.heroMaxCalls} succeeded via ${result.usage.model}`);
+          return result;
+        } catch (err) {
+          console.warn(`[freellmapi-image] hero model '${this.heroModel}' failed (${spent}/${this.heroMaxCalls} spent); falling back to the standard model: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else {
+        console.warn(`[freellmapi-image] hero model call ceiling reached (${this.heroMaxCalls}); using the standard model for this shot`);
+      }
+    }
+    return this.requestStandard(req);
+  }
+
+  private async requestStandard(req: { prompt: string; aspect: Aspect; count?: number }) {
     const now = this.now();
     if (now < imageCapacityBlockedUntil) {
       throw new FreeMediaTerminalError(
@@ -162,9 +208,13 @@ export class FreeLLMImageProvider implements ImageProvider {
       imageCapacityBlockedUntil = 0;
       imageCapacityReason = "";
     }
+    return this.requestOnce(this.model, req);
+  }
 
+  private async requestOnce(model: string, req: { prompt: string; aspect: Aspect; count?: number }) {
     const count = Math.max(1, Math.min(4, req.count ?? 1));
     const prompt = freeImagePrompt(req.prompt);
+    const providerRef = `freellmapi-image/${model}`;
     let res: Response | undefined;
     let lastError: Error | undefined;
 
@@ -177,7 +227,7 @@ export class FreeLLMImageProvider implements ImageProvider {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: this.model,
+            model,
             prompt,
             n: count,
             size: IMAGE_SIZES[req.aspect],
@@ -186,7 +236,7 @@ export class FreeLLMImageProvider implements ImageProvider {
           signal: timeoutSignal(this.timeoutMs),
         });
       } catch (err) {
-        lastError = new ProviderError(`${this.id} request failed: ${err instanceof Error ? err.name : "network error"}`);
+        lastError = new ProviderError(`${providerRef} request failed: ${err instanceof Error ? err.name : "network error"}`);
         if (attempt < this.maxAttempts) {
           await this.sleepImpl(this.retryDelayMs * attempt);
           continue;
@@ -200,10 +250,10 @@ export class FreeLLMImageProvider implements ImageProvider {
         imageCapacityBlockedUntil = nextUtcDailyReset(this.now());
         imageCapacityReason = body.slice(0, 240);
         throw new FreeMediaTerminalError(
-          `${this.id} exhausted the daily free image allocation; no further image calls will be made before ${new Date(imageCapacityBlockedUntil).toISOString()}`,
+          `${providerRef} exhausted the daily free image allocation; no further image calls will be made before ${new Date(imageCapacityBlockedUntil).toISOString()}`,
         );
       }
-      lastError = new ProviderError(`${this.id} returned ${res.status}: ${body.slice(0, 300)}`);
+      lastError = new ProviderError(`${providerRef} returned ${res.status}: ${body.slice(0, 300)}`);
       if (attempt < this.maxAttempts && TRANSIENT_IMAGE_STATUSES.has(res.status)) {
         await this.sleepImpl(this.retryDelayMs * attempt);
         continue;
@@ -211,23 +261,23 @@ export class FreeLLMImageProvider implements ImageProvider {
       throw lastError;
     }
 
-    if (!res?.ok) throw lastError ?? new ProviderError(`${this.id} request failed`);
+    if (!res?.ok) throw lastError ?? new ProviderError(`${providerRef} request failed`);
     const body = (await res.json()) as FreeLLMImageResponse;
     const images: Array<{ bytes: Uint8Array; media_type: string }> = [];
     for (const item of body.data ?? []) {
       if (item.b64_json) {
-        images.push(validatedImage(Uint8Array.from(Buffer.from(item.b64_json, "base64")), this.id));
+        images.push(validatedImage(Uint8Array.from(Buffer.from(item.b64_json, "base64")), providerRef));
       } else if (item.url) {
         const dl = await this.fetchImpl(item.url, { signal: timeoutSignal(this.timeoutMs) });
-        if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
-        images.push(validatedImage(new Uint8Array(await dl.arrayBuffer()), this.id));
+        if (!dl.ok) throw new ProviderError(`${providerRef} image download failed: ${dl.status}`);
+        images.push(validatedImage(new Uint8Array(await dl.arrayBuffer()), providerRef));
       }
     }
-    if (images.length === 0) throw new ProviderError(`${this.id} returned no images`);
+    if (images.length === 0) throw new ProviderError(`${providerRef} returned no images`);
 
     const actualModel = body.provider && body.model
       ? `${body.provider}/${body.model}`
-      : body.model || body.provider || this.model;
+      : body.model || body.provider || model;
     const usage: Usage = {
       input_tokens: 0,
       output_tokens: 0,
