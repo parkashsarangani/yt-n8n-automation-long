@@ -1,0 +1,26 @@
+{
+  "graph_id": "visual_benchmark",
+  "version": "1",
+  "description": "RFC 0010 isolated benchmark. Starts from an existing approved script, generates beat-level visual direction, and resolves only semantically controlled benchmark assets. It intentionally does not publish and does not replace the illustrated_story production graph until the acceptance gate is passed.",
+  "nodes": [
+    {
+      "id": "script",
+      "type": "input",
+      "schema_id": "script"
+    },
+    {
+      "id": "visual_direction",
+      "transformation": "visual_director",
+      "in": [
+        "script"
+      ]
+    },
+    {
+      "id": "visual_assets",
+      "transformation": "visual_beat_assets",
+      "in": [
+        "visual_direction"
+      ]
+    }
+  ]
+}
