@@ -42,8 +42,9 @@ services:
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
       # Experimental media routing. Media model ids are installation/catalog
-      # specific, so `auto` is the only portable default. Paid providers remain
-      # available for config-only rollback.
+      # specific. `auto` remains a portable default only while no separately-
+      # metered hero row is configured; hero escalation requires this standard
+      # image model to be pinned to a different concrete media model id.
       IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}
       FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}
@@ -58,6 +59,10 @@ services:
       # scarce escalation, never the default image route.
       FREELLMAPI_HERO_IMAGE_MODEL: ${FREELLMAPI_HERO_IMAGE_MODEL:-}
       FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${FREELLMAPI_HERO_IMAGE_MAX_CALLS:-10}
+      # Current OpenAI-compatible hero bridge has a tighter request-string
+      # contract than NVIDIA's native endpoint. Keep it configurable while
+      # defaulting conservatively enough to prevent deterministic 422 failures.
+      FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS: ${FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS:-1000}
 
       # Paid OpenAI remains only for LLM fail-open/direct rollback.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
