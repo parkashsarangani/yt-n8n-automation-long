@@ -59,6 +59,8 @@ export const STAGES: StageSpec[] = [
       "IMAGE_PROVIDER_MODE",
       "FREELLMAPI_BASE_URL",
       "FREELLMAPI_IMAGE_MODEL",
+      "FREELLMAPI_HERO_IMAGE_MODEL",
+      "FREELLMAPI_HERO_IMAGE_MAX_CALLS",
       "FREELLMAPI_MEDIA_TIMEOUT_MS",
     ],
     real: "freellmapi-image/${FREELLMAPI_IMAGE_MODEL:-auto}",
@@ -194,7 +196,9 @@ function speechProvider(env: NodeJS.ProcessEnv): string {
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
   if (imageMode(env) === "fal") return "fal/flux-2 + flux-2/edit";
-  return `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto"} (text-to-image; no reference edit)`;
+  const base = `freellmapi/${env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto"} (text-to-image; no reference edit)`;
+  const heroModel = env["FREELLMAPI_HERO_IMAGE_MODEL"]?.trim();
+  return heroModel ? `${base} + hero-shot escalation to ${heroModel}` : base;
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {

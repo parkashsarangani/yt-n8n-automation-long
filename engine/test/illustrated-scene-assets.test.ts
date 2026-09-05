@@ -101,6 +101,35 @@ test("FreeLLM route removes blind hero best-of-N quota multiplication", async ()
   assert.equal(ctx.calls.length, 4, "the four directed shots should each get one baseline free image call");
 });
 
+test("FreeLLM route requests the hero tier only for hero shots, never for connective shots", async () => {
+  const requests: Array<{ prompt: string; tier?: "hero" | "standard" }> = [];
+  const ctx = {
+    media: {
+      images: {
+        id: "cartoon-art/freellmapi-image/auto",
+        async generate(req: { prompt: string; tier?: "hero" | "standard" }) {
+          requests.push({ prompt: req.prompt, tier: req.tier });
+          return { images: [{ bytes: new TextEncoder().encode(`img-${requests.length}`), media_type: "image/png" }], usage: { input_tokens: 0, output_tokens: 0, cost_usd: 0, provider: "freellmapi", model: "auto" } };
+        },
+      },
+    },
+    blobs: {
+      put: async (bytes: Uint8Array) => ({ uri: `blob://sha256:${Buffer.from(bytes).toString("hex").padStart(64, "0").slice(0, 64)}` }),
+      get: async () => new Uint8Array(),
+    },
+    logger: { log: () => {}, warn: () => {}, error: () => {} },
+    attemptNumber: 1,
+    progress: async () => {},
+  } as unknown as WorkerContext;
+
+  await makeIllustratedSceneAssetsWorker().execute(inputs(), ctx);
+
+  const heroPrompts = requests.filter((r) => r.tier === "hero").map((r) => r.prompt);
+  const standardPrompts = requests.filter((r) => r.tier !== "hero").map((r) => r.prompt);
+  assert.equal(heroPrompts.length, 3, "the three declared hero shots must request the hero tier");
+  assert.equal(standardPrompts.length, 1, "the one connective shot must not request the hero tier");
+});
+
 test("a retry reuses every unchanged successful shot pack instead of rerolling images", async () => {
   const worker = makeIllustratedSceneAssetsWorker();
   const ctx = ctxWithProvider(true);

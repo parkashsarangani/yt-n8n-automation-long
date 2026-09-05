@@ -52,6 +52,13 @@ services:
       FREELLMAPI_SPEECH_FORMAT: ${FREELLMAPI_SPEECH_FORMAT:-mp3}
       FREELLMAPI_MEDIA_TIMEOUT_MS: ${FREELLMAPI_MEDIA_TIMEOUT_MS:-120000}
 
+      # Optional hero-shot escalation: a separately-registered, quota-limited
+      # model (e.g. a hosted trial API) reserved for RFC 0009 hero shots only.
+      # Empty by default -- deliberately opt-in, since this is meant to stay a
+      # scarce escalation, never the default image route.
+      FREELLMAPI_HERO_IMAGE_MODEL: ${FREELLMAPI_HERO_IMAGE_MODEL:-}
+      FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${FREELLMAPI_HERO_IMAGE_MAX_CALLS:-10}
+
       # Paid OpenAI remains only for LLM fail-open/direct rollback.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}

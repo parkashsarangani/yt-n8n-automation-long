@@ -33,6 +33,7 @@ type PackCapable = ImageProvider & {
     aspect: Aspect;
     seed: number;
     reference?: GeneratedImage;
+    tier?: "hero" | "standard";
   }) => Promise<{ images: GeneratedImage[]; usage?: Usage }>;
 };
 
@@ -63,18 +64,18 @@ export class StockImageProvider implements ImageProvider {
     this.id = `cartoon-art/${this.delegate.id}`;
   }
 
-  generate(req: { prompt: string; aspect: Aspect; count?: number }) {
+  generate(req: { prompt: string; aspect: Aspect; count?: number; tier?: "hero" | "standard" }) {
     return this.delegate.generate(req);
   }
 
-  async generatePack(req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage }) {
+  async generatePack(req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage; tier?: "hero" | "standard" }) {
     if (this.delegate.generatePack) return this.delegate.generatePack(req);
 
     const images: GeneratedImage[] = [];
     let units = 0;
     let actualModel = process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
     for (const prompt of req.prompts) {
-      const out = await this.delegate.generate({ prompt, aspect: req.aspect, count: 1 });
+      const out = await this.delegate.generate({ prompt, aspect: req.aspect, count: 1, ...(req.tier ? { tier: req.tier } : {}) });
       const image = out.images[0];
       if (!image) throw new Error(`${this.delegate.id} returned no image for shot pack`);
       images.push(image);
