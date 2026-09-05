@@ -76,6 +76,18 @@ interface ModeResult extends Partial<ResolvedBeat> {
   preview?: QaImage;
 }
 
+interface ReferenceCapableImageProvider {
+  generatePack?: (req: {
+    prompts: string[];
+    aspect: "16:9";
+    seed: number;
+    reference?: QaImage;
+  }) => Promise<{
+    images: QaImage[];
+    usage?: unknown;
+  }>;
+}
+
 function capabilities(): VisualCapabilities {
   return {
     stock_video: Boolean(process.env["PEXELS_API_KEY"]?.trim()),
@@ -131,6 +143,15 @@ function strengthenedPrompt(beat: VisualBeat, concept: string): string {
   ].filter(Boolean).join(" ");
 }
 
+function stableSeed(beatId: string, candidateIndex: number): number {
+  let hash = 2166136261;
+  for (const char of `${beatId}:${candidateIndex}`) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) & 0x7fffffff;
+}
+
 async function loadAlignedPlan(
   plan: VisualBeatPlan,
   voice: VoiceArtifact,
@@ -156,6 +177,7 @@ async function generateImage(
   beat: VisualBeat,
   ctx: WorkerContext,
   previous?: QaImage,
+  continuityReference?: QaImage,
 ): Promise<ModeResult> {
   const provider = ctx.media.images;
   if (!provider) throw new Error("generated_image requires an image provider");
@@ -164,18 +186,35 @@ async function generateImage(
   }
   const concepts = promptsForBeat(beat);
   if (concepts.length < 3) throw new Error(`${beat.id}: Visual Director supplied fewer than 3 image candidates`);
+  const referenceCapable = provider as typeof provider & ReferenceCapableImageProvider;
+  if (continuityReference && !referenceCapable.generatePack) {
+    throw new Error(`${beat.id}: recurring continuity group requires a reference-conditioned image provider`);
+  }
 
   const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult; prompt: string }> = [];
   const failures: string[] = [];
-  for (const concept of concepts) {
+  for (let index = 0; index < concepts.length; index++) {
+    const concept = concepts[index]!;
     try {
-      const output = await provider.generate({
-        prompt: strengthenedPrompt(beat, concept),
-        aspect: "16:9",
-        count: 1,
-        tier: beat.hero_role ? "hero" : "standard",
-      });
-      const image = output.images[0];
+      const prompt = strengthenedPrompt(beat, concept);
+      let image: QaImage | undefined;
+      if (continuityReference && referenceCapable.generatePack) {
+        const pack = await referenceCapable.generatePack({
+          prompts: [prompt],
+          aspect: "16:9",
+          seed: stableSeed(beat.id, index),
+          reference: continuityReference,
+        });
+        image = pack.images[0];
+      } else {
+        const output = await provider.generate({
+          prompt,
+          aspect: "16:9",
+          count: 1,
+          tier: beat.hero_role ? "hero" : "standard",
+        });
+        image = output.images[0];
+      }
       if (!image) {
         failures.push("provider returned no image");
         continue;
@@ -264,8 +303,6 @@ async function resolveStockVideo(
 
     accepted.sort((a, b) => weightedVisualScore(b.qa.scores) - weightedVisualScore(a.qa.scores));
     const best = accepted[0];
-    // Only move to the next materially different agent-authored query when the
-    // current query produced no semantically admissible segment.
     if (!best) continue;
 
     const segment = await extractVideoSegment(best.source.bytes, best.start, best.end);
@@ -331,8 +368,6 @@ function motionGraphic(beat: VisualBeat): ModeResult {
         : [],
       rfc0010Brief: brief,
     }),
-    // Final rendered-frame QA, not the planning worker, marks a graphic as
-    // semantically verified because only the final Remotion pixels are evidence.
     semantic_verified: false,
     candidate_count: 1,
   };
@@ -392,9 +427,10 @@ async function resolveMode(
   mode: VisualMode,
   ctx: WorkerContext,
   previous?: QaImage,
+  continuityReference?: QaImage,
 ): Promise<ModeResult> {
   switch (mode) {
-    case "generated_image": return generateImage(beat, ctx, previous);
+    case "generated_image": return generateImage(beat, ctx, previous, continuityReference);
     case "stock_video": return resolveStockVideo(beat, ctx, previous);
     case "generated_video": return generateVideo(beat, ctx, previous);
     case "motion_graphic": return motionGraphic(beat);
@@ -411,7 +447,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
   return {
     name: "visual_beat_assets",
     kind: "worker",
-    version: opts.version ?? "3",
+    version: opts.version ?? "4",
     consumes: [
       { schema_id: "visual_beat_plan", range: "^1", as: "plan" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -428,6 +464,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       const history: VisualHistoryEntry[] = [];
       const blobs: BlobRef[] = [];
       const beats: ResolvedBeat[] = [];
+      const continuityReferences = new Map<string, QaImage>();
       let previousPreview: QaImage | undefined;
       const available = capabilities();
 
@@ -436,17 +473,20 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         let selected = selectVisualMode(beat, history, available);
         let result: ModeResult | null = null;
         let note = "";
+        const continuityReference = beat.continuity.group
+          ? continuityReferences.get(beat.continuity.group)
+          : undefined;
 
         if (selected) {
           try {
-            result = await resolveMode(beat, selected, ctx, previousPreview);
+            result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
           } catch (error) {
             note = error instanceof Error ? error.message : String(error);
             const alternate = alternateMode(beat, selected);
             if (alternate && available[alternate]) {
               try {
                 selected = alternate;
-                result = await resolveMode(beat, selected, ctx, previousPreview);
+                result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
                 note = `primary route failed; used declared alternate: ${note}`;
               } catch (fallbackError) {
                 note = `${note}; alternate failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`;
@@ -461,7 +501,12 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         }
 
         if (result?.blobs) blobs.push(...result.blobs);
-        if (result?.preview) previousPreview = result.preview;
+        if (result?.preview) {
+          previousPreview = result.preview;
+          if (beat.continuity.group && beat.continuity.entities.length > 0) {
+            continuityReferences.set(beat.continuity.group, result.preview);
+          }
+        }
         const resolved: ResolvedBeat = {
           id: beat.id,
           scene_index: beat.scene_index,
