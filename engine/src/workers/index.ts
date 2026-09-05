@@ -14,6 +14,7 @@ import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts
 import { makePublishWorker, type PublishWorkerOptions } from "./publish.ts";
 import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
+import { makeGrowthPackageReleaseWorker } from "./growth-package-release.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
@@ -26,6 +27,7 @@ export {
   makePublishWorker,
   makeMeasureWorker,
   makeQaWorker,
+  makeGrowthPackageReleaseWorker,
   makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker,
   makeVisualAssetReleaseWorker,
@@ -45,6 +47,7 @@ export interface WorkerSetOptions {
 
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
   const workers: TransformationDef[] = [
+    makeGrowthPackageReleaseWorker(),
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),

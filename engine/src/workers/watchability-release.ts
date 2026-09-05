@@ -14,6 +14,10 @@ import {
   watchabilityReleaseDeficit,
   type WatchabilityDimension,
 } from "../watchability-policy.ts";
+import {
+  PACKAGE_CONTRACT_MARKER,
+  validateGrowthPackageSelection,
+} from "../growth-package-contract.ts";
 
 export {
   MATERIAL_WEAKNESS_FLOOR,
@@ -21,55 +25,13 @@ export {
   WATCHABILITY_AVERAGE_THRESHOLD,
   WATCHABILITY_THRESHOLDS,
 } from "../watchability-policy.ts";
+export { validateGrowthPackageSelection } from "../growth-package-contract.ts";
 
 type Dimension = WatchabilityDimension;
-type PackageFamily = "curiosity" | "conflict" | "reversal";
 type WatchabilityReport = { verdict?: unknown; abandon_recommended?: unknown; abandon_reason?: unknown; scores?: Partial<Record<Dimension, unknown>> };
-type GrowthVariant = { family?: unknown; title?: unknown; thumbnail_concept?: unknown };
-type GrowthPackage = {
-  selected_title?: unknown;
-  selected_title_family?: unknown;
-  selected_thumbnail_concept?: unknown;
-  selected_thumbnail_family?: unknown;
-  next_video_bridge?: unknown;
-  variants?: unknown;
-};
+type GrowthPackage = { next_video_bridge?: unknown };
 type ScriptScene = { scene_index?: unknown; point?: unknown; narration?: unknown; is_outro?: unknown; [key: string]: unknown };
 type ScriptPayload = { scenes?: unknown; word_count?: unknown; [key: string]: unknown };
-
-function isFamily(value: unknown): value is PackageFamily {
-  return value === "curiosity" || value === "conflict" || value === "reversal";
-}
-
-export function validateGrowthPackageSelection(payload: unknown): string[] {
-  if (!payload || typeof payload !== "object") return [];
-  const p = payload as GrowthPackage;
-  const variants = Array.isArray(p.variants) ? p.variants.filter((v): v is GrowthVariant => Boolean(v) && typeof v === "object") : [];
-  const errors: string[] = [];
-  const families = variants.map((v) => v.family).filter(isFamily);
-  for (const family of ["curiosity", "conflict", "reversal"] as const) {
-    if (families.filter((v) => v === family).length !== 1) errors.push(`expected exactly one ${family} variant`);
-  }
-
-  const titleFamily = isFamily(p.selected_title_family)
-    ? p.selected_title_family
-    : variants.find((v) => v.title === p.selected_title)?.family;
-  const thumbnailFamily = isFamily(p.selected_thumbnail_family)
-    ? p.selected_thumbnail_family
-    : variants.find((v) => v.thumbnail_concept === p.selected_thumbnail_concept)?.family;
-
-  if (!isFamily(titleFamily)) errors.push("selected title has no resolvable package family");
-  else {
-    const variant = variants.find((v) => v.family === titleFamily);
-    if (!variant || variant.title !== p.selected_title) errors.push(`selected title does not exactly match the ${titleFamily} variant`);
-  }
-  if (!isFamily(thumbnailFamily)) errors.push("selected thumbnail has no resolvable package family");
-  else {
-    const variant = variants.find((v) => v.family === thumbnailFamily);
-    if (!variant || variant.thumbnail_concept !== p.selected_thumbnail_concept) errors.push(`selected thumbnail does not exactly match the ${thumbnailFamily} variant`);
-  }
-  return errors;
-}
 
 function wordCount(scenes: ScriptScene[]): number {
   return scenes.reduce((total, scene) => {
@@ -158,7 +120,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "3",
+    version: "4",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
@@ -174,7 +136,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       }
       const packageErrors = validateGrowthPackageSelection(inputs["package"]?.payload);
       if (packageErrors.length > 0) {
-        throw new Error(`watchability release blocked (PACKAGE_CONTRACT): ${packageErrors.join("; ")}`);
+        throw new Error(`watchability release blocked (${PACKAGE_CONTRACT_MARKER}): ${packageErrors.join("; ")}`);
       }
       return { payload: enforceContinuationBridge(inputs["script"]!.payload, inputs["package"]?.payload) };
     },

@@ -58,7 +58,7 @@ test("performance window keeps measured outcomes attached to the creative decisi
     scores: { clickability: 0.82, story_potential: 0.88, audience_size: 0.76 },
     selection_rationale: "The conflict package makes the injustice legible before the click and sets up a concrete, visual reversal.",
     next_video_bridge: "Next: the cleaner who noticed what every engineer missed.",
-  }, "growth_packager", [intent.artifact_id]);
+  }, "growth_package_release", [intent.artifact_id]);
 
   const story = await put("story", {
     topic: "The ignored mechanic who was right",

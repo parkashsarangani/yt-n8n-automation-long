@@ -11,6 +11,7 @@
  */
 import type { AgentDef } from "./runner.ts";
 import type { Artifact } from "./artifact.ts";
+import { validateGrowthPackageReleaseability } from "./growth-package-contract.ts";
 
 export const HARD_ERROR_PREFIX = "HARD:";
 
@@ -78,6 +79,11 @@ export function agentSemanticValidationErrors(
   _inputs: Record<string, Artifact>,
 ): string[] {
   if (def.name === "episode_director") return hard(unsafeDirectionTextPrompts(payload));
-  if (def.name === "growth_packager") return hard(continuationBridgeErrors(payload));
+  if (def.name === "growth_packager") {
+    return hard([
+      ...continuationBridgeErrors(payload),
+      ...validateGrowthPackageReleaseability(payload),
+    ]);
+  }
   return [];
 }
