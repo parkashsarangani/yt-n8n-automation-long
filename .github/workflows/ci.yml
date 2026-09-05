@@ -31,7 +31,7 @@ jobs:
             exit 1
           }
 
-      - name: Shared FreeLLMAPI deployment contract
+      - name: RFC 0010 provider deployment contract
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -43,22 +43,24 @@ jobs:
           for required in (
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
               "FREELLMAPI_API_KEY:",
-              "FREELLMAPI_TEXT_MODEL:",
+              "FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}",
               "FREELLMAPI_VISION_MODEL:",
-              "IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}",
-              "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}",
-              "FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}",
-              "FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-auto}",
-              "FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}",
+              "FAL_KEY:",
+              "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
+              "FAL_EDIT_MODEL:",
+              "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}",
           ):
-              assert required in compose, f"missing shared FreeLLMAPI client contract: {required}"
+              assert required in compose, f"missing RFC 0010 provider contract: {required}"
 
           for forbidden in (
               r"(?m)^  freellmapi:\s*$",
               r"(?m)^  llm-gateway:\s*$",
               r"(?m)^  freellmapi_data:\s*$",
+              r"IMAGE_PROVIDER_MODE",
+              r"FREELLMAPI_IMAGE_MODEL",
+              r"FREELLMAPI_HERO_IMAGE",
           ):
-              assert not re.search(forbidden, compose), f"Long must not own shared FreeLLMAPI infrastructure: {forbidden}"
+              assert not re.search(forbidden, compose), f"obsolete image infrastructure remains in compose: {forbidden}"
 
           for required in (
               "yt-n8n-automation-shorts_default",
@@ -66,31 +68,37 @@ jobs:
               "http://freellmapi:3001/api/ping",
               "FREELLMAPI_API_KEY:",
               "LLM_ROUTER_MODE:",
-              "IMAGE_PROVIDER_MODE:",
-              "SPEECH_PROVIDER_MODE:",
-              "FREELLMAPI_IMAGE_MODEL:",
-              "FREELLMAPI_SPEECH_MODEL:",
-              "/v1/images/generations",
-              "/v1/audio/speech",
-              "audio/wav",
-              "Models -> Image",
-              "standard image row",
+              "FREELLMAPI_TEXT_MODEL: gemini-2.5-flash",
+              "/v1/chat/completions",
+              "SPEECH_PROVIDER_MODE: elevenlabs",
+              "FAL_KEY:",
+              "FAL_MODEL:",
+              "sole image-generation provider",
               "direct OpenAI fail-open",
           ):
-              assert required in deploy, f"missing production shared-media contract: {required}"
+              assert required in deploy, f"missing production RFC 0010 contract: {required}"
 
-          # The unified key is inference-only in FreeLLMAPI v0.9.5. Long must
-          # never use it to impersonate a dashboard session or mutate /api/media.
+          for forbidden in (
+              "IMAGE_PROVIDER_MODE:",
+              "FREELLMAPI_IMAGE_MODEL:",
+              "FREELLMAPI_HERO_IMAGE_MODEL:",
+              "/v1/images/generations",
+              "Models -> Image",
+              "standard image row",
+          ):
+              assert forbidden not in deploy, f"obsolete FreeLL image deployment contract remains: {forbidden}"
+
+          # The unified key is inference-only. Long must never impersonate a
+          # dashboard session or mutate the Shorts-owned FreeLL media registry.
           assert "fetch(base+'/api/media')" not in deploy
           assert "'/api/media/'" not in deploy
           assert "x-dashboard-token" not in deploy.lower()
 
           assert "secrets." + "FREELLMAPI_API_KEY" in deploy
           assert "vars." + "LLM_ROUTER_MODE" in deploy
-          assert "vars." + "IMAGE_PROVIDER_MODE" in deploy
-          assert "vars." + "SPEECH_PROVIDER_MODE" in deploy
-          assert "'freellmapi'" in deploy
-          print("Shared FreeLLMAPI deployment contract OK")
+          assert "secrets." + "FAL_KEY" in deploy
+          assert "vars." + "FAL_MODEL" in deploy
+          print("RFC 0010 provider deployment contract OK")
           PY
 
   engine:
