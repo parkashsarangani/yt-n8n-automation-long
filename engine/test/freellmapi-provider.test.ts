@@ -51,6 +51,8 @@ function sseDirect(content = '{"ok":true}'): Response {
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
+const noWait = { freeRetryDelayMs: 0, sleepImpl: async () => {} } as const;
+
 test("free-first reasoning uses shared FreeLLMAPI and records the actual free route", async () => {
   await withEnv({
     FREELLMAPI_API_KEY: "freellmapi-test",
@@ -59,6 +61,7 @@ test("free-first reasoning uses shared FreeLLMAPI and records the actual free ro
   }, async () => {
     const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     const provider = new OpenAIProvider({
+      ...noWait,
       fetchImpl: async (url, init) => {
         calls.push({
           url: String(url),
@@ -78,6 +81,9 @@ test("free-first reasoning uses shared FreeLLMAPI and records the actual free ro
     assert.equal(calls[0]!.body["stream"], false);
     assert.deepEqual(calls[0]!.body["response_format"], { type: "json_object" });
     assert.equal(calls[0]!.body["max_completion_tokens"], 99);
+    const message = ((calls[0]!.body["messages"] as Array<{ content: string }>)[0]!.content);
+    assert.match(message, /Copy property names exactly/);
+    assert.match(message, /confidence\.overall/);
     assert.deepEqual(result.value, { ok: true });
     assert.equal(result.usage.provider, "freellmapi");
     assert.equal(result.usage.model, "free-actual-model");
@@ -86,7 +92,7 @@ test("free-first reasoning uses shared FreeLLMAPI and records the actual free ro
   });
 });
 
-test("FreeLLMAPI failure retries the same reasoning call through direct streaming OpenAI", async () => {
+test("transient FreeLLMAPI failure gets a second free attempt before direct paid fallback", async () => {
   await withEnv({
     FREELLMAPI_API_KEY: "freellmapi-test",
     OPENAI_API_KEY: "sk-paid",
@@ -96,25 +102,71 @@ test("FreeLLMAPI failure retries the same reasoning call through direct streamin
     const provider = new OpenAIProvider({
       apiKey: "sk-paid",
       model: "gpt-5.6-luna",
+      ...noWait,
       fetchImpl: async (url, init) => {
         calls.push({ url: String(url), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
-        if (calls.length === 1) return new Response("quota", { status: 429 });
+        if (calls.length <= 2) return new Response("quota", { status: 429 });
         return sseDirect();
       },
     });
 
     const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
 
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     assert.equal(calls[0]!.url, "http://freellmapi:3001/v1/chat/completions");
-    assert.equal(calls[0]!.body["model"], "auto:smart");
-    assert.equal(calls[0]!.body["stream"], false);
-    assert.equal(calls[1]!.url, "https://api.openai.com/v1/chat/completions");
-    assert.equal(calls[1]!.body["model"], "gpt-5.6-luna");
-    assert.equal(calls[1]!.body["stream"], true, "paid fallback must retain the existing SSE path");
+    assert.equal(calls[1]!.url, "http://freellmapi:3001/v1/chat/completions");
+    assert.equal(calls[2]!.url, "https://api.openai.com/v1/chat/completions");
+    assert.equal(calls[2]!.body["model"], "gpt-5.6-luna");
+    assert.equal(calls[2]!.body["stream"], true, "paid fallback must retain the existing SSE path");
     assert.equal(result.usage.provider, "openai");
     assert.equal(result.providerRef, "openai/gpt-5.6-luna");
     assert.ok(result.usage.cost_usd > 0);
+  });
+});
+
+test("malformed FreeLLM structured output is retried on FreeLLM before paid fallback", async () => {
+  await withEnv({
+    FREELLMAPI_API_KEY: "freellmapi-test",
+    OPENAI_API_KEY: "sk-paid",
+  }, async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "sk-paid",
+      ...noWait,
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        return urls.length === 1 ? freeJson("not-json") : freeJson('{"ok":true}', "free-recovered");
+      },
+    });
+
+    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
+    assert.deepEqual(urls, [
+      "http://freellmapi:3001/v1/chat/completions",
+      "http://freellmapi:3001/v1/chat/completions",
+    ]);
+    assert.equal(result.usage.provider, "freellmapi");
+    assert.equal(result.usage.model, "free-recovered");
+  });
+});
+
+test("non-retryable FreeLLM caller error goes directly to configured fail-open", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "freellmapi-test", OPENAI_API_KEY: "sk-paid" }, async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "sk-paid",
+      ...noWait,
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        if (urls.length === 1) return new Response("bad request", { status: 400 });
+        return sseDirect();
+      },
+    });
+    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
+    assert.deepEqual(urls, [
+      "http://freellmapi:3001/v1/chat/completions",
+      "https://api.openai.com/v1/chat/completions",
+    ]);
+    assert.equal(result.usage.provider, "openai");
   });
 });
 
@@ -127,6 +179,7 @@ test("direct rollback mode bypasses FreeLLMAPI even when its key is configured",
     const urls: string[] = [];
     const provider = new OpenAIProvider({
       apiKey: "sk-paid",
+      ...noWait,
       fetchImpl: async (url) => {
         urls.push(String(url));
         return sseDirect();
@@ -138,7 +191,7 @@ test("direct rollback mode bypasses FreeLLMAPI even when its key is configured",
   });
 });
 
-test("strict free mode never spends paid fallback after a FreeLLMAPI failure", async () => {
+test("strict free mode retries free but never spends paid fallback", async () => {
   await withEnv({
     LLM_ROUTER_FAIL_OPEN_TO_DIRECT: "false",
     FREELLMAPI_API_KEY: "freellmapi-test",
@@ -147,6 +200,7 @@ test("strict free mode never spends paid fallback after a FreeLLMAPI failure", a
     const urls: string[] = [];
     const provider = new OpenAIProvider({
       apiKey: "sk-paid",
+      ...noWait,
       fetchImpl: async (url) => {
         urls.push(String(url));
         return new Response("down", { status: 503 });
@@ -157,7 +211,10 @@ test("strict free mode never spends paid fallback after a FreeLLMAPI failure", a
       () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
       (err: unknown) => err instanceof ProviderError && /freellmapi/.test(err.message),
     );
-    assert.deepEqual(urls, ["http://freellmapi:3001/v1/chat/completions"]);
+    assert.deepEqual(urls, [
+      "http://freellmapi:3001/v1/chat/completions",
+      "http://freellmapi:3001/v1/chat/completions",
+    ]);
   });
 });
 
@@ -166,6 +223,7 @@ test("missing FreeLLMAPI key fails open directly without a doomed network reques
     const urls: string[] = [];
     const provider = new OpenAIProvider({
       apiKey: "sk-paid",
+      ...noWait,
       fetchImpl: async (url) => {
         urls.push(String(url));
         return sseDirect();

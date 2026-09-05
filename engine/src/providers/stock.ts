@@ -72,12 +72,14 @@ export class StockImageProvider implements ImageProvider {
 
     const images: GeneratedImage[] = [];
     let units = 0;
+    let actualModel = process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
     for (const prompt of req.prompts) {
       const out = await this.delegate.generate({ prompt, aspect: req.aspect, count: 1 });
       const image = out.images[0];
       if (!image) throw new Error(`${this.delegate.id} returned no image for shot pack`);
       images.push(image);
       units += out.usage.units ?? out.images.length;
+      if (out.usage.model) actualModel = out.usage.model;
     }
     return {
       images,
@@ -87,7 +89,7 @@ export class StockImageProvider implements ImageProvider {
         units,
         cost_usd: 0,
         provider: "freellmapi",
-        model: process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "flux",
+        model: actualModel,
       } satisfies Usage,
     };
   }
