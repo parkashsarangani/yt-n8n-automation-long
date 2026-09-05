@@ -1,194 +1,273 @@
 # RFC 0010: Visual Director and Multimodal Asset Routing
 
-- **Status:** Implementing
+- **Status:** Implemented; rendered comparison must pass before production migration
 - **Date:** 2026-09-05
 - **Builds on:** RFC 0008, RFC 0009
 - **Objective:** Make every visual beat explain, intensify, or emotionally support the exact narration being heard, while maintaining enough visual novelty to hold attention.
 
 ## Context
 
-The long-form pipeline now has capable scripting, voice-over, rendering, captions, packaging, quality gates, and analytics infrastructure. Repeated output reviews show that the remaining product-level failure is narrower: the viewer is too often shown an image, diagram, or motion element that is only loosely related to the sentence being spoken, or is semantically correct but visually uninteresting.
+Repeated output reviews isolated the remaining product-level weakness: narration can be good while the viewer is shown something only loosely related, generic, repetitive, or semantically correct but visually uninteresting. More renderer features do not solve that.
 
-More renderer features do not solve this. RFC 0010 therefore freezes unrelated production work and treats visual selection as the primary optimization problem.
+RFC 0010 therefore freezes unrelated work and makes visual relevance + visual interest the optimization target:
 
-The governing principle is:
+> **For each semantic narration beat, decide what the viewer must see, then choose the most interesting truthful representation, verify the actual pixels, and reject weak filler.**
 
-> **For each 2–6 second narration beat, decide first what the viewer must see to understand the beat, then decide the most interesting truthful way to show it.**
+RFC 0008's single-narrator/no-host simplification remains. RFC 0009's package, hook, watchability, QA and analytics objectives remain. The existing `illustrated_story` graph remains the production control until this RFC passes its rendered benchmark.
 
-This RFC supersedes RFC 0008's assumption that hand-drawn illustrated stills should be the default visual representation. RFC 0008's single-narrator/no-host simplification remains. RFC 0009's package, hook, hero-beat, watchability, QA, and analytics objectives remain.
+## End-to-end decision
 
-## Decision 1: `visual_beat_plan` is the visual source of truth
+```text
+existing approved script + existing voice + existing production render
+  -> full-script Visual Director
+  -> 2-6s semantic VisualBeats
+  -> measured ElevenLabs timestamp alignment
+  -> visual-job router
+  -> 3-5 agent-authored candidate strategies
+  -> retrieve/generate candidates
+  -> actual-frame multimodal QA
+  -> best accepted candidate + exact video in/out
+  -> 20-30s novelty controller
+  -> audio-aligned visual timeline
+  -> existing long-compose/Remotion renderer
+  -> rendered-frame QA with previous/next visuals
+  -> blind control-vs-V2 comparison
+  -> executable PASS/FAIL kill gate
+```
 
-The Visual Director consumes the full script and optional growth package and emits immutable `visual_beat_plan` artifacts. Beats are normally 2–6 seconds and are intentionally smaller than narration scenes when the visual information needs to change inside a scene.
+## 1. `visual_beat_plan` is the visual source of truth
 
-Each beat records:
+The Visual Director reads the full script and the already-generated voice artifact. It uses the whole script as narrative context but emits only a contiguous opening benchmark window of complete narration scenes: target >=90 seconds and <=120 seconds when a complete-scene boundary permits it. It never cuts a narration scene merely to hit a clock target.
 
-- exact narration and neighbouring context;
-- semantic purpose and viewer takeaway;
-- emotional intent and importance;
-- required entities/actions/states;
-- forbidden or misleading imagery;
+Each `VisualBeat` records:
+
+- exact contiguous narration text and neighbouring context;
+- semantic purpose, information, emotion, importance and viewer takeaway;
+- concrete required entities/actions/states;
+- forbidden/generic/misleading imagery;
 - preferred and fallback visual modes;
-- continuity group and entity ids;
-- novelty requirement and requested change strength;
-- concrete asset query/prompt and composition guidance.
+- image style (`realistic`, `illustration`, or not applicable);
+- stable continuity group/entity ids;
+- novelty requirement and change strength;
+- composition, camera treatment, subject placement and explanatory pattern;
+- 3-5 materially different stock queries;
+- 3-5 materially different generated-image concepts;
+- generated-video motion prompt;
+- deterministic motion-graphic brief.
 
-The director must answer two independent questions:
+The director answers two independent questions:
 
-1. **Semantic:** what must be visible for the viewer to understand this narration?
-2. **Retention:** what is the strongest non-misleading way to show it?
+1. **Semantic:** what must be visible for this narration to make immediate sense?
+2. **Retention:** what is the strongest truthful way to show it now?
 
-A beautiful but irrelevant visual fails. A literal but generic visual also fails.
+Workers do not invent alternative meanings. Candidate diversity is authored by the agent, while workers retrieve/generate/score those declared alternatives.
 
-## Decision 2: route by visual job, not by a global house style
-
-The supported modes are:
+## 2. Route by visual job, not by a global cartoon style
 
 | Mode | Use when |
 |---|---|
 | `stock_video` | Authentic real-world footage exists and action/environment matters |
-| `generated_image` | Historical, conceptual, narrative, emotional, or cinematic scenes need a specific composition |
-| `motion_graphic` | Numbers, comparisons, maps, timelines, cause/effect, processes, labels, or transformations are the explanation |
-| `generated_video` | Hook, reveal, climax, transformation, or another high-value beat materially benefits from real motion |
+| `generated_image` | Historical, conceptual, narrative, emotional, cinematic or otherwise specific imagery is needed |
+| `motion_graphic` | Numbers, scale, comparisons, maps, timelines, cause/effect, processes, labels or transformations are the explanation |
+| `generated_video` | Hook, reveal, climax, turn or transformation materially benefits from real motion |
 
-Generated video is an escalation, not a default. If it is unavailable, the beat falls back to an approved alternate mode.
+Procedural rendering remains for things it does well: maps, timelines, scale comparison, process/flow, labels and deterministic transformations. Complex historical environments, crowds, nuanced human emotion, landscapes, machinery and cinematic physical scenes are not forced into generic cartoon boxes.
 
-Procedural/cartoon rendering is retained only where it is structurally strong: charts, timelines, maps, comparisons, arrows, labels, processes, and deterministic transformations. It must not be forced to portray complex historical environments, crowds, nuanced human emotion, natural landscapes, or cinematic physical scenes.
+Motion-graphic beats map into the existing semantic Remotion renderer (`map`, `timeline`, `scale-comparison`, `flow-system`, `animated-statement`) rather than creating another animation DSL.
 
-## Decision 3: fal.ai owns image generation
-
-Image generation is direct through fal.ai. FreeLLMAPI image generation is removed from the Long project because its image quality, quota behaviour, and lack of reference-conditioned continuity make it unsuitable for the production target.
-
-Provider boundary:
+## 3. Provider boundary
 
 ```text
-TEXT_PROVIDER=freellmapi
-TEXT_MODEL=gemini-2.5-flash
+TEXT / REASONING
+FreeLLMAPI -> concrete Google model: gemini-2.5-flash
+(no auto/auto:* production text routing)
 
-IMAGE_PROVIDER=fal
-IMAGE_MODEL=fal-ai/flux-2 (configurable)
+IMAGE GENERATION
+fal.ai -> FLUX.2 / configured fal image model
+(no FreeLLMAPI image generation or image fallback)
+
+PREMIUM TEXT-TO-VIDEO
+fal.ai -> FAL_TEXT_TO_VIDEO_MODEL
+(default: Kling 2.5 Turbo Pro text-to-video)
+
+STOCK VIDEO
+Pexels -> candidates only; no metadata-only acceptance
+
+NARRATION
+ElevenLabs existing production voice path
 ```
 
-FreeLLMAPI remains a text/reasoning route and may remain a speech route where configured. It is not an image provider and must not be an image fallback.
+`FAL_TEXT_TO_VIDEO_MODEL` is deliberately separate from long-compose's older `FAL_VIDEO_MODEL` image-to-video contract.
 
-For text, production may not use FreeLLMAPI `auto`, `auto:*`, or another implicit routing profile. A concrete Google Gemini model is pinned. If the configured model is invalid or unavailable, the request fails or uses the explicitly configured paid fail-open; it must not silently degrade to a weaker FreeLLM text model.
+FreeLLMAPI may still serve multimodal QA. It does not generate images.
 
-## Decision 4: actual visual content must be verified
+## 4. Voice timing is measured, not guessed
 
-Asset metadata, search terms, provider descriptions, and thumbnails are not sufficient evidence of semantic match.
+Visual Director beat seconds are provisional. Before asset resolution, the benchmark reads each voice clip's ElevenLabs character alignment artifact and maps every beat's exact narration phrase onto measured timestamps.
 
-Before a retrieved stock clip can be accepted, the resolver must inspect representative frames from the candidate segment and judge them against the beat contract. The judge scores at least:
+Rules:
 
+- beat narration must be an exact sequential phrase from the voice transcript;
+- paraphrases fail closed rather than receiving guessed timing;
+- first beat starts at scene 0;
+- each beat ends at the actual start of the next phrase;
+- the last beat ends at the measured voice-clip duration;
+- the final timeline rejects gaps, overlaps and uncovered trailing narration.
+
+Asset duration, stock windows, generated-video duration and render timing therefore use real narration timing.
+
+## 5. Candidate generation and verification
+
+### Generated images
+
+For an image beat, the resolver generates 3-5 agent-authored concepts through fal.ai. Every candidate is checked for:
+
+- accidental readable text;
+- narration contradiction;
 - semantic match;
 - required action/state match;
 - visual interest;
-- continuity with adjacent beats.
+- continuity against the preceding selected visual;
+- generic filler;
+- "why am I seeing this?" failure.
 
-It also identifies the best in/out segment rather than accepting a whole source clip blindly.
+Only candidates clearing every hard floor enter ranking. A pretty but semantically weak image cannot win.
 
-The acceptance floor for the benchmark is:
+### Stock video
+
+For each of 3-5 materially different queries:
+
+1. retrieve up to five Pexels source clips;
+2. generate overlapping candidate windows across each source clip;
+3. sample actual frames from each window with FFmpeg;
+4. judge those frames against the VisualBeat contract;
+5. reject generic/irrelevant windows;
+6. if the query yields nothing admissible, move to the next materially different query;
+7. rank accepted windows;
+8. cut the exact winning source in/out segment with FFmpeg.
+
+A Pexels title, tag, thumbnail or API search match is never sufficient evidence.
+
+### Generated video
+
+Premium generated video is restricted to `hero_role` or high-importance beats. Up to three candidates are generated through fal text-to-video, sampled as actual frames, VLM-scored and ranked. If no candidate clears the gate, only the Visual Director's declared fallback may be used.
+
+## 6. Hard candidate floors
 
 ```text
 semantic_match >= 0.90
+action_match   >= 0.70
 visual_interest >= 0.80
+continuity     >= 0.70
 ```
 
-A stock candidate below the semantic floor is rejected, not used as filler. The resolver retries a materially different query and then falls back to generated imagery or a deterministic motion graphic. Unverified stock is never preferable to a semantically controlled generated asset.
+In addition, `generic_filler` and `why_failure` must both be false.
 
-Generated images continue to receive image QA for visible text, contradictions, artifacts, and sequence continuity.
+The ranking weights only already-admissible candidates:
 
-## Decision 5: novelty is a deterministic constraint
+```text
+semantic match  45%
+action match    20%
+visual interest 20%
+continuity      15%
+```
 
-Relevance alone is not sufficient. A sequence of perfectly relevant but compositionally identical generated stills is monotonous.
+## 7. Novelty controller uses the preceding 20-30 seconds
 
-The resolver therefore examines the recent 20–30 seconds and flags repeated:
+The deterministic resolver keeps a rolling ~25-second history and checks:
 
 - visual mode;
-- shot scale/composition;
+- composition / shot grammar;
 - camera treatment;
 - subject placement;
 - explanatory pattern.
 
-A beat with `novelty_required=true` should use a viable fallback representation when the preferred representation would create excessive repetition. Novelty never overrides semantic correctness.
+When a beat declares `novelty_required=true` and its preferred representation would continue a strong repetition pattern, the resolver may select only the agent-declared fallback, and only when that fallback remains available and is less repetitive. Novelty never overrides semantic correctness.
 
-## Decision 6: workers do not invent semantics
+## 8. Visual timeline and renderer
 
-RFC 0003 remains strict:
+`visual_timeline@1.0.0` is the render-ready contract. Every beat has:
 
-- the Visual Director agent decides meaning, representation intent, and fallback order;
-- workers retrieve/generate/render assets according to that contract;
-- deterministic routing policy can reject unavailable, invalid, repetitive, or below-threshold candidates, but it does not reinterpret the narration.
+- measured scene-relative audio window;
+- absolute episode start/end;
+- original immutable voice source;
+- resolved visual mode;
+- selected image/video or semantic Remotion template;
+- narration/takeaway;
+- continuity metadata;
+- composition/camera/placement/pattern.
 
-All outputs remain immutable, versioned artifacts.
+The benchmark renderer slices the immutable existing voice per beat, maps each beat to an existing long-compose scene and renders with the same production Remotion/FFmpeg service. Placeholder/degraded scenes are forbidden.
 
-## Decision 7: benchmark before production graph replacement
+The benchmark does not introduce a second renderer and does not modify the production graph.
 
-RFC 0010 is deliberately developed as an isolated visual subsystem first. The existing production graph remains the control until the subsystem passes a comparison episode.
+## 9. Final rendered-pixel QA
 
-Benchmark input:
+Candidate QA is necessary but not sufficient: crop, template rendering, timing or adjacency can still damage a good source asset. Therefore the final candidate MP4 is sampled again.
 
-- one existing strong script;
-- its existing voice-over;
-- approximately 90–120 seconds of material.
+For each beat, the VLM receives:
 
-Benchmark path:
+- three chronological frames from the actual rendered beat;
+- the preceding rendered visual;
+- the following rendered visual;
+- exact narration and semantic contract.
 
-```text
-script
-  -> visual_director
-  -> visual_beat_plan
-  -> multimodal asset resolver
-  -> visual timeline
-  -> simple comparison render
-```
+It re-scores semantic match, action, visual interest and continuity, and explicitly flags generic filler, "why am I seeing this?" failures and visual repetition.
 
-During this benchmark, do not improve scripts, captions, SFX, thumbnails, publishing, or unrelated renderer features.
+## 10. Blind control-vs-V2 comparison
 
-## Acceptance criteria / kill gate
+The benchmark also samples the same timestamps from the existing production/control render. Per beat, control and V2 are deterministically shuffled into anonymous A/B positions before the VLM comparison. The evaluator is not told which system produced either option.
 
-Against the current pipeline, the RFC 0010 comparison must achieve:
+The blind comparison records V2/control wins and semantic/interest scores, but relative improvement cannot compensate for absolute V2 quality failure. "Better than the old version" is not enough.
+
+## 11. Executable kill gate
+
+The benchmark report uses final rendered pixels and passes only when all original targets hold:
 
 | Metric | Requirement |
 |---|---:|
-| Narration-to-visual semantic match | >= 9/10 |
-| Visual interest | >= 8/10 |
+| Narration-to-visual semantic match | every beat >= 0.90 |
+| Visual interest | every beat >= 0.80 |
 | "Why am I seeing this?" failures | 0 |
 | Repetitive visual patterns | <= 10% |
 | Continuity errors | 0 |
 | Generic filler B-roll | <= 5% |
 
-If the subsystem cannot achieve these thresholds on the comparison episode, further investment in renderer sophistication is stopped. If it does, the RFC 0010 path replaces the current visual-direction/asset portion of the production graph in a follow-up graph version.
+The implementation intentionally uses the minimum semantic/interest score rather than an average so a few incoherent beats cannot be hidden by strong surrounding shots.
 
-## Explicitly frozen work
+If the benchmark fails, production visual direction remains unchanged. If it passes, migration into the production graph is a separate follow-up change.
 
-Until the benchmark passes, do not spend implementation effort on:
+## 12. How to run the benchmark
+
+Use artifacts from an existing completed episode:
+
+```bash
+cd engine
+npm run visual:benchmark -- \
+  <script-artifact-id> \
+  <voice-artifact-id> \
+  <control-rendered-video-artifact-id>
+```
+
+Required live capabilities are fal.ai, Pexels, the existing long-compose renderer and a reasoning/VLM route. The command never publishes. It outputs the V2 `rendered_video` artifact and `visual_benchmark_report`, and exits non-zero when the kill gate fails.
+
+## Explicitly frozen until benchmark PASS
+
+Do not spend implementation effort on:
 
 - new caption styles;
-- new SFX density or libraries;
+- SFX density/libraries;
 - additional cartoon character presets;
-- renderer DSL expansion unrelated to RFC 0010 representations;
+- unrelated renderer DSL expansion;
 - thumbnail experimentation;
 - upload/publishing changes;
 - new analytics dimensions;
 - new script-generation features.
 
-Bug fixes that are necessary to run the benchmark are allowed.
-
-## Initial implementation boundary
-
-This RFC's first implementation introduces:
-
-1. `visual_beat_plan@1.0.0` and `visual_director@1`;
-2. deterministic routing/novelty/candidate-selection policy;
-3. fal-only image generation in Long;
-4. pinned Google model for FreeLLMAPI text generation;
-5. removal of FreeLLMAPI image configuration and provider selection;
-6. a benchmark graph/harness that does not alter the production graph.
-
-Stock-video frame verification and generated-video escalation are production-enabled only after their candidate verifier exists. Until then, those preferred modes must fall back; they may not bypass the semantic gate.
+Only defects required to execute or correctly evaluate RFC 0010 are in scope.
 
 ## Consequences
 
-The system becomes less visually uniform but more semantically intentional. Some beats will be realistic, some generated, and some deterministic graphics. That is acceptable: representation is selected for the narration's job rather than to satisfy a global style constraint.
+The video becomes intentionally hybrid rather than uniformly cartoon-based. Authentic footage is used when reality matters, fal-generated imagery when specificity/composition matters, semantic Remotion graphics when explanation structure matters, and premium generated video only where motion earns its cost.
 
-The production architecture also becomes easier to reason about. Image generation has one provider path (fal.ai), text has a pinned FreeLLMAPI Google model, and unsupported visual modes fail closed to declared fallbacks rather than entering the timeline as generic filler.
+The core rule remains simple: **the viewer must see the right thing at the right moment, and the system must verify that from actual pixels rather than assuming it from metadata or prompts.**
