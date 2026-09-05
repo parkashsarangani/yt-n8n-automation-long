@@ -58,7 +58,7 @@ test("prompt preserves the concrete subject and visibly different style bundles"
   const ink = buildIllustratedPrompt("a mechanic reaching for a broken belt", "ink_wash_stickman");
   const comic = buildIllustratedPrompt("a mechanic reaching for a broken belt", "flat_comic_expressive");
   assert.match(ink, /mechanic reaching/); assert.match(ink, /faceless/); assert.match(ink, /No typography/);
-  assert.match(comic, /flat 2D comic/); assert.doesNotMatch(comic, /faceless minimal human figures/); assert.notEqual(ink, comic);
+  assert.match(comic, /editorial cartoon/); assert.doesNotMatch(comic, /faceless minimal human figures/); assert.notEqual(ink, comic);
 });
 
 test("direction invariants enforce hero identity and reject three identical shot functions", () => {
