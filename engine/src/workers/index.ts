@@ -17,6 +17,7 @@ import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeGrowthPackageReleaseWorker } from "./growth-package-release.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
+import { makeVisualBeatAssetsWorker, type VisualBeatAssetsWorkerOptions } from "./visual-beat-assets.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
 
 export {
@@ -30,6 +31,7 @@ export {
   makeGrowthPackageReleaseWorker,
   makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker,
+  makeVisualBeatAssetsWorker,
   makeVisualAssetReleaseWorker,
 };
 export { buildPrompt } from "./assets.ts";
@@ -38,6 +40,7 @@ export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
   assets?: AssetWorkerOptions;
   illustratedAssets?: IllustratedSceneAssetsWorkerOptions;
+  visualBeatAssets?: VisualBeatAssetsWorkerOptions;
   render?: RenderWorkerOptions;
   thumbnail?: ThumbnailWorkerOptions;
   measure?: MeasureWorkerOptions;
@@ -51,10 +54,12 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeWatchabilityReleaseWorker(),
     makeVoiceWorker(opts.voice),
     makeAssetWorker(opts.assets ?? {}),
-    // RFC 0009 canonical implementation. There is deliberately one worker
-    // behind this transformation id so focused tests and production exercise
-    // the same multi-shot / hero / sequence-review code path.
+    // RFC 0009 production control path remains unchanged until RFC 0010 passes
+    // its comparison benchmark.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
+    // RFC 0010 isolated benchmark worker. It emits its own beat-level artifact
+    // and therefore cannot accidentally change the production render contract.
+    makeVisualBeatAssetsWorker(opts.visualBeatAssets ?? {}),
     makeVisualAssetReleaseWorker(),
     makeRenderWorker(opts.render ?? {}),
     makeThumbnailWorker(opts.thumbnail ?? {}),
