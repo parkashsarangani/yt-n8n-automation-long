@@ -30,3 +30,34 @@ test("a recoverable near-miss still snaps to the value the planner meant", () =>
     assert.equal((data as { visual_state: string }).visual_state, expected);
   }
 });
+
+test("an empty string on an OPTIONAL enum field is omitted, not guessed", () => {
+  // Real production run 31fb1add: episode_director emitted hero_role: "" on
+  // every shot, including "normal" (non-hero) ones, because the model fills
+  // every declared optional property rather than leaving it absent. Since
+  // "hook" happened to be allowed[0], the old fallback-guess behavior
+  // silently stamped hero_role: "hook" onto normal shots -- which then
+  // fails illustrated-scene-assets.ts's own invariant ("normal shot must not
+  // carry hero_role"), burning all 5 unattended retries on an identical,
+  // fully deterministic failure before assets ever ran once.
+  const shotSchema = {
+    properties: {
+      importance: { enum: ["normal", "hero"] },
+      hero_role: { enum: ["hook", "first-escalation", "low-point", "turn", "payoff"] },
+    },
+    required: ["importance"],
+  };
+  const { data, repairs } = repairEnumValues(shotSchema, { importance: "normal", hero_role: "" });
+  assert.ok(!("hero_role" in (data as object)), "an empty optional enum field must be dropped, never defaulted");
+  assert.equal(repairs.length, 1);
+  assert.equal(repairs[0]!.to, "<omitted: optional, empty>");
+});
+
+test("an empty string on a REQUIRED enum field still falls back rather than leaving the payload invalid", () => {
+  const shotSchema = {
+    properties: { visual_state: { enum: [...VISUAL_STATES] } },
+    required: ["visual_state"],
+  };
+  const { data } = repairEnumValues(shotSchema, { visual_state: "" });
+  assert.equal((data as { visual_state: string }).visual_state, "mechanism");
+});

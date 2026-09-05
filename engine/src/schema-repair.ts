@@ -22,6 +22,10 @@
 // intended one cannot be recovered.
 const SAFE_FALLBACKS = ["none", "neutral", "idle", "auto", "static", "mechanism"];
 
+// Sentinel returned by walk() to mean "drop this key" rather than "here is a
+// repaired value for it". Only ever produced for an optional field.
+const OMIT = Symbol("schema-repair-omit");
+
 export interface EnumRepair {
   path: string;
   from: string;
@@ -30,10 +34,10 @@ export interface EnumRepair {
 
 export function repairEnumValues(schema: unknown, data: unknown): { data: unknown; repairs: EnumRepair[] } {
   const repairs: EnumRepair[] = [];
-  const repaired = walk(schema, data, "$");
+  const repaired = walk(schema, data, "$", true);
   return { data: repaired, repairs };
 
-  function walk(schemaNode: unknown, node: unknown, path: string): unknown {
+  function walk(schemaNode: unknown, node: unknown, path: string, required: boolean): unknown {
     if (!schemaNode || typeof schemaNode !== "object") return node;
     const s = schemaNode as Record<string, unknown>;
 
@@ -42,23 +46,45 @@ export function repairEnumValues(schema: unknown, data: unknown): { data: unknow
       if (allowed.length === 0 || allowed.includes(node)) return node;
       const normalized = node.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const match = allowed.find((v) => v.toLowerCase() === normalized);
+      if (match) {
+        repairs.push({ path, from: node, to: match });
+        return match;
+      }
+      // No case/whitespace/hyphen near-miss. An empty string on an OPTIONAL
+      // enum field is a distinct signal from a garbled real value: many
+      // structured-output layers fill every declared property even when a
+      // field only applies conditionally (e.g. hero_role only means
+      // something when importance === "hero"), padding the unused ones with
+      // "". Snapping that to allowed[0] used to invent a value the model
+      // never intended and that a downstream invariant may forbid outright
+      // (a non-hero shot must not carry a hero_role at all) -- so drop the
+      // key instead of guessing. A required field can't be dropped without
+      // failing validation anyway, so it keeps the fallback-guess behavior.
+      if (node.trim() === "" && !required) {
+        repairs.push({ path, from: node, to: "<omitted: optional, empty>" });
+        return OMIT;
+      }
       const fallback = allowed.find((v) => SAFE_FALLBACKS.includes(v)) ?? allowed[0];
-      const to = match ?? fallback;
-      if (to !== undefined && to !== node) repairs.push({ path, from: node, to });
-      return to ?? node;
+      if (fallback !== undefined && fallback !== node) repairs.push({ path, from: node, to: fallback });
+      return fallback ?? node;
     }
 
     if (node && typeof node === "object" && !Array.isArray(node) && s.properties && typeof s.properties === "object") {
       const props = s.properties as Record<string, unknown>;
+      const requiredKeys = new Set(Array.isArray(s.required) ? s.required.filter((v): v is string => typeof v === "string") : []);
       const out: Record<string, unknown> = { ...(node as Record<string, unknown>) };
       for (const key of Object.keys(out)) {
-        if (key in props) out[key] = walk(props[key], out[key], `${path}.${key}`);
+        if (key in props) {
+          const result = walk(props[key], out[key], `${path}.${key}`, requiredKeys.has(key));
+          if (result === OMIT) delete out[key];
+          else out[key] = result;
+        }
       }
       return out;
     }
 
     if (Array.isArray(node) && s.items) {
-      return node.map((item, i) => walk(s.items, item, `${path}[${i}]`));
+      return node.map((item, i) => walk(s.items, item, `${path}[${i}]`, true));
     }
 
     return node;
