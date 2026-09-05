@@ -32,6 +32,10 @@ interface ResolvedBeat {
   note?: string;
 }
 
+interface ModeResult extends Partial<ResolvedBeat> {
+  blob?: BlobRef;
+}
+
 const BENCHMARK_CAPABILITIES: VisualCapabilities = Object.freeze({
   // RFC 0010 fails these modes closed until actual candidate frames and exact
   // clip segments are scored. Metadata-only search is not an implementation.
@@ -107,7 +111,7 @@ async function generateVerifiedImage(
   throw new Error(lastFailure);
 }
 
-function motionGraphic(beat: VisualBeat): Pick<ResolvedBeat, "template_category" | "template_data" | "semantic_verified"> {
+function motionGraphic(beat: VisualBeat): ModeResult {
   const brief = beat.asset_brief.motion_graphic_brief.trim();
   if (!brief) throw new Error(`${beat.id}: motion_graphic route has no deterministic brief`);
   return {
@@ -131,10 +135,14 @@ async function resolveMode(
   beat: VisualBeat,
   mode: VisualMode,
   ctx: WorkerContext,
-): Promise<Partial<ResolvedBeat>> {
+): Promise<ModeResult> {
   if (mode === "generated_image") {
     const generated = await generateVerifiedImage(beat, ctx);
-    return { image_uri: generated.ref.uri, semantic_verified: generated.semanticVerified };
+    return {
+      image_uri: generated.ref.uri,
+      semantic_verified: generated.semanticVerified,
+      blob: generated.ref,
+    };
   }
   if (mode === "motion_graphic") return motionGraphic(beat);
   throw new Error(`${beat.id}: ${mode} is disabled until frame-level candidate verification is implemented`);
@@ -172,7 +180,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       for (const beat of ordered) {
         const requested = beat.routing.preferred;
         let selected = selectVisualMode(beat, recentModes, BENCHMARK_CAPABILITIES);
-        let result: Partial<ResolvedBeat> | null = null;
+        let result: ModeResult | null = null;
         let note = "";
 
         if (selected) {
@@ -198,6 +206,8 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           note = "neither preferred nor fallback mode is currently benchmark-capable";
         }
 
+        if (result?.blob) blobs.push(result.blob);
+
         const resolved: ResolvedBeat = {
           id: beat.id,
           scene_index: beat.scene_index,
@@ -216,10 +226,6 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           ...(note ? { note } : {}),
         };
 
-        if (resolved.image_uri) {
-          const ref = await ctx.blobs.getRef(resolved.image_uri);
-          if (ref) blobs.push(ref);
-        }
         if (selected) recentModes.push(selected);
         beats.push(resolved);
       }
