@@ -33,36 +33,23 @@ services:
 
       # Shared FreeLLMAPI. Shorts owns the one container and encrypted provider
       # state; production deploy attaches this engine to the Shorts network.
+      # Text is deliberately pinned to Gemini: RFC 0010 forbids `auto` model
+      # routing for production creative decisions.
       LLM_ROUTER_MODE: ${LLM_ROUTER_MODE:-freellmapi}
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${LLM_ROUTER_FAIL_OPEN_TO_DIRECT:-true}
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
-      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-auto:smart}
+      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
-      # Experimental media routing. Media model ids are installation/catalog
-      # specific. `auto` remains a portable default only while no separately-
-      # metered hero row is configured; hero escalation requires this standard
-      # image model to be pinned to a different concrete media model id.
-      IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}
+      # FreeLLMAPI may still provide narrator speech. It is not an image
+      # generator in Long after RFC 0010.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}
-      FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}
       FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-auto}
       FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}
       FREELLMAPI_SPEECH_FORMAT: ${FREELLMAPI_SPEECH_FORMAT:-mp3}
       FREELLMAPI_MEDIA_TIMEOUT_MS: ${FREELLMAPI_MEDIA_TIMEOUT_MS:-120000}
-
-      # Optional hero-shot escalation: a separately-registered, quota-limited
-      # model (e.g. a hosted trial API) reserved for RFC 0009 hero shots only.
-      # Empty by default -- deliberately opt-in, since this is meant to stay a
-      # scarce escalation, never the default image route.
-      FREELLMAPI_HERO_IMAGE_MODEL: ${FREELLMAPI_HERO_IMAGE_MODEL:-}
-      FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${FREELLMAPI_HERO_IMAGE_MAX_CALLS:-10}
-      # Current OpenAI-compatible hero bridge has a tighter request-string
-      # contract than NVIDIA's native endpoint. Keep it configurable while
-      # defaulting conservatively enough to prevent deterministic 422 failures.
-      FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS: ${FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS:-1000}
 
       # Paid OpenAI remains only for LLM fail-open/direct rollback.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -72,8 +59,11 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # Retained for IMAGE_PROVIDER_MODE=fal rollback and optional AI video.
+      # RFC 0010 image generation: fal.ai only. No FreeLLM image fallback.
       FAL_KEY: ${FAL_KEY:-}
+      FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}
+      FAL_EDIT_MODEL: ${FAL_EDIT_MODEL:-}
+      FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
@@ -97,8 +87,9 @@ services:
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. Cartoon scenes dominate this service;
-  # stock/AI-video variables remain only as compatibility escape hatches.
+  # Video assembly: FFmpeg + Remotion. RFC 0010 is moving this toward hybrid
+  # generated-image/motion-graphic beats; AI video remains an optional,
+  # separately-gated hero-beat escalation.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
