@@ -105,6 +105,55 @@ test("a growth_package_release node failure (not just watchability_release's def
   assert.equal(retryCalls(), 0);
 });
 
+test("a visual_asset_release block triggers targeted assets regeneration, not script regeneration", async () => {
+  const service = await makeService();
+  const runId = "run_visual_asset_release_regen";
+  seedBlockedRun(service, runId, [
+    { node_id: "visual_asset_release", error: "visual asset release blocked before render: 1/7 scene(s) contain fallback imagery (14%); maximum is 10%" },
+  ]);
+
+  const regenNodeIds: string[] = [];
+  (service as unknown as { executor: unknown }).executor = {
+    regenerateNode: async (_graph: unknown, _runId: string, nodeId: string) => { regenNodeIds.push(nodeId); },
+    pinNodeOutput: async () => { throw new Error("visual_asset_release is not a watchability best-of-N situation"); },
+  };
+  let retried = 0;
+  (service as unknown as { retry: (id: string) => Promise<void> }).retry = async () => {
+    retried++;
+    // Resolve on the first regeneration: the free path is non-deterministic,
+    // so a real regeneration attempt can genuinely produce a passing manifest.
+    (service as unknown as { runs: Map<string, { last: { failures: unknown[] } }> }).runs.get(runId)!.last.failures = [];
+  };
+
+  await (service as unknown as { driveUnattended: (id: string) => Promise<void> }).driveUnattended(runId);
+
+  assert.deepEqual(regenNodeIds, ["assets"], "must regenerate the assets node specifically, never draft_script");
+  assert.equal(retried, 1, "must actually re-execute after regeneration, not just log and give up");
+});
+
+test("visual_asset_release regeneration is bounded and gives up cleanly once exhausted", async () => {
+  const service = await makeService();
+  const runId = "run_visual_asset_release_exhausted";
+  seedBlockedRun(service, runId, [
+    { node_id: "visual_asset_release", error: "visual asset release blocked before render: 1/7 scene(s) contain fallback imagery (14%); maximum is 10%" },
+  ]);
+
+  let regenCalls = 0;
+  (service as unknown as { executor: unknown }).executor = {
+    regenerateNode: async () => { regenCalls++; },
+    pinNodeOutput: async () => { throw new Error("must not fire for visual_asset_release"); },
+  };
+  let retried = 0;
+  // Every regeneration keeps failing identically -- the bounded ceiling must
+  // still stop the loop rather than retry forever.
+  (service as unknown as { retry: (id: string) => Promise<void> }).retry = async () => { retried++; };
+
+  await (service as unknown as { driveUnattended: (id: string) => Promise<void> }).driveUnattended(runId);
+
+  assert.equal(regenCalls, 3, "default maxVisualReleaseRegens is 3 -- must stop there, not loop forever");
+  assert.equal(retried, 3);
+});
+
 test("a genuine WATCHABILITY_BLOCKED score deficiency still regenerates the script exactly like before", async () => {
   const service = await makeService();
   const runId = "run_watchability_blocked_unattended";
