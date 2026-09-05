@@ -44,7 +44,6 @@ services:
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
       # Narration remains on the established ElevenLabs production path.
-      # FreeLLMAPI is not used for image generation.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
@@ -53,17 +52,21 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
 
-      # RFC 0010 image generation: fal.ai only. No FreeLLM image fallback.
+      # RFC 0010 generation: fal.ai only. FAL_TEXT_TO_VIDEO_MODEL is isolated
+      # from long-compose's older image-to-video FAL_VIDEO_MODEL contract.
       FAL_KEY: ${FAL_KEY:-}
       FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}
       FAL_EDIT_MODEL: ${FAL_EDIT_MODEL:-}
+      FAL_TEXT_TO_VIDEO_MODEL: ${FAL_TEXT_TO_VIDEO_MODEL:-fal-ai/kling-video/v2.5-turbo/pro/text-to-video}
       FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
+
+      # RFC 0010 stock-video candidates are frame-verified before admission.
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
 
-      # Legacy stock credentials retained for old/manual artifacts only.
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      # Legacy image-search credentials retained for old/manual artifacts only.
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
 
@@ -81,9 +84,8 @@ services:
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. RFC 0010 is moving this toward hybrid
-  # generated-image/motion-graphic beats; AI video remains an optional,
-  # separately-gated hero-beat escalation.
+  # Video assembly: FFmpeg + Remotion. Its legacy image-to-video path remains
+  # unchanged while RFC 0010 runs as an isolated benchmark.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
