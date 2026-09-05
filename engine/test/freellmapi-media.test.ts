@@ -100,7 +100,7 @@ test("FreeLLM image provider pre-emptively makes clock/calendar prompts text-saf
       }) as typeof fetch,
     });
     await provider.generate({ prompt: "a woman points at a wall clock beside a calendar", aspect: "16:9" });
-    assert.match(prompt, /Clock\/watch faces must not be visible/i);
+    assert.match(prompt, /show its back, edge, closed cover, silhouette, or crop\/occlude the face completely/i);
     assert.match(prompt, /Calendars and papers must be blank/i);
     assert.match(prompt, /No words, letters, numbers, logos/i);
   });
