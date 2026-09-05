@@ -53,11 +53,11 @@ function sseDirect(content = '{"ok":true}'): Response {
 
 const noWait = { freeRetryDelayMs: 0, sleepImpl: async () => {} } as const;
 
-test("free-first reasoning uses shared FreeLLMAPI and records the actual free route", async () => {
+test("free-first reasoning uses pinned Gemini through shared FreeLLMAPI and records the actual route", async () => {
   await withEnv({
     FREELLMAPI_API_KEY: "freellmapi-test",
     FREELLMAPI_BASE_URL: "http://freellmapi:3001/v1",
-    FREELLMAPI_TEXT_MODEL: "auto:smart",
+    FREELLMAPI_TEXT_MODEL: "gemini-2.5-flash",
   }, async () => {
     const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     const provider = new OpenAIProvider({
@@ -77,7 +77,7 @@ test("free-first reasoning uses shared FreeLLMAPI and records the actual free ro
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.url, "http://freellmapi:3001/v1/chat/completions");
     assert.equal(calls[0]!.headers.get("authorization"), "Bearer freellmapi-test");
-    assert.equal(calls[0]!.body["model"], "auto:smart");
+    assert.equal(calls[0]!.body["model"], "gemini-2.5-flash");
     assert.equal(calls[0]!.body["stream"], false);
     assert.deepEqual(calls[0]!.body["response_format"], { type: "json_object" });
     assert.equal(calls[0]!.body["max_completion_tokens"], 99);
@@ -89,6 +89,27 @@ test("free-first reasoning uses shared FreeLLMAPI and records the actual free ro
     assert.equal(result.usage.model, "free-actual-model");
     assert.equal(result.usage.cost_usd, 0);
     assert.equal(result.providerRef, "freellmapi/free-actual-model");
+  });
+});
+
+test("FreeLLM auto text routing is rejected before any provider call", async () => {
+  await withEnv({
+    FREELLMAPI_API_KEY: "freellmapi-test",
+    FREELLMAPI_TEXT_MODEL: "auto:smart",
+  }, async () => {
+    let calls = 0;
+    const provider = new OpenAIProvider({
+      ...noWait,
+      fetchImpl: async () => {
+        calls++;
+        return freeJson();
+      },
+    });
+    await assert.rejects(
+      () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
+      /may not use auto routing/,
+    );
+    assert.equal(calls, 0);
   });
 });
 
