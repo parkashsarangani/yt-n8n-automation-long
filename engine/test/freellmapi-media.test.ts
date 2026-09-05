@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { FreeLLMImageProvider, FreeLLMSpeechProvider, __resetFreeLLMHeroBudgetForTests } from "../src/providers/freellmapi-media.ts";
+import {
+  FreeLLMImageProvider,
+  FreeLLMSpeechProvider,
+  __resetFreeLLMHeroBudgetForTests,
+  __resetFreeLLMSpeechCircuitForTests,
+  compactImagePrompt,
+} from "../src/providers/freellmapi-media.ts";
 import { StockImageProvider } from "../src/providers/stock.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FreeMediaTerminalError } from "../src/free-media-policy.ts";
@@ -10,6 +16,9 @@ const ENV_KEYS = [
   "FREELLMAPI_API_KEY",
   "FREELLMAPI_BASE_URL",
   "FREELLMAPI_IMAGE_MODEL",
+  "FREELLMAPI_HERO_IMAGE_MODEL",
+  "FREELLMAPI_HERO_IMAGE_MAX_CALLS",
+  "FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS",
   "FREELLMAPI_SPEECH_MODEL",
   "FREELLMAPI_SPEECH_VOICE",
   "FREELLMAPI_SPEECH_FORMAT",
@@ -129,11 +138,71 @@ test("FreeLLM image provider retries one transient gateway failure before succee
   });
 });
 
+test("hero escalation refuses auto or the hero row itself as the standard image route", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    assert.throws(
+      () => new FreeLLMImageProvider({ heroModel: "black-forest-labs/flux.2-klein-4b" }),
+      /FREELLMAPI_IMAGE_MODEL to be pinned to a different standard image model/i,
+    );
+    assert.throws(
+      () => new FreeLLMImageProvider({
+        model: "black-forest-labs/flux.2-klein-4b",
+        heroModel: "black-forest-labs/flux.2-klein-4b",
+      }),
+      /FREELLMAPI_IMAGE_MODEL to be pinned to a different standard image model/i,
+    );
+  });
+});
+
+test("hero prompt compaction preserves scene intent and tail safety/style constraints", () => {
+  const original = `SCENE-START ${"subject detail ".repeat(120)} VISUAL IDENTITY: rough black ink and cream paper. ${"style detail ".repeat(80)} EXCLUDE: glossy 3D, stick figures, faceless people. STYLE-END`;
+  const compact = compactImagePrompt(original, 700);
+  assert.ok(compact.length <= 700);
+  assert.match(compact, /^SCENE-START/);
+  assert.match(compact, /STYLE-END$/);
+  assert.match(compact, /EXCLUDE: glossy 3D, stick figures, faceless people/i);
+});
+
+test("hero tier compacts the bridge-bound prompt but leaves the pinned standard route independent", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMHeroBudgetForTests();
+    const bodies: any[] = [];
+    const provider = new FreeLLMImageProvider({
+      model: "standard-sana-row",
+      maxAttempts: 1,
+      heroModel: "black-forest-labs/flux.2-klein-4b",
+      heroMaxCalls: 5,
+      heroPromptMaxChars: 700,
+      fetchImpl: (async (_input, init) => {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        return new Response(JSON.stringify({
+          data: [{ b64_json: Buffer.from(PNG_BYTES).toString("base64") }],
+          model: body.model,
+          provider: body.model === "standard-sana-row" ? "standard-provider" : "nvidia",
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+
+    const longPrompt = `SCENE-START ${"subject detail ".repeat(150)} VISUAL IDENTITY: rough black ink and cream paper. ${"style detail ".repeat(100)} EXCLUDE: glossy 3D, stick figures, faceless people. STYLE-END`;
+    await provider.generate({ prompt: longPrompt, aspect: "16:9", tier: "hero" });
+    await provider.generate({ prompt: "ordinary background", aspect: "16:9" });
+
+    assert.equal(bodies[0].model, "black-forest-labs/flux.2-klein-4b");
+    assert.ok(bodies[0].prompt.length <= 700);
+    assert.match(bodies[0].prompt, /^SCENE-START/);
+    assert.match(bodies[0].prompt, /STYLE-END$/);
+    assert.equal(bodies[1].model, "standard-sana-row");
+    assert.equal(bodies[1].prompt, "ordinary background");
+  });
+});
+
 test("hero tier routes to the reserved hero model and reports its real usage, without touching it when not requested", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     __resetFreeLLMHeroBudgetForTests();
     const modelsRequested: string[] = [];
     const provider = new FreeLLMImageProvider({
+      model: "standard-image",
       maxAttempts: 1,
       heroModel: "black-forest-labs/flux.2-klein-4b",
       heroMaxCalls: 5,
@@ -149,19 +218,20 @@ test("hero tier routes to the reserved hero model and reports its real usage, wi
     });
 
     const standard = await provider.generate({ prompt: "a busy street background", aspect: "16:9" });
-    assert.equal(standard.usage.model, "nvidia/auto", "no tier requested must use the standard model");
+    assert.equal(standard.usage.model, "nvidia/standard-image", "no tier requested must use the pinned standard model");
 
     const hero = await provider.generate({ prompt: "the hero payoff shot", aspect: "16:9", tier: "hero" });
     assert.equal(hero.usage.model, "nvidia/black-forest-labs/flux.2-klein-4b");
-    assert.deepEqual(modelsRequested, ["auto", "black-forest-labs/flux.2-klein-4b"]);
+    assert.deepEqual(modelsRequested, ["standard-image", "black-forest-labs/flux.2-klein-4b"]);
   });
 });
 
-test("hero model failure falls back to the standard model within the same call", async () => {
+test("hero model failure falls back to the pinned standard model within the same call", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     __resetFreeLLMHeroBudgetForTests();
     const modelsRequested: string[] = [];
     const provider = new FreeLLMImageProvider({
+      model: "standard-image",
       maxAttempts: 1,
       heroModel: "black-forest-labs/flux.2-klein-4b",
       heroMaxCalls: 5,
@@ -178,16 +248,17 @@ test("hero model failure falls back to the standard model within the same call",
     });
 
     const out = await provider.generate({ prompt: "the hero payoff shot", aspect: "16:9", tier: "hero" });
-    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "auto"]);
-    assert.equal(out.usage.model, "pollinations/auto");
+    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "standard-image"]);
+    assert.equal(out.usage.model, "pollinations/standard-image");
   });
 });
 
-test("hero call ceiling stops attempting the hero model and uses the standard model instead", async () => {
+test("hero call ceiling stops attempting the hero model and uses the pinned standard model instead", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
     __resetFreeLLMHeroBudgetForTests();
     const modelsRequested: string[] = [];
     const provider = new FreeLLMImageProvider({
+      model: "standard-image",
       maxAttempts: 1,
       heroModel: "black-forest-labs/flux.2-klein-4b",
       heroMaxCalls: 1,
@@ -208,12 +279,13 @@ test("hero call ceiling stops attempting the hero model and uses the standard mo
     // attempt the hero model at all -- not even as a failed call -- because a
     // hosted trial with no visible remaining-quota signal must never be
     // approached optimistically once the configured budget is spent.
-    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "auto"]);
+    assert.deepEqual(modelsRequested, ["black-forest-labs/flux.2-klein-4b", "standard-image"]);
   });
 });
 
 test("FreeLLM speech accepts live Google WAV even when MP3 was requested", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMSpeechCircuitForTests();
     let requestBody: any;
     const wav = smallWav();
     const provider = new FreeLLMSpeechProvider({
@@ -240,6 +312,7 @@ test("FreeLLM speech accepts live Google WAV even when MP3 was requested", async
 
 test("FreeLLM speech still accepts MP3-capable providers", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMSpeechCircuitForTests();
     const provider = new FreeLLMSpeechProvider({
       model: "catalog-audio-model",
       fetchImpl: (async () => new Response(Uint8Array.from([1, 2, 3, 4]), {
@@ -255,6 +328,7 @@ test("FreeLLM speech still accepts MP3-capable providers", async () => {
 
 test("FreeLLM speech rejects non-audio payload types", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "free-key" }, async () => {
+    __resetFreeLLMSpeechCircuitForTests();
     const provider = new FreeLLMSpeechProvider({
       fetchImpl: (async () => new Response(Uint8Array.from([1, 2, 3]), {
         status: 200,
@@ -268,7 +342,35 @@ test("FreeLLM speech rejects non-audio payload types", async () => {
   });
 });
 
-test("config-selected FreeLLM image packs use auto and generate every requested shot", async () => {
+test("FreeLLM speech quota exhaustion is terminal and opens a no-call process circuit", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "quota-key" }, async () => {
+    __resetFreeLLMSpeechCircuitForTests();
+    let calls = 0;
+    const provider = new FreeLLMSpeechProvider({
+      fetchImpl: (async () => {
+        calls++;
+        return new Response(JSON.stringify({
+          error: { message: "You exceeded your current quota, please check your plan and billing details" },
+        }), { status: 429, headers: { "content-type": "application/json" } });
+      }) as typeof fetch,
+    });
+
+    await assert.rejects(
+      () => provider.synthesize({ text: "first clip", voice: "onyx" }),
+      (err: unknown) => err instanceof FreeMediaTerminalError && /speech quota exhausted/i.test(err.message),
+    );
+    assert.equal(calls, 1);
+
+    await assert.rejects(
+      () => provider.synthesize({ text: "second clip", voice: "onyx" }),
+      /speech quota is circuit-broken/i,
+    );
+    assert.equal(calls, 1, "subsequent voice retries must make zero upstream calls after confirmed quota exhaustion");
+    __resetFreeLLMSpeechCircuitForTests();
+  });
+});
+
+test("config-selected FreeLLM image packs use auto and generate every requested shot when no hero row is configured", async () => {
   await withEnv({
     IMAGE_PROVIDER_MODE: "freellmapi",
     FREELLMAPI_API_KEY: "free-key",

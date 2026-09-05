@@ -35,8 +35,29 @@ function positiveTimeout(value: number | undefined, envValue: string | undefined
   return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : 120_000;
 }
 
+function positiveInteger(value: number | undefined, envValue: string | undefined, fallback: number): number {
+  const parsed = value ?? Number(envValue || fallback);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : fallback;
+}
+
 function timeoutSignal(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(timeoutMs);
+}
+
+/**
+ * Some OpenAI-compatible image bridges impose a much smaller string ceiling
+ * than the native image model itself. Preserve both the scene instruction at
+ * the front and the visual/exclusion contract at the tail rather than blindly
+ * chopping off whichever half happens to be last.
+ */
+export function compactImagePrompt(value: string, maxChars: number): string {
+  const prompt = value.replace(/\s+/g, " ").trim();
+  if (prompt.length <= maxChars) return prompt;
+  const budget = Math.max(128, maxChars);
+  const separator = " … ";
+  const tailBudget = Math.max(96, Math.floor(budget * 0.38));
+  const headBudget = Math.max(1, budget - separator.length - tailBudget);
+  return `${prompt.slice(0, headBudget).trimEnd()}${separator}${prompt.slice(-tailBudget).trimStart()}`.slice(0, budget);
 }
 
 function imageMediaType(bytes: Uint8Array): string | null {
@@ -99,8 +120,10 @@ function wavDurationSeconds(bytes: Uint8Array): number | undefined {
 }
 
 const TRANSIENT_IMAGE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const SPEECH_QUOTA_EXHAUSTED = /(?:exceeded (?:your )?current quota|quota.{0,40}(?:exhaust|exceed)|resource[_ -]?exhausted|check your plan and billing)/i;
 let imageCapacityBlockedUntil = 0;
 let imageCapacityReason = "";
+let speechCapacityReason = "";
 
 // A hosted hero-tier model (e.g. a trial API) typically has a small total
 // call allowance with no rate-limit headers exposing the remaining count.
@@ -114,6 +137,11 @@ let heroCallsUsed = 0;
 /** Test-only: reset the shared hero-call counter between test cases. */
 export function __resetFreeLLMHeroBudgetForTests(): void {
   heroCallsUsed = 0;
+}
+
+/** Test-only: speech quota is intentionally process-lifetime in production. */
+export function __resetFreeLLMSpeechCircuitForTests(): void {
+  speechCapacityReason = "";
 }
 
 export interface FreeLLMImageOptions {
@@ -136,6 +164,13 @@ export interface FreeLLMImageOptions {
   heroModel?: string;
   /** Hard, process-lifetime ceiling on hero-model calls. Default 10. */
   heroMaxCalls?: number;
+  /**
+   * Request-string ceiling for the hero bridge. Default 1000 characters: the
+   * current OpenAI-compatible bridge rejected the full style bundle with a
+   * string_too_long 422, even though NVIDIA's native endpoint accepts more.
+   * This is configurable without weakening the standard image route.
+   */
+  heroPromptMaxChars?: number;
 }
 
 interface FreeLLMImageResponse {
@@ -151,6 +186,7 @@ export class FreeLLMImageProvider implements ImageProvider {
   private readonly model: string;
   private readonly heroModel: string;
   private readonly heroMaxCalls: number;
+  private readonly heroPromptMaxChars: number;
   private readonly timeoutMs: number;
   private readonly maxAttempts: number;
   private readonly retryDelayMs: number;
@@ -163,12 +199,23 @@ export class FreeLLMImageProvider implements ImageProvider {
     if (!key?.trim()) throw new ProviderError("FreeLLMImageProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = cleanBaseUrl(opts.baseUrl ?? process.env["FREELLMAPI_BASE_URL"]);
-    // The media registry is independent of /v1/models. `auto` is the only
-    // portable default across installations; deployment verifies that the
-    // registry has a usable image row before enabling this experiment.
+    // `auto` is safe only while all enabled image rows are fungible. Once a
+    // separately-metered hero model is configured, FreeLLM's own auto failover
+    // could route ordinary shots to that same scarce row without Long seeing or
+    // accounting for the call. Require an explicit, different standard model.
     this.model = opts.model?.trim() || process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
     this.heroModel = opts.heroModel?.trim() || process.env["FREELLMAPI_HERO_IMAGE_MODEL"]?.trim() || "";
+    if (this.heroModel && (this.model === "auto" || this.model === this.heroModel)) {
+      throw new ProviderError(
+        "FreeLLM hero image escalation requires FREELLMAPI_IMAGE_MODEL to be pinned to a different standard image model; model=auto can silently route ordinary shots through the quota-limited hero row",
+      );
+    }
     this.heroMaxCalls = Math.max(0, Math.floor(opts.heroMaxCalls ?? Number(process.env["FREELLMAPI_HERO_IMAGE_MAX_CALLS"] ?? 10)));
+    this.heroPromptMaxChars = Math.max(256, positiveInteger(
+      opts.heroPromptMaxChars,
+      process.env["FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS"],
+      1000,
+    ));
     this.timeoutMs = positiveTimeout(opts.timeoutMs, process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"]);
     this.maxAttempts = Math.max(1, Math.min(3, opts.maxAttempts ?? 2));
     this.retryDelayMs = Math.max(0, opts.retryDelayMs ?? 600);
@@ -213,7 +260,20 @@ export class FreeLLMImageProvider implements ImageProvider {
 
   private async requestOnce(model: string, req: { prompt: string; aspect: Aspect; count?: number }) {
     const count = Math.max(1, Math.min(4, req.count ?? 1));
-    const prompt = freeImagePrompt(req.prompt);
+    // The hero route skips the generic pre-emptive text-safety expansion:
+    // every illustrated prompt's own style bundle already ends in an EXCLUDE
+    // clause naming text/letters/logos, so expanding first and compacting
+    // after would let compaction's tail window land on the generic appended
+    // suffix instead of the story's own exclude/style intent -- exactly
+    // backwards for a model reserved for the shots that matter most. NVIDIA
+    // Klein is a stronger model than the free-tier baseline that suffix was
+    // written for, and the existing post-generation text-detection recovery
+    // in illustrated-scene-assets.ts still applies regardless of provider.
+    const isHero = Boolean(this.heroModel) && model === this.heroModel;
+    const prompt = isHero ? compactImagePrompt(req.prompt, this.heroPromptMaxChars) : freeImagePrompt(req.prompt);
+    if (isHero && prompt.length < req.prompt.length) {
+      console.warn(`[freellmapi-image] compacted hero prompt ${req.prompt.length}->${prompt.length} chars for '${model}'`);
+    }
     const providerRef = `freellmapi-image/${model}`;
     let res: Response | undefined;
     let lastError: Error | undefined;
@@ -332,6 +392,12 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
   }
 
   async synthesize(req: { text: string; voice: string; context?: { prev?: string; next?: string } }) {
+    if (speechCapacityReason) {
+      throw new FreeMediaTerminalError(
+        `${this.id} speech quota is circuit-broken for this process: ${speechCapacityReason}`,
+      );
+    }
+
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.baseUrl}/audio/speech`, {
@@ -352,7 +418,14 @@ export class FreeLLMSpeechProvider implements SpeechProvider {
       throw new ProviderError(`${this.id} request failed: ${String(err)}`);
     }
     if (!res.ok) {
-      throw new ProviderError(`${this.id} returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const body = (await res.text()).slice(0, 500);
+      if (SPEECH_QUOTA_EXHAUSTED.test(body)) {
+        speechCapacityReason = body.slice(0, 240);
+        throw new FreeMediaTerminalError(
+          `${this.id} speech quota exhausted; no further speech calls will be made by this process: ${speechCapacityReason}`,
+        );
+      }
+      throw new ProviderError(`${this.id} returned ${res.status}: ${body.slice(0, 300)}`);
     }
 
     const audio = new Uint8Array(await res.arrayBuffer());

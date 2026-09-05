@@ -74,7 +74,7 @@ jobs:
               "/v1/audio/speech",
               "audio/wav",
               "Models -> Image",
-              "Pollinations image row",
+              "standard image row",
               "direct OpenAI fail-open",
           ):
               assert required in deploy, f"missing production shared-media contract: {required}"
