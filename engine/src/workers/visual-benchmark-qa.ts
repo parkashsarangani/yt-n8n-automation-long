@@ -76,7 +76,7 @@ export function makeVisualBenchmarkQaWorker():WorkerDef{
           v2_blind_semantic:v2Semantic,v2_blind_interest:v2Interest,control_blind_semantic:controlSemantic,control_blind_interest:controlInterest,
           qa_reason:absolute?.reason??"rendered-frame QA unavailable",
         });
-        await ctx.progress({current:index+1,total:ordered.length,detail:`rendered visual QA ${beat.id}`});
+        await ctx.progress({detail:`rendered visual QA ${index+1}/${ordered.length}: ${beat.id}`});
       }
 
       const semantics=results.map((r)=>r.semantic_match), interests=results.map((r)=>r.visual_interest);
@@ -95,9 +95,6 @@ export function makeVisualBenchmarkQaWorker():WorkerDef{
         control_wins:results.filter((r)=>r.blind_winner==="control").length,ties:results.filter((r)=>r.blind_winner==="tie").length,
       };
       const failures:string[]=[];
-      // The original proposal scores every benchmark beat. Therefore the hard
-      // semantic/interest thresholds apply to the minimum, not merely an average
-      // that could hide a few incoherent shots.
       if(summary.min_semantic_match<.90) failures.push(`semantic match floor ${summary.min_semantic_match.toFixed(3)} < 0.90`);
       if(summary.min_visual_interest<.80) failures.push(`visual interest floor ${summary.min_visual_interest.toFixed(3)} < 0.80`);
       if(summary.why_failures!==0) failures.push(`why-am-I-seeing-this failures ${summary.why_failures} > 0`);
