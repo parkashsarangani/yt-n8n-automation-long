@@ -13,6 +13,11 @@
  *   - multimodal candidate gates
  *   - timeline construction, render, rendered-frame QA
  *
+ * Every run also produces a fresh pre-TTS moderation audit for the exact fixed
+ * script. A cached voice does not call ElevenLabs again, but the audit remains
+ * available in the exported diagnostics. A new/refresh voice cannot be
+ * synthesized unless the report is approved.
+ *
  * This is a development smoke test, not a substitute for the 90-120 second
  * control-vs-candidate acceptance benchmark.
  */
@@ -49,26 +54,22 @@ const FIXTURE_CACHE = process.env["RFC0010_SMOKE_FIXTURE_CACHE"] ?? path.join(DA
 const SCENES = [
   {
     scene_index: 0,
-    point: "Authentic modern physical action for stock-video retrieval: a real commuter sends a phone message while moving through a train station.",
-    visual_intent: "Prefer authentic stock footage of the exact action/environment over generic phone imagery.",
+    point: "Authentic modern physical action for stock-video retrieval: a real commuter sends a phone message while moving through a train station; prefer the exact action/environment over generic phone imagery.",
     narration: "A commuter taps send while walking through a busy train station. The message can cross the city and reach another phone before that person even reaches the platform.",
   },
   {
     scene_index: 1,
-    point: "Historically specific physical scene where stock is unlikely to be exact and a realistic generated image should be stronger.",
-    visual_intent: "Show a historically plausible mounted courier physically carrying a message across an ancient landscape; avoid modern objects and generic portraits.",
+    point: "Historically specific courier scene where exact stock is unlikely: show a plausible mounted courier physically carrying a sealed message across an ancient landscape, with no modern objects or generic portrait framing.",
     narration: "Two thousand years ago, the same message might travel with a mounted courier. A sealed note, a horse, a road, and hours or days of physical travel replaced the instant electronic hop.",
   },
   {
     scene_index: 2,
-    point: "Quantitative comparison that should be explained with authored motion graphics rather than decorative B-roll.",
-    visual_intent: "Use a clear distance-versus-time comparison or animated scale showing walking, horse travel, and electronic delivery.",
+    point: "Quantitative speed comparison best explained with authored motion graphics: walking, horse travel, and electronic delivery on one distance-versus-time scale.",
     narration: "Put the speeds on one scale. Walking at five kilometers an hour covers twenty kilometers in four hours. A phone message can cover that distance in a fraction of a second.",
   },
   {
     scene_index: 3,
-    point: "Payoff that returns to the authentic modern action and visually contrasts it with the historical journey without losing continuity.",
-    visual_intent: "Return to a real station/phone action or a strong generated transition only if it materially improves the contrast; no generic technology montage.",
+    point: "Payoff returning to authentic station/phone action and contrasting it with the historical physical journey without losing continuity or falling into a generic technology montage.",
     narration: "That is the transformation: the information no longer has to travel at the speed of the person carrying it. The commuter keeps walking, while the message has already arrived.",
     is_outro: true,
   },
@@ -96,6 +97,12 @@ type CachedVoice = {
     audio_file: string;
     alignment_file?: string;
   }>;
+};
+type ModerationPayload = {
+  decision: "allow" | "review" | "block";
+  approved_for_tts: boolean;
+  reasons: string[];
+  summary: Record<string, unknown>;
 };
 type TimelineBeat = {
   id: string;
@@ -186,6 +193,7 @@ async function importVoiceCache(
   store: FsArtifactStore,
   blobs: FsBlobStore,
   scriptId: string,
+  moderationId: string,
 ): Promise<string | null> {
   let cached: CachedVoice;
   try {
@@ -214,7 +222,7 @@ async function importVoiceCache(
     schema_id: "voice",
     payload: { voice_id: cached.voice_id, clips, total_duration_sec: cached.total_duration_sec },
     produced_by: { transformation: "voice", version: "fixture-cache-v1", run_id: `rfc0010-smoke-cache-${cached.cache_key}`, provider: "cached-elevenlabs" },
-    parents: [scriptId],
+    parents: [scriptId, moderationId],
   });
   return stored.artifact.artifact_id;
 }
@@ -225,18 +233,23 @@ async function getVoiceFixture(args: {
   store: FsArtifactStore;
   blobs: FsBlobStore;
   scriptId: string;
+  moderationId: string;
   voiceId: string;
 }): Promise<{ artifactId: string; source: "cache" | "generated"; cacheKey: string }> {
   const cacheKey = fixtureKey(args.voiceId);
   const cacheDir = path.join(FIXTURE_CACHE, cacheKey);
   if (!boolEnv("RFC0010_SMOKE_REFRESH_VOICE")) {
-    const imported = await importVoiceCache(cacheDir, args.store, args.blobs, args.scriptId);
+    const imported = await importVoiceCache(cacheDir, args.store, args.blobs, args.scriptId, args.moderationId);
     if (imported) return { artifactId: imported, source: "cache", cacheKey };
   }
 
   const voiceDef = args.transformations.get("voice");
   if (!voiceDef) throw new Error("voice worker missing from transformation catalog");
-  const generated = await args.runner.run(voiceDef, [args.scriptId], { runId: `rfc0010-smoke-voice-${Date.now()}` });
+  const generated = await args.runner.run(
+    voiceDef,
+    [args.scriptId, args.moderationId],
+    { runId: `rfc0010-smoke-voice-${Date.now()}` },
+  );
   const payload = generated.artifact.payload as VoicePayload;
   await writeVoiceCache(cacheDir, payload, args.blobs, cacheKey);
   return { artifactId: generated.artifact.artifact_id, source: "generated", cacheKey };
@@ -244,6 +257,7 @@ async function getVoiceFixture(args: {
 
 async function main(): Promise<void> {
   requireEnv("FREELLMAPI_API_KEY");
+  requireEnv("OPENAI_API_KEY");
   requireEnv("FAL_KEY");
   requireEnv("PEXELS_API_KEY");
   const elevenKey = requireEnv("ELEVENLABS_API_KEY");
@@ -294,16 +308,27 @@ async function main(): Promise<void> {
     produced_by: { transformation: "human", version: "1", run_id: "rfc0010-live-media-smoke-seed", provider: null },
   });
 
+  const moderationDef = transformations.get("tts_moderation");
+  if (!moderationDef) throw new Error("tts_moderation worker missing from transformation catalog");
+  const moderation = await runner.run(
+    moderationDef,
+    [script.artifact.artifact_id],
+    { runId: `rfc0010-smoke-moderation-${Date.now()}` },
+  );
+  const moderationPayload = moderation.artifact.payload as ModerationPayload;
+
   const voice = await getVoiceFixture({
     runner,
     transformations,
     store,
     blobs,
     scriptId: script.artifact.artifact_id,
+    moderationId: moderation.artifact.artifact_id,
     voiceId,
   });
   console.log("=== RFC 0010 LIVE-MEDIA SMOKE ===");
   console.log(`script=${script.artifact.artifact_id} words=${WORD_COUNT}`);
+  console.log(`tts_moderation=${moderation.artifact.artifact_id} decision=${moderationPayload.decision} approved=${moderationPayload.approved_for_tts}`);
   console.log(`voice=${voice.artifactId} source=${voice.source} cache_key=${voice.cacheKey}`);
   console.log(`text_model=${textModel} images=${images.id} renderer=${renderer.id}`);
 
@@ -366,6 +391,7 @@ async function main(): Promise<void> {
   await Promise.all([
     writeFile(path.join(EXPORT_DIR, "candidate-rfc0010-smoke.mp4"), videoBytes),
     writeFile(path.join(EXPORT_DIR, "script.json"), JSON.stringify({ word_count: WORD_COUNT, scenes: SCENES }, null, 2)),
+    writeFile(path.join(EXPORT_DIR, "tts-moderation.json"), JSON.stringify(moderation.artifact.payload, null, 2)),
     writeFile(path.join(EXPORT_DIR, "visual-direction.json"), JSON.stringify(direction.payload, null, 2)),
     writeFile(path.join(EXPORT_DIR, "visual-assets.json"), JSON.stringify(assets.payload, null, 2)),
     writeFile(path.join(EXPORT_DIR, "visual-timeline.json"), JSON.stringify(timeline.payload, null, 2)),
@@ -378,11 +404,14 @@ async function main(): Promise<void> {
     fixture: {
       word_count: WORD_COUNT,
       scene_count: SCENES.length,
+      moderation_artifact_id: moderation.artifact.artifact_id,
+      moderation_decision: moderationPayload.decision,
       voice_source: voice.source,
       voice_cache_key: voice.cacheKey,
       voice_artifact_id: voice.artifactId,
     },
     live_surfaces: [
+      "pre_tts_moderation_audit",
       "visual_director",
       "pexels_retrieval",
       "fal_generation",
@@ -394,11 +423,18 @@ async function main(): Promise<void> {
     ],
     providers: {
       text_model: textModel,
+      moderation_model: env("OPENAI_MODERATION_MODEL") ?? "omni-moderation-latest",
       image_provider: images.id,
       renderer: renderer.id,
       generated_video_model: env("FAL_TEXT_TO_VIDEO_MODEL") ?? "fal-ai/kling-video/v2.5-turbo/pro/text-to-video",
     },
-    artifacts: { direction: directionId, assets: assetsId, timeline: timelineId, render: renderId },
+    artifacts: {
+      moderation: moderation.artifact.artifact_id,
+      direction: directionId,
+      assets: assetsId,
+      timeline: timelineId,
+      render: renderId,
+    },
     result: report,
   };
   await writeFile(path.join(EXPORT_DIR, "manifest.json"), JSON.stringify(manifest, null, 2));
