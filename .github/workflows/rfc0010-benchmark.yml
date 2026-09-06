@@ -1,0 +1,129 @@
+name: RFC 0010 Live Visual Benchmark
+
+on:
+  push:
+    branches: [rfc-0010-visual-director]
+    paths:
+      - ".github/workflows/rfc0010-benchmark.yml"
+      - "engine/scripts/rfc0010-benchmark-e2e.ts"
+      - "engine/graphs/visual_benchmark_control.json"
+  workflow_dispatch: {}
+
+concurrency:
+  group: rfc0010-live-visual-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Generate control and RFC0010 candidate
+    runs-on: self-hosted
+    environment: production
+    timeout-minutes: 120
+    env:
+      FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
+      FREELLMAPI_TEXT_MODEL: gemini-2.5-flash
+      FREELLMAPI_VISION_MODEL: ${{ vars.FREELLMAPI_VISION_MODEL || 'auto:smart' }}
+      LLM_ROUTER_MODE: freellmapi
+      LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
+      LLM_ROUTER_TIMEOUT_MS: ${{ vars.LLM_ROUTER_TIMEOUT_MS || '120000' }}
+      SHARED_LLM_NETWORK: ${{ vars.SHARED_LLM_NETWORK || 'yt-n8n-automation-shorts_default' }}
+
+      OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+      SPEECH_PROVIDER_MODE: elevenlabs
+
+      FAL_KEY: ${{ secrets.FAL_KEY }}
+      FAL_MODEL: ${{ vars.FAL_MODEL || 'fal-ai/flux-2' }}
+      FAL_EDIT_MODEL: ${{ vars.FAL_EDIT_MODEL || '' }}
+      FAL_TEXT_TO_VIDEO_MODEL: ${{ vars.FAL_TEXT_TO_VIDEO_MODEL || 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video' }}
+      FAL_PRICE_PER_IMAGE: ${{ vars.FAL_PRICE_PER_IMAGE || '' }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Validate live benchmark configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in FREELLMAPI_API_KEY ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID FAL_KEY PEXELS_API_KEY; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::$key is required for the live RFC 0010 benchmark"
+              exit 1
+            fi
+          done
+          if [[ "$FREELLMAPI_TEXT_MODEL" == auto* ]] || [[ ! "$FREELLMAPI_TEXT_MODEL" =~ [Gg][Ee][Mm][Ii][Nn][Ii] ]]; then
+            echo "::error::text decisions must be pinned to a concrete Gemini model; got $FREELLMAPI_TEXT_MODEL"
+            exit 1
+          fi
+
+      - name: Build isolated benchmark containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f vidgen-benchmark-engine vidgen-benchmark-compose >/dev/null 2>&1 || true
+          docker compose -p vidgen-benchmark build engine long-compose
+
+      - name: Start isolated compositor
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p vidgen-benchmark run -d --name vidgen-benchmark-compose --no-deps long-compose >/dev/null
+          for attempt in $(seq 1 30); do
+            if docker exec vidgen-benchmark-compose curl -sf http://127.0.0.1:4000/topic-history >/dev/null 2>&1; then
+              echo "isolated long-compose ready"
+              exit 0
+            fi
+            sleep 4
+          done
+          docker logs --tail=100 vidgen-benchmark-compose || true
+          echo "::error::isolated long-compose did not become healthy"
+          exit 1
+
+      - name: Start isolated engine shell and attach shared FreeLLMAPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p vidgen-benchmark run -d --name vidgen-benchmark-engine --no-deps \
+            -e COMPOSE_URL=http://vidgen-benchmark-compose:4000 \
+            engine sleep infinity >/dev/null
+
+          if ! docker network inspect "$SHARED_LLM_NETWORK" >/dev/null 2>&1; then
+            echo "::error::shared FreeLLMAPI network $SHARED_LLM_NETWORK is unavailable"
+            exit 1
+          fi
+          docker network connect "$SHARED_LLM_NETWORK" vidgen-benchmark-engine
+
+          docker exec vidgen-benchmark-engine node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_TEXT_MODEL;fetch('http://freellmapi:3001/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,messages:[{role:'user',content:'Reply with exactly OK'}],max_completion_tokens:12})}).then(async r=>{if(!r.ok)throw Error('FreeLLMAPI '+r.status+': '+(await r.text()).slice(0,200));const j=await r.json();if(!j.choices?.length)throw Error('no choices');console.log('pinned Gemini route ready: '+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+
+      - name: Generate control and RFC 0010 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec vidgen-benchmark-engine \
+            node --import tsx scripts/rfc0010-benchmark-e2e.ts \
+            2>&1 | tee rfc0010-benchmark.log
+          docker cp vidgen-benchmark-engine:/data/rfc0010-benchmark-export ./rfc0010-benchmark-export
+
+      - name: Upload comparison videos and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfc0010-live-benchmark-${{ github.run_number }}
+          path: |
+            rfc0010-benchmark-export/
+            rfc0010-benchmark.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup isolated benchmark runtime
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f vidgen-benchmark-engine vidgen-benchmark-compose >/dev/null 2>&1 || true
+          docker compose -p vidgen-benchmark down -v --remove-orphans >/dev/null 2>&1 || true
