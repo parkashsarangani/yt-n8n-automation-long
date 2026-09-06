@@ -61,6 +61,24 @@ test("valid visual beat plan passes deterministic validation", () => {
   assert.deepEqual(validateVisualBeatPlan({ beats: [beat()] }), []);
 });
 
+test("provisional over-long / gappy LLM timing is not a hard failure (the aligner re-times it)", () => {
+  // RFC 0010 s4: start_sec/end_sec here are reading-speed guesses replaced by
+  // measured ElevenLabs timing downstream. A 9s provisional beat or a small
+  // provisional gap must not abort the render.
+  const long = validateVisualBeatPlan({ beats: [beat({ start_sec: 0, end_sec: 9 })] });
+  assert.deepEqual(long, []);
+  const gappy = validateVisualBeatPlan({ beats: [
+    beat({ id: "beat_001", beat_index: 0, start_sec: 0, end_sec: 3 }),
+    beat({ id: "beat_002", beat_index: 1, start_sec: 4.5, end_sec: 7 }),
+  ] });
+  assert.deepEqual(gappy, []);
+});
+
+test("a genuinely malformed beat (end before start) still fails validation", () => {
+  const errors = validateVisualBeatPlan({ beats: [beat({ start_sec: 5, end_sec: 2 })] });
+  assert.ok(errors.some((e) => e.includes("end_sec must be greater than start_sec")));
+});
+
 test("abstract explanation may not prefer generic stock", () => {
   const base = beat();
   const errors = validateVisualBeatPlan({ beats: [beat({
