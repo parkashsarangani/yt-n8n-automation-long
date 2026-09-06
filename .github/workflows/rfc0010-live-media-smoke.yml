@@ -74,6 +74,13 @@ jobs:
           docker volume create rfc0010-smoke-fixtures >/dev/null
           docker compose -p vidgen-rfc0010-smoke build engine long-compose
 
+      - name: Deterministic engine validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm run typecheck
+          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm test
+
       - name: Start isolated compositor
         shell: bash
         run: |
