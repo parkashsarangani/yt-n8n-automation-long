@@ -23,7 +23,7 @@ const resolved = (
   overrides: Partial<VisualSmokeResolvedBeat> = {},
 ): VisualSmokeResolvedBeat => ({
   id,
-  requested_mode: mode ?? undefined,
+  ...(mode ? { requested_mode: mode } : {}),
   resolved_mode: mode,
   status: "resolved",
   semantic_verified: mode !== "motion_graphic",
