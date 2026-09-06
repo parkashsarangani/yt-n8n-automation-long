@@ -478,7 +478,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       { schema_id: "voice", range: "^1", as: "voice" },
     ],
     produces: "visual_beat_assets",
-    produces_version: "1.0.0",
+    produces_version: "1.1.0",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const provisional = inputs["plan"]!.payload as VisualBeatPlan;
