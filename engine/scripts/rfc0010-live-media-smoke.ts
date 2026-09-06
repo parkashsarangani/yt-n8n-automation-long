@@ -14,9 +14,8 @@
  *   - timeline construction, render, rendered-frame QA
  *
  * Every run also produces a fresh pre-TTS moderation audit for the exact fixed
- * script. A cached voice does not call ElevenLabs again, but the audit remains
- * available in the exported diagnostics. A new/refresh voice cannot be
- * synthesized unless the report is approved.
+ * script. A cached voice does not call ElevenLabs again, but the fresh audit
+ * must still approve that script before the cached audio may be reused.
  *
  * This is a development smoke test, not a substitute for the 90-120 second
  * control-vs-candidate acceptance benchmark.
@@ -45,6 +44,7 @@ import { scoreVisualBeatFrames, type QaImage } from "../src/visual-beat-qa.ts";
 import type { VisualBeat, VisualBeatPlan } from "../src/visual-routing.ts";
 import { evaluateVisualSmoke, type VisualSmokeRenderedBeat, type VisualSmokeResolvedBeat } from "../src/visual-smoke.ts";
 import { allTransformations, defaultWorkers } from "../src/workers/index.ts";
+import { assertTtsApproved } from "../src/workers/voice.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".vidgen-data");
@@ -99,6 +99,7 @@ type CachedVoice = {
   }>;
 };
 type ModerationPayload = {
+  script_artifact_id: string;
   decision: "allow" | "review" | "block";
   approved_for_tts: boolean;
   reasons: string[];
@@ -316,6 +317,9 @@ async function main(): Promise<void> {
     { runId: `rfc0010-smoke-moderation-${Date.now()}` },
   );
   const moderationPayload = moderation.artifact.payload as ModerationPayload;
+  // Enforce the fresh audit even when the narration fixture is already cached.
+  // This call also checks that the report belongs to the exact immutable script.
+  assertTtsApproved(script.artifact.artifact_id, moderationPayload);
 
   const voice = await getVoiceFixture({
     runner,
