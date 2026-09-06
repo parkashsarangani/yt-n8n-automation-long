@@ -91,8 +91,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Persistent image bank: a fixed benchmark script emits the same fal
+          # prompts every run, so an already-generated image is reused for free.
+          # This volume is external and deliberately survives `compose down -v`.
+          docker volume create rfc0010-image-bank >/dev/null
           docker compose -p vidgen-benchmark run -d --name vidgen-benchmark-engine --no-deps \
             -e COMPOSE_URL=http://vidgen-benchmark-compose:4000 \
+            -e IMAGE_BANK_DIR=/image-bank \
+            -v rfc0010-image-bank:/image-bank \
             engine sleep infinity >/dev/null
 
           if ! docker network inspect "$SHARED_LLM_NETWORK" >/dev/null 2>&1; then

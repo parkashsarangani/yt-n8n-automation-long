@@ -4,6 +4,7 @@ import { checkGeneratedImageMatchesNarration } from "../image-qa.ts";
 import { candidateWindows, extractVideoSegment, sampleVideoFrames } from "../media/video-analysis.ts";
 import { FalVideoProvider } from "../providers/fal-video.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
+import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import {
   scoreVisualBeatFrames,
@@ -88,6 +89,7 @@ interface ReferenceCapableImageProvider {
     aspect: "16:9";
     seed: number;
     reference?: QaImage;
+    context?: ImageBankContext;
   }) => Promise<{
     images: QaImage[];
     usage?: unknown;
@@ -204,6 +206,15 @@ async function generateImage(
     const concept = concepts[index]!;
     try {
       const prompt = strengthenedPrompt(beat, concept);
+      const bankContext = {
+        graph: "visual_benchmark",
+        scene_index: beat.scene_index,
+        beat_id: beat.id,
+        mode: "generated_image",
+        narration: beat.narration,
+        requirement: beat.visual_contract.required.join("; "),
+        concept_index: index,
+      };
       let image: QaImage | undefined;
       if (continuityReference && referenceCapable.generatePack) {
         const pack = await referenceCapable.generatePack({
@@ -211,6 +222,7 @@ async function generateImage(
           aspect: "16:9",
           seed: stableSeed(beat.id, index),
           reference: continuityReference,
+          context: bankContext,
         });
         image = pack.images[0];
       } else {
@@ -219,6 +231,7 @@ async function generateImage(
           aspect: "16:9",
           count: 1,
           tier: beat.hero_role ? "hero" : "standard",
+          context: bankContext,
         });
         image = output.images[0];
       }

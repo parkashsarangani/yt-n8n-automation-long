@@ -101,6 +101,7 @@ jobs:
           set -euo pipefail
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
           docker volume create rfc0010-smoke-fixtures >/dev/null
+          docker volume create rfc0010-image-bank >/dev/null
           docker compose -p vidgen-rfc0010-smoke build long-compose
 
       - name: Start isolated compositor
@@ -127,6 +128,8 @@ jobs:
           set -euo pipefail
           docker compose -p vidgen-rfc0010-smoke run -d --name vidgen-rfc0010-smoke-engine --no-deps \
             -v rfc0010-smoke-fixtures:/fixture-cache \
+            -v rfc0010-image-bank:/image-bank \
+            -e IMAGE_BANK_DIR=/image-bank \
             -e COMPOSE_URL=http://vidgen-rfc0010-smoke-compose:4000 \
             engine sleep infinity >/dev/null
 

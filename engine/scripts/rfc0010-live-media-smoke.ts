@@ -34,6 +34,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FalImageProvider } from "../src/providers/fal.ts";
+import { CachedImageProvider } from "../src/providers/cached-image.ts";
 import { OpenAIProvider } from "../src/providers/openai.ts";
 import { ProviderRouter } from "../src/provider.ts";
 import { SchemaRegistry } from "../src/registry.ts";
@@ -279,7 +280,15 @@ async function main(): Promise<void> {
   const blobs = await FsBlobStore.open(DATA);
   const runLog = new JsonlRunLog(path.join(DATA, "runs.jsonl"));
   const speech = new ElevenLabsProvider({ apiKey: elevenKey });
-  const images = new FalImageProvider({ apiKey: requireEnv("FAL_KEY") });
+  // Persistent image bank keyed on the exact prompt/aspect/seed/reference:
+  // the smoke fixture is fixed, so an unchanged beat's fal image is generated
+  // once and reused for free on every later run. IMAGE_BANK_DIR lives on a
+  // Docker volume that survives cleanup.
+  const images = new CachedImageProvider(
+    new FalImageProvider({ apiKey: requireEnv("FAL_KEY") }),
+    env("IMAGE_BANK_DIR"),
+    console,
+  );
   const renderer = new ComposeRenderer({ baseUrl: composeUrl });
   const transformations = allTransformations(
     agents,
