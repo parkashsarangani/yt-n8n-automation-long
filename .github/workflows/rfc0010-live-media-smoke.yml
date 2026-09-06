@@ -81,31 +81,19 @@ jobs:
         with:
           clean: true
 
-      - name: Build engine for deterministic validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker compose -p vidgen-rfc0010-smoke build engine
-
       - name: Deterministic engine validation
         shell: bash
         run: |
           set -euo pipefail
-          # The job env carries live provider secrets for the live smoke, and
-          # `compose run` injects the compose `engine.environment` block. The
-          # unit suite expects a clean environment (many tests assert routing
-          # behaviour with no keys configured), so blank every provider var for
-          # the deterministic run only. Mirrors ci.yml's `docker run` isolation.
-          clean_env=(
-            -e LLM_ROUTER_MODE= -e LLM_ROUTER_FAIL_OPEN_TO_DIRECT= -e LLM_ROUTER_TIMEOUT_MS=
-            -e FREELLMAPI_API_KEY= -e FREELLMAPI_BASE_URL= -e FREELLMAPI_TEXT_MODEL= -e FREELLMAPI_VISION_MODEL=
-            -e OPENAI_API_KEY= -e OPENAI_BASE_URL= -e OPENAI_MODEL= -e OPENAI_MODERATION_MODEL= -e OPENAI_IMAGE_QA_MODEL=
-            -e ELEVENLABS_API_KEY= -e ELEVENLABS_VOICE_ID= -e SPEECH_PROVIDER_MODE=
-            -e FAL_KEY= -e FAL_MODEL= -e FAL_EDIT_MODEL= -e FAL_TEXT_TO_VIDEO_MODEL= -e FAL_PRICE_PER_IMAGE=
-            -e PEXELS_API_KEY= -e IMAGE_BANK_DIR= -e IMAGE_QA_TIMEOUT_MS=
-          )
-          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps "${clean_env[@]}" engine npm run typecheck
-          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps "${clean_env[@]}" engine npm test
+          # Build and run the unit suite exactly like ci.yml: a plain
+          # `docker run` with no compose environment block and no DB/provider
+          # env, so tests that assert clean-environment routing behaviour and
+          # tests that spin up their own Postgres (testcontainers) behave the
+          # same as on hosted CI. The live steps below run their own
+          # `docker compose build engine` (layer-cached, fast).
+          docker build -t rfc0010-smoke-engine:validate ./engine
+          docker run --rm rfc0010-smoke-engine:validate npm run typecheck
+          docker run --rm rfc0010-smoke-engine:validate npm test
 
       - name: Validation-only complete
         if: ${{ !inputs.run_live_media && github.event_name != 'push' }}
