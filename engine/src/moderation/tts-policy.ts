@@ -56,13 +56,6 @@ const BLOCK_OPENAI_CATEGORIES = new Set([
   "self-harm/instructions",
 ]);
 
-const REVIEW_OPENAI_CATEGORIES = new Set([
-  "harassment/threatening",
-  "hate/threatening",
-  "self-harm/intent",
-  "violence/graphic",
-]);
-
 const EDUCATIONAL_CONTEXT = /\b(?:educational|explainer|documentary|news report|reporting on|history of|historical|warning signs?|fraud prevention|scam awareness|how scams? work|avoid(?:ing)? scams?|protect yourself|do not|don't|never share|never send|fictional|in a movie|in a book)\b/i;
 
 const ELEVENLABS_RULES: Array<{ id: string; pattern: RegExp }> = [
@@ -116,23 +109,30 @@ export function findElevenLabsRiskSignals(text: string): ElevenLabsRiskSignal[] 
 }
 
 export function decideTtsScene(
-  moderation: Pick<OpenAiModerationResult, "categories">,
+  moderation: Pick<OpenAiModerationResult, "flagged" | "categories">,
   text: string,
 ): TtsSceneDecision {
   const reasons: string[] = [];
   let decision: TtsModerationDecision = "allow";
+  let sawFlaggedCategory = false;
 
   for (const category of moderation.categories) {
     if (!category.flagged) continue;
+    sawFlaggedCategory = true;
     if (BLOCK_OPENAI_CATEGORIES.has(category.name)) {
       decision = "block";
       reasons.push(`OpenAI moderation flagged blocking category ${category.name}`);
-    } else if (REVIEW_OPENAI_CATEGORIES.has(category.name) && decision !== "block") {
+    } else if (decision !== "block") {
       decision = "review";
       reasons.push(`OpenAI moderation flagged review category ${category.name}`);
-    } else {
-      reasons.push(`OpenAI moderation flagged ${category.name} for audit`);
     }
+  }
+
+  // The provider-level flagged bit is the authoritative summary. Do not let a
+  // newly introduced or unexpectedly shaped category bypass the TTS boundary.
+  if (moderation.flagged && !sawFlaggedCategory && decision === "allow") {
+    decision = "review";
+    reasons.push("OpenAI moderation flagged the narration without a recognized category flag");
   }
 
   const signals = findElevenLabsRiskSignals(text);
