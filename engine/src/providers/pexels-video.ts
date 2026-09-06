@@ -72,12 +72,29 @@ export class PexelsVideoProvider {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
 
+  private readonly timeoutMs: number;
+
   constructor(opts: PexelsVideoOptions = {}) {
     const key = opts.apiKey ?? process.env["PEXELS_API_KEY"];
     if (!key?.trim()) throw new ProviderError("PexelsVideoProvider needs PEXELS_API_KEY");
     this.apiKey = key.trim();
     this.baseUrl = (opts.baseUrl ?? "https://api.pexels.com/v1/videos").replace(/\/$/, "");
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    const raw = Number(process.env["PEXELS_TIMEOUT_MS"]);
+    this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 ? raw : 90_000;
+  }
+
+  private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await this.fetchImpl(url, { ...(init ?? {}), signal: controller.signal });
+    } catch (err) {
+      const aborted = err instanceof Error && err.name === "AbortError";
+      throw new ProviderError(aborted ? `Pexels request timed out after ${this.timeoutMs}ms` : `Pexels request failed: ${String(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async search(query: string, limit = 5): Promise<StockVideoCandidate[]> {
@@ -91,7 +108,7 @@ export class PexelsVideoProvider {
     // Fetch extra metadata candidates because some entries lack a suitable MP4.
     url.searchParams.set("per_page", String(Math.max(10, wanted * 2)));
 
-    const res = await this.fetchImpl(url.toString(), {
+    const res = await this.fetchWithTimeout(url.toString(), {
       headers: { Authorization: this.apiKey },
     });
     if (!res.ok) {
@@ -105,7 +122,7 @@ export class PexelsVideoProvider {
 
     const candidates: StockVideoCandidate[] = [];
     for (const { video, file } of selected) {
-      const dl = await this.fetchImpl(file.link);
+      const dl = await this.fetchWithTimeout(file.link);
       if (!dl.ok) continue;
       const bytes = new Uint8Array(await dl.arrayBuffer());
       if (bytes.length === 0) continue;

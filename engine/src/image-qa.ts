@@ -20,6 +20,7 @@
 // production.
 
 import { llmRoutingConfig } from "./llm-routing.ts";
+import { prepareVisionImages } from "./media/vision-image.ts";
 import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 
 // The shared FreeLLMAPI vision route (auto:smart) is a multimodal aggregator
@@ -141,13 +142,14 @@ async function requestVisionJson(
 }
 
 async function askVisionMany(
-  images: Array<{ bytes: Uint8Array; media_type: string }>,
+  rawImages: Array<{ bytes: Uint8Array; media_type: string }>,
   instruction: string,
   fetchImpl: FetchLike,
   maxCompletionTokens = 500,
   opts: { timeoutMs?: number; label?: string } = {},
 ): Promise<Record<string, unknown> | null> {
-  if (images.length === 0) return null;
+  if (rawImages.length === 0) return null;
+  const images = await prepareVisionImages(rawImages);
 
   const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
   for (const image of images) {

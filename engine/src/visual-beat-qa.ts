@@ -1,4 +1,5 @@
 import { llmRoutingConfig } from "./llm-routing.ts";
+import { prepareVisionImage } from "./media/vision-image.ts";
 import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
 
@@ -79,7 +80,12 @@ async function request(
   finally{ clearTimeout(timer); }
 }
 
-async function routedRequest(frames:RequestFrames,beat:VisualBeat,fetchImpl:VisualBeatFetch):Promise<VisualBeatQaResult|null>{
+async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualBeatFetch):Promise<VisualBeatQaResult|null>{
+  const frames:RequestFrames={
+    candidate:await Promise.all(raw.candidate.map(prepareVisionImage)),
+    ...(raw.previous?{previous:await prepareVisionImage(raw.previous)}:{}),
+    ...(raw.next?{next:await prepareVisionImage(raw.next)}:{}),
+  };
   const routing=llmRoutingConfig();
   if(routing.mode==="freellmapi"&&routing.apiKey&&!freeVisionTripped()){ const free=await request({baseUrl:routing.baseUrl,apiKey:routing.apiKey,model:routing.visionModel,label:"freellmapi",timeoutMs:FREE_VISION_ATTEMPT_TIMEOUT_MS},frames,beat,fetchImpl); recordFreeVisionResult(free!==null); if(free)return free; if(!routing.failOpenToDirect)return null; }
   const apiKey=process.env["OPENAI_API_KEY"]?.trim(); if(!apiKey)return null;

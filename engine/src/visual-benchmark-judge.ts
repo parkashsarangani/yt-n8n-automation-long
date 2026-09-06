@@ -1,4 +1,5 @@
 import { llmRoutingConfig } from "./llm-routing.ts";
+import { prepareVisionImages } from "./media/vision-image.ts";
 import type { QaImage, VisualBeatFetch } from "./visual-beat-qa.ts";
 import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { VisualBeat } from "./visual-routing.ts";
@@ -82,11 +83,12 @@ async function request(
 }
 
 export async function compareRenderedVisualsBlind(
-  optionA: QaImage[],
-  optionB: QaImage[],
+  rawA: QaImage[],
+  rawB: QaImage[],
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch = fetch as unknown as VisualBeatFetch,
 ): Promise<BlindComparisonResult | null> {
+  const [optionA, optionB] = await Promise.all([prepareVisionImages(rawA), prepareVisionImages(rawB)]);
   const routing = llmRoutingConfig();
   if (routing.mode === "freellmapi" && routing.apiKey && !freeVisionTripped()) {
     const result = await request({ baseUrl: routing.baseUrl, apiKey: routing.apiKey, model: routing.visionModel, label: "freellmapi", timeoutMs: FREE_VISION_ATTEMPT_TIMEOUT_MS }, optionA, optionB, beat, fetchImpl);

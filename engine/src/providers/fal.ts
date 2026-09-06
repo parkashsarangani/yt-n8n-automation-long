@@ -46,6 +46,7 @@ export class FalImageProvider implements ImageProvider {
   private readonly outputFormat: "png" | "jpeg";
   private readonly pricePerImage: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(opts: FalOptions = {}) {
     const key = opts.apiKey ?? process.env["FAL_KEY"];
@@ -67,23 +68,37 @@ export class FalImageProvider implements ImageProvider {
     this.outputFormat = opts.outputFormat ?? "png";
     this.pricePerImage = opts.pricePerImage ?? 0.025;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    // A hung fal.run request has no natural end; without this an unattended
+    // benchmark/smoke can wait indefinitely on one image.
+    const raw = Number(process.env["FAL_TIMEOUT_MS"]);
+    this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 ? raw : 180_000;
     this.id = `fal/${this.model}`;
   }
 
-  private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
-    let res: Response;
+  private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/${model}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
+      return await this.fetchImpl(url, { ...(init ?? {}), signal: controller.signal });
     } catch (err) {
-      throw new ProviderError(`${this.id} request failed: ${String(err)}`);
+      const aborted = err instanceof Error && err.name === "AbortError";
+      throw new ProviderError(
+        aborted ? `${this.id} request timed out after ${this.timeoutMs}ms` : `${this.id} request failed: ${String(err)}`,
+      );
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/${model}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
 
     if (!res.ok) {
       throw new ProviderError(
@@ -95,7 +110,7 @@ export class FalImageProvider implements ImageProvider {
     const image = (body.images ?? []).find((item) => item.url);
     if (!image?.url) throw new ProviderError(`${this.id} returned no images (blocked or empty)`);
 
-    const dl = await this.fetchImpl(image.url);
+    const dl = await this.fetchWithTimeout(image.url);
     if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
     return {
       bytes: new Uint8Array(await dl.arrayBuffer()),
