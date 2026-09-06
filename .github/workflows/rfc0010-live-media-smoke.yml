@@ -136,7 +136,7 @@ jobs:
             exit "$status"
           fi
 
-          node -e "const fs=require('fs');const p='rfc0010-live-media-smoke-export/smoke-report.json';if(!fs.existsSync(p)){console.error('missing smoke-report.json');process.exit(1)}const r=JSON.parse(fs.readFileSync(p,'utf8'));console.log('smoke pass='+r.pass);if(!r.pass){console.error(JSON.stringify({technical:r.technical_failures,sourcing:r.sourcing_failures,coverage:r.coverage_failures,quality:r.quality_failures},null,2));process.exit(2)}"
+          node -e "const fs=require('fs');const p='rfc0010-live-media-smoke-export/smoke-report.json';if(!fs.existsSync(p)){console.error('missing smoke-report.json');process.exit(1)}const r=JSON.parse(fs.readFileSync(p,'utf8'));console.log('smoke pass='+r.pass);if(!r.pass){console.error(JSON.stringify({technical:r.technical_failures,sourcing:r.sourcing_failures,efficiency:r.efficiency_failures,coverage:r.coverage_failures,quality:r.quality_failures},null,2));process.exit(2)}"
 
       - name: Upload smoke render and diagnostics
         if: always()
