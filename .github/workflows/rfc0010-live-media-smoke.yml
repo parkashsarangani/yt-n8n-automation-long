@@ -30,6 +30,8 @@ jobs:
 
       OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+      OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL || 'omni-moderation-latest' }}
+      TTS_MODERATION_TIMEOUT_MS: ${{ vars.TTS_MODERATION_TIMEOUT_MS || '30000' }}
 
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
@@ -55,7 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for key in FREELLMAPI_API_KEY ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID FAL_KEY PEXELS_API_KEY; do
+          for key in FREELLMAPI_API_KEY OPENAI_API_KEY ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID FAL_KEY PEXELS_API_KEY; do
             if [ -z "${!key:-}" ]; then
               echo "::error::$key is required for the RFC 0010 live-media smoke test"
               exit 1
