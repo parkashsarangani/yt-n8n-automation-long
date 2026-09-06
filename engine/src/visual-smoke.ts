@@ -21,6 +21,9 @@ export interface VisualSmokeResolvedBeat {
   status: "resolved" | "fallback" | "unavailable";
   semantic_verified: boolean;
   candidate_count?: number;
+  first_acceptable_candidate_index?: number;
+  search_query_count?: number;
+  mode_attempt_count?: number;
   source_provider?: string;
   source_id?: string;
   source_url?: string;
@@ -52,6 +55,10 @@ export interface VisualSmokeReport {
     mean_candidate_count: number;
     operational_budget_failures: number;
     operational_budget_ratio: number;
+    first_three_acceptable_count: number;
+    first_three_acceptable_ratio: number;
+    max_mode_attempt_count: number;
+    max_stock_query_count: number;
     min_semantic_match: number;
     min_visual_interest: number;
     why_failures: number;
@@ -67,6 +74,10 @@ export interface VisualSmokeReport {
 }
 
 const DEFAULT_REQUIRED_MODES: VisualMode[] = ["stock_video", "generated_image", "motion_graphic"];
+const FIRST_THREE_TARGET = 0.80;
+const MAX_FALLBACK_RATIO = 0.25;
+const MAX_STOCK_QUERIES = 3;
+const MAX_MODE_ATTEMPTS = 2;
 
 /**
  * Development-health budgets, not RFC quality floors.
@@ -128,37 +139,70 @@ export function evaluateVisualSmoke(
     sourcingFailures.push(`${admittedGenericStock.length} generic stock beat(s) were admitted despite the candidate gate`);
   }
 
+  const resolvedBeats = resolved.filter((beat) => beat.resolved_mode && beat.status !== "unavailable");
   const fallbackCount = resolved.filter((beat) => beat.status === "fallback").length;
   const fallbackRatio = resolved.length ? fallbackCount / resolved.length : 0;
-  // A smoke run that depends on fallback for more than a quarter of beats is
-  // operationally unhealthy even when the eventual pixels pass: the Director's
-  // primary routing is not reliably sourcing what it asks for.
-  if (fallbackRatio > 0.25) {
-    efficiencyFailures.push(`fallback ratio ${fallbackRatio.toFixed(3)} > 0.25`);
+  if (fallbackRatio > MAX_FALLBACK_RATIO) {
+    efficiencyFailures.push(`fallback ratio ${fallbackRatio.toFixed(3)} > ${MAX_FALLBACK_RATIO.toFixed(2)}`);
   }
 
   const candidateCounts = resolved.map((beat) => beat.candidate_count ?? 0);
   const budgetFailures: string[] = [];
-  for (const beat of resolved) {
-    if (!beat.resolved_mode || beat.status === "unavailable") continue;
+  for (const beat of resolvedBeats) {
+    const mode = beat.resolved_mode!;
     const count = beat.candidate_count;
     if (count === undefined) {
-      budgetFailures.push(`${beat.id} (${beat.resolved_mode}) did not report candidate_count`);
-      continue;
+      budgetFailures.push(`${beat.id} (${mode}) did not report candidate_count`);
+    } else {
+      const budget = CANDIDATE_BUDGET[mode];
+      if (count > budget) {
+        budgetFailures.push(`${beat.id} ${mode} evaluated ${count} candidates/windows > budget ${budget}`);
+      }
+      if (mode === "generated_image" && count > 3) {
+        warnings.push(`${beat.id} generated-image pool used ${count} candidates; 3 is preferred when quality permits`);
+      }
     }
-    const budget = CANDIDATE_BUDGET[beat.resolved_mode];
-    if (count > budget) {
-      budgetFailures.push(`${beat.id} ${beat.resolved_mode} evaluated ${count} candidates/windows > budget ${budget}`);
+
+    if (beat.mode_attempt_count === undefined) {
+      efficiencyFailures.push(`${beat.id} did not report mode_attempt_count`);
+    } else if (beat.mode_attempt_count > MAX_MODE_ATTEMPTS) {
+      efficiencyFailures.push(`${beat.id} attempted ${beat.mode_attempt_count} visual modes > ${MAX_MODE_ATTEMPTS}`);
     }
-    if (beat.resolved_mode === "generated_image" && count > 3) {
-      warnings.push(`${beat.id} generated-image pool used ${count} candidates; 3 is preferred when quality permits`);
+
+    if (mode === "stock_video") {
+      if (beat.search_query_count === undefined) {
+        efficiencyFailures.push(`${beat.id} stock resolution did not report search_query_count`);
+      } else if (beat.search_query_count > MAX_STOCK_QUERIES) {
+        efficiencyFailures.push(`${beat.id} stock search consumed ${beat.search_query_count} queries > ${MAX_STOCK_QUERIES}`);
+      }
     }
   }
   efficiencyFailures.push(...budgetFailures);
-  const budgetEligible = resolved.filter((beat) => beat.resolved_mode && beat.status !== "unavailable").length;
+
+  const firstRankMissing = resolvedBeats.filter((beat) => beat.first_acceptable_candidate_index === undefined);
+  for (const beat of firstRankMissing) {
+    efficiencyFailures.push(`${beat.id} did not report first_acceptable_candidate_index`);
+  }
+  const ranked = resolvedBeats.filter((beat) => beat.first_acceptable_candidate_index !== undefined);
+  const firstThreeCount = ranked.filter((beat) => beat.first_acceptable_candidate_index! <= 3).length;
+  const firstThreeRatio = resolvedBeats.length ? firstThreeCount / resolvedBeats.length : 0;
+  if (resolvedBeats.length > 0 && firstThreeRatio < FIRST_THREE_TARGET) {
+    efficiencyFailures.push(`first-three acceptable candidate ratio ${firstThreeRatio.toFixed(3)} < ${FIRST_THREE_TARGET.toFixed(2)}`);
+  }
+  for (const beat of resolvedBeats) {
+    if (beat.resolved_mode === "generated_image" && (beat.first_acceptable_candidate_index ?? 0) > 2) {
+      warnings.push(`${beat.id} generated image did not clear the visual gate until candidate ${beat.first_acceptable_candidate_index}`);
+    }
+  }
+
+  const budgetEligible = resolvedBeats.length;
   const operationalBudgetRatio = budgetEligible
-    ? (budgetEligible - budgetFailures.length) / budgetEligible
+    ? Math.max(0, budgetEligible - budgetFailures.length) / budgetEligible
     : 0;
+  const modeAttemptCounts = resolvedBeats.map((beat) => beat.mode_attempt_count ?? 0);
+  const stockQueryCounts = resolvedBeats
+    .filter((beat) => beat.resolved_mode === "stock_video")
+    .map((beat) => beat.search_query_count ?? 0);
 
   const modeCounts: Record<VisualMode, number> = {
     stock_video: 0,
@@ -214,6 +258,10 @@ export function evaluateVisualSmoke(
       mean_candidate_count: mean(candidateCounts),
       operational_budget_failures: budgetFailures.length,
       operational_budget_ratio: operationalBudgetRatio,
+      first_three_acceptable_count: firstThreeCount,
+      first_three_acceptable_ratio: firstThreeRatio,
+      max_mode_attempt_count: modeAttemptCounts.length ? Math.max(...modeAttemptCounts) : 0,
+      max_stock_query_count: stockQueryCounts.length ? Math.max(...stockQueryCounts) : 0,
       min_semantic_match: minSemantic,
       min_visual_interest: minInterest,
       why_failures: whyFailures,
