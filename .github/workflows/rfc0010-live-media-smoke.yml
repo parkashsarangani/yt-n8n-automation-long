@@ -1,6 +1,29 @@
 name: RFC 0010 Live Media Smoke
 
 on:
+  # The RFC 0010 dev loop. A push to the candidate surface auto-runs the live
+  # smoke: no RFC 0009 control regen, cached ElevenLabs narration, and the
+  # persistent image bank means an unchanged beat costs no fal.ai spend. Cheap
+  # enough to run on every iteration.
+  push:
+    branches: [rfc-0010-visual-director]
+    paths:
+      - ".github/workflows/rfc0010-live-media-smoke.yml"
+      - "engine/scripts/rfc0010-live-media-smoke.ts"
+      - "engine/scripts/rfc0010-smoke-preflight.ts"
+      - "engine/src/visual-smoke.ts"
+      - "engine/src/visual-routing.ts"
+      - "engine/src/vision-route-health.ts"
+      - "engine/src/audio/beat-alignment.ts"
+      - "engine/src/visual-beat-qa.ts"
+      - "engine/src/visual-benchmark-judge.ts"
+      - "engine/src/workers/visual-beat-resolver.ts"
+      - "engine/src/workers/visual-timeline.ts"
+      - "engine/src/workers/tts-moderation.ts"
+      - "engine/src/moderation/**"
+      - "engine/src/providers/cached-image.ts"
+      - "engine/graphs/visual_live_media_smoke.json"
+      - "engine/prompts/visual_director/**"
   workflow_dispatch:
     inputs:
       run_live_media:
@@ -72,14 +95,14 @@ jobs:
           docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm test
 
       - name: Validation-only complete
-        if: ${{ !inputs.run_live_media }}
+        if: ${{ !inputs.run_live_media && github.event_name != 'push' }}
         shell: bash
         run: |
           echo "RFC 0010 smoke deterministic validation complete."
           echo "run_live_media=false: no Gemini/OpenAI/Fal/Pexels/ElevenLabs requests were made by this workflow."
 
       - name: Validate live smoke configuration
-        if: ${{ inputs.run_live_media }}
+        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,7 +118,7 @@ jobs:
           fi
 
       - name: Build isolated live-media compositor
-        if: ${{ inputs.run_live_media }}
+        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -105,7 +128,7 @@ jobs:
           docker compose -p vidgen-rfc0010-smoke build long-compose
 
       - name: Start isolated compositor
-        if: ${{ inputs.run_live_media }}
+        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -122,7 +145,7 @@ jobs:
           exit 1
 
       - name: Start engine and verify reasoning route
-        if: ${{ inputs.run_live_media }}
+        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -145,7 +168,7 @@ jobs:
           docker exec vidgen-rfc0010-smoke-engine node --import tsx scripts/rfc0010-smoke-preflight.ts
 
       - name: Run fixed-input live-media smoke
-        if: ${{ inputs.run_live_media }}
+        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
         id: smoke
         shell: bash
         run: |
@@ -165,7 +188,7 @@ jobs:
           node -e "const fs=require('fs');const p='rfc0010-live-media-smoke-export/smoke-report.json';if(!fs.existsSync(p)){console.error('missing smoke-report.json');process.exit(1)}const r=JSON.parse(fs.readFileSync(p,'utf8'));console.log('smoke pass='+r.pass);if(!r.pass){console.error(JSON.stringify({technical:r.technical_failures,sourcing:r.sourcing_failures,efficiency:r.efficiency_failures,coverage:r.coverage_failures,quality:r.quality_failures},null,2));process.exit(2)}"
 
       - name: Upload smoke render and diagnostics
-        if: ${{ always() && inputs.run_live_media }}
+        if: ${{ always() && (inputs.run_live_media || github.event_name == 'push') }}
         uses: actions/upload-artifact@v4
         with:
           name: rfc0010-live-media-smoke-${{ github.run_number }}
@@ -176,7 +199,7 @@ jobs:
           retention-days: 14
 
       - name: Cleanup isolated smoke runtime
-        if: ${{ always() && inputs.run_live_media }}
+        if: ${{ always() && (inputs.run_live_media || github.event_name == 'push') }}
         shell: bash
         run: |
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
