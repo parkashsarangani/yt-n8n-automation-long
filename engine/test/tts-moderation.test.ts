@@ -11,11 +11,12 @@ import { assertTtsApproved } from "../src/workers/voice.ts";
 
 function moderation(
   categories: Array<{ name: string; flagged: boolean; score?: number }> = [],
+  flagged = categories.some((category) => category.flagged),
 ): OpenAiModerationResult {
   return {
     request_id: "req_test",
     model: "omni-moderation-latest",
-    flagged: categories.some((category) => category.flagged),
+    flagged,
     categories: categories.map((category) => ({ ...category, score: category.score ?? 0.9 })),
   };
 }
@@ -47,13 +48,19 @@ test("OpenAI illicit and sexual-minors flags are blocking categories", () => {
   }
 });
 
-test("descriptive violence is retained in the audit without automatically blocking documentary narration", () => {
+test("every other OpenAI moderation flag requires review before automated TTS", () => {
   const decision = decideTtsScene(
     moderation([{ name: "violence", flagged: true, score: 0.8 }]),
     "The documentary describes a battle that happened centuries ago.",
   );
-  assert.equal(decision.decision, "allow");
-  assert.match(decision.reasons.join(" "), /for audit/);
+  assert.equal(decision.decision, "review");
+  assert.match(decision.reasons.join(" "), /review category violence/);
+});
+
+test("provider-level flagged bit cannot bypass policy when a new category shape is encountered", () => {
+  const decision = decideTtsScene(moderation([], true), "neutral test text");
+  assert.equal(decision.decision, "review");
+  assert.match(decision.reasons.join(" "), /without a recognized category/);
 });
 
 test("OpenAI moderation client records request id, model, flags and scores", async () => {
