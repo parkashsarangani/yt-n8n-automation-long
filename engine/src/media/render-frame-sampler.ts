@@ -1,11 +1,11 @@
-import { execFile } from "node:child_process";
+import { runMedia } from "./exec-bounded.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+
 import type { QaImage } from "../visual-beat-qa.ts";
 
-const execFileAsync = promisify(execFile);
+
 
 export interface TimedFrame extends QaImage { at_sec: number }
 
@@ -22,7 +22,7 @@ export async function sampleRenderedFrames(
     const output: TimedFrame[] = [];
     for (let i = 0; i < clean.length; i++) {
       const target = path.join(dir, `frame-${String(i).padStart(4, "0")}.jpg`);
-      await execFileAsync("ffmpeg", [
+      await runMedia("ffmpeg", [
         "-hide_banner", "-loglevel", "error",
         "-ss", clean[i]!.toFixed(3), "-i", input,
         "-frames:v", "1", "-vf", "scale=960:-2:flags=lanczos", "-q:v", "3", "-y", target,

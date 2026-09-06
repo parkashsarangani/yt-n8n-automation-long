@@ -6,6 +6,7 @@ import { FalVideoProvider } from "../providers/fal-video.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import { freeVisionTripped } from "../vision-route-health.ts";
 import {
   scoreVisualBeatFrames,
   scoreVisualBeatImage,
@@ -119,11 +120,18 @@ function qaFields(qa: VisualBeatQaResult): Partial<ResolvedBeat> {
   };
 }
 
+function intEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) ? Math.max(min, Math.min(max, Math.floor(raw))) : fallback;
+}
+
 function promptsForBeat(beat: VisualBeat): string[] {
   const raw = beat.asset_brief.generation_variants?.length
     ? beat.asset_brief.generation_variants
     : [beat.asset_brief.generation_prompt];
-  return raw.filter((value) => value.trim()).slice(0, 5);
+  // RFC 0010 authors 3-5 concepts for a ranking pool; a cost-bounded run can
+  // cap that. Never below 2 (the resolver still wants an alternative).
+  return raw.filter((value) => value.trim()).slice(0, intEnv("RFC0010_MAX_IMAGE_CANDIDATES", 5, 2, 5));
 }
 
 function queriesForBeat(beat: VisualBeat): string[] {
@@ -251,6 +259,9 @@ async function generateImage(
       if (!beatQa) {
         failures.push("visual QA unavailable");
         unverified.push(image);
+        // The vision route is confirmed down for this run -- generating the
+        // remaining paid concepts only to not-score them is wasted fal spend.
+        if (freeVisionTripped()) break;
         continue;
       }
       if (contradictionQa?.contradictsNarration) {
@@ -325,24 +336,35 @@ async function resolveStockVideo(
   const queries = queriesForBeat(beat);
   if (queries.length < 3) throw new Error(`${beat.id}: Visual Director supplied fewer than 3 stock query variants`);
 
+  // Hard budgets: without these one stock beat can sample 100+ windows
+  // (queries x sources x windows), each an ffmpeg decode + a VLM call.
+  const MAX_WINDOWS = intEnv("RFC0010_STOCK_MAX_WINDOWS", 36, 6, 200);
+  const WINDOWS_PER_SOURCE = intEnv("RFC0010_STOCK_WINDOWS_PER_SOURCE", 3, 1, 6);
+
   let evaluated = 0;
   let sourceCandidateIndex = 0;
   let firstAcceptable: number | undefined;
+  let qaDown = false;
+  let salvage: { source: StockVideoCandidate; start: number; end: number; frames: QaImage[] } | undefined;
+
   for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
-    const query = queries[queryIndex]!;
-    const sources = await pexels.search(query, 5);
+    const sources = await pexels.search(queries[queryIndex]!, 5);
     const accepted: WindowCandidate[] = [];
     for (const source of sources) {
       sourceCandidateIndex += 1;
       let sourceAccepted = false;
-      const windows = candidateWindows(source.duration_sec, beat.end_sec - beat.start_sec, 5);
+      const windows = candidateWindows(source.duration_sec, beat.end_sec - beat.start_sec, WINDOWS_PER_SOURCE);
       for (const window of windows) {
+        if (evaluated >= MAX_WINDOWS) break;
         evaluated += 1;
         try {
           const sampled = await sampleVideoFrames(source.bytes, window.start, window.end, 5);
           const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
+          if (!salvage) salvage = { source, start: window.start, end: window.end, frames };
+          if (qaDown) break;
           const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
-          if (qa && candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
+          if (!qa) { qaDown = true; break; }
+          if (candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
             sourceAccepted = true;
             accepted.push({ source, start: window.start, end: window.end, frames, qa });
           }
@@ -350,33 +372,41 @@ async function resolveStockVideo(
           ctx.logger.warn(`[visual_beat_assets] ${beat.id} stock window rejected: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      if (sourceAccepted && firstAcceptable === undefined) {
-        firstAcceptable = sourceCandidateIndex;
-      }
+      if (sourceAccepted && firstAcceptable === undefined) firstAcceptable = sourceCandidateIndex;
+      if (qaDown || evaluated >= MAX_WINDOWS) break;
     }
 
     accepted.sort((a, b) => weightedVisualScore(b.qa.scores) - weightedVisualScore(a.qa.scores));
     const best = accepted[0];
-    if (!best) continue;
+    if (best) {
+      const segment = await extractVideoSegment(best.source.bytes, best.start, best.end);
+      const videoRef = await ctx.blobs.put(segment, { role: "video", media_type: "video/mp4" });
+      const preview = best.frames[Math.floor(best.frames.length / 2)]!;
+      const previewRef = await ctx.blobs.put(preview.bytes, { role: "image", media_type: preview.media_type });
+      return {
+        video_uri: videoRef.uri, preview_uri: previewRef.uri, blobs: [videoRef, previewRef], preview,
+        source_provider: "pexels", source_id: best.source.id, source_url: best.source.source_url,
+        source_in_sec: best.start, source_out_sec: best.end, candidate_count: evaluated,
+        ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
+        search_query_count: queryIndex + 1,
+        ...qaFields(best.qa),
+      };
+    }
+    if (qaDown || evaluated >= MAX_WINDOWS) break;
+  }
 
-    const segment = await extractVideoSegment(best.source.bytes, best.start, best.end);
+  if (qaDown && salvage) {
+    ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unreachable; shipping the first sampled Pexels window unverified (QA_UNAVAILABLE)`);
+    const segment = await extractVideoSegment(salvage.source.bytes, salvage.start, salvage.end);
     const videoRef = await ctx.blobs.put(segment, { role: "video", media_type: "video/mp4" });
-    const preview = best.frames[Math.floor(best.frames.length / 2)]!;
+    const preview = salvage.frames[Math.floor(salvage.frames.length / 2)]!;
     const previewRef = await ctx.blobs.put(preview.bytes, { role: "image", media_type: preview.media_type });
     return {
-      video_uri: videoRef.uri,
-      preview_uri: previewRef.uri,
-      blobs: [videoRef, previewRef],
-      preview,
-      source_provider: "pexels",
-      source_id: best.source.id,
-      source_url: best.source.source_url,
-      source_in_sec: best.start,
-      source_out_sec: best.end,
-      candidate_count: evaluated,
-      ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
-      search_query_count: queryIndex + 1,
-      ...qaFields(best.qa),
+      video_uri: videoRef.uri, preview_uri: previewRef.uri, blobs: [videoRef, previewRef], preview,
+      source_provider: "pexels", source_id: salvage.source.id, source_url: salvage.source.source_url,
+      source_in_sec: salvage.start, source_out_sec: salvage.end, candidate_count: evaluated,
+      semantic_verified: false,
+      note: "QA_UNAVAILABLE: vision QA unreachable; stock window shipped unverified",
     };
   }
 
@@ -443,6 +473,7 @@ async function generateVideo(
   const motion = beat.asset_brief.generated_video_prompt?.trim() || beat.asset_brief.generation_prompt;
   const accepted: Array<{ bytes: Uint8Array; frames: QaImage[]; qa: VisualBeatQaResult; model: string; duration: number }> = [];
   let firstAcceptable: number | undefined;
+  let salvage: { bytes: Uint8Array; frames: QaImage[]; model: string; duration: number } | undefined;
 
   for (let index = 0; index < concepts.length; index++) {
     const concept = concepts[index]!;
@@ -450,8 +481,15 @@ async function generateVideo(
       const generated = await provider.generate(`${concept}. MOTION: ${motion}`, beat.end_sec - beat.start_sec);
       const sampled = await sampleVideoFrames(generated.bytes, 0, generated.duration_sec, 5);
       const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
+      if (!salvage) salvage = { bytes: generated.bytes, frames, model: generated.model, duration: generated.duration_sec };
       const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
-      if (qa && candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
+      if (!qa) {
+        // premium text-to-video is the most expensive candidate -- do not keep
+        // generating it just to not-score it.
+        if (freeVisionTripped()) break;
+        continue;
+      }
+      if (candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
         if (firstAcceptable === undefined) firstAcceptable = index + 1;
         accepted.push({ bytes: generated.bytes, frames, qa, model: generated.model, duration: generated.duration_sec });
       }
@@ -462,7 +500,23 @@ async function generateVideo(
 
   accepted.sort((a, b) => weightedVisualScore(b.qa.scores) - weightedVisualScore(a.qa.scores));
   const best = accepted[0];
-  if (!best) throw new Error(`no generated-video candidate cleared the visual gate (${concepts.length} attempted)`);
+  if (!best) {
+    if (salvage && freeVisionTripped()) {
+      ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unreachable; shipping the first generated video unverified (QA_UNAVAILABLE)`);
+      const wantedS = Math.min(salvage.duration, beat.end_sec - beat.start_sec);
+      const seg = wantedS < salvage.duration ? await extractVideoSegment(salvage.bytes, 0, wantedS) : salvage.bytes;
+      const vRef = await ctx.blobs.put(seg, { role: "video", media_type: "video/mp4" });
+      const prev = salvage.frames[Math.floor(salvage.frames.length / 2)]!;
+      const pRef = await ctx.blobs.put(prev.bytes, { role: "image", media_type: prev.media_type });
+      return {
+        video_uri: vRef.uri, preview_uri: pRef.uri, blobs: [vRef, pRef], preview: prev,
+        source_provider: "fal", source_id: salvage.model, source_in_sec: 0, source_out_sec: wantedS,
+        candidate_count: concepts.length, semantic_verified: false,
+        note: "QA_UNAVAILABLE: vision QA unreachable; generated video shipped unverified",
+      };
+    }
+    throw new Error(`no generated-video candidate cleared the visual gate (${concepts.length} attempted)`);
+  }
   const wanted = Math.min(best.duration, beat.end_sec - beat.start_sec);
   const segment = wanted < best.duration ? await extractVideoSegment(best.bytes, 0, wanted) : best.bytes;
   const videoRef = await ctx.blobs.put(segment, { role: "video", media_type: "video/mp4" });

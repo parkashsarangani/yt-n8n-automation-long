@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
+import { runMedia } from "./exec-bounded.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
+
+
 
 export interface SampledFrame {
   at_sec: number;
@@ -25,7 +25,7 @@ async function withVideo<T>(video: Uint8Array, fn: (file: string, dir: string) =
 
 export async function probeVideoDuration(video: Uint8Array): Promise<number> {
   return withVideo(video, async (input) => {
-    const { stdout } = await execFileAsync("ffprobe", [
+    const { stdout } = await runMedia("ffprobe", [
       "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", input,
     ]);
     const n = Number(stdout.trim());
@@ -51,7 +51,7 @@ export async function sampleVideoFrames(
     const frames: SampledFrame[] = [];
     for (let i = 0; i < times.length; i++) {
       const out = path.join(dir, `frame-${i}.jpg`);
-      await execFileAsync("ffmpeg", [
+      await runMedia("ffmpeg", [
         "-hide_banner", "-loglevel", "error", "-ss", times[i]!.toFixed(3), "-i", input,
         "-frames:v", "1", "-vf", "scale=960:-2:flags=lanczos", "-q:v", "3", "-y", out,
       ]);
@@ -70,7 +70,7 @@ export async function extractVideoSegment(
   if (!(endSec > startSec)) throw new Error("extractVideoSegment requires endSec > startSec");
   return withVideo(video, async (input, dir) => {
     const out = path.join(dir, "segment.mp4");
-    await execFileAsync("ffmpeg", [
+    await runMedia("ffmpeg", [
       "-hide_banner", "-loglevel", "error", "-ss", startSec.toFixed(3), "-i", input,
       "-t", (endSec - startSec).toFixed(3),
       "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",

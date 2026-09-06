@@ -1,13 +1,13 @@
-import { execFile } from "node:child_process";
+import { runMedia } from "./exec-bounded.ts";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+
 
 import type { QaImage } from "../visual-beat-qa.ts";
 
-const execFileAsync = promisify(execFile);
+
 
 /**
  * Vision QA sends candidate frames to a multimodal model as base64 data URIs.
@@ -46,7 +46,7 @@ export async function prepareVisionImage(image: QaImage): Promise<QaImage> {
   const output = path.join(dir, "out.jpg");
   try {
     await writeFile(input, image.bytes);
-    await execFileAsync("ffmpeg", [
+    await runMedia("ffmpeg", [
       "-hide_banner", "-loglevel", "error",
       "-i", input,
       "-vf", `scale='min(${MAX_WIDTH},iw)':-2:flags=lanczos`,
