@@ -1,21 +1,115 @@
 {
   "graph_id": "manual",
   "version": "2",
-  "description": "The operator writes the hook and narration themselves — story_architect and script_writer never run. The story and script inputs are seeded directly from what the human typed, and every downstream stage runs as usual. Pre-TTS moderation still produces an immutable audit record and must approve the exact script before voice synthesis; manual authorship is not a moderation bypass. approve_publish still gates on QA, unchanged.",
+  "description": "The operator writes the hook and narration themselves — story_architect and script_writer never run. The story and script inputs are seeded directly from what the human typed, and every downstream stage (visuals, voice, SEO, thumbnail, render, QA, publish) runs exactly as it does for an AI-drafted episode. There is no approve_story or approve_script gate: the human already wrote and approved the words by typing them. Pre-TTS moderation still produces an immutable audit record and must approve the exact script before voice synthesis; manual authorship is not a moderation bypass. approve_publish still gates on QA, unchanged.",
   "nodes": [
-    { "id": "intent", "type": "input", "schema_id": "intent" },
-    { "id": "story", "type": "input", "schema_id": "story" },
-    { "id": "script", "type": "input", "schema_id": "script" },
-    { "id": "visual_plan", "transformation": "visual_planner", "in": ["script"] },
-    { "id": "assets", "transformation": "asset_collector", "in": ["visual_plan"] },
-    { "id": "tts_moderation", "transformation": "tts_moderation", "in": ["script"] },
-    { "id": "voice", "transformation": "voice", "in": ["script", "tts_moderation"] },
-    { "id": "seo", "transformation": "seo_optimizer", "in": ["story", "script"] },
-    { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["story"] },
-    { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "render", "in": ["script", "voice", "assets"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "script", "assets", "voice", "render", "thumbnail", "seo"] },
-    { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
-    { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
+    {
+      "id": "intent",
+      "type": "input",
+      "schema_id": "intent"
+    },
+    {
+      "id": "story",
+      "type": "input",
+      "schema_id": "story"
+    },
+    {
+      "id": "script",
+      "type": "input",
+      "schema_id": "script"
+    },
+    {
+      "id": "visual_plan",
+      "transformation": "visual_planner",
+      "in": [
+        "script"
+      ]
+    },
+    {
+      "id": "assets",
+      "transformation": "asset_collector",
+      "in": [
+        "visual_plan"
+      ]
+    },
+    {
+      "id": "tts_moderation",
+      "transformation": "tts_moderation",
+      "in": [
+        "script"
+      ]
+    },
+    {
+      "id": "voice",
+      "transformation": "voice",
+      "in": [
+        "script",
+        "tts_moderation"
+      ]
+    },
+    {
+      "id": "seo",
+      "transformation": "seo_optimizer",
+      "in": [
+        "story",
+        "script"
+      ]
+    },
+    {
+      "id": "thumbnail_brief",
+      "transformation": "thumbnail_designer",
+      "in": [
+        "story"
+      ]
+    },
+    {
+      "id": "thumbnail",
+      "transformation": "thumbnail",
+      "in": [
+        "thumbnail_brief"
+      ]
+    },
+    {
+      "id": "render",
+      "transformation": "render",
+      "in": [
+        "script",
+        "voice",
+        "assets"
+      ]
+    },
+    {
+      "id": "qa",
+      "transformation": "qa",
+      "in": [
+        "intent",
+        "script",
+        "assets",
+        "voice",
+        "render",
+        "thumbnail",
+        "seo"
+      ]
+    },
+    {
+      "id": "approve_publish",
+      "type": "human_gate",
+      "in": [
+        "qa"
+      ],
+      "policy": {
+        "auto_pass_if": "payload.verdict == \"pass\""
+      }
+    },
+    {
+      "id": "publish",
+      "transformation": "publish",
+      "in": [
+        "render",
+        "seo",
+        "thumbnail",
+        "approve_publish"
+      ]
+    }
   ]
 }
