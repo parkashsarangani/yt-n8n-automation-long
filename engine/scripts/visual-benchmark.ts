@@ -79,7 +79,7 @@ async function main():Promise<void>{
   console.log(`control=${controlId}`);
   console.log(`images=${images.id}`);
   console.log(`renderer=${renderer.id}`);
-  console.log(`text_model=${env("FREELLMAPI_TEXT_MODEL")??"gemini-2.5-flash"}`);
+  console.log(`text_model=${env("FREELLMAPI_TEXT_MODEL")??"gemini-3.5-flash"}`);
   console.log(`fal_text_to_video=${env("FAL_TEXT_TO_VIDEO_MODEL")??"fal-ai/kling-video/v2.5-turbo/pro/text-to-video"}`);
 
   const result=await executor.start(graph,{script:scriptId,voice:voiceId,control_render:controlId});

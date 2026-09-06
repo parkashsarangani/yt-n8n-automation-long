@@ -43,7 +43,7 @@ jobs:
           for required in (
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
               "FREELLMAPI_API_KEY:",
-              "FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}",
+              "FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
               "FREELLMAPI_VISION_MODEL:",
               "FAL_KEY:",
               "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
@@ -68,7 +68,7 @@ jobs:
               "http://freellmapi:3001/api/ping",
               "FREELLMAPI_API_KEY:",
               "LLM_ROUTER_MODE:",
-              "FREELLMAPI_TEXT_MODEL: gemini-2.5-flash",
+              "FREELLMAPI_TEXT_MODEL: gemini-3.5-flash",
               "/v1/chat/completions",
               "SPEECH_PROVIDER_MODE: elevenlabs",
               "FAL_KEY:",
@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 120
     env:
       FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
-      FREELLMAPI_TEXT_MODEL: gemini-2.5-flash
+      FREELLMAPI_TEXT_MODEL: gemini-3.5-flash
       FREELLMAPI_VISION_MODEL: ${{ vars.FREELLMAPI_VISION_MODEL || 'auto:smart' }}
       LLM_ROUTER_MODE: freellmapi
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
@@ -219,7 +219,7 @@ jobs:
             exit 1
           fi
           docker network connect "$SHARED_LLM_NETWORK" vidgen-benchmark-engine
-          docker exec vidgen-benchmark-engine node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_TEXT_MODEL;fetch('http://freellmapi:3001/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,messages:[{role:'user',content:'Reply with exactly OK'}],max_completion_tokens:12})}).then(async r=>{if(!r.ok)throw Error('FreeLLMAPI '+r.status+': '+(await r.text()).slice(0,200));const j=await r.json();if(!j.choices?.length)throw Error('no choices');console.log('pinned Gemini route ready: '+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+          docker exec vidgen-benchmark-engine node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_TEXT_MODEL;fetch('http://freellmapi:3001/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,messages:[{role:'user',content:'Reply with exactly OK'}],max_completion_tokens:12,reasoning_effort:'none'})}).then(async r=>{if(!r.ok)throw Error('FreeLLMAPI '+r.status+': '+(await r.text()).slice(0,200));const j=await r.json();if(!j.choices?.length)throw Error('no choices');console.log('pinned Gemini route ready: '+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
 
       - name: Generate control and RFC 0010 candidate
         shell: bash

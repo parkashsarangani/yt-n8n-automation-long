@@ -30,7 +30,7 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_VISION_MODEL",
       "OPENAI_MODEL",
     ],
-    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}",
+    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
     fallback: "unavailable",
     consequence: "runs fail at the first reasoning node — there is no offline model fallback for creative planning",
   },
@@ -158,7 +158,7 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
   const openaiModel = env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
   if (routerMode(env) === "direct") return `openai/${openaiModel}`;
   if (isSet(env, "FREELLMAPI_API_KEY")) {
-    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "gemini-2.5-flash";
+    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "gemini-3.5-flash";
     return failOpen(env) && isSet(env, "OPENAI_API_KEY")
       ? `freellmapi/${freeModel} → openai/${openaiModel} fail-open`
       : `freellmapi/${freeModel}`;

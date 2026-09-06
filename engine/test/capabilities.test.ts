@@ -83,13 +83,13 @@ test("reasoning capability report exposes pinned Gemini primary and paid fail-op
     allowPublish: false,
     env: {
       FREELLMAPI_API_KEY: "free",
-      FREELLMAPI_TEXT_MODEL: "gemini-2.5-flash",
+      FREELLMAPI_TEXT_MODEL: "gemini-3.5-flash",
       OPENAI_API_KEY: "paid",
       OPENAI_MODEL: "gpt-5.6-luna",
     },
   }).find((s) => s.id === "reasoning")!;
   assert.equal(reasoning.real, true);
-  assert.equal(reasoning.provider, "freellmapi/gemini-2.5-flash → openai/gpt-5.6-luna fail-open");
+  assert.equal(reasoning.provider, "freellmapi/gemini-3.5-flash → openai/gpt-5.6-luna fail-open");
   assert.deepEqual(reasoning.missing, []);
 });
 
@@ -158,7 +158,7 @@ test("a fully configured deployment reports every stage live", () => {
     allowPublish: true,
     env: {
       FREELLMAPI_API_KEY: "free-test",
-      FREELLMAPI_TEXT_MODEL: "gemini-2.5-flash",
+      FREELLMAPI_TEXT_MODEL: "gemini-3.5-flash",
       OPENAI_API_KEY: "sk-test",
       OPENAI_MODEL: "gpt-5.6-luna",
       ELEVENLABS_API_KEY: "el",
@@ -170,7 +170,7 @@ test("a fully configured deployment reports every stage live", () => {
     },
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
-  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi/gemini-2.5-flash → openai/gpt-5.6-luna fail-open");
+  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi/gemini-3.5-flash → openai/gpt-5.6-luna fail-open");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {

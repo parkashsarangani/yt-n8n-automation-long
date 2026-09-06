@@ -79,7 +79,7 @@ Motion-graphic beats map into the existing semantic Remotion renderer (`map`, `t
 
 ```text
 TEXT / REASONING
-FreeLLMAPI -> concrete Google model: gemini-2.5-flash
+FreeLLMAPI -> concrete Google model: gemini-3.5-flash
 (no auto/auto:* production text routing)
 
 IMAGE GENERATION

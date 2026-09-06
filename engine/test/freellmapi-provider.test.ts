@@ -57,7 +57,7 @@ test("free-first reasoning uses pinned Gemini through shared FreeLLMAPI and reco
   await withEnv({
     FREELLMAPI_API_KEY: "freellmapi-test",
     FREELLMAPI_BASE_URL: "http://freellmapi:3001/v1",
-    FREELLMAPI_TEXT_MODEL: "gemini-2.5-flash",
+    FREELLMAPI_TEXT_MODEL: "gemini-3.5-flash",
   }, async () => {
     const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     const provider = new OpenAIProvider({
@@ -77,7 +77,7 @@ test("free-first reasoning uses pinned Gemini through shared FreeLLMAPI and reco
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.url, "http://freellmapi:3001/v1/chat/completions");
     assert.equal(calls[0]!.headers.get("authorization"), "Bearer freellmapi-test");
-    assert.equal(calls[0]!.body["model"], "gemini-2.5-flash");
+    assert.equal(calls[0]!.body["model"], "gemini-3.5-flash");
     assert.equal(calls[0]!.body["stream"], false);
     assert.deepEqual(calls[0]!.body["response_format"], { type: "json_object" });
     assert.equal(calls[0]!.body["max_completion_tokens"], 99);

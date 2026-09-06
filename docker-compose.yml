@@ -40,7 +40,7 @@ services:
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
-      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-2.5-flash}
+      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}
       FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
       # Narration remains on the established ElevenLabs production path.

@@ -103,7 +103,7 @@ async function assertRun(name: string, result: GraphRunResult): Promise<void> {
 
 async function main(): Promise<void> {
   const freeKey = requireEnv("FREELLMAPI_API_KEY");
-  const textModel = env("FREELLMAPI_TEXT_MODEL") ?? "gemini-2.5-flash";
+  const textModel = env("FREELLMAPI_TEXT_MODEL") ?? "gemini-3.5-flash";
   if (/^auto(?::|$)/i.test(textModel) || !/gemini/i.test(textModel)) {
     throw new Error(`FREELLMAPI_TEXT_MODEL must be a concrete Gemini model; got ${textModel}`);
   }

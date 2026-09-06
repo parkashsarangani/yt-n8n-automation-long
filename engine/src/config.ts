@@ -57,9 +57,9 @@ export const CREDENTIALS: CredentialSpec[] = [
     key: "FREELLMAPI_TEXT_MODEL",
     label: "FreeLLMAPI text model",
     secret: false,
-    placeholder: "gemini-2.5-flash",
+    placeholder: "gemini-3.5-flash",
     help: "Concrete Google Gemini model for all production reasoning agents. RFC 0010 rejects auto/auto:* routing to prevent silent quality degradation.",
-    fallback: "gemini-2.5-flash",
+    fallback: "gemini-3.5-flash",
   },
   {
     key: "FREELLMAPI_VISION_MODEL",

@@ -26,7 +26,7 @@ export interface LlmRoutingConfig {
 }
 
 export const DEFAULT_FREELLMAPI_BASE_URL = "http://freellmapi:3001/v1";
-export const DEFAULT_FREELLMAPI_TEXT_MODEL = "gemini-2.5-flash";
+export const DEFAULT_FREELLMAPI_TEXT_MODEL = "gemini-3.5-flash";
 export const DEFAULT_FREELLMAPI_VISION_MODEL = "auto:smart";
 export const DEFAULT_LLM_ROUTER_TIMEOUT_MS = 120_000;
 
@@ -52,7 +52,7 @@ export function assertPinnedGoogleTextModel(model: string): string {
   if (!normalized) throw new Error("FREELLMAPI_TEXT_MODEL must be a concrete Google Gemini model");
   if (/^auto(?::|$)/i.test(normalized)) {
     throw new Error(
-      "FREELLMAPI_TEXT_MODEL may not use auto routing; pin a Google Gemini model such as gemini-2.5-flash",
+      "FREELLMAPI_TEXT_MODEL may not use auto routing; pin a Google Gemini model such as gemini-3.5-flash",
     );
   }
   if (!/gemini/i.test(normalized)) {
