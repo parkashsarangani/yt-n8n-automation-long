@@ -18,7 +18,6 @@ import { FsArtifactStore } from "../src/store.ts";
 import { JsonlRunLog, rollup } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
 import { OpenAIProvider } from "../src/providers/openai.ts";
-import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FalImageProvider } from "../src/providers/fal.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { Runner, type TransformationDef } from "../src/runner.ts";
@@ -39,7 +38,11 @@ async function main():Promise<void>{
     console.error("usage: npm run visual:benchmark -- <script-artifact-id> <voice-artifact-id> <control-render-artifact-id>");
     process.exit(2);
   }
-  for(const required of ["FAL_KEY","PEXELS_API_KEY","ELEVENLABS_API_KEY"]){
+  // Narration is deliberately NOT a live capability here: the benchmark must
+  // reuse the supplied immutable voice artifact and its measured alignment.
+  // Requiring or constructing a speech provider would make the benchmark
+  // depend on a service it is explicitly forbidden to call.
+  for(const required of ["FAL_KEY","PEXELS_API_KEY"]){
     if(!env(required)) throw new Error(`${required} is required for the RFC 0010 benchmark`);
   }
   if(!env("COMPOSE_URL")) throw new Error("COMPOSE_URL is required: benchmark must render actual pixels, not a fake renderer");
@@ -59,16 +62,15 @@ async function main():Promise<void>{
   await store.require(controlId,{schema_id:"rendered_video"});
 
   const images=new FalImageProvider({apiKey:env("FAL_KEY")!});
-  const speech=new ElevenLabsProvider({apiKey:env("ELEVENLABS_API_KEY")!});
   const renderer=new ComposeRenderer({baseUrl:env("COMPOSE_URL")!});
-  const transformations=allTransformations(agents,defaultWorkers({voice:{voiceId:env("ELEVENLABS_VOICE_ID")??"benchmark-existing-voice"}}));
+  const transformations=allTransformations(agents,defaultWorkers({voice:{voiceId:"benchmark-existing-voice"}}));
   validateGraph(graph,{registry,transformations});
 
   const providers=new ProviderRouter({
     reasoning_high:new OpenAIProvider({effort:"medium"}),
     reasoning_fast:new OpenAIProvider({effort:"medium"}),
   });
-  const runner=new Runner({store,registry,prompts,providers,runLog,blobs,media:{speech,images,renderer},logger:console});
+  const runner=new Runner({store,registry,prompts,providers,runLog,blobs,media:{images,renderer},logger:console});
   const executor=new GraphExecutor({runner,runLog,store,registry,transformations,logger:console});
 
   console.log("RFC 0010 visual benchmark");
