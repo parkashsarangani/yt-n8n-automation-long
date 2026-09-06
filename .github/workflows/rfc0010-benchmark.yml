@@ -1,12 +1,11 @@
 name: RFC 0010 Live Visual Benchmark
 
+# The full 90-120s control-vs-candidate benchmark regenerates the entire
+# RFC 0009 control episode (~25 fal.ai images) and is the FINAL acceptance
+# gate, not the dev loop. It is manual-dispatch only so a routine push never
+# launches a euro of spend. Use `RFC 0010 Live Media Smoke` (run_live_media)
+# for iteration.
 on:
-  push:
-    branches: [rfc-0010-visual-director]
-    paths:
-      - ".github/workflows/rfc0010-benchmark.yml"
-      - "engine/scripts/rfc0010-benchmark-e2e.ts"
-      - "engine/graphs/visual_benchmark_control.json"
   workflow_dispatch: {}
 
 concurrency:
