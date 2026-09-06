@@ -39,6 +39,9 @@ jobs:
 
           compose = Path("docker-compose.yml").read_text()
           deploy = Path(".github/workflows/deploy.yml").read_text()
+          story_graph = Path("engine/graphs/illustrated_story.json").read_text()
+          manual_graph = Path("engine/graphs/manual.json").read_text()
+          benchmark_control = Path("engine/graphs/visual_benchmark_control.json").read_text()
 
           for required in (
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
@@ -49,6 +52,9 @@ jobs:
               "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
               "FAL_EDIT_MODEL:",
               "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}",
+              "OPENAI_API_KEY:",
+              "OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}",
+              "TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}",
           ):
               assert required in compose, f"missing RFC 0010 provider contract: {required}"
 
@@ -71,12 +77,25 @@ jobs:
               "FREELLMAPI_TEXT_MODEL: gemini-3.5-flash",
               "/v1/chat/completions",
               "SPEECH_PROVIDER_MODE: elevenlabs",
+              "OPENAI_MODERATION_MODEL:",
+              "TTS_MODERATION_TIMEOUT_MS:",
+              "/v1/moderations",
+              "production TTS is fail-closed behind OpenAI moderation",
               "FAL_KEY:",
               "FAL_MODEL:",
               "sole image-generation provider",
               "direct OpenAI fail-open",
           ):
               assert required in deploy, f"missing production RFC 0010 contract: {required}"
+
+          for graph_name, graph in (
+              ("illustrated_story", story_graph),
+              ("manual", manual_graph),
+              ("visual_benchmark_control", benchmark_control),
+          ):
+              assert '"transformation": "tts_moderation"' in graph, f"{graph_name} bypasses pre-TTS moderation"
+              assert '"transformation": "voice"' in graph, f"{graph_name} has no voice stage"
+              assert '"tts_moderation"' in graph, f"{graph_name} voice is not linked to moderation"
 
           for forbidden in (
               "IMAGE_PROVIDER_MODE:",
@@ -96,9 +115,10 @@ jobs:
 
           assert "secrets." + "FREELLMAPI_API_KEY" in deploy
           assert "vars." + "LLM_ROUTER_MODE" in deploy
+          assert "secrets." + "OPEN_AI_KEY" in deploy
           assert "secrets." + "FAL_KEY" in deploy
           assert "vars." + "FAL_MODEL" in deploy
-          print("RFC 0010 provider deployment contract OK")
+          print("RFC 0010 provider + pre-TTS moderation deployment contract OK")
           PY
 
   engine:
@@ -155,6 +175,8 @@ jobs:
       SHARED_LLM_NETWORK: ${{ vars.SHARED_LLM_NETWORK || 'yt-n8n-automation-shorts_default' }}
       OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+      OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL || 'omni-moderation-latest' }}
+      TTS_MODERATION_TIMEOUT_MS: ${{ vars.TTS_MODERATION_TIMEOUT_MS || '30000' }}
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
       SPEECH_PROVIDER_MODE: elevenlabs
@@ -173,7 +195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for key in FREELLMAPI_API_KEY ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID FAL_KEY PEXELS_API_KEY; do
+          for key in FREELLMAPI_API_KEY OPENAI_API_KEY ELEVENLABS_API_KEY ELEVENLABS_VOICE_ID FAL_KEY PEXELS_API_KEY; do
             if [ -z "${!key:-}" ]; then
               echo "::error::$key is required for the live RFC 0010 benchmark"
               exit 1
