@@ -1,4 +1,21 @@
+import type { SemanticScene } from "./semantic-scene.ts";
+
 export type VisualMode = "stock_video" | "generated_image" | "motion_graphic" | "generated_video";
+
+/**
+ * What a beat's pixels actually ARE, as opposed to which provider produced
+ * them. `motion_graphic` used to mean both "an authored explanatory diagram"
+ * and "some abstract shapes we drew because the beat was classified as
+ * graphical"; a rendered benchmark showed only the second one ever shipped.
+ * Naming the representation separately from the mode is what lets the report,
+ * the logs and the QA gate tell those two apart.
+ */
+export type VisualRepresentation =
+  | "stock_video"
+  | "generated_image"
+  | "generated_video"
+  | "semantic_graphic"
+  | "kinetic_text";
 
 export interface VisualBeat {
   id: string;
@@ -27,6 +44,13 @@ export interface VisualBeat {
     generation_variants?: string[];
     generated_video_prompt?: string;
     motion_graphic_brief: string;
+    /**
+     * Structured data a deterministic explanatory graphic is drawn from.
+     * Optional at the schema level: a beat that omits it (or supplies one that
+     * cannot be drawn literally) falls back to kinetic text instead of being
+     * rendered as anonymous geometry.
+     */
+    semantic_scene?: SemanticScene;
   };
   hero_role?: string;
 }

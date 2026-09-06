@@ -29,7 +29,7 @@ import { FsBlobStore } from "../src/blobs.ts";
 import { GraphExecutor, type GraphRunResult } from "../src/executor.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
-import { sampleRenderedFrames, type TimedFrame } from "../src/media/render-frame-sampler.ts";
+import { framesUsable, sampleRenderedFrames, type TimedFrame } from "../src/media/render-frame-sampler.ts";
 import { PromptStore } from "../src/prompts.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
@@ -158,7 +158,12 @@ function beatTimes(beat: TimelineBeat, total: number): number[] {
 }
 
 function group(frames: TimedFrame[], index: number): QaImage[] {
-  return frames.slice(index * 3, index * 3 + 3).map(({ bytes, media_type }) => ({ bytes, media_type }));
+  // A group with any frame that could not be decoded is unusable: scoring the
+  // rest would attribute a beat's quality to whatever pixels happened to
+  // survive. An empty group makes the scorer return null, which the report
+  // records as QA-unavailable (technical), never as a visual failure.
+  const part = frames.slice(index * 3, index * 3 + 3);
+  return framesUsable(part) ? part.map(({ bytes, media_type }) => ({ bytes, media_type })) : [];
 }
 
 async function writeVoiceCache(cacheDir: string, voice: VoicePayload, blobs: FsBlobStore, cacheKey: string): Promise<void> {

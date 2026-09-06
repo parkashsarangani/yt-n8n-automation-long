@@ -59,6 +59,12 @@ export interface DiagnosticThumbnailResult extends ThumbnailResult {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export function bridgeSemanticTemplateData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  // An RFC 0010 beat carries a structured semantic scene and is rendered by the
+  // rfc0010 components directly. It must NOT be folded into the legacy
+  // `semanticRepresentation` shape: that shape is what routes a beat into the
+  // generic blueprint registry, which is exactly the renderer a rendered
+  // benchmark caught drawing the same anonymous boxes for every beat.
+  if (data && data["rfc0010SemanticScene"] && typeof data["rfc0010SemanticScene"] === "object") return data;
   if (!data || typeof data["representationMode"] !== "string") return data;
   return {
     ...data,

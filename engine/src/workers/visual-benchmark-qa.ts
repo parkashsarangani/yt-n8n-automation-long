@@ -1,4 +1,4 @@
-import { sampleRenderedFrames, type TimedFrame } from "../media/render-frame-sampler.ts";
+import { framesUsable, sampleRenderedFrames, type TimedFrame } from "../media/render-frame-sampler.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { compareRenderedVisualsBlind } from "../visual-benchmark-judge.ts";
 import { scoreVisualBeatFrames, type QaImage } from "../visual-beat-qa.ts";
@@ -26,7 +26,11 @@ function beatTimes(beat:TimelineBeat,total:number):number[]{
   const duration=Math.max(.12,beat.absolute_end_sec-beat.absolute_start_sec);
   return [.2,.5,.8].map((ratio)=>clampTime(beat.absolute_start_sec+duration*ratio,total));
 }
-function group(frames:TimedFrame[],index:number):QaImage[]{ return frames.slice(index*3,index*3+3).map(({bytes,media_type})=>({bytes,media_type})); }
+function slice(frames:TimedFrame[],index:number):TimedFrame[]{ return frames.slice(index*3,index*3+3); }
+// An unusable group is an extraction failure, not a bad visual. Returning []
+// makes scoreVisualBeatFrames return null, which the caller already reports as
+// QA-unavailable -- never as a zero score.
+function group(frames:TimedFrame[],index:number):QaImage[]{ const part=slice(frames,index); return framesUsable(part)?part.map(({bytes,media_type})=>({bytes,media_type})):[]; }
 function stableSwap(id:string):boolean { let hash=2166136261; for(const ch of id){hash^=ch.charCodeAt(0);hash=Math.imul(hash,16777619);} return (hash>>>0)%2===1; }
 
 export function makeVisualBenchmarkQaWorker():WorkerDef{

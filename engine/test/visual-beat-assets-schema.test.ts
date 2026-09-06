@@ -7,10 +7,12 @@ import { SchemaRegistry } from "../src/registry.ts";
 
 const ENGINE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("visual_beat_assets 1.1 remains additive and validates sourcing telemetry", async () => {
+test("visual_beat_assets 1.2 remains additive and validates sourcing telemetry", async () => {
   const registry = await SchemaRegistry.load(path.join(ENGINE_ROOT, "schemas"));
-  assert.equal(registry.resolveVersion("visual_beat_assets"), "1.1.0");
+  assert.equal(registry.resolveVersion("visual_beat_assets"), "1.2.0");
+  // Every earlier minor stays resolvable: the new fields are purely additive.
   assert.doesNotThrow(() => registry.entry("visual_beat_assets", "1.0.0"));
+  assert.doesNotThrow(() => registry.entry("visual_beat_assets", "1.1.0"));
 
   const payload = {
     beats: [{
@@ -60,5 +62,29 @@ test("visual_beat_assets 1.1 remains additive and validates sourcing telemetry",
     },
   };
 
+  // A 1.1-shaped payload (no `representation`, no representation counters) is
+  // still valid under 1.2 -- the resolver only started emitting those fields.
   assert.doesNotThrow(() => registry.validate("visual_beat_assets", "1.1.0", payload));
+  assert.doesNotThrow(() => registry.validate("visual_beat_assets", "1.2.0", payload));
+
+  // And the RFC 0010 representation telemetry validates on top of it.
+  const withRepresentation = {
+    beats: [{ ...payload.beats[0]!, representation: "stock_video" }],
+    summary: { ...payload.summary, semantic_graphics: 0, kinetic_texts: 0 },
+  };
+  assert.doesNotThrow(() => registry.validate("visual_beat_assets", "1.2.0", withRepresentation));
+
+  const semanticGraphic = {
+    beats: [{
+      ...payload.beats[0]!,
+      id: "beat_006",
+      requested_mode: "motion_graphic",
+      resolved_mode: "motion_graphic",
+      representation: "semantic_graphic",
+      template_category: "explanation",
+      template_data: JSON.stringify({ rfc0010SemanticScene: { kind: "scale_comparison", caption: "One shared scale" } }),
+    }],
+    summary: { ...payload.summary, stock_videos: 0, motion_graphics: 1, semantic_graphics: 1, kinetic_texts: 0 },
+  };
+  assert.doesNotThrow(() => registry.validate("visual_beat_assets", "1.2.0", semanticGraphic));
 });

@@ -6,6 +6,12 @@ import { FalVideoProvider } from "../providers/fal-video.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+import {
+  kineticPhraseScene,
+  threadSemanticSequence,
+  validateSemanticScene,
+  type SemanticScene,
+} from "../semantic-scene.ts";
 import { freeVisionTripped } from "../vision-route-health.ts";
 import {
   scoreVisualBeatFrames,
@@ -27,6 +33,7 @@ import {
   type VisualCapabilities,
   type VisualHistoryEntry,
   type VisualMode,
+  type VisualRepresentation,
 } from "../visual-routing.ts";
 
 export interface VisualBeatAssetsWorkerOptions { version?: string }
@@ -46,6 +53,8 @@ interface ResolvedBeat {
   end_sec: number;
   requested_mode: VisualMode;
   resolved_mode: VisualMode | null;
+  /** What the pixels are, not just which provider made them. */
+  representation?: VisualRepresentation;
   status: "resolved" | "fallback" | "unavailable";
   semantic_verified: boolean;
   narration: string;
@@ -447,50 +456,64 @@ async function resolveStockVideo(
   throw new Error(`no Pexels candidate/window cleared the visual gate after ${evaluated} actual windows across ${queries.length} queries`);
 }
 
-function motionGraphic(beat: VisualBeat): ModeResult {
-  const brief = beat.asset_brief.motion_graphic_brief.trim();
-  if (!brief) throw new Error(`${beat.id}: motion_graphic route has no deterministic brief`);
-  const pattern = beat.retention.explanatory_pattern ?? "reveal";
-  const mapping: Record<string, { representationMode: string; sceneBlueprint: string }> = {
-    map: { representationMode: "spatial", sceneBlueprint: "map" },
-    timeline: { representationMode: "temporal", sceneBlueprint: "timeline" },
-    comparison: { representationMode: "quantitative", sceneBlueprint: "scale-comparison" },
-    counter: { representationMode: "quantitative", sceneBlueprint: "scale-comparison" },
-    process: { representationMode: "domain-model", sceneBlueprint: "flow-system" },
-    cause_effect: { representationMode: "domain-model", sceneBlueprint: "flow-system" },
-  };
-  const semantic = mapping[pattern] ?? { representationMode: "kinetic-text", sceneBlueprint: "animated-statement" };
+/**
+ * Decide what a motion-graphic beat is actually going to draw.
+ *
+ * The old implementation mapped `explanatory_pattern` onto one of eleven
+ * generic scene blueprints and handed the renderer a prose brief plus
+ * `{kind:"concept"}` entities. Whatever the beat said, `scale-comparison`
+ * drew a dot-grid box beside an empty box and `flow-system` drew four wavy
+ * dashes; four consecutive beats rendered byte-identically and the whole set
+ * scored 0.05-0.28 semantic match with 0.60 generic filler. The brief itself
+ * ("draw one labelled distance-versus-time scale with a common origin") never
+ * reached a single pixel.
+ *
+ * Now there is exactly one question: did the Visual Director supply a
+ * `semantic_scene` that can be drawn literally? If yes, that structure is what
+ * renders. If no, the beat becomes kinetic text derived from its own copy —
+ * an honest, legible fallback — and says so. There is deliberately no third
+ * option that invents plausible-looking geometry.
+ */
+export function resolveSemanticScene(
+  beat: VisualBeat,
+  threaded: SemanticScene | undefined,
+): { scene: SemanticScene; representation: VisualRepresentation; note?: string } {
+  if (!threaded || threaded.kind === "kinetic_phrase") {
+    const reason = threaded ? "director chose kinetic text" : "no semantic_scene authored";
+    return {
+      scene: threaded ?? kineticPhraseScene(beat.visual_contract.viewer_takeaway || beat.narration),
+      representation: "kinetic_text",
+      ...(threaded ? {} : { note: `SEMANTIC_FALLBACK: ${reason}; rendered as kinetic text` }),
+    };
+  }
+  const errors = validateSemanticScene(threaded, beat.id);
+  if (errors.length) {
+    return {
+      scene: kineticPhraseScene(beat.visual_contract.viewer_takeaway || beat.narration, threaded.sequence_id),
+      representation: "kinetic_text",
+      note: `SEMANTIC_FALLBACK: semantic_scene is not drawable (${errors.slice(0, 2).join("; ")}); rendered as kinetic text`,
+    };
+  }
+  return { scene: threaded, representation: "semantic_graphic" };
+}
+
+function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): ModeResult {
+  const { scene, representation, note } = resolveSemanticScene(beat, threaded);
   return {
     template_category: "explanation",
     template_data: JSON.stringify({
-      ...semantic,
-      visualClaim: beat.visual_contract.viewer_takeaway,
-      keyText: beat.visual_contract.viewer_takeaway,
-      elements: beat.visual_contract.required,
-      semanticEntities: beat.continuity.entities.map((entity_id, index) => ({
-        entity_id,
-        label: beat.visual_contract.required[index] ?? entity_id,
-        depiction: {
-          kind: "concept",
-          appearance: beat.visual_contract.required[index] ?? entity_id,
-          color: "neutral",
-        },
-      })),
-      semanticActionWindows: beat.visual_contract.required_action
-        ? [{
-          actor: beat.continuity.entities[0] ?? "subject",
-          action: beat.visual_contract.required_action,
-          target: beat.continuity.entities[1] ?? "state",
-          startRatio: 0.15,
-          endRatio: 0.85,
-          aligned: true,
-        }]
-        : [],
-      rfc0010Brief: brief,
+      // The ONLY payload the rfc0010 renderer reads. Deliberately no
+      // representationMode/sceneBlueprint: those are what route a beat into
+      // the generic blueprint registry this replaces.
+      rfc0010SemanticScene: scene,
+      keyText: scene.caption,
+      narration: beat.narration,
     }),
+    representation,
     semantic_verified: false,
     candidate_count: 1,
     first_acceptable_candidate_index: 1,
+    ...(note ? { note } : {}),
   };
 }
 
@@ -577,12 +600,13 @@ async function resolveMode(
   ctx: WorkerContext,
   previous?: QaImage,
   continuityReference?: QaImage,
+  semanticScene?: SemanticScene,
 ): Promise<ModeResult> {
   switch (mode) {
-    case "generated_image": return generateImage(beat, ctx, previous, continuityReference);
-    case "stock_video": return resolveStockVideo(beat, ctx, previous);
-    case "generated_video": return generateVideo(beat, ctx, previous);
-    case "motion_graphic": return motionGraphic(beat);
+    case "generated_image": return { representation: "generated_image", ...await generateImage(beat, ctx, previous, continuityReference) };
+    case "stock_video": return { representation: "stock_video", ...await resolveStockVideo(beat, ctx, previous) };
+    case "generated_video": return { representation: "generated_video", ...await generateVideo(beat, ctx, previous) };
+    case "motion_graphic": return motionGraphic(beat, semanticScene);
   }
 }
 
@@ -602,7 +626,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       { schema_id: "voice", range: "^1", as: "voice" },
     ],
     produces: "visual_beat_assets",
-    produces_version: "1.1.0",
+    produces_version: "1.2.0",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const rawPlan = inputs["plan"]!.payload as VisualBeatPlan;
@@ -612,6 +636,20 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       if (validation.length) throw new Error(`visual beat plan invariant failed: ${validation.join("; ")}`);
       const aligned = await loadAlignedPlan(provisional, inputs["voice"]!.payload as VoiceArtifact, ctx);
       const ordered = [...aligned.beats].sort((a, b) => a.scene_index - b.scene_index || a.beat_index - b.beat_index);
+
+      // Explanatory sequence state is threaded across the WHOLE plan before any
+      // beat resolves, because a continuation beat's scene depends on what an
+      // earlier beat established -- the shared 20 km scale that the walking
+      // result and then the message both have to travel along. Doing this
+      // per-beat inside the loop is what made three cumulative beats render as
+      // three unrelated resets.
+      const threadedScenes = new Map<string, SemanticScene>();
+      {
+        const carriers = ordered.filter((beat) => beat.asset_brief.semantic_scene);
+        const threaded = threadSemanticSequence(carriers.map((beat) => beat.asset_brief.semantic_scene!));
+        carriers.forEach((beat, index) => threadedScenes.set(beat.id, threaded[index]!));
+      }
+
       const history: VisualHistoryEntry[] = [];
       const blobs: BlobRef[] = [];
       const beats: ResolvedBeat[] = [];
@@ -632,7 +670,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         if (selected) {
           try {
             modeAttemptCount += 1;
-            result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
+            result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference, threadedScenes.get(beat.id));
           } catch (error) {
             note = error instanceof Error ? error.message : String(error);
             const alternate = alternateMode(beat, selected);
@@ -640,7 +678,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
               try {
                 selected = alternate;
                 modeAttemptCount += 1;
-                result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
+                result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference, threadedScenes.get(beat.id));
                 note = `primary route failed; used declared alternate: ${note}`;
               } catch (fallbackError) {
                 note = `${note}; alternate failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`;
@@ -654,6 +692,10 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           note = "neither agent-declared mode is available";
         }
 
+        // A mode can report its own diagnostic (a semantic scene that had to
+        // fall back to kinetic text, a QA_UNAVAILABLE degrade-accept). Keep it
+        // alongside any routing note rather than letting one silently win.
+        if (result?.note) note = note ? `${note}; ${result.note}` : result.note;
         if (result?.blobs) blobs.push(...result.blobs);
         if (result?.preview) {
           previousPreview = result.preview;
@@ -669,6 +711,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           end_sec: beat.end_sec,
           requested_mode: requested,
           resolved_mode: selected,
+          ...(result?.representation ? { representation: result.representation } : {}),
           status: selected ? (selected === requested ? "resolved" : "fallback") : "unavailable",
           semantic_verified: Boolean(result?.semantic_verified),
           narration: beat.narration,
@@ -715,6 +758,12 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         generated_videos: beats.filter((beat) => beat.resolved_mode === "generated_video").length,
         generic_filler: beats.filter((beat) => beat.generic_filler).length,
         why_failures: beats.filter((beat) => beat.why_failure).length,
+        // Representation counts, separate from provider mode: a run where every
+        // motion-graphic beat degraded to kinetic text is a very different
+        // result from one where they rendered real diagrams, and the mode
+        // counters alone cannot tell those apart.
+        semantic_graphics: beats.filter((beat) => beat.representation === "semantic_graphic").length,
+        kinetic_texts: beats.filter((beat) => beat.representation === "kinetic_text").length,
       };
       return { payload: { beats, summary }, blobs };
     },
