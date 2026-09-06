@@ -98,15 +98,14 @@ test("FreeLLM auto text routing is rejected before any provider call", async () 
     FREELLMAPI_TEXT_MODEL: "auto:smart",
   }, async () => {
     let calls = 0;
-    const provider = new OpenAIProvider({
-      ...noWait,
-      fetchImpl: async () => {
-        calls++;
-        return freeJson();
-      },
-    });
-    await assert.rejects(
-      () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
+    assert.throws(
+      () => new OpenAIProvider({
+        ...noWait,
+        fetchImpl: async () => {
+          calls++;
+          return freeJson();
+        },
+      }),
       /may not use auto routing/,
     );
     assert.equal(calls, 0);
