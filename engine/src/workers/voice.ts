@@ -5,6 +5,11 @@
  * once per scene and stores the bytes. Same input always produces the same
  * artifact (given a deterministic provider).
  *
+ * Production registration requires a matching pre-TTS moderation artifact.
+ * That keeps the safety boundary at the last possible point before external
+ * speech synthesis: a graph cannot accidentally bypass moderation merely by
+ * forgetting to inspect the report itself.
+ *
  * Carries forward the one hard-won lesson from the long-form pipeline: pass the
  * neighbouring narration as context so providers that support it can preserve
  * prosody across separate clips instead of resetting at every scene boundary.
@@ -20,6 +25,8 @@ export interface VoiceWorkerOptions {
   voiceId: string;
   /** ElevenLabs does not allow concurrent requests to the same voice. */
   concurrency?: number;
+  /** Production defaultWorkers() sets this true. Direct unit fixtures may opt out. */
+  requireModeration?: boolean;
   version?: string;
 }
 
@@ -28,7 +35,26 @@ interface ScriptScene {
   narration: string;
 }
 
+interface TtsModerationPayload {
+  script_artifact_id: string;
+  decision: "allow" | "review" | "block";
+  approved_for_tts: boolean;
+  reasons: string[];
+}
+
 type SpeechResult = Awaited<ReturnType<SpeechProvider["synthesize"]>>;
+
+export function assertTtsApproved(scriptArtifactId: string, report: TtsModerationPayload): void {
+  if (report.script_artifact_id !== scriptArtifactId) {
+    throw new Error(
+      `voice moderation/script mismatch: report is for ${report.script_artifact_id}, script is ${scriptArtifactId}`,
+    );
+  }
+  if (report.decision !== "allow" || report.approved_for_tts !== true) {
+    const detail = report.reasons.slice(0, 3).join("; ") || "moderation did not approve this script";
+    throw new Error(`voice blocked by pre-TTS moderation (${report.decision}): ${detail}`);
+  }
+}
 
 function effectiveVoiceId(speech: SpeechProvider, configuredVoiceId: string): string {
   if (speech.id.startsWith("freellmapi-speech/")) {
@@ -63,16 +89,33 @@ async function trimProductionSpeech(
 }
 
 export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
+  const requireModeration = opts.requireModeration === true;
   return {
     name: "voice",
     kind: "worker",
-    version: opts.version ?? "3",
-    consumes: [{ schema_id: "script", range: "^1", as: "script" }],
+    version: opts.version ?? (requireModeration ? "4" : "3"),
+    consumes: [
+      { schema_id: "script", range: "^1", as: "script" },
+      ...(requireModeration
+        ? [{ schema_id: "tts_moderation_report", range: "^1", as: "moderation" }]
+        : []),
+    ],
     produces: "voice",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
       const speech = ctx.media.speech;
-      if (!speech) throw new Error('voice worker requires a speech provider (media.speech)');
+      if (!speech) throw new Error("voice worker requires a speech provider (media.speech)");
+
+      if (requireModeration) {
+        const moderation = inputs["moderation"];
+        if (!moderation) {
+          throw new Error("voice worker requires an approved pre-TTS moderation artifact");
+        }
+        assertTtsApproved(
+          inputs["script"]!.artifact_id,
+          moderation.payload as TtsModerationPayload,
+        );
+      }
 
       const voiceId = effectiveVoiceId(speech, opts.voiceId);
       const scenes = (inputs["script"]!.payload as { scenes: ScriptScene[] }).scenes;

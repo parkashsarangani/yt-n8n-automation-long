@@ -1,7 +1,7 @@
 {
   "graph_id": "illustrated_story",
-  "version": "7",
-  "description": "RFC 0008 illustrated-story format plus RFC 0009 growth optimization and production hardening. A deterministic package-release boundary canonicalizes and validates title/thumbnail family membership before story, script, thumbnail, or asset spend. Creative viability and watchability release then happen before scene-image spend. Directed 1-3 shot scenes use hero budgeting and sequence review, then a visual-asset release blocks deterministically bad fallback/continuity/hero results before expensive rendering. Final technical QA remains defense-in-depth before publish.",
+  "version": "8",
+  "description": "RFC 0008 illustrated-story format plus RFC 0009 growth optimization and production hardening. A deterministic package-release boundary canonicalizes and validates title/thumbnail family membership before story, script, thumbnail, or asset spend. Creative viability and watchability release then happen before scene-image spend. Pre-TTS moderation produces an immutable audit record and must approve the exact script before voice synthesis. Directed 1-3 shot scenes use hero budgeting and sequence review, then a visual-asset release blocks deterministically bad fallback/continuity/hero results before expensive rendering. Final technical QA remains defense-in-depth before publish.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -18,7 +18,8 @@
     { "id": "direction", "transformation": "episode_director", "in": ["approve_script", "package_release"] },
     { "id": "assets", "transformation": "illustrated_scene_assets", "in": ["direction", "approve_script", "intent"] },
     { "id": "visual_asset_release", "transformation": "visual_asset_release", "in": ["assets"] },
-    { "id": "voice", "transformation": "voice", "in": ["approve_script"] },
+    { "id": "tts_moderation", "transformation": "tts_moderation", "in": ["approve_script"] },
+    { "id": "voice", "transformation": "voice", "in": ["approve_script", "tts_moderation"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script", "package_release"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },

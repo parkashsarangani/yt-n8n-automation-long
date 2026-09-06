@@ -142,7 +142,7 @@ test("illustrated graph requires a visual release before render while final QA s
     version: string;
     nodes: Array<{ id: string; transformation?: string; in?: string[] }>;
   };
-  assert.equal(graph.version, "7");
+  assert.equal(graph.version, "8");
   const release = graph.nodes.find((node) => node.id === "visual_asset_release");
   const render = graph.nodes.find((node) => node.id === "render");
   const qa = graph.nodes.find((node) => node.id === "qa");

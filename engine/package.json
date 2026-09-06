@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node --env-file-if-exists=.env --import tsx scripts/smoke.ts",
     "visual:benchmark": "node --env-file-if-exists=.env --import tsx scripts/visual-benchmark.ts",
+    "visual:live-smoke": "node --env-file-if-exists=.env --import tsx scripts/rfc0010-live-media-smoke.ts",
     "ui": "node --env-file-if-exists=.env --import tsx scripts/serve.ts",
     "youtube-token": "node --import tsx ../scripts/youtube-token.ts",
     "youtube-auth": "node --import tsx ../scripts/youtube-token.ts --auth"

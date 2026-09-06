@@ -1,0 +1,113 @@
+{
+  "schema_id": "tts_moderation_report",
+  "version": "1.0.0",
+  "status": "active",
+  "description": "Immutable pre-TTS moderation/audit record. It links the exact script artifact to OpenAI moderation results plus deterministic ElevenLabs-specific fraud/abuse signals. Only decision=allow is approved for automated TTS.",
+  "produced_by": ["tts_moderation"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "TtsModerationReport",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "policy_version",
+      "script_artifact_id",
+      "provider",
+      "model",
+      "decision",
+      "approved_for_tts",
+      "checked_at",
+      "scenes",
+      "summary",
+      "reasons"
+    ],
+    "properties": {
+      "policy_version": { "type": "string", "minLength": 1, "maxLength": 80 },
+      "script_artifact_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+      "provider": { "type": "string", "enum": ["openai-moderation"] },
+      "model": { "type": "string", "minLength": 1, "maxLength": 120 },
+      "decision": { "type": "string", "enum": ["allow", "review", "block"] },
+      "approved_for_tts": { "type": "boolean" },
+      "checked_at": { "type": "string", "format": "date-time" },
+      "reasons": {
+        "type": "array",
+        "maxItems": 100,
+        "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+      },
+      "scenes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scene_index",
+            "narration_sha256",
+            "narration_excerpt",
+            "request_id",
+            "flagged",
+            "decision",
+            "categories",
+            "elevenlabs_signals",
+            "reasons"
+          ],
+          "properties": {
+            "scene_index": { "type": "integer", "minimum": 0 },
+            "narration_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "narration_excerpt": { "type": "string", "minLength": 1, "maxLength": 240 },
+            "request_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+            "flagged": { "type": "boolean" },
+            "decision": { "type": "string", "enum": ["allow", "review", "block"] },
+            "categories": {
+              "type": "array",
+              "maxItems": 40,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "flagged", "score"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "flagged": { "type": "boolean" },
+                  "score": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            },
+            "elevenlabs_signals": {
+              "type": "array",
+              "maxItems": 30,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "severity", "educational_context"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+                  "severity": { "type": "string", "enum": ["review", "block"] },
+                  "educational_context": { "type": "boolean" }
+                }
+              }
+            },
+            "reasons": {
+              "type": "array",
+              "maxItems": 30,
+              "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+            }
+          }
+        }
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scene_count", "allow", "review", "block", "openai_flagged", "elevenlabs_signal_count"],
+        "properties": {
+          "scene_count": { "type": "integer", "minimum": 1 },
+          "allow": { "type": "integer", "minimum": 0 },
+          "review": { "type": "integer", "minimum": 0 },
+          "block": { "type": "integer", "minimum": 0 },
+          "openai_flagged": { "type": "integer", "minimum": 0 },
+          "elevenlabs_signal_count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

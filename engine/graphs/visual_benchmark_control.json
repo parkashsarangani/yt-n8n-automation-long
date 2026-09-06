@@ -1,7 +1,7 @@
 {
   "graph_id": "visual_benchmark_control",
-  "version": "1.0.0",
-  "description": "Isolated RFC 0010 control renderer. It seeds an approved benchmark script, then runs the current RFC 0009 production visual path (episode_director -> illustrated_scene_assets) plus the established voice and renderer. It deliberately omits publishing, thumbnails, SEO, and release gates so the experiment measures rendered visual quality rather than unrelated workflow policy.",
+  "version": "1.1.0",
+  "description": "Isolated RFC 0010 control renderer. It seeds an approved benchmark script, runs pre-TTS moderation/audit, then the current RFC 0009 production visual path plus the established voice and renderer. It deliberately omits publishing, thumbnails, SEO, and unrelated release gates so the experiment measures rendered visual quality rather than unrelated workflow policy.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "script", "type": "input", "schema_id": "script" },
@@ -16,9 +16,14 @@
       "in": ["direction", "script", "intent"]
     },
     {
+      "id": "tts_moderation",
+      "transformation": "tts_moderation",
+      "in": ["script"]
+    },
+    {
       "id": "voice",
       "transformation": "voice",
-      "in": ["script"]
+      "in": ["script", "tts_moderation"]
     },
     {
       "id": "control_render",

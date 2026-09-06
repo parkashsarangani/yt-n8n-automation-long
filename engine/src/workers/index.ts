@@ -1,6 +1,7 @@
 /** Worker registry: agents reason; workers own deterministic effects. */
 import type { TransformationDef } from "../runner.ts";
 import { makeVoiceWorker, type VoiceWorkerOptions } from "./voice.ts";
+import { makeTtsModerationWorker, type TtsModerationWorkerOptions } from "./tts-moderation.ts";
 import { makeAssetWorker, type AssetWorkerOptions } from "./assets.ts";
 import { makeRenderWorker, type RenderWorkerOptions } from "./render.ts";
 import { makeThumbnailWorker, type ThumbnailWorkerOptions } from "./thumbnail.ts";
@@ -17,7 +18,7 @@ import { makeVisualBenchmarkQaWorker } from "./visual-benchmark-qa.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
 
 export {
-  makeVoiceWorker, makeAssetWorker, makeRenderWorker, makeThumbnailWorker,
+  makeVoiceWorker, makeTtsModerationWorker, makeAssetWorker, makeRenderWorker, makeThumbnailWorker,
   makePublishWorker, makeMeasureWorker, makeQaWorker,
   makeGrowthPackageReleaseWorker, makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker, makeVisualBeatAssetsWorker,
@@ -28,6 +29,7 @@ export { buildPrompt } from "./assets.ts";
 
 export interface WorkerSetOptions {
   voice: VoiceWorkerOptions;
+  ttsModeration?: TtsModerationWorkerOptions;
   assets?: AssetWorkerOptions;
   illustratedAssets?: IllustratedSceneAssetsWorkerOptions;
   visualBeatAssets?: VisualBeatAssetsWorkerOptions;
@@ -42,7 +44,11 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
   const workers: TransformationDef[] = [
     makeGrowthPackageReleaseWorker(),
     makeWatchabilityReleaseWorker(),
-    makeVoiceWorker(opts.voice),
+    makeTtsModerationWorker(opts.ttsModeration ?? {}),
+    // Production/default registration always enforces an approved moderation
+    // artifact. Direct unit fixtures can still instantiate makeVoiceWorker()
+    // without requireModeration when they are not making a real TTS call.
+    makeVoiceWorker({ ...opts.voice, requireModeration: true }),
     makeAssetWorker(opts.assets ?? {}),
     // RFC 0009 remains the untouched production control.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
