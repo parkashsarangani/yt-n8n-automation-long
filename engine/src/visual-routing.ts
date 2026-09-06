@@ -103,6 +103,12 @@ export function noveltyConflict(beat: VisualBeat, mode: VisualMode, recent: Arra
   const window = rollingVisualHistory(historyEntries(recent), 25);
   if (window.length < 2) return false;
   const sameMode = window.filter((e) => e.mode === mode).length / window.length;
+  // A genuinely different representation is itself a material novelty break.
+  // Do not reject an agent-declared fallback merely because the beat carries
+  // composition/camera metadata resembling the preceding mode. Grammar-level
+  // repetition matters only once the proposed mode is already common enough
+  // in the rolling window to be part of the pattern we are trying to break.
+  if (sameMode < 0.50) return false;
   const sameComposition = window.filter((e) => e.composition === beat.retention.composition).length / window.length;
   const camera = beat.retention.camera_treatment ?? "unknown";
   const placement = beat.retention.subject_placement ?? "unknown";
