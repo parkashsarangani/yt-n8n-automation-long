@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import test from "node:test";
+import assert from "node:assert/strict";
 import { scoreVisualBeatFrames, type VisualBeatFetch } from "../src/visual-beat-qa.ts";
 import { repairVisualBeatPlan, selectVisualMode, type VisualBeat, type VisualBeatPlan } from "../src/visual-routing.ts";
 
@@ -52,118 +53,119 @@ function fakeFetch(payload: Record<string, unknown>): VisualBeatFetch {
 
 const frame = { bytes: new Uint8Array([1, 2, 3]), media_type: "image/jpeg" };
 
-describe("RFC0010 candidate evidence gates", () => {
-  it("does not let generic station footage pass a required phone-send action", async () => {
-    process.env["OPENAI_API_KEY"] = "test";
-    const result = await scoreVisualBeatFrames([frame, frame, frame], beat(), {}, fakeFetch({
-      semantic_match: 0.96,
-      action_match: 0.95,
-      visual_interest: 0.88,
-      continuity: 0.92,
-      generic_filler: false,
-      why_failure: false,
-      repetitive_with_context: false,
-      requirements_visible: true,
-      action_evidence: false,
-      identity_continuity_evidence: true,
-      composition_failure: false,
-      garbled_text: false,
-      implausible_object_scale: false,
-      environment_mismatch: false,
-      reason: "People are walking in a station, but no tap/send action is visible.",
-    }));
-    expect(result).not.toBeNull();
-    expect(result!.scores.action_match).toBeLessThanOrEqual(0.2);
-    expect(result!.generic_filler).toBe(true);
-    expect(result!.action_evidence).toBe(false);
-  });
+test("generic station footage cannot pass a required phone-send action", async () => {
+  process.env["OPENAI_API_KEY"] = "test";
+  const result = await scoreVisualBeatFrames([frame, frame, frame], beat(), {}, fakeFetch({
+    semantic_match: 0.96,
+    action_match: 0.95,
+    visual_interest: 0.88,
+    continuity: 0.92,
+    generic_filler: false,
+    why_failure: false,
+    repetitive_with_context: false,
+    requirements_visible: true,
+    action_evidence: false,
+    identity_continuity_evidence: true,
+    composition_failure: false,
+    garbled_text: false,
+    implausible_object_scale: false,
+    environment_mismatch: false,
+    reason: "People are walking in a station, but no tap/send action is visible.",
+  }));
+  assert.ok(result);
+  assert.ok(result.scores.action_match <= 0.2);
+  assert.equal(result.generic_filler, true);
+  assert.equal(result.action_evidence, false);
+});
 
-  it("penalizes recurring-character identity drift even when the scene is semantically on-topic", async () => {
-    process.env["OPENAI_API_KEY"] = "test";
-    const result = await scoreVisualBeatFrames([frame], beat(), {}, fakeFetch({
-      semantic_match: 0.95,
-      action_match: 0.9,
-      visual_interest: 0.9,
-      continuity: 0.9,
-      generic_filler: false,
-      why_failure: false,
-      repetitive_with_context: false,
-      requirements_visible: true,
-      action_evidence: true,
-      identity_continuity_evidence: false,
-      composition_failure: false,
-      garbled_text: false,
-      implausible_object_scale: false,
-      environment_mismatch: false,
-      reason: "The person does not match the recurring commuter.",
-    }));
-    expect(result!.scores.continuity).toBeLessThanOrEqual(0.2);
-    expect(result!.why_failure).toBe(true);
-  });
+test("recurring-character identity drift is penalized even when the scene is on-topic", async () => {
+  process.env["OPENAI_API_KEY"] = "test";
+  const result = await scoreVisualBeatFrames([frame], beat(), {}, fakeFetch({
+    semantic_match: 0.95,
+    action_match: 0.9,
+    visual_interest: 0.9,
+    continuity: 0.9,
+    generic_filler: false,
+    why_failure: false,
+    repetitive_with_context: false,
+    requirements_visible: true,
+    action_evidence: true,
+    identity_continuity_evidence: false,
+    composition_failure: false,
+    garbled_text: false,
+    implausible_object_scale: false,
+    environment_mismatch: false,
+    reason: "The person does not match the recurring commuter.",
+  }));
+  assert.ok(result);
+  assert.ok(result.scores.continuity <= 0.2);
+  assert.equal(result.why_failure, true);
+});
 
-  it("rejects garbled AI typography but does not reject legitimate readable labels merely for being text", async () => {
-    process.env["OPENAI_API_KEY"] = "test";
-    const clean = await scoreVisualBeatFrames([frame], beat({
-      visual_contract: {
-        required: ["a scale labelled 20 km", "a marker labelled 5 km/h"],
-        forbidden: [],
-        required_action: "",
-        viewer_takeaway: "twenty kilometres at five kilometres per hour",
-      },
-      continuity: { group: "", entities: [] },
-    }), {}, fakeFetch({
-      semantic_match: 0.98,
-      action_match: 1,
-      visual_interest: 0.9,
-      continuity: 1,
-      generic_filler: false,
-      why_failure: false,
-      repetitive_with_context: false,
-      requirements_visible: true,
-      action_evidence: true,
-      identity_continuity_evidence: true,
-      composition_failure: false,
-      garbled_text: false,
-      implausible_object_scale: false,
-      environment_mismatch: false,
-      reason: "The required numeric labels are legible.",
-    }));
-    expect(clean!.why_failure).toBe(false);
-    expect(clean!.garbled_text).toBe(false);
+test("garbled AI typography fails but legitimate readable numeric labels remain allowed", async () => {
+  process.env["OPENAI_API_KEY"] = "test";
+  const clean = await scoreVisualBeatFrames([frame], beat({
+    visual_contract: {
+      required: ["a scale labelled 20 km", "a marker labelled 5 km/h"],
+      forbidden: [],
+      required_action: "",
+      viewer_takeaway: "twenty kilometres at five kilometres per hour",
+    },
+    continuity: { group: "", entities: [] },
+  }), {}, fakeFetch({
+    semantic_match: 0.98,
+    action_match: 1,
+    visual_interest: 0.9,
+    continuity: 1,
+    generic_filler: false,
+    why_failure: false,
+    repetitive_with_context: false,
+    requirements_visible: true,
+    action_evidence: true,
+    identity_continuity_evidence: true,
+    composition_failure: false,
+    garbled_text: false,
+    implausible_object_scale: false,
+    environment_mismatch: false,
+    reason: "The required numeric labels are legible.",
+  }));
+  assert.ok(clean);
+  assert.equal(clean.why_failure, false);
+  assert.equal(clean.garbled_text, false);
 
-    const garbled = await scoreVisualBeatFrames([frame], beat({ continuity: { group: "", entities: [] } }), {}, fakeFetch({
-      semantic_match: 0.95,
-      action_match: 0.9,
-      visual_interest: 0.85,
-      continuity: 1,
-      generic_filler: false,
-      why_failure: false,
-      repetitive_with_context: false,
-      requirements_visible: true,
-      action_evidence: true,
-      identity_continuity_evidence: true,
-      composition_failure: false,
-      garbled_text: true,
-      implausible_object_scale: false,
-      environment_mismatch: false,
-      reason: "The phone notification contains pseudo-letters.",
-    }));
-    expect(garbled!.why_failure).toBe(true);
-    expect(garbled!.garbled_text).toBe(true);
-  });
+  const garbled = await scoreVisualBeatFrames([frame], beat({ continuity: { group: "", entities: [] } }), {}, fakeFetch({
+    semantic_match: 0.95,
+    action_match: 0.9,
+    visual_interest: 0.85,
+    continuity: 1,
+    generic_filler: false,
+    why_failure: false,
+    repetitive_with_context: false,
+    requirements_visible: true,
+    action_evidence: true,
+    identity_continuity_evidence: true,
+    composition_failure: false,
+    garbled_text: true,
+    implausible_object_scale: false,
+    environment_mismatch: false,
+    reason: "The phone notification contains pseudo-letters.",
+  }));
+  assert.ok(garbled);
+  assert.equal(garbled.why_failure, true);
+  assert.equal(garbled.garbled_text, true);
+});
 
-  it("routes recurring named entities away from generic stock when a continuity-capable fallback exists", () => {
-    const original = beat();
-    const repaired = repairVisualBeatPlan({ beats: [original] } satisfies VisualBeatPlan);
-    expect(repaired.plan.beats[0]!.routing.preferred).toBe("generated_image");
-    expect(repaired.plan.beats[0]!.routing.fallback).toBe("stock_video");
-    expect(repaired.repairs.some((line) => line.includes("continuity"))).toBe(true);
+test("recurring named entities are routed away from generic stock when continuity-capable fallback exists", () => {
+  const original = beat();
+  const repaired = repairVisualBeatPlan({ beats: [original] } satisfies VisualBeatPlan);
+  assert.equal(repaired.plan.beats[0]!.routing.preferred, "generated_image");
+  assert.equal(repaired.plan.beats[0]!.routing.fallback, "stock_video");
+  assert.ok(repaired.repairs.some((line) => line.includes("continuity")));
 
-    expect(selectVisualMode(repaired.plan.beats[0]!, [], {
-      stock_video: true,
-      generated_image: true,
-      motion_graphic: true,
-      generated_video: true,
-    })).toBe("generated_image");
-  });
+  assert.equal(selectVisualMode(repaired.plan.beats[0]!, [], {
+    stock_video: true,
+    generated_image: true,
+    motion_graphic: true,
+    generated_video: true,
+  }), "generated_image");
 });
