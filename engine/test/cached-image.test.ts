@@ -94,6 +94,53 @@ test("a reference-conditioned pack keys on prompt + seed + reference bytes", asy
   assert.equal(fal.packCalls, 2);
 });
 
+// A toy embedder: each text maps to a vector of per-keyword counts over a
+// fixed vocab, so paraphrases with shared concepts land close in cosine space.
+const VOCAB = ["courier", "horse", "horseback", "rider", "message", "note", "letter", "sealed", "road", "ancient", "antiquity", "chart", "revenue", "lake", "forest", "sunset"];
+const SYN: Record<string, string> = { horseback: "horse", rider: "courier", letter: "note", antiquity: "ancient" };
+const toyEmbed = async (texts: string[]): Promise<number[][]> =>
+  texts.map((t) => {
+    const words = t.toLowerCase().split(/\W+/).map((w) => SYN[w] ?? w);
+    return VOCAB.map((v) => words.filter((w) => w === v).length);
+  });
+
+test("searchByContext (embeddings) matches a paraphrase from a different prompt", async () => {
+  const { dir, fal } = bank();
+  const p = new CachedImageProvider(fal as never, dir, silent, { embed: toyEmbed });
+  await p.generate({
+    prompt: "Realistic wide shot of a mounted courier carrying a sealed message along an ancient road",
+    aspect: "16:9",
+    context: { mode: "generated_image", requirement: "courier holding sealed note; horse in motion; ancient road", narration: "the message might travel with a mounted courier" },
+  });
+  assert.equal(fal.generateCalls, 1);
+
+  const q = new CachedImageProvider(fal as never, dir, silent, { embed: toyEmbed });
+  const hits = await q.searchByContext({
+    requirement: "a rider on horseback transporting a sealed letter down a road in antiquity",
+    narration: "couriers once carried sealed notes on horseback",
+    mode: "generated_image",
+  }, 4);
+  assert.equal(hits.length, 1);
+  assert.deepEqual(hits[0]!.bytes, PNG);
+});
+
+test("searchByContext ignores images from a different mode and unrelated beats", async () => {
+  const { dir, fal } = bank();
+  const p = new CachedImageProvider(fal as never, dir, silent, { embed: toyEmbed });
+  await p.generate({ prompt: "a bar chart of quarterly revenue", aspect: "16:9", context: { mode: "motion_graphic", requirement: "revenue bars growing quarter by quarter" } });
+  await p.generate({ prompt: "a calm forest lake at sunset", aspect: "16:9", context: { mode: "generated_image", requirement: "still water, forest, sunset" } });
+  const hits = await p.searchByContext({ requirement: "a mounted courier carrying a sealed message on an ancient road", mode: "generated_image" }, 4);
+  assert.equal(hits.length, 0);
+});
+
+test("searchByContext falls back to keyword overlap when no embedder is configured", async () => {
+  const { dir, fal } = bank();
+  const p = new CachedImageProvider(fal as never, dir, silent);
+  await p.generate({ prompt: "mounted courier carrying a sealed message along an ancient road", aspect: "16:9", context: { mode: "generated_image", requirement: "mounted courier carrying a sealed message along an ancient road" } });
+  const hits = await p.searchByContext({ requirement: "mounted courier carrying a sealed message along an ancient road" }, 4);
+  assert.equal(hits.length, 1);
+});
+
 test("the bank survives a new provider instance over the same directory", async () => {
   const { dir, fal } = bank();
   const p1 = new CachedImageProvider(fal as never, dir, silent);

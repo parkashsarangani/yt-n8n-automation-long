@@ -212,7 +212,41 @@ async function generateImage(
   const unverified: QaImage[] = [];
   const failures: string[] = [];
   let firstAcceptable: number | undefined;
+
+  // Reusable image bank: an image generated for a semantically similar beat in
+  // any earlier run/episode can satisfy this one for free. Retrieval only
+  // proposes; the same multimodal gate below decides. A reused image that
+  // clears the gate skips fal entirely.
+  const bank = provider as typeof provider & {
+    searchByContext?: (q: { requirement?: string; narration?: string; mode?: string }, limit?: number) => Promise<Array<{ bytes: Uint8Array; media_type: string; score: number }>>;
+    reuseCount?: number;
+  };
+  if (!continuityReference && typeof bank.searchByContext === "function") {
+    const found = await bank.searchByContext(
+      { requirement: beat.visual_contract.required.join("; "), narration: beat.narration, mode: "generated_image" },
+      4,
+    );
+    for (const match of found) {
+      const image: QaImage = { bytes: match.bytes, media_type: match.media_type };
+      const qa = await scoreVisualBeatImage(image, beat, undefined, previous ? { previous } : {});
+      if (qa && candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
+        if (bank.reuseCount !== undefined) bank.reuseCount += 1;
+        ctx.logger.warn(`[visual_beat_assets] ${beat.id}: reused a bank image (match ${match.score.toFixed(2)}), no fal spend`);
+        const ref = await ctx.blobs.put(image.bytes, { role: "image", media_type: image.media_type });
+        return {
+          image_uri: ref.uri, preview_uri: ref.uri, blobs: [ref], preview: image,
+          candidate_count: 0, source_provider: "image-bank", note: "reused from image bank",
+          ...qaFields(qa),
+        };
+      }
+      if (!qa) unverified.push(image); // QA down: a tagged reuse still beats paying fal
+    }
+  }
+
   for (let index = 0; index < concepts.length; index++) {
+    // QA is down AND the bank already gave us a tagged fallback -> generating a
+    // paid fal image we cannot even score is pure waste.
+    if (unverified.length > 0 && freeVisionTripped()) break;
     const concept = concepts[index]!;
     try {
       const prompt = strengthenedPrompt(beat, concept);

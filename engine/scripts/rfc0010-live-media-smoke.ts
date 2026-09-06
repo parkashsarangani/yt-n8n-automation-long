@@ -34,7 +34,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FalImageProvider } from "../src/providers/fal.ts";
-import { CachedImageProvider } from "../src/providers/cached-image.ts";
+import { CachedImageProvider, openAiEmbedder } from "../src/providers/cached-image.ts";
 import { OpenAIProvider } from "../src/providers/openai.ts";
 import { ProviderRouter } from "../src/provider.ts";
 import { SchemaRegistry } from "../src/registry.ts";
@@ -288,6 +288,7 @@ async function main(): Promise<void> {
     new FalImageProvider({ apiKey: requireEnv("FAL_KEY") }),
     env("IMAGE_BANK_DIR"),
     console,
+    { embed: openAiEmbedder(requireEnv("OPENAI_API_KEY")) },
   );
   const renderer = new ComposeRenderer({ baseUrl: composeUrl });
   const transformations = allTransformations(

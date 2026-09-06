@@ -22,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import type { Aspect, ImageBankContext, ImageProvider, Usage } from "../provider.ts";
@@ -73,10 +73,55 @@ export interface ImageBankEntry {
    * future semantic-reuse layer (or a human pruning the bank) matches on.
    */
   context: ImageBankContext | null;
+  /** The text the embedding was computed from (requirement + narration + prompt). */
+  embed_text?: string | null;
+  /** Semantic vector for cross-script reuse. null when no embedder was configured. */
+  embedding?: number[] | null;
 }
+
+/** Batch text -> unit-normalised vectors. */
+export type Embedder = (texts: string[]) => Promise<number[][]>;
 
 function sha(input: string | Uint8Array): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+/** OpenAI /v1/embeddings; text-embedding-3-small is ~$0.00002/1k tokens. */
+export function openAiEmbedder(apiKey: string, opts: { model?: string; baseUrl?: string; fetchImpl?: typeof fetch } = {}): Embedder {
+  const model = opts.model ?? process.env["OPENAI_EMBEDDING_MODEL"] ?? "text-embedding-3-small";
+  const baseUrl = (opts.baseUrl ?? process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  return async (texts) => {
+    if (texts.length === 0) return [];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const res = await fetchImpl(`${baseUrl}/embeddings`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, input: texts.map((t) => t.slice(0, 6_000)) }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`embeddings ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const json = (await res.json()) as { data?: Array<{ embedding: number[] }> };
+      return (json.data ?? []).map((d) => d.embedding);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 }
 
 function zeroUsage(provider: string): Usage {
@@ -115,12 +160,16 @@ export class CachedImageProvider implements ImageProvider {
   private hits = 0;
   private misses = 0;
 
+  private readonly embed: Embedder | undefined;
+
   constructor(
     private readonly inner: ImageProvider,
     dir: string | undefined,
     private readonly logger: Pick<Console, "log" | "warn"> = console,
+    opts: { embed?: Embedder } = {},
   ) {
     this.id = inner.id;
+    this.embed = opts.embed;
     this.dir = dir?.trim() || path.join(process.env["AMOS_DATA"] ?? ".vidgen-data", "image-bank");
     try {
       mkdirSync(this.dir, { recursive: true });
@@ -132,6 +181,94 @@ export class CachedImageProvider implements ImageProvider {
 
   stats(): { hits: number; misses: number } {
     return { hits: this.hits, misses: this.misses };
+  }
+
+  /** Count reuses that came from semantic search (different prompt, same idea). */
+  reuseCount = 0;
+
+  private static readonly STOP = new Set(
+    ("a an the of to in on at by for as is are be was were this that these those and or with without no not it its into over under while show shows showing view shot close wide medium " +
+      "realistic photorealistic cinematic image photo illustration no readable text letters numbers logos watermark viewer takeaway must action state exclude composition camera subject placement " +
+      "continuity group recurring entity ids visual language unless requested inherently abstract").split(/\s+/),
+  );
+
+  private tokens(text: string): Set<string> {
+    return new Set(
+      text.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)
+        .filter((t) => t.length > 2 && !CachedImageProvider.STOP.has(t)),
+    );
+  }
+
+  /**
+   * Find already-generated images whose stored scene context overlaps this
+   * beat's requirement -- across scripts, not just an identical prompt. This
+   * only *proposes* reuse; the caller runs the multimodal judge, so a loose
+   * match costs one QA call, never fal spend.
+   */
+  async searchByContext(
+    q: { requirement?: string; narration?: string; mode?: string },
+    limit = 5,
+  ): Promise<Array<{ bytes: Uint8Array; media_type: string; entry: ImageBankEntry; score: number }>> {
+    if (!this.dir) return [];
+    let files: string[];
+    try { files = readdirSync(this.dir).filter((f) => f.endsWith(".json")); } catch { return []; }
+    const entries: ImageBankEntry[] = [];
+    for (const file of files) {
+      try {
+        const e = JSON.parse(readFileSync(path.join(this.dir, file), "utf8")) as ImageBankEntry;
+        if (q.mode && e.context?.mode && e.context.mode !== q.mode) continue;
+        if (existsSync(path.join(this.dir, `${e.key}.bin`))) entries.push(e);
+      } catch { /* skip */ }
+    }
+    if (entries.length === 0) return [];
+
+    const queryText = [q.requirement, q.narration].filter(Boolean).join(" — ");
+    let scoreOf: (e: ImageBankEntry) => number;
+
+    // Preferred: cosine similarity of embeddings -- matches synonyms and
+    // paraphrases, not just shared keywords.
+    let queryVec: number[] | undefined;
+    if (this.embed && entries.some((e) => e.embedding?.length)) {
+      try { queryVec = (await this.embed([queryText]))[0]; } catch { /* fall through */ }
+    }
+    if (queryVec) {
+      const EMBED_MIN = Number(process.env["IMAGE_BANK_EMBED_MIN"]) || 0.62;
+      scoreOf = (e) => (e.embedding?.length ? cosine(queryVec!, e.embedding) : 0);
+      const scored = entries
+        .map((entry) => ({ entry, score: scoreOf(entry) }))
+        .filter((m) => m.score >= EMBED_MIN)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.max(1, limit));
+      return this.attachBytes(scored);
+    }
+
+    // Fallback: keyword overlap (near-identical wording only).
+    const query = this.tokens(queryText);
+    if (query.size < 2) return [];
+    const KW_MIN = Number(process.env["IMAGE_BANK_KEYWORD_MIN"]) || 0.34;
+    const scored = entries
+      .map((entry) => {
+        const et = this.tokens(`${entry.context?.requirement ?? ""} ${entry.context?.narration ?? ""} ${entry.prompt}`);
+        let overlap = 0;
+        for (const t of query) if (et.has(t)) overlap += 1;
+        return { entry, score: overlap / query.size };
+      })
+      .filter((m) => m.score >= KW_MIN)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, limit));
+    return this.attachBytes(scored);
+  }
+
+  private attachBytes(
+    scored: Array<{ entry: ImageBankEntry; score: number }>,
+  ): Array<{ bytes: Uint8Array; media_type: string; entry: ImageBankEntry; score: number }> {
+    const out: Array<{ bytes: Uint8Array; media_type: string; entry: ImageBankEntry; score: number }> = [];
+    for (const { entry, score } of scored) {
+      try {
+        out.push({ bytes: new Uint8Array(readFileSync(path.join(this.dir, `${entry.key}.bin`))), media_type: entry.media_type, entry, score });
+      } catch { /* skip */ }
+    }
+    return out;
   }
 
   private key(parts: Record<string, unknown>): string {
@@ -151,13 +288,26 @@ export class CachedImageProvider implements ImageProvider {
     }
   }
 
-  private write(
+  private embedTextFor(prompt: string, context: ImageBankContext | undefined): string {
+    return [context?.requirement, context?.narration, prompt].filter(Boolean).join(" — ").slice(0, 4_000);
+  }
+
+  private async write(
     key: string,
     image: GenImage,
     fields: Pick<ImageBankEntry, "op" | "prompt" | "aspect" | "tier" | "seed" | "reference_sha256">,
     context: ImageBankContext | undefined,
-  ): void {
+  ): Promise<void> {
     if (!this.dir) return;
+    const embedText = this.embedTextFor(fields.prompt, context);
+    let embedding: number[] | null = null;
+    if (this.embed) {
+      try {
+        embedding = (await this.embed([embedText]))[0] ?? null;
+      } catch (err) {
+        this.logger.warn(`[image-bank] embedding failed for ${key} (${String(err)}); stored without a vector`);
+      }
+    }
     try {
       const dims = imageDimensions(image.bytes);
       const entry: ImageBankEntry = {
@@ -171,6 +321,8 @@ export class CachedImageProvider implements ImageProvider {
         content_sha256: sha(image.bytes),
         created_at: new Date().toISOString(),
         context: context ?? null,
+        embed_text: embedText || null,
+        embedding,
       };
       writeFileSync(path.join(this.dir, `${key}.bin`), image.bytes);
       writeFileSync(path.join(this.dir, `${key}.json`), JSON.stringify(entry, null, 2));
@@ -193,11 +345,12 @@ export class CachedImageProvider implements ImageProvider {
 
     this.misses += missingIdx.length;
     const fresh = await this.inner.generate({ prompt: req.prompt, aspect: req.aspect, count: missingIdx.length, ...(req.tier ? { tier: req.tier } : {}) });
-    fresh.images.forEach((image, n) => {
+    for (let n = 0; n < fresh.images.length; n++) {
       const slot = missingIdx[n]!;
+      const image = fresh.images[n]!;
       images[slot] = image;
-      this.write(slotKey(slot), image, { op: "generate", prompt: req.prompt, aspect: req.aspect, tier, seed: null, reference_sha256: null }, req.context);
-    });
+      await this.write(slotKey(slot), image, { op: "generate", prompt: req.prompt, aspect: req.aspect, tier, seed: null, reference_sha256: null }, req.context);
+    }
     return { images: images.filter((x): x is GenImage => x !== null), usage: fresh.usage };
   }
 
@@ -225,18 +378,17 @@ export class CachedImageProvider implements ImageProvider {
 
     this.misses += req.prompts.length;
     const fresh = await inner.generatePack(req);
-    fresh.images.forEach((image, i) => {
-      if (keys[i]) {
-        this.write(keys[i]!, image, {
-          op: "pack",
-          prompt: req.prompts[i] ?? "",
-          aspect: req.aspect,
-          tier,
-          seed: req.seed + i,
-          reference_sha256: refHash,
-        }, req.context ? { ...req.context, concept_index: i } : undefined);
-      }
-    });
+    for (let i = 0; i < fresh.images.length; i++) {
+      if (!keys[i]) continue;
+      await this.write(keys[i]!, fresh.images[i]!, {
+        op: "pack",
+        prompt: req.prompts[i] ?? "",
+        aspect: req.aspect,
+        tier,
+        seed: req.seed + i,
+        reference_sha256: refHash,
+      }, req.context ? { ...req.context, concept_index: i } : undefined);
+    }
     return fresh;
   }
 }

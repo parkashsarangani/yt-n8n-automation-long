@@ -23,7 +23,7 @@ import { ProviderRouter } from "../src/provider.ts";
 import { OpenAIProvider } from "../src/providers/openai.ts";
 import { ElevenLabsProvider } from "../src/providers/elevenlabs.ts";
 import { FalImageProvider } from "../src/providers/fal.ts";
-import { CachedImageProvider } from "../src/providers/cached-image.ts";
+import { CachedImageProvider, openAiEmbedder } from "../src/providers/cached-image.ts";
 import { ComposeRenderer } from "../src/providers/compose.ts";
 import { Runner, type TransformationDef } from "../src/runner.ts";
 import { loadAgentDefs, validateCatalog } from "../src/catalog.ts";
@@ -136,10 +136,12 @@ async function main(): Promise<void> {
   // candidate pipelines emit the same prompts run after run, so a re-run costs
   // no fal.ai spend for images already generated. IMAGE_BANK_DIR should point
   // at a Docker volume that survives `compose down`.
+  const embedKey = env("OPENAI_API_KEY");
   const images = new CachedImageProvider(
     new FalImageProvider({ apiKey: falKey }),
     env("IMAGE_BANK_DIR"),
     console,
+    embedKey ? { embed: openAiEmbedder(embedKey) } : {},
   );
   const renderer = new ComposeRenderer({ baseUrl: composeUrl });
   const transformations = allTransformations(
