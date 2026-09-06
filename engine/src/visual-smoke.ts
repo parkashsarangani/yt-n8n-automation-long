@@ -123,12 +123,22 @@ export function evaluateVisualSmoke(
   // Stock/generated media are frame-gated before admission. Motion graphics are
   // deterministic instructions and are intentionally verified after rendering,
   // so semantic_verified=false at the asset stage is not a sourcing failure for
-  // that mode.
+  // that mode. A beat the resolver shipped unverified *because the vision route
+  // was unreachable* (note marked QA_UNAVAILABLE) is a QA-availability problem,
+  // not a sourcing problem -- classify it as technical so a route outage never
+  // looks like bad sourcing.
+  const qaUnavailableResolved = resolved.filter(
+    (beat) => beat.status !== "unavailable" && (beat.note ?? "").includes("QA_UNAVAILABLE"),
+  );
+  if (qaUnavailableResolved.length > 0) {
+    technicalFailures.push(`${qaUnavailableResolved.length} beat(s) shipped unverified because the vision QA route was unreachable`);
+  }
   const unverifiedMedia = resolved.filter((beat) =>
     beat.status !== "unavailable" &&
     beat.resolved_mode !== null &&
     beat.resolved_mode !== "motion_graphic" &&
-    !beat.semantic_verified,
+    !beat.semantic_verified &&
+    !(beat.note ?? "").includes("QA_UNAVAILABLE"),
   );
   if (unverifiedMedia.length > 0) {
     sourcingFailures.push(`${unverifiedMedia.length} resolved media beat(s) were not semantically verified before admission`);

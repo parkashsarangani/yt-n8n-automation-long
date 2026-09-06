@@ -50,6 +50,20 @@ test("visual smoke passes only with QA, quality, sourcing, efficiency and route 
   assert.equal(report.resolved_beats.length, 3);
 });
 
+test("a beat the resolver shipped unverified due to a vision-route outage is technical, not sourcing", () => {
+  const report = evaluateVisualSmoke(
+    [rendered({ id: "beat_001" }), rendered({ id: "beat_002" })],
+    [
+      resolved("beat_001", "generated_image", { semantic_verified: false, note: "QA_UNAVAILABLE: vision QA unreachable; generated image shipped unverified" }),
+      resolved("beat_002", "motion_graphic"),
+    ],
+    ["generated_image", "motion_graphic"],
+  );
+  assert.equal(report.pass, false);
+  assert.ok(report.technical_failures.some((f) => /vision QA route was unreachable/.test(f)));
+  assert.equal(report.sourcing_failures.length, 0, "not counted as unverified-sourcing");
+});
+
 test("motion graphics defer semantic verification to rendered-frame QA", () => {
   const report = evaluateVisualSmoke(
     [rendered()],

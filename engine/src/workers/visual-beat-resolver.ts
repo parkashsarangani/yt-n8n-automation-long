@@ -201,6 +201,7 @@ async function generateImage(
   }
 
   const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult; prompt: string }> = [];
+  const unverified: QaImage[] = [];
   const failures: string[] = [];
   let firstAcceptable: number | undefined;
   for (let index = 0; index < concepts.length; index++) {
@@ -249,6 +250,7 @@ async function generateImage(
       // discard an image the scorer accepted -- infra failures fail open.
       if (!beatQa) {
         failures.push("visual QA unavailable");
+        unverified.push(image);
         continue;
       }
       if (contradictionQa?.contradictsNarration) {
@@ -270,6 +272,26 @@ async function generateImage(
 
   const best = chooseVisualCandidate(candidates.map((candidate) => scored(candidate, candidate.qa)));
   if (!best) {
+    // Every candidate generated but the vision model could not score any of
+    // them (route outage, not a quality signal). Ship the first generated
+    // image unverified rather than leaving the beat with no visual; the
+    // rendered-frame QA and the smoke/benchmark report classify this as a
+    // QA-availability (technical) issue, never as a bad visual.
+    const salvage = unverified[0];
+    if (salvage && candidates.length === 0) {
+      ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unavailable for all ${concepts.length} generated-image candidate(s); shipping the first generated image unverified (QA_UNAVAILABLE)`);
+      const ref = await ctx.blobs.put(salvage.bytes, { role: "image", media_type: salvage.media_type });
+      return {
+        image_uri: ref.uri,
+        preview_uri: ref.uri,
+        blobs: [ref],
+        preview: salvage,
+        candidate_count: concepts.length,
+        semantic_verified: false,
+        source_provider: provider.id,
+        note: "QA_UNAVAILABLE: vision QA unreachable; generated image shipped unverified",
+      };
+    }
     throw new Error(`no generated-image candidate cleared the visual gate: ${failures.slice(0, 4).join(" | ")}`);
   }
   const chosen = best.value;

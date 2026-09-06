@@ -32,6 +32,8 @@ function sha(bytes: Uint8Array): string {
 }
 
 export async function prepareVisionImage(image: QaImage): Promise<QaImage> {
+  // Too small to be a real still worth transcoding (covers test fixtures).
+  if (image.bytes.byteLength < 2_048) return image;
   // Frame samplers already emit small JPEGs; skip those.
   if (image.media_type === "image/jpeg" && image.bytes.byteLength <= 220_000) return image;
 
