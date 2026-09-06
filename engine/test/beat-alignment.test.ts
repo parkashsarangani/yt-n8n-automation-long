@@ -37,10 +37,10 @@ test("semantic beat boundaries are mapped to measured ElevenLabs character times
   assert.equal(result[1]!.end_sec, 2.4);
 });
 
-test("paraphrased narration is rejected instead of receiving guessed timing", () => {
+test("an unanchorable opening beat fails closed instead of receiving guessed timing", () => {
   assert.throws(() => alignSceneBeats([
     beat("beat_001", 0, "This is a paraphrase"),
-  ], alignment("These are the actual spoken words."), 3.3), /not an exact sequential phrase/);
+  ], alignment("These are the actual spoken words."), 3.3), /opening beat narration is not in the ElevenLabs transcript/);
 });
 
 test("a beat whose phrase drifts mid/end is anchored on its verbatim opening, not guessed", () => {
@@ -58,14 +58,27 @@ test("a beat whose phrase drifts mid/end is anchored on its verbatim opening, no
   assert.match(warnings.join("\n"), /beat_002.*anchored/);
 });
 
-test("anchoring still fails closed when even the beat opening is a paraphrase", () => {
-  assert.throws(() => alignSceneBeats([
-    beat("beat_001", 0, "an entirely different opening clause here"),
-  ], alignment("These are the actual spoken words that were recorded."), 5.4), /not an exact sequential phrase/);
+test("a mid-scene beat whose narration is not in the transcript is dropped, not fatal", () => {
+  // beat_002's quoted line was hallucinated; beats 1 and 3 are verbatim.
+  const spoken = "First we set the scene. Then the surprise lands. Finally it all resolves.";
+  const warnings: string[] = [];
+  const result = alignSceneBeats([
+    beat("beat_001", 0, "First we set the scene."),
+    beat("beat_002", 1, "a line the narrator never actually said out loud"),
+    beat("beat_003", 2, "Finally it all resolves."),
+  ], alignment(spoken), spoken.length * 0.1, { warn: (m) => warnings.push(m) });
+  assert.deepEqual(result.map((b) => b.id), ["beat_001", "beat_003"]);
+  assert.equal(result[0]!.start_sec, 0);
+  // beat_001's window now stretches to beat_003's real start
+  assert.ok(result[0]!.end_sec === result[1]!.start_sec);
+  assert.match(warnings.join("\n"), /beat_002: narration not found in transcript; dropping/);
 });
 
-test("a too-short non-verbatim beat is not force-anchored on a fragment", () => {
+test("a scene fails closed when more than half its beats are not in the transcript", () => {
+  const spoken = "Only this sentence was actually spoken aloud.";
   assert.throws(() => alignSceneBeats([
-    beat("beat_001", 0, "the cat"),
-  ], alignment("the dog barked loudly in the yard"), 3.0), /not an exact sequential phrase/);
+    beat("beat_001", 0, "Only this sentence was actually spoken aloud."),
+    beat("beat_002", 1, "invented clause one that was never uttered"),
+    beat("beat_003", 2, "invented clause two also never uttered"),
+  ], alignment(spoken), spoken.length * 0.1), /does not match the voice-over/);
 });

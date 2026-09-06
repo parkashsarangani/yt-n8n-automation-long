@@ -105,13 +105,13 @@ const MIN_ANCHOR_CHARS = 12;
  * Preferred: the whole beat narration is a contiguous phrase (verbatim).
  * Fallback: the Visual Director dropped/changed a word mid- or end-phrase, or
  * TTS text normalization diverged from the script it was told to quote. In that
- * case we anchor on the longest verbatim *opening* of the beat (>= 4 words and
- * >= 16 chars), which still gives a measured start time rather than a guessed
- * one. Only a beat whose very opening cannot be found sequentially — a genuine
- * paraphrase — fails closed.
+ * case we anchor on the longest verbatim *opening* of the beat (>= 3 words and
+ * >= 12 chars), which still gives a measured start time rather than a guessed
+ * one.
  *
  * Returns the match offset and the matched length (so the cursor advances past
- * exactly what matched, not past text that was never found).
+ * exactly what matched, not past text that was never found), or null when even
+ * the opening of the beat is not present sequentially.
  */
 function locateBeatStart(
   haystack: string,
@@ -132,9 +132,14 @@ function locateBeatStart(
 }
 
 /**
- * Align all beats in one narration scene in sequence. Every beat start is a
- * real position in the measured voice transcript; we fail closed rather than
- * inventing a timestamp when the Visual Director genuinely paraphrases.
+ * Align the beats of one narration scene against its measured voice transcript.
+ *
+ * Every retained beat start is a real position in the transcript — never a
+ * reading-speed guess. When the Visual Director's quoted `narration` for a beat
+ * cannot be located even by its verbatim opening, that beat is **dropped**: the
+ * previous beat's visual simply covers its window. Nothing invents a timestamp.
+ * The scene only fails closed when the plan is wholesale unusable — the first
+ * beat is unlocatable, or more than half the beats had to be dropped.
  */
 export function alignSceneBeats(
   beats: VisualBeat[],
@@ -147,14 +152,23 @@ export function alignSceneBeats(
   const normalizedSpoken = normalizeMapped(spoken);
   let cursor = 0;
   const starts: Array<{ beat: VisualBeat; raw: number }> = [];
+  let dropped = 0;
 
-  for (const beat of ordered) {
+  for (let index = 0; index < ordered.length; index++) {
+    const beat = ordered[index]!;
     const needle = normalizePlain(beat.narration);
     if (!needle) throw new Error(`${beat.id}: narration normalizes to empty text`);
     const located = locateBeatStart(normalizedSpoken.text, needle, cursor);
+
     if (!located) {
-      throw new Error(`${beat.id}: narration is not an exact sequential phrase in the ElevenLabs transcript; refusing guessed timing`);
+      if (index === 0 || starts.length === 0) {
+        throw new Error(`${beat.id}: opening beat narration is not in the ElevenLabs transcript; cannot anchor the scene`);
+      }
+      dropped++;
+      logger?.warn(`[beat-alignment] ${beat.id}: narration not found in transcript; dropping this beat, the previous beat's visual covers its window`);
+      continue;
     }
+
     if (located.anchored) {
       logger?.warn(`[beat-alignment] ${beat.id}: full narration not verbatim in transcript; anchored start on its leading ${located.matchedLen} normalized chars`);
     }
@@ -162,6 +176,10 @@ export function alignSceneBeats(
     if (raw === undefined) throw new Error(`${beat.id}: could not map normalized phrase to character timing`);
     starts.push({ beat, raw });
     cursor = located.at + located.matchedLen;
+  }
+
+  if (dropped > 0 && dropped > ordered.length / 2) {
+    throw new Error(`scene ${ordered[0]!.scene_index}: ${dropped}/${ordered.length} beat narrations are not in the transcript; the visual plan does not match the voice-over`);
   }
 
   const safeDuration = Number.isFinite(durationSec) && durationSec > 0
