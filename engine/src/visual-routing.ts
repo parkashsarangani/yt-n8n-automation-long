@@ -75,6 +75,18 @@ const ABSTRACT_PURPOSES = new Set(["EXPLAIN","MAKE_SCALE_INTUITIVE","SHOW_CAUSE"
 export function beatDuration(beat: Pick<VisualBeat, "start_sec" | "end_sec">): number { return beat.end_sec - beat.start_sec; }
 
 /**
+ * A continuity group + stable entity IDs means the pixels are expected to
+ * depict the same recurring thing, not merely the same narrative role. Generic
+ * stock cannot carry a reference image into later providers, so it must not be
+ * the preferred representation when a continuity-capable authored fallback is
+ * already available. This is intentionally narrow: it does NOT broaden stock
+ * search for unrelated beats or change the RFC's purpose-based router.
+ */
+export function hasRecurringNamedEntities(beat: Pick<VisualBeat, "continuity">): boolean {
+  return beat.continuity.group.trim().length > 0 && beat.continuity.entities.some((entity) => entity.trim().length > 0);
+}
+
+/**
  * Deterministic pre-validation repair for the routing rules the Visual Director
  * gets wrong most often. This never invents content — it only re-points a beat
  * away from a mode the RFC forbids for its purpose, using the modes the agent
@@ -95,8 +107,18 @@ export function repairVisualBeatPlan(plan: VisualBeatPlan): { plan: VisualBeatPl
           ? "motion_graphic"
           : "generated_image";
       repairs.push(`${beat.id}: ${beat.intent.purpose} preferred stock_video -> ${target}`);
-      if (swapToFallback) fallback = "stock_video"; // preferred<->fallback swap
+      if (swapToFallback) fallback = "stock_video";
       preferred = target;
+    }
+
+    // A recurring named hero/object should start from a continuity-capable
+    // representation. Keep stock available as fallback evidence/B-roll, but do
+    // not establish an anonymous stock actor that later generated beats cannot
+    // plausibly preserve. This does not apply to anonymous establishing crowds.
+    if (hasRecurringNamedEntities(beat) && preferred === "stock_video" && fallback !== "stock_video") {
+      repairs.push(`${beat.id}: continuity group ${beat.continuity.group} with recurring entities may not prefer non-referenceable stock_video -> ${fallback}`);
+      preferred = fallback;
+      fallback = "stock_video";
     }
 
     // preferred and fallback must differ.
@@ -119,11 +141,7 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
     if (ids.has(beat.id)) errors.push(`${beat.id}: duplicate beat id`); ids.add(beat.id);
     // RFC 0010 s4: the Visual Director's start_sec/end_sec are *provisional*
     // reading-speed guesses; alignSceneBeats replaces them with measured
-    // ElevenLabs timing (real transcript positions, chained ends, first beat
-    // at 0). Only end_sec <= start_sec signals a malformed beat rather than a
-    // rough guess -- a provisional beat running a bit long or short, or a
-    // small provisional gap, is corrected by the aligner and must not abort a
-    // 40-minute render.
+    // ElevenLabs timing. Only end_sec <= start_sec is malformed here.
     if (!(beatDuration(beat) > 0)) errors.push(`${beat.id}: end_sec must be greater than start_sec`);
     if (beat.routing.preferred === beat.routing.fallback) errors.push(`${beat.id}: preferred and fallback visual modes must differ`);
     if (beat.visual_contract.required.length === 0) errors.push(`${beat.id}: visual_contract.required must describe at least one observable requirement`);
@@ -144,9 +162,6 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
     for (let i=0;i<ordered.length;i++) {
       const current = ordered[i]!;
       if (current.beat_index !== i) errors.push(`scene ${sceneIndex}: beat_index must be contiguous from 0`);
-      // Provisional first-beat-at-0 and gap/overlap checks removed: the aligner
-      // (alignSceneBeats) guarantees these on the measured timeline regardless
-      // of what the Director guessed here.
     }
   }
   return errors;
@@ -189,7 +204,18 @@ export function noveltyConflict(beat: VisualBeat, mode: VisualMode, recent: Arra
 }
 
 export function selectVisualMode(beat: VisualBeat, recent: Array<VisualMode | VisualHistoryEntry>, capabilities: VisualCapabilities): VisualMode | null {
-  const preferred=beat.routing.preferred, fallback=beat.routing.fallback;
+  let preferred=beat.routing.preferred, fallback=beat.routing.fallback;
+
+  // Backstop for plans that bypassed repairVisualBeatPlan. Do not establish a
+  // stable recurring entity with anonymous stock when the authored fallback can
+  // preserve an identity/reference. Stock remains available if the authored
+  // continuity-capable mode itself is unavailable.
+  if (hasRecurringNamedEntities(beat) && preferred === "stock_video" && fallback !== "stock_video" && modeAvailable(fallback, capabilities)) {
+    const priorPreferred = preferred;
+    preferred = fallback;
+    fallback = priorPreferred;
+  }
+
   const preferredAvailable=modeAvailable(preferred,capabilities), fallbackAvailable=modeAvailable(fallback,capabilities);
   if (!preferredAvailable) return fallbackAvailable ? fallback : null;
   if (noveltyConflict(beat, preferred, recent) && fallbackAvailable) {
