@@ -16,6 +16,7 @@ import {
   candidateAccepted,
   chooseVisualCandidate,
   historyEntryForBeat,
+  repairVisualBeatPlan,
   selectVisualMode,
   validateVisualBeatPlan,
   weightedVisualScore,
@@ -494,7 +495,9 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
     produces_version: "1.1.0",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
-      const provisional = inputs["plan"]!.payload as VisualBeatPlan;
+      const rawPlan = inputs["plan"]!.payload as VisualBeatPlan;
+      const { plan: provisional, repairs } = repairVisualBeatPlan(rawPlan);
+      for (const repair of repairs) ctx.logger.warn(`[visual_beat_assets] routing repair: ${repair}`);
       const validation = validateVisualBeatPlan(provisional);
       if (validation.length) throw new Error(`visual beat plan invariant failed: ${validation.join("; ")}`);
       const aligned = await loadAlignedPlan(provisional, inputs["voice"]!.payload as VoiceArtifact, ctx);

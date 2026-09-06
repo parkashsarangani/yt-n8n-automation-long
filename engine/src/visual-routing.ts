@@ -50,6 +50,45 @@ const ABSTRACT_PURPOSES = new Set(["EXPLAIN","MAKE_SCALE_INTUITIVE","SHOW_CAUSE"
 
 export function beatDuration(beat: Pick<VisualBeat, "start_sec" | "end_sec">): number { return beat.end_sec - beat.start_sec; }
 
+/**
+ * Deterministic pre-validation repair for the routing rules the Visual Director
+ * gets wrong most often. This never invents content — it only re-points a beat
+ * away from a mode the RFC forbids for its purpose, using the modes the agent
+ * itself already authored briefs for. Repairs are logged; `validateVisualBeatPlan`
+ * remains the hard backstop.
+ */
+export function repairVisualBeatPlan(plan: VisualBeatPlan): { plan: VisualBeatPlan; repairs: string[] } {
+  const repairs: string[] = [];
+  const beats = plan.beats.map((beat) => {
+    let { preferred, fallback } = beat.routing;
+
+    // Abstract explanation must not ship as generic stock footage.
+    if (ABSTRACT_PURPOSES.has(beat.intent.purpose) && preferred === "stock_video") {
+      const swapToFallback = fallback !== "stock_video";
+      const target: VisualMode = swapToFallback
+        ? fallback
+        : beat.asset_brief.motion_graphic_brief.trim()
+          ? "motion_graphic"
+          : "generated_image";
+      repairs.push(`${beat.id}: ${beat.intent.purpose} preferred stock_video -> ${target}`);
+      if (swapToFallback) fallback = "stock_video"; // preferred<->fallback swap
+      preferred = target;
+    }
+
+    // preferred and fallback must differ.
+    if (preferred === fallback) {
+      const alt: VisualMode = preferred === "motion_graphic" ? "generated_image" : "motion_graphic";
+      repairs.push(`${beat.id}: fallback equalled preferred (${preferred}) -> fallback ${alt}`);
+      fallback = alt;
+    }
+
+    return preferred === beat.routing.preferred && fallback === beat.routing.fallback
+      ? beat
+      : { ...beat, routing: { ...beat.routing, preferred, fallback } };
+  });
+  return { plan: { beats }, repairs };
+}
+
 export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
   const errors: string[] = [], ids = new Set<string>(), byScene = new Map<number, VisualBeat[]>();
   for (const beat of plan.beats) {

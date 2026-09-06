@@ -5,6 +5,7 @@ import {
   candidateAccepted,
   chooseVisualCandidate,
   noveltyConflict,
+  repairVisualBeatPlan,
   repeatedVisualPatterns,
   selectVisualMode,
   validateVisualBeatPlan,
@@ -77,6 +78,35 @@ test("provisional over-long / gappy LLM timing is not a hard failure (the aligne
 test("a genuinely malformed beat (end before start) still fails validation", () => {
   const errors = validateVisualBeatPlan({ beats: [beat({ start_sec: 5, end_sec: 2 })] });
   assert.ok(errors.some((e) => e.includes("end_sec must be greater than start_sec")));
+});
+
+test("repairVisualBeatPlan re-points an abstract beat off stock_video and the result validates", () => {
+  const b = beat({
+    intent: { purpose: "SHOW_CAUSE", information: "x", emotion: "neutral", importance: 0.5 },
+    routing: { preferred: "stock_video", fallback: "generated_image", image_style: "realistic" },
+  });
+  const { plan, repairs } = repairVisualBeatPlan({ beats: [b] });
+  assert.equal(plan.beats[0]!.routing.preferred, "generated_image");
+  assert.equal(plan.beats[0]!.routing.fallback, "stock_video");
+  assert.match(repairs.join(), /SHOW_CAUSE preferred stock_video/);
+  assert.deepEqual(validateVisualBeatPlan(plan), []);
+});
+
+test("repairVisualBeatPlan sends an abstract beat to motion_graphic when both declared modes are stock", () => {
+  const b = beat({
+    intent: { purpose: "CONTRAST", information: "x", emotion: "neutral", importance: 0.5 },
+    routing: { preferred: "stock_video", fallback: "stock_video", image_style: "not_applicable" },
+  });
+  const { plan } = repairVisualBeatPlan({ beats: [b] });
+  assert.equal(plan.beats[0]!.routing.preferred, "motion_graphic");
+  assert.notEqual(plan.beats[0]!.routing.fallback, "motion_graphic");
+  assert.deepEqual(validateVisualBeatPlan(plan), []);
+});
+
+test("repairVisualBeatPlan leaves a correctly-routed plan untouched", () => {
+  const { plan, repairs } = repairVisualBeatPlan({ beats: [beat()] });
+  assert.equal(repairs.length, 0);
+  assert.deepEqual(plan.beats[0], beat());
 });
 
 test("abstract explanation may not prefer generic stock", () => {
