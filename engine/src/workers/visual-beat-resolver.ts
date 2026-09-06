@@ -68,6 +68,12 @@ interface ResolvedBeat {
   generic_filler?: boolean;
   why_failure?: boolean;
   candidate_count?: number;
+  /** 1-based provider-candidate rank at which the first candidate cleared the visual gate. */
+  first_acceptable_candidate_index?: number;
+  /** Number of stock query variants actually consumed before selection. */
+  search_query_count?: number;
+  /** Preferred route + at most one declared alternate. */
+  mode_attempt_count?: number;
   note?: string;
 }
 
@@ -193,6 +199,7 @@ async function generateImage(
 
   const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult; prompt: string }> = [];
   const failures: string[] = [];
+  let firstAcceptable: number | undefined;
   for (let index = 0; index < concepts.length; index++) {
     const concept = concepts[index]!;
     try {
@@ -238,6 +245,9 @@ async function generateImage(
         failures.push(`generic/irrelevant: ${beatQa.reason}`);
         continue;
       }
+      if (candidateAccepted(beatQa.scores) && firstAcceptable === undefined) {
+        firstAcceptable = index + 1;
+      }
       candidates.push({ image, qa: beatQa, prompt: concept });
     } catch (error) {
       failures.push(error instanceof Error ? error.message : String(error));
@@ -256,6 +266,7 @@ async function generateImage(
     blobs: [ref],
     preview: chosen.image,
     candidate_count: concepts.length,
+    ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
     source_provider: provider.id,
     ...qaFields(chosen.qa),
   };
@@ -279,10 +290,15 @@ async function resolveStockVideo(
   if (queries.length < 3) throw new Error(`${beat.id}: Visual Director supplied fewer than 3 stock query variants`);
 
   let evaluated = 0;
-  for (const query of queries) {
+  let sourceCandidateIndex = 0;
+  let firstAcceptable: number | undefined;
+  for (let queryIndex = 0; queryIndex < queries.length; queryIndex++) {
+    const query = queries[queryIndex]!;
     const sources = await pexels.search(query, 5);
     const accepted: WindowCandidate[] = [];
     for (const source of sources) {
+      sourceCandidateIndex += 1;
+      let sourceAccepted = false;
       const windows = candidateWindows(source.duration_sec, beat.end_sec - beat.start_sec, 5);
       for (const window of windows) {
         evaluated += 1;
@@ -291,11 +307,15 @@ async function resolveStockVideo(
           const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
           const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
           if (qa && candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
+            sourceAccepted = true;
             accepted.push({ source, start: window.start, end: window.end, frames, qa });
           }
         } catch (error) {
           ctx.logger.warn(`[visual_beat_assets] ${beat.id} stock window rejected: ${error instanceof Error ? error.message : String(error)}`);
         }
+      }
+      if (sourceAccepted && firstAcceptable === undefined) {
+        firstAcceptable = sourceCandidateIndex;
       }
     }
 
@@ -318,6 +338,8 @@ async function resolveStockVideo(
       source_in_sec: best.start,
       source_out_sec: best.end,
       candidate_count: evaluated,
+      ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
+      search_query_count: queryIndex + 1,
       ...qaFields(best.qa),
     };
   }
@@ -368,6 +390,7 @@ function motionGraphic(beat: VisualBeat): ModeResult {
     }),
     semantic_verified: false,
     candidate_count: 1,
+    first_acceptable_candidate_index: 1,
   };
 }
 
@@ -383,14 +406,17 @@ async function generateVideo(
   const concepts = promptsForBeat(beat).slice(0, 3);
   const motion = beat.asset_brief.generated_video_prompt?.trim() || beat.asset_brief.generation_prompt;
   const accepted: Array<{ bytes: Uint8Array; frames: QaImage[]; qa: VisualBeatQaResult; model: string; duration: number }> = [];
+  let firstAcceptable: number | undefined;
 
-  for (const concept of concepts) {
+  for (let index = 0; index < concepts.length; index++) {
+    const concept = concepts[index]!;
     try {
       const generated = await provider.generate(`${concept}. MOTION: ${motion}`, beat.end_sec - beat.start_sec);
       const sampled = await sampleVideoFrames(generated.bytes, 0, generated.duration_sec, 5);
       const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
       const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
       if (qa && candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
+        if (firstAcceptable === undefined) firstAcceptable = index + 1;
         accepted.push({ bytes: generated.bytes, frames, qa, model: generated.model, duration: generated.duration_sec });
       }
     } catch (error) {
@@ -416,6 +442,7 @@ async function generateVideo(
     source_in_sec: 0,
     source_out_sec: wanted,
     candidate_count: concepts.length,
+    ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
     ...qaFields(best.qa),
   };
 }
@@ -445,7 +472,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
   return {
     name: "visual_beat_assets",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "5",
     consumes: [
       { schema_id: "visual_beat_plan", range: "^1", as: "plan" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -471,12 +498,14 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         let selected = selectVisualMode(beat, history, available);
         let result: ModeResult | null = null;
         let note = "";
+        let modeAttemptCount = 0;
         const continuityReference = beat.continuity.group
           ? continuityReferences.get(beat.continuity.group)
           : undefined;
 
         if (selected) {
           try {
+            modeAttemptCount += 1;
             result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
           } catch (error) {
             note = error instanceof Error ? error.message : String(error);
@@ -484,6 +513,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
             if (alternate && available[alternate]) {
               try {
                 selected = alternate;
+                modeAttemptCount += 1;
                 result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference);
                 note = `primary route failed; used declared alternate: ${note}`;
               } catch (fallbackError) {
@@ -538,6 +568,11 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           ...(result?.generic_filler !== undefined ? { generic_filler: result.generic_filler } : {}),
           ...(result?.why_failure !== undefined ? { why_failure: result.why_failure } : {}),
           ...(result?.candidate_count !== undefined ? { candidate_count: result.candidate_count } : {}),
+          ...(result?.first_acceptable_candidate_index !== undefined
+            ? { first_acceptable_candidate_index: result.first_acceptable_candidate_index }
+            : {}),
+          ...(result?.search_query_count !== undefined ? { search_query_count: result.search_query_count } : {}),
+          mode_attempt_count: modeAttemptCount,
           ...(note ? { note } : {}),
         };
         if (selected) history.push(historyEntryForBeat(beat, selected, beat.end_sec - beat.start_sec));
