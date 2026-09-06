@@ -372,6 +372,20 @@ async function main(): Promise<void> {
   const ordered = [...timed.beats].sort((a, b) => a.ordinal - b.ordinal);
   const planById = new Map(plan.beats.map((beat) => [beat.id, beat]));
   const videoBytes = await blobs.get(video.video_uri);
+
+  // Export the rendered candidate + diagnostics *before* the post-render QA
+  // pass, so a frame-sampling or VLM hiccup never costs us the artifacts of a
+  // run that actually rendered.
+  await mkdir(EXPORT_DIR, { recursive: true });
+  await Promise.all([
+    writeFile(path.join(EXPORT_DIR, "candidate-rfc0010-smoke.mp4"), videoBytes),
+    writeFile(path.join(EXPORT_DIR, "script.json"), JSON.stringify({ word_count: WORD_COUNT, scenes: SCENES }, null, 2)),
+    writeFile(path.join(EXPORT_DIR, "tts-moderation.json"), JSON.stringify(moderation.artifact.payload, null, 2)),
+    writeFile(path.join(EXPORT_DIR, "visual-direction.json"), JSON.stringify(direction.payload, null, 2)),
+    writeFile(path.join(EXPORT_DIR, "visual-assets.json"), JSON.stringify(assets.payload, null, 2)),
+    writeFile(path.join(EXPORT_DIR, "visual-timeline.json"), JSON.stringify(timeline.payload, null, 2)),
+  ]);
+
   const times = ordered.flatMap((beat) => beatTimes(beat, timed.total_duration_sec));
   const frames = await sampleRenderedFrames(videoBytes, times);
   const renderedResults: VisualSmokeRenderedBeat[] = [];
@@ -401,16 +415,7 @@ async function main(): Promise<void> {
   }
 
   const report = evaluateVisualSmoke(renderedResults, resolved.beats);
-  await mkdir(EXPORT_DIR, { recursive: true });
-  await Promise.all([
-    writeFile(path.join(EXPORT_DIR, "candidate-rfc0010-smoke.mp4"), videoBytes),
-    writeFile(path.join(EXPORT_DIR, "script.json"), JSON.stringify({ word_count: WORD_COUNT, scenes: SCENES }, null, 2)),
-    writeFile(path.join(EXPORT_DIR, "tts-moderation.json"), JSON.stringify(moderation.artifact.payload, null, 2)),
-    writeFile(path.join(EXPORT_DIR, "visual-direction.json"), JSON.stringify(direction.payload, null, 2)),
-    writeFile(path.join(EXPORT_DIR, "visual-assets.json"), JSON.stringify(assets.payload, null, 2)),
-    writeFile(path.join(EXPORT_DIR, "visual-timeline.json"), JSON.stringify(timeline.payload, null, 2)),
-    writeFile(path.join(EXPORT_DIR, "smoke-report.json"), JSON.stringify(report, null, 2)),
-  ]);
+  await writeFile(path.join(EXPORT_DIR, "smoke-report.json"), JSON.stringify(report, null, 2));
 
   const manifest = {
     generated_at: new Date().toISOString(),
