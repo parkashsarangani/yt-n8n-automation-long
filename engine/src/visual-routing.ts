@@ -98,17 +98,17 @@ export function rollingVisualHistory(recent: VisualHistoryEntry[], seconds = 25)
   return out;
 }
 
+function recentModeFrequency(mode: VisualMode, recent: Array<VisualMode | VisualHistoryEntry>): number {
+  const window = rollingVisualHistory(historyEntries(recent), 25);
+  if (window.length === 0) return 0;
+  return window.filter((entry) => entry.mode === mode).length / window.length;
+}
+
 export function noveltyConflict(beat: VisualBeat, mode: VisualMode, recent: Array<VisualMode | VisualHistoryEntry>): boolean {
   if (!beat.retention.novelty_required) return false;
   const window = rollingVisualHistory(historyEntries(recent), 25);
   if (window.length < 2) return false;
   const sameMode = window.filter((e) => e.mode === mode).length / window.length;
-  // A genuinely different representation is itself a material novelty break.
-  // Do not reject an agent-declared fallback merely because the beat carries
-  // composition/camera metadata resembling the preceding mode. Grammar-level
-  // repetition matters only once the proposed mode is already common enough
-  // in the rolling window to be part of the pattern we are trying to break.
-  if (sameMode < 0.50) return false;
   const sameComposition = window.filter((e) => e.composition === beat.retention.composition).length / window.length;
   const camera = beat.retention.camera_treatment ?? "unknown";
   const placement = beat.retention.subject_placement ?? "unknown";
@@ -123,7 +123,15 @@ export function selectVisualMode(beat: VisualBeat, recent: Array<VisualMode | Vi
   const preferred=beat.routing.preferred, fallback=beat.routing.fallback;
   const preferredAvailable=modeAvailable(preferred,capabilities), fallbackAvailable=modeAvailable(fallback,capabilities);
   if (!preferredAvailable) return fallbackAvailable ? fallback : null;
-  if (noveltyConflict(beat, preferred, recent) && fallbackAvailable && !noveltyConflict(beat, fallback, recent)) return fallback;
+  if (noveltyConflict(beat, preferred, recent) && fallbackAvailable) {
+    // Visual-grammar repetition can make a preferred mode stale even when that
+    // mode is not numerically dominant. Conversely, a genuinely fresh fallback
+    // is itself a material novelty break and must not be vetoed merely because
+    // the beat carries composition/camera metadata inherited from the preferred
+    // treatment. Once the fallback is common, evaluate its grammar normally.
+    const fallbackIsFresh = recentModeFrequency(fallback, recent) < 0.50;
+    if (fallbackIsFresh || !noveltyConflict(beat, fallback, recent)) return fallback;
+  }
   return preferred;
 }
 
