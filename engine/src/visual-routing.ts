@@ -54,9 +54,14 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
   const errors: string[] = [], ids = new Set<string>(), byScene = new Map<number, VisualBeat[]>();
   for (const beat of plan.beats) {
     if (ids.has(beat.id)) errors.push(`${beat.id}: duplicate beat id`); ids.add(beat.id);
-    const duration = beatDuration(beat);
-    if (!(duration > 0)) errors.push(`${beat.id}: end_sec must be greater than start_sec`);
-    if (duration < 1.5 || duration > 8) errors.push(`${beat.id}: duration ${duration.toFixed(2)}s is outside the hard 1.5-8s safety range`);
+    // RFC 0010 s4: the Visual Director's start_sec/end_sec are *provisional*
+    // reading-speed guesses; alignSceneBeats replaces them with measured
+    // ElevenLabs timing (real transcript positions, chained ends, first beat
+    // at 0). Only end_sec <= start_sec signals a malformed beat rather than a
+    // rough guess -- a provisional beat running a bit long or short, or a
+    // small provisional gap, is corrected by the aligner and must not abort a
+    // 40-minute render.
+    if (!(beatDuration(beat) > 0)) errors.push(`${beat.id}: end_sec must be greater than start_sec`);
     if (beat.routing.preferred === beat.routing.fallback) errors.push(`${beat.id}: preferred and fallback visual modes must differ`);
     if (beat.visual_contract.required.length === 0) errors.push(`${beat.id}: visual_contract.required must describe at least one observable requirement`);
     if (!beat.visual_contract.viewer_takeaway.trim()) errors.push(`${beat.id}: viewer_takeaway is empty`);
@@ -76,8 +81,9 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
     for (let i=0;i<ordered.length;i++) {
       const current = ordered[i]!;
       if (current.beat_index !== i) errors.push(`scene ${sceneIndex}: beat_index must be contiguous from 0`);
-      if (i===0 && Math.abs(current.start_sec)>0.05) errors.push(`scene ${sceneIndex}: first beat must begin at 0s`);
-      if (i>0) { const previous=ordered[i-1]!; const delta=current.start_sec-previous.end_sec; if (Math.abs(delta)>0.08) errors.push(`scene ${sceneIndex}: ${previous.id}->${current.id} has ${delta>0?"gap":"overlap"} ${Math.abs(delta).toFixed(2)}s`); }
+      // Provisional first-beat-at-0 and gap/overlap checks removed: the aligner
+      // (alignSceneBeats) guarantees these on the measured timeline regardless
+      // of what the Director guessed here.
     }
   }
   return errors;
