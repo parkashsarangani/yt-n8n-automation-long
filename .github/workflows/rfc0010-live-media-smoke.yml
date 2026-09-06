@@ -1,10 +1,10 @@
 name: RFC 0010 Live Media Smoke
 
 on:
-  # The RFC 0010 dev loop. A push to the candidate surface auto-runs the live
-  # smoke: no RFC 0009 control regen, cached ElevenLabs narration, and the
-  # persistent image bank means an unchanged beat costs no fal.ai spend. Cheap
-  # enough to run on every iteration.
+  # RFC 0010 development loop. Pushes to the candidate surface run the short
+  # live smoke, never the RFC 0009 control/full acceptance benchmark. Narration
+  # is regenerated for the exact current script on every run; only the semantic
+  # image bank persists across scripts, where every reused image is revalidated.
   push:
     branches: [rfc-0010-visual-director]
     paths:
@@ -28,11 +28,6 @@ on:
     inputs:
       run_live_media:
         description: "Run live Pexels/Fal/vision/TTS-backed smoke after deterministic validation"
-        required: false
-        type: boolean
-        default: false
-      refresh_voice_fixture:
-        description: "Regenerate the cached ElevenLabs narration fixture (only when live media runs)"
         required: false
         type: boolean
         default: false
@@ -73,8 +68,6 @@ jobs:
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
 
       IMAGE_QA_TIMEOUT_MS: ${{ vars.IMAGE_QA_TIMEOUT_MS || '45000' }}
-      RFC0010_SMOKE_FIXTURE_CACHE: /fixture-cache
-      RFC0010_SMOKE_REFRESH_VOICE: ${{ inputs.refresh_voice_fixture && 'true' || 'false' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -124,7 +117,6 @@ jobs:
         run: |
           set -euo pipefail
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
-          docker volume create rfc0010-smoke-fixtures >/dev/null
           docker volume create rfc0010-image-bank >/dev/null
           # Rebuild the engine image for this project so `compose run engine`
           # below runs THIS commit, not a stale cached layer from a prior run.
@@ -153,7 +145,6 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -p vidgen-rfc0010-smoke run -d --name vidgen-rfc0010-smoke-engine --no-deps \
-            -v rfc0010-smoke-fixtures:/fixture-cache \
             -v rfc0010-image-bank:/image-bank \
             -e IMAGE_BANK_DIR=/image-bank \
             -e COMPOSE_URL=http://vidgen-rfc0010-smoke-compose:4000 \
@@ -207,5 +198,5 @@ jobs:
         run: |
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
           docker compose -p vidgen-rfc0010-smoke down -v --remove-orphans >/dev/null 2>&1 || true
-          # Intentionally preserve the standalone rfc0010-smoke-fixtures volume:
-          # subsequent smoke runs reuse the exact same narration + timestamps.
+          # rfc0010-image-bank is an intentionally external named volume and is
+          # not removed by compose cleanup; semantic image reuse survives runs.

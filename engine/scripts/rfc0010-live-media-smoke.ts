@@ -1,27 +1,28 @@
 /**
  * Fast RFC 0010 development harness.
  *
- * Freeze what RFC 0010 is not trying to improve:
- *   - one fixed, route-diverse script
- *   - one cached ElevenLabs narration + alignment fixture
+ * Keep the visual-development surface controlled and observable:
+ *   - one route-diverse smoke script per checked-in test revision
+ *   - fresh ElevenLabs narration + alignment for that exact script on every run
+ *   - fresh pre-TTS moderation audit for that exact immutable script
  *
  * Keep the actual visual system live:
  *   - Visual Director
  *   - Pexels retrieval + exact segment selection
  *   - fal image/video generation
- *   - deterministic motion graphics
+ *   - cross-script semantic image-bank reuse
+ *   - semantic graphics / kinetic fallback
  *   - multimodal candidate gates
  *   - timeline construction, render, rendered-frame QA
  *
- * Every run also produces a fresh pre-TTS moderation audit for the exact fixed
- * script. A cached voice does not call ElevenLabs again, but the fresh audit
- * must still approve that script before the cached audio may be reused.
+ * Voice/plan caching is intentionally NOT part of this smoke. The generated
+ * image bank is intentionally persistent across scripts because a semantically
+ * matching image can be revalidated and reused at zero fal generation spend.
  *
  * This is a development smoke test, not a substitute for the 90-120 second
  * control-vs-candidate acceptance benchmark.
  */
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,7 +51,6 @@ import { assertTtsApproved } from "../src/workers/voice.ts";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = process.env["AMOS_DATA"] ?? path.join(ROOT, ".vidgen-data");
 const EXPORT_DIR = process.env["RFC0010_SMOKE_EXPORT_DIR"] ?? path.join(DATA, "rfc0010-live-media-smoke-export");
-const FIXTURE_CACHE = process.env["RFC0010_SMOKE_FIXTURE_CACHE"] ?? path.join(DATA, "rfc0010-smoke-fixtures");
 
 const SCENES = [
   {
@@ -78,27 +78,6 @@ const SCENES = [
 
 const WORD_COUNT = SCENES.reduce((sum, scene) => sum + scene.narration.trim().split(/\s+/).length, 0);
 
-type VoiceClip = {
-  scene_index: number;
-  audio_uri: string;
-  alignment_uri?: string;
-  duration_sec: number;
-  media_type?: string;
-};
-type VoicePayload = { voice_id: string; clips: VoiceClip[]; total_duration_sec?: number };
-type CachedVoice = {
-  version: 1;
-  cache_key: string;
-  voice_id: string;
-  total_duration_sec: number;
-  clips: Array<{
-    scene_index: number;
-    duration_sec: number;
-    media_type: string;
-    audio_file: string;
-    alignment_file?: string;
-  }>;
-};
 type ModerationPayload = {
   script_artifact_id: string;
   decision: "allow" | "review" | "block";
@@ -128,17 +107,6 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function boolEnv(name: string): boolean {
-  return /^(1|true|yes|on)$/i.test(env(name) ?? "");
-}
-
-function fixtureKey(voiceId: string): string {
-  return createHash("sha256")
-    .update(JSON.stringify({ voice_id: voiceId, scenes: SCENES.map(({ scene_index, narration }) => ({ scene_index, narration })) }))
-    .digest("hex")
-    .slice(0, 24);
-}
-
 async function assertRun(name: string, result: GraphRunResult): Promise<void> {
   if (result.failures.length) {
     throw new Error(`${name} failed: ${result.failures.map((failure) => `${failure.node_id}: ${failure.error}`).join(" | ")}`);
@@ -166,90 +134,15 @@ function group(frames: TimedFrame[], index: number): QaImage[] {
   return framesUsable(part) ? part.map(({ bytes, media_type }) => ({ bytes, media_type })) : [];
 }
 
-async function writeVoiceCache(cacheDir: string, voice: VoicePayload, blobs: FsBlobStore, cacheKey: string): Promise<void> {
-  await mkdir(cacheDir, { recursive: true });
-  const clips: CachedVoice["clips"] = [];
-  for (const clip of voice.clips) {
-    const audioFile = `scene-${clip.scene_index}.audio`;
-    await writeFile(path.join(cacheDir, audioFile), await blobs.get(clip.audio_uri));
-    let alignmentFile: string | undefined;
-    if (clip.alignment_uri) {
-      alignmentFile = `scene-${clip.scene_index}.alignment.json`;
-      await writeFile(path.join(cacheDir, alignmentFile), await blobs.get(clip.alignment_uri));
-    }
-    clips.push({
-      scene_index: clip.scene_index,
-      duration_sec: clip.duration_sec,
-      media_type: clip.media_type ?? "audio/mpeg",
-      audio_file: audioFile,
-      ...(alignmentFile ? { alignment_file: alignmentFile } : {}),
-    });
-  }
-  const manifest: CachedVoice = {
-    version: 1,
-    cache_key: cacheKey,
-    voice_id: voice.voice_id,
-    total_duration_sec: voice.total_duration_sec ?? voice.clips.reduce((sum, clip) => sum + clip.duration_sec, 0),
-    clips,
-  };
-  await writeFile(path.join(cacheDir, "voice.json"), JSON.stringify(manifest, null, 2));
-}
-
-async function importVoiceCache(
-  cacheDir: string,
-  store: FsArtifactStore,
-  blobs: FsBlobStore,
-  scriptId: string,
-  moderationId: string,
-): Promise<string | null> {
-  let cached: CachedVoice;
-  try {
-    cached = JSON.parse(await readFile(path.join(cacheDir, "voice.json"), "utf8")) as CachedVoice;
-  } catch {
-    return null;
-  }
-  if (cached.version !== 1) return null;
-  const clips: VoiceClip[] = [];
-  for (const clip of cached.clips) {
-    const audio = await blobs.put(await readFile(path.join(cacheDir, clip.audio_file)), { role: "audio", media_type: clip.media_type });
-    let alignmentUri: string | undefined;
-    if (clip.alignment_file) {
-      const alignment = await blobs.put(await readFile(path.join(cacheDir, clip.alignment_file)), { role: "alignment", media_type: "application/json" });
-      alignmentUri = alignment.uri;
-    }
-    clips.push({
-      scene_index: clip.scene_index,
-      audio_uri: audio.uri,
-      duration_sec: clip.duration_sec,
-      media_type: clip.media_type,
-      ...(alignmentUri ? { alignment_uri: alignmentUri } : {}),
-    });
-  }
-  const stored = await store.put({
-    schema_id: "voice",
-    payload: { voice_id: cached.voice_id, clips, total_duration_sec: cached.total_duration_sec },
-    produced_by: { transformation: "voice", version: "fixture-cache-v1", run_id: `rfc0010-smoke-cache-${cached.cache_key}`, provider: "cached-elevenlabs" },
-    parents: [scriptId, moderationId],
-  });
-  return stored.artifact.artifact_id;
-}
-
 async function getVoiceFixture(args: {
   runner: Runner;
   transformations: Map<string, TransformationDef>;
-  store: FsArtifactStore;
-  blobs: FsBlobStore;
   scriptId: string;
   moderationId: string;
-  voiceId: string;
-}): Promise<{ artifactId: string; source: "cache" | "generated"; cacheKey: string }> {
-  const cacheKey = fixtureKey(args.voiceId);
-  const cacheDir = path.join(FIXTURE_CACHE, cacheKey);
-  if (!boolEnv("RFC0010_SMOKE_REFRESH_VOICE")) {
-    const imported = await importVoiceCache(cacheDir, args.store, args.blobs, args.scriptId, args.moderationId);
-    if (imported) return { artifactId: imported, source: "cache", cacheKey };
-  }
-
+}): Promise<{ artifactId: string; source: "generated" }> {
+  // Deliberately regenerate. Smoke scripts evolve between iterations; reusing a
+  // prior voice/alignment artifact would make timing evidence belong to the
+  // wrong script. The cross-script IMAGE bank remains the reusable cost saver.
   const voiceDef = args.transformations.get("voice");
   if (!voiceDef) throw new Error("voice worker missing from transformation catalog");
   const generated = await args.runner.run(
@@ -257,9 +150,7 @@ async function getVoiceFixture(args: {
     [args.scriptId, args.moderationId],
     { runId: `rfc0010-smoke-voice-${Date.now()}` },
   );
-  const payload = generated.artifact.payload as VoicePayload;
-  await writeVoiceCache(cacheDir, payload, args.blobs, cacheKey);
-  return { artifactId: generated.artifact.artifact_id, source: "generated", cacheKey };
+  return { artifactId: generated.artifact.artifact_id, source: "generated" };
 }
 
 async function main(): Promise<void> {
@@ -285,10 +176,9 @@ async function main(): Promise<void> {
   const blobs = await FsBlobStore.open(DATA);
   const runLog = new JsonlRunLog(path.join(DATA, "runs.jsonl"));
   const speech = new ElevenLabsProvider({ apiKey: elevenKey });
-  // Persistent image bank keyed on the exact prompt/aspect/seed/reference:
-  // the smoke fixture is fixed, so an unchanged beat's fal image is generated
-  // once and reused for free on every later run. IMAGE_BANK_DIR lives on a
-  // Docker volume that survives cleanup.
+  // Reusable across scripts: semantic retrieval validates a bank candidate
+  // against the new beat before reuse, so a useful generated image can avoid a
+  // new fal call without freezing the script/voice/plan.
   const images = new CachedImageProvider(
     new FalImageProvider({ apiKey: requireEnv("FAL_KEY") }),
     env("IMAGE_BANK_DIR"),
@@ -332,23 +222,20 @@ async function main(): Promise<void> {
     { runId: `rfc0010-smoke-moderation-${Date.now()}` },
   );
   const moderationPayload = moderation.artifact.payload as ModerationPayload;
-  // Enforce the fresh audit even when the narration fixture is already cached.
-  // This call also checks that the report belongs to the exact immutable script.
+  // The fresh audit must belong to and approve this exact immutable script
+  // before a new ElevenLabs request is allowed.
   assertTtsApproved(script.artifact.artifact_id, moderationPayload);
 
   const voice = await getVoiceFixture({
     runner,
     transformations,
-    store,
-    blobs,
     scriptId: script.artifact.artifact_id,
     moderationId: moderation.artifact.artifact_id,
-    voiceId,
   });
   console.log("=== RFC 0010 LIVE-MEDIA SMOKE ===");
   console.log(`script=${script.artifact.artifact_id} words=${WORD_COUNT}`);
   console.log(`tts_moderation=${moderation.artifact.artifact_id} decision=${moderationPayload.decision} approved=${moderationPayload.approved_for_tts}`);
-  console.log(`voice=${voice.artifactId} source=${voice.source} cache_key=${voice.cacheKey}`);
+  console.log(`voice=${voice.artifactId} source=${voice.source}`);
   console.log(`text_model=${textModel} images=${images.id} renderer=${renderer.id}`);
 
   const result = await executor.start(graph, {
@@ -431,15 +318,16 @@ async function main(): Promise<void> {
       moderation_artifact_id: moderation.artifact.artifact_id,
       moderation_decision: moderationPayload.decision,
       voice_source: voice.source,
-      voice_cache_key: voice.cacheKey,
       voice_artifact_id: voice.artifactId,
     },
     live_surfaces: [
       "pre_tts_moderation_audit",
+      "fresh_elevenlabs_voice",
       "visual_director",
       "pexels_retrieval",
       "fal_generation",
-      "motion_graphics",
+      "semantic_image_bank_reuse",
+      "semantic_graphics",
       "candidate_multimodal_gate",
       "timeline",
       "render",
