@@ -141,8 +141,8 @@ test("visual smoke requires at least 80 percent of resolved beats to clear withi
       resolved("beat_001", "stock_video", { first_acceptable_candidate_index: 1 }),
       resolved("beat_002", "generated_image", { first_acceptable_candidate_index: 2 }),
       resolved("beat_003", "motion_graphic", { first_acceptable_candidate_index: 1 }),
-      resolved("beat_004", "generated_image", { first_acceptable_candidate_index: 4 }),
-      resolved("beat_005", "generated_video", { first_acceptable_candidate_index: 4 }),
+      resolved("beat_004", "generated_image", { candidate_count: 4, first_acceptable_candidate_index: 4 }),
+      resolved("beat_005", "generated_image", { candidate_count: 4, first_acceptable_candidate_index: 4 }),
     ],
     [],
   );
