@@ -17,21 +17,41 @@ const rendered = (overrides: Partial<VisualSmokeRenderedBeat> = {}): VisualSmoke
   ...overrides,
 });
 
-const resolved = (id: string, mode: VisualSmokeResolvedBeat["resolved_mode"]): VisualSmokeResolvedBeat => ({
+const resolved = (
+  id: string,
+  mode: VisualSmokeResolvedBeat["resolved_mode"],
+  overrides: Partial<VisualSmokeResolvedBeat> = {},
+): VisualSmokeResolvedBeat => ({
   id,
+  requested_mode: mode ?? undefined,
   resolved_mode: mode,
   status: "resolved",
-  semantic_verified: true,
-  candidate_count: 3,
+  semantic_verified: mode !== "motion_graphic",
+  candidate_count: mode === "motion_graphic" ? 1 : 3,
+  generic_filler: false,
+  why_failure: false,
+  ...overrides,
 });
 
-test("visual smoke passes only with QA, quality, sourcing and route coverage", () => {
+test("visual smoke passes only with QA, quality, sourcing, efficiency and route coverage", () => {
   const report = evaluateVisualSmoke(
     [rendered({ id: "beat_001" }), rendered({ id: "beat_002" }), rendered({ id: "beat_003" })],
     [resolved("beat_001", "stock_video"), resolved("beat_002", "generated_image"), resolved("beat_003", "motion_graphic")],
   );
   assert.equal(report.pass, true);
-  assert.equal(report.summary.mean_candidate_count, 3);
+  assert.equal(report.summary.operational_budget_failures, 0);
+  assert.equal(report.summary.operational_budget_ratio, 1);
+  assert.equal(report.resolved_beats.length, 3);
+});
+
+test("motion graphics defer semantic verification to rendered-frame QA", () => {
+  const report = evaluateVisualSmoke(
+    [rendered()],
+    [resolved("beat_001", "motion_graphic", { semantic_verified: false })],
+    ["motion_graphic"],
+  );
+  assert.equal(report.pass, true);
+  assert.equal(report.sourcing_failures.length, 0);
 });
 
 test("visual smoke classifies missing VLM QA as technical rather than visual quality failure", () => {
@@ -79,4 +99,37 @@ test("visual smoke applies the RFC absolute quality floors", () => {
   assert.equal(report.pass, false);
   assert.equal(report.technical_failures.length, 0);
   assert.equal(report.quality_failures.length, 4);
+});
+
+test("visual smoke fails operationally when stock search exceeds the three-query-equivalent budget", () => {
+  const report = evaluateVisualSmoke(
+    [rendered()],
+    [resolved("beat_001", "stock_video", { candidate_count: 76 })],
+    ["stock_video"],
+  );
+  assert.equal(report.pass, false);
+  assert.match(report.efficiency_failures.join(" "), /stock_video evaluated 76 candidates\/windows > budget 75/);
+});
+
+test("visual smoke treats excessive fallback dependence as an efficiency failure", () => {
+  const report = evaluateVisualSmoke(
+    [rendered({ id: "beat_001" }), rendered({ id: "beat_002" }), rendered({ id: "beat_003" })],
+    [
+      resolved("beat_001", "stock_video", { status: "fallback", requested_mode: "generated_image" }),
+      resolved("beat_002", "generated_image"),
+      resolved("beat_003", "motion_graphic"),
+    ],
+  );
+  assert.equal(report.pass, false);
+  assert.match(report.efficiency_failures.join(" "), /fallback ratio 0\.333 > 0\.25/);
+});
+
+test("visual smoke rejects generic stock even if a resolver regression marks it resolved", () => {
+  const report = evaluateVisualSmoke(
+    [rendered()],
+    [resolved("beat_001", "stock_video", { generic_filler: true })],
+    ["stock_video"],
+  );
+  assert.equal(report.pass, false);
+  assert.match(report.sourcing_failures.join(" "), /generic stock beat/);
 });
