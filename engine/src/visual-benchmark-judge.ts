@@ -1,5 +1,6 @@
 import { llmRoutingConfig } from "./llm-routing.ts";
 import type { QaImage, VisualBeatFetch } from "./visual-beat-qa.ts";
+import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -22,14 +23,14 @@ function score(value: unknown): number {
 }
 
 async function request(
-  endpoint: { baseUrl: string; apiKey: string; model: string; label: string },
+  endpoint: { baseUrl: string; apiKey: string; model: string; label: string; timeoutMs?: number },
   optionA: QaImage[],
   optionB: QaImage[],
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch,
 ): Promise<BlindComparisonResult | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), endpoint.timeoutMs ?? TIMEOUT_MS);
   const content: Array<Record<string, unknown>> = [
     { type: "text", text: [
       "Blindly compare two candidate visuals for the SAME narrated YouTube beat. You are not told which system made either option.",
@@ -87,8 +88,9 @@ export async function compareRenderedVisualsBlind(
   fetchImpl: VisualBeatFetch = fetch as unknown as VisualBeatFetch,
 ): Promise<BlindComparisonResult | null> {
   const routing = llmRoutingConfig();
-  if (routing.mode === "freellmapi" && routing.apiKey) {
-    const result = await request({ baseUrl: routing.baseUrl, apiKey: routing.apiKey, model: routing.visionModel, label: "freellmapi" }, optionA, optionB, beat, fetchImpl);
+  if (routing.mode === "freellmapi" && routing.apiKey && !freeVisionTripped()) {
+    const result = await request({ baseUrl: routing.baseUrl, apiKey: routing.apiKey, model: routing.visionModel, label: "freellmapi", timeoutMs: FREE_VISION_ATTEMPT_TIMEOUT_MS }, optionA, optionB, beat, fetchImpl);
+    recordFreeVisionResult(result !== null);
     if (result) return result;
     if (!routing.failOpenToDirect) return null;
   }

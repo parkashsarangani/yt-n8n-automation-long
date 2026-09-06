@@ -1,4 +1,5 @@
 import { llmRoutingConfig } from "./llm-routing.ts";
+import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -38,14 +39,14 @@ function imageParts(frames: RequestFrames): Array<Record<string, unknown>> {
 }
 
 async function request(
-  endpoint: { baseUrl: string; apiKey: string; model: string; label: string },
+  endpoint: { baseUrl: string; apiKey: string; model: string; label: string; timeoutMs?: number },
   frames: RequestFrames,
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch,
 ): Promise<VisualBeatQaResult | null> {
   if (frames.candidate.length === 0) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), endpoint.timeoutMs ?? TIMEOUT_MS);
   const instruction = [
     "Judge the CURRENT visual as the exact pixels shown under one narration beat in a YouTube explainer/story.",
     "Multiple CURRENT images are chronological samples from one beat. PREVIOUS/FOLLOWING images are context only: use them for identity/location continuity and actual visual repetition.",
@@ -80,7 +81,7 @@ async function request(
 
 async function routedRequest(frames:RequestFrames,beat:VisualBeat,fetchImpl:VisualBeatFetch):Promise<VisualBeatQaResult|null>{
   const routing=llmRoutingConfig();
-  if(routing.mode==="freellmapi"&&routing.apiKey){ const free=await request({baseUrl:routing.baseUrl,apiKey:routing.apiKey,model:routing.visionModel,label:"freellmapi"},frames,beat,fetchImpl); if(free)return free; if(!routing.failOpenToDirect)return null; }
+  if(routing.mode==="freellmapi"&&routing.apiKey&&!freeVisionTripped()){ const free=await request({baseUrl:routing.baseUrl,apiKey:routing.apiKey,model:routing.visionModel,label:"freellmapi",timeoutMs:FREE_VISION_ATTEMPT_TIMEOUT_MS},frames,beat,fetchImpl); recordFreeVisionResult(free!==null); if(free)return free; if(!routing.failOpenToDirect)return null; }
   const apiKey=process.env["OPENAI_API_KEY"]?.trim(); if(!apiKey)return null;
   return request({baseUrl:(process.env["OPENAI_BASE_URL"]??DEFAULT_BASE_URL).replace(/\/$/,""),apiKey,model:process.env["OPENAI_IMAGE_QA_MODEL"]??process.env["OPENAI_MODEL"]??"gpt-5.6-luna",label:"direct-openai"},frames,beat,fetchImpl);
 }

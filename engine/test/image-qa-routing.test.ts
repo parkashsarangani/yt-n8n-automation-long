@@ -1,7 +1,10 @@
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { checkGeneratedImageMatchesNarration, type FetchLike } from "../src/image-qa.ts";
+import { resetVisionRouteHealth } from "../src/vision-route-health.ts";
+
+beforeEach(() => resetVisionRouteHealth());
 
 const IMAGE = { bytes: new Uint8Array([1, 2, 3, 4]), media_type: "image/png" };
 const LINE = "a spoken narration line";

@@ -20,6 +20,7 @@
 // production.
 
 import { llmRoutingConfig } from "./llm-routing.ts";
+import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 
 // The shared FreeLLMAPI vision route (auto:smart) is a multimodal aggregator
 // and routinely needs 20-40s for an image request; the old 20s ceiling made a
@@ -161,21 +162,22 @@ async function askVisionMany(
   const label = opts.label ?? "vision QA";
 
   if (routing.mode === "freellmapi") {
-    if (routing.apiKey) {
+    if (routing.apiKey && !freeVisionTripped()) {
       const free = await requestVisionJson({
         baseUrl: routing.baseUrl,
         apiKey: routing.apiKey,
         model: routing.visionModel,
         content,
         maxCompletionTokens,
-        timeoutMs: opts.timeoutMs,
+        timeoutMs: Math.min(opts.timeoutMs ?? TIMEOUT_MS, FREE_VISION_ATTEMPT_TIMEOUT_MS),
         label: `${label} (freellmapi)`,
       }, fetchImpl);
+      recordFreeVisionResult(free !== null);
       if (free) return free;
       if (!routing.failOpenToDirect) return null;
       // Per-request failure reason is already logged by requestVisionJson.
       console.warn(`[llm-routing] FreeLLMAPI ${label} failed; retrying through direct OpenAI`);
-    } else if (!routing.failOpenToDirect) {
+    } else if (!routing.apiKey && !routing.failOpenToDirect) {
       return null;
     }
   }
