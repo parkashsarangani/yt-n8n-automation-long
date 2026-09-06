@@ -3,8 +3,13 @@ name: RFC 0010 Live Media Smoke
 on:
   workflow_dispatch:
     inputs:
+      run_live_media:
+        description: "Run live Pexels/Fal/vision/TTS-backed smoke after deterministic validation"
+        required: false
+        type: boolean
+        default: false
       refresh_voice_fixture:
-        description: "Regenerate the cached ElevenLabs narration fixture"
+        description: "Regenerate the cached ElevenLabs narration fixture (only when live media runs)"
         required: false
         type: boolean
         default: false
@@ -53,7 +58,28 @@ jobs:
         with:
           clean: true
 
-      - name: Validate smoke configuration
+      - name: Build engine for deterministic validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p vidgen-rfc0010-smoke build engine
+
+      - name: Deterministic engine validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm run typecheck
+          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm test
+
+      - name: Validation-only complete
+        if: ${{ !inputs.run_live_media }}
+        shell: bash
+        run: |
+          echo "RFC 0010 smoke deterministic validation complete."
+          echo "run_live_media=false: no Gemini/OpenAI/Fal/Pexels/ElevenLabs requests were made by this workflow."
+
+      - name: Validate live smoke configuration
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -68,22 +94,17 @@ jobs:
             exit 1
           fi
 
-      - name: Build isolated smoke containers
+      - name: Build isolated live-media compositor
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
           docker volume create rfc0010-smoke-fixtures >/dev/null
-          docker compose -p vidgen-rfc0010-smoke build engine long-compose
-
-      - name: Deterministic engine validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm run typecheck
-          docker compose -p vidgen-rfc0010-smoke run --rm --no-deps engine npm test
+          docker compose -p vidgen-rfc0010-smoke build long-compose
 
       - name: Start isolated compositor
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -100,6 +121,7 @@ jobs:
           exit 1
 
       - name: Start engine and verify reasoning route
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,6 +142,7 @@ jobs:
           docker exec vidgen-rfc0010-smoke-engine node --import tsx scripts/rfc0010-smoke-preflight.ts
 
       - name: Run fixed-input live-media smoke
+        if: ${{ inputs.run_live_media }}
         id: smoke
         shell: bash
         run: |
@@ -139,7 +162,7 @@ jobs:
           node -e "const fs=require('fs');const p='rfc0010-live-media-smoke-export/smoke-report.json';if(!fs.existsSync(p)){console.error('missing smoke-report.json');process.exit(1)}const r=JSON.parse(fs.readFileSync(p,'utf8'));console.log('smoke pass='+r.pass);if(!r.pass){console.error(JSON.stringify({technical:r.technical_failures,sourcing:r.sourcing_failures,efficiency:r.efficiency_failures,coverage:r.coverage_failures,quality:r.quality_failures},null,2));process.exit(2)}"
 
       - name: Upload smoke render and diagnostics
-        if: always()
+        if: ${{ always() && inputs.run_live_media }}
         uses: actions/upload-artifact@v4
         with:
           name: rfc0010-live-media-smoke-${{ github.run_number }}
@@ -150,7 +173,7 @@ jobs:
           retention-days: 14
 
       - name: Cleanup isolated smoke runtime
-        if: always()
+        if: ${{ always() && inputs.run_live_media }}
         shell: bash
         run: |
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
