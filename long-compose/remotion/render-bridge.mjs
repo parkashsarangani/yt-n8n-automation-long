@@ -11,7 +11,7 @@
 
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
-import { reviewSemanticMotion } from "./semantic-motion-qa.mjs";
+import { reviewRfc0010Scene, reviewSemanticMotion } from "./semantic-motion-qa.mjs";
 import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
@@ -218,6 +218,33 @@ async function main() {
     composition.width = 1920;
     composition.height = 1080;
 
+    // RFC 0010 pixel gate. Unlike the advisory legacy check below, this one is
+    // authoritative -- but it can afford to be, because failing it costs a
+    // downgrade to this beat's own kinetic-text form rather than an aborted
+    // render or a placeholder. The first complete RFC 0010 candidate shipped
+    // five graphics that showed none of what their beat asked for; nothing
+    // between the planner and the final encode was in a position to notice.
+    let renderProps = inputProps;
+    if (inputProps?.rfc0010SemanticScene && inputProps?.rfc0010FallbackScene) {
+        try {
+            const gate = await reviewRfc0010Scene({composition, serveUrl: bundleLocation, inputProps, renderStill});
+            if (gate && !gate.ok) {
+                console.warn(
+                    `[remotion] rfc0010 scene "${inputProps.rfc0010SemanticScene.kind}" failed its pixel gate ` +
+                    `(${gate.failures.join("; ")}); rendering this beat as kinetic text instead. ` +
+                    `metrics=${JSON.stringify(gate.deterministic)}`,
+                );
+                renderProps = {...inputProps, rfc0010SemanticScene: inputProps.rfc0010FallbackScene, rfc0010GateFailed: true};
+            } else if (gate) {
+                console.log(`[remotion] rfc0010 scene "${inputProps.rfc0010SemanticScene.kind}" cleared its pixel gate`);
+            }
+        } catch (error) {
+            // An unreachable critic or a still-render hiccup is a QA
+            // availability problem. It must not rewrite the episode.
+            console.warn(`[remotion] rfc0010 pixel gate could not run (keeping the authored scene): ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     // Motion QA for semantic scenes: inspect the actual rendered pixels at
     // 20%, 55%, and 85% before spending time on the full scene encode.
     // Non-blocking by design (operator decision) -- a failure here means a
@@ -226,7 +253,7 @@ async function main() {
     // full failure (metrics included) so a frozen scene is still visible in
     // the render logs, then keep going.
     try {
-        await reviewSemanticMotion({composition,serveUrl:bundleLocation,inputProps,renderStill});
+        await reviewSemanticMotion({composition,serveUrl:bundleLocation,inputProps:renderProps,renderStill});
     } catch (error) {
         console.warn(`[remotion] motion visual QA would have failed (non-blocking): ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -237,7 +264,7 @@ async function main() {
         serveUrl: bundleLocation,
         codec: "h264",
         outputLocation: outputPath,
-        inputProps,
+        inputProps: renderProps,
         chromiumOptions: {
             gl: "angle",
         },

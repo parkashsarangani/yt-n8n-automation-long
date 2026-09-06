@@ -336,6 +336,36 @@ export function kineticPhraseScene(source: string, sequenceId?: string): Semanti
 }
 
 /**
+ * The concrete things a viewer must be able to READ off the rendered scene.
+ *
+ * This is what turns the pixel gate from "does it look busy enough" into a
+ * checkable claim. The rendered benchmark's judge failed beat 7 with "no
+ * labelled 5 km/h route, walking marker, 20-kilometre distance, or four-hour
+ * endpoint" — every one of those is derivable from the scene data, so the
+ * gate can ask for exactly them instead of guessing what the beat wanted.
+ */
+export function semanticSceneRequirements(scene: SemanticScene): string[] {
+  const out: string[] = [];
+  if (scene.axis) {
+    out.push(`a labelled ${scene.axis.label} scale from 0 to ${scene.axis.max} ${scene.axis.unit}`);
+  }
+  for (const marker of scene.markers ?? []) {
+    const parts = [`a marker labelled "${marker.label}" at ${marker.value}${scene.axis ? ` ${scene.axis.unit}` : ""}`];
+    if (marker.rate_label) parts.push(`showing "${marker.rate_label}"`);
+    if (marker.time_label) parts.push(`showing "${marker.time_label}"`);
+    out.push(parts.join(", "));
+  }
+  if (scene.equation) out.push(`the equation "${scene.equation}" written legibly`);
+  for (const node of scene.nodes ?? []) out.push(`a timeline stop labelled "${node.label}"`);
+  for (const step of scene.steps ?? []) out.push(`a process step labelled "${step.label}"`);
+  if (scene.before) out.push(`a "before" state labelled "${scene.before.label}"`);
+  if (scene.after) out.push(`an "after" state labelled "${scene.after.label}"`);
+  for (const item of scene.items ?? []) out.push(`a bar labelled "${item.label}" sized for ${item.value}`);
+  for (const line of scene.lines ?? []) out.push(`the text "${line.text}"`);
+  return out;
+}
+
+/**
  * Carry an explanatory sequence's established state into its continuation
  * beats.
  *

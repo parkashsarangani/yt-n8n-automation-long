@@ -8,6 +8,7 @@ import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import {
   kineticPhraseScene,
+  semanticSceneRequirements,
   threadSemanticSequence,
   validateSemanticScene,
   type SemanticScene,
@@ -499,6 +500,14 @@ export function resolveSemanticScene(
 
 function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): ModeResult {
   const { scene, representation, note } = resolveSemanticScene(beat, threaded);
+  // The renderer runs a pixel gate on the composed scene (render-bridge's
+  // reviewSemanticMotion). When a graphic fails it there, it must have
+  // something honest to fall back to WITHOUT a second engine round trip, so
+  // the kinetic-phrase form of this same beat travels with it. Deriving it
+  // here also keeps phrase extraction in one place, under unit test.
+  const fallback = scene.kind === "kinetic_phrase"
+    ? scene
+    : kineticPhraseScene(beat.visual_contract.viewer_takeaway || beat.narration, scene.sequence_id);
   return {
     template_category: "explanation",
     template_data: JSON.stringify({
@@ -506,6 +515,8 @@ function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): M
       // representationMode/sceneBlueprint: those are what route a beat into
       // the generic blueprint registry this replaces.
       rfc0010SemanticScene: scene,
+      rfc0010FallbackScene: fallback,
+      rfc0010Requirements: semanticSceneRequirements(scene),
       keyText: scene.caption,
       narration: beat.narration,
     }),
