@@ -1,6 +1,6 @@
 import type { BlobRef } from "../artifact.ts";
 import { alignVisualBeatPlan, type VoiceClipForAlignment } from "../audio/beat-alignment.ts";
-import { checkGeneratedImageForText, checkGeneratedImageMatchesNarration } from "../image-qa.ts";
+import { checkGeneratedImageMatchesNarration } from "../image-qa.ts";
 import { candidateWindows, extractVideoSegment, sampleVideoFrames } from "../media/video-analysis.ts";
 import { FalVideoProvider } from "../providers/fal-video.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
@@ -170,7 +170,7 @@ async function loadAlignedPlan(
     }
     clips.push({ scene_index: clip.scene_index, duration_sec: clip.duration_sec, alignment });
   }
-  return alignVisualBeatPlan(plan, clips);
+  return alignVisualBeatPlan(plan, clips, ctx.logger);
 }
 
 async function generateImage(
@@ -219,20 +219,18 @@ async function generateImage(
         failures.push("provider returned no image");
         continue;
       }
-      const [textQa, contradictionQa, beatQa] = await Promise.all([
-        checkGeneratedImageForText(image),
+      const [contradictionQa, beatQa] = await Promise.all([
         checkGeneratedImageMatchesNarration(image, beat.narration),
         scoreVisualBeatImage(image, beat, undefined, previous ? { previous } : {}),
       ]);
-      if (!textQa || !contradictionQa || !beatQa) {
+      // beatQa is the primary gate: without it we cannot rank the candidate.
+      // A missing contradiction check (VLM outage) is not by itself a reason to
+      // discard an image the scorer accepted -- infra failures fail open.
+      if (!beatQa) {
         failures.push("visual QA unavailable");
         continue;
       }
-      if (textQa.hasVisibleText) {
-        failures.push(`visible text: ${textQa.reason}`);
-        continue;
-      }
-      if (contradictionQa.contradictsNarration) {
+      if (contradictionQa?.contradictsNarration) {
         failures.push(`narration contradiction: ${contradictionQa.reason}`);
         continue;
       }

@@ -1,12 +1,17 @@
 // Vision QA for generated illustrations.
 //
-// RFC 0008 introduced two narrowly-scoped per-image checks: visible text and
-// active contradiction of narration. RFC 0009 keeps those but adds the two
-// viewer-facing capabilities the illustrated format now depends on:
+// RFC 0008 introduced a per-image "active contradiction of narration" check.
+// RFC 0009 adds the two viewer-facing capabilities the illustrated format now
+// depends on:
 //   1) rank multiple candidates for scarce hero shots; and
 //   2) review the ordered episode visually, in overlapping windows, so
 //      individually-valid frames can still be rejected for repetition,
 //      weak opening/payoff, style drift, continuity breaks, or AI artefacts.
+//
+// A separate per-image "visible text" rejection used to live here. It was
+// removed: it triggered heavy regeneration loops (a numbers/scale explainer
+// legitimately shows clocks, rulers, calendars) and the style negative prompts
+// already discourage garbled typography. Occasional real text is tolerated.
 //
 // These calls remain deliberately self-contained instead of giving arbitrary
 // workers a model client. FreeLLMAPI is primary when enabled; direct OpenAI is
@@ -16,13 +21,14 @@
 
 import { llmRoutingConfig } from "./llm-routing.ts";
 
-const TIMEOUT_MS = 20000;
+// The shared FreeLLMAPI vision route (auto:smart) is a multimodal aggregator
+// and routinely needs 20-40s for an image request; the old 20s ceiling made a
+// timeout the normal outcome. Overridable for tighter/looser environments.
+const TIMEOUT_MS = (() => {
+  const raw = Number(process.env["IMAGE_QA_TIMEOUT_MS"]);
+  return Number.isFinite(raw) && raw >= 1000 ? raw : 45_000;
+})();
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-
-export interface ImageQaResult {
-  hasVisibleText: boolean;
-  reason: string;
-}
 
 export interface SemanticQaResult {
   contradictsNarration: boolean;
@@ -194,22 +200,6 @@ async function askVision(
   return askVisionMany([image], instruction, fetchImpl, 220);
 }
 
-export async function checkGeneratedImageForText(
-  image: { bytes: Uint8Array; media_type: string },
-  fetchImpl: FetchLike = fetch as unknown as FetchLike,
-): Promise<ImageQaResult | null> {
-  const parsed = await askVision(
-    image,
-    "This illustration must contain no readable text, letters, numbers, logos, or watermarks anywhere -- including props, signage, packaging, screens, engraving, and texture. Respond ONLY JSON: {\"has_visible_text\":true|false,\"reason\":\"one short sentence\"}",
-    fetchImpl,
-  );
-  if (!parsed || typeof parsed["has_visible_text"] !== "boolean") return null;
-  return {
-    hasVisibleText: parsed["has_visible_text"],
-    reason: typeof parsed["reason"] === "string" ? parsed["reason"] : "",
-  };
-}
-
 export async function checkGeneratedImageMatchesNarration(
   image: { bytes: Uint8Array; media_type: string },
   narration: string,
@@ -291,8 +281,13 @@ export async function reviewIllustratedSequence(
 ): Promise<VisualSequenceReviewResult | null> {
   if (entries.length < 2) return null;
 
-  const WINDOW = 10;
-  const STRIDE = 8;
+  // Smaller windows than the original 10/8: with the first+last anchors a
+  // 10-wide window carried up to 12 full base64 images, which the shared
+  // FreeLLMAPI vision route rejected with HTTP 413 (and the direct fallback
+  // often returned non-JSON on the oversized context). 6/5 keeps every shot
+  // covered by an overlapping window while staying under the size limit.
+  const WINDOW = 6;
+  const STRIDE = 5;
   const chunks: VisualSequenceEntry[][] = [];
   for (let start = 0; start < entries.length; start += STRIDE) {
     const slice = entries.slice(start, start + WINDOW);

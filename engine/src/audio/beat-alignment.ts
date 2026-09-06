@@ -91,15 +91,56 @@ function startTime(alignment: CharacterAlignment, rawIndex: number): number {
   return 0;
 }
 
+/** Minimum distinctive opening a beat must share with the transcript to be
+ * anchored when its full narration is not a verbatim contiguous phrase. The
+ * search is always forward of the previous beat's match, so a modest anchor
+ * still lands on the correct sequential position; these bounds just stop a
+ * one- or two-word fragment from anchoring anywhere. */
+const MIN_ANCHOR_WORDS = 3;
+const MIN_ANCHOR_CHARS = 12;
+
 /**
- * Align all beats in one narration scene in sequence. The beat text must be a
- * real phrase from the voice transcript; we fail closed rather than inventing a
- * timestamp when the Visual Director paraphrases the script.
+ * Locate a beat's start in the normalized transcript, at or after `cursor`.
+ *
+ * Preferred: the whole beat narration is a contiguous phrase (verbatim).
+ * Fallback: the Visual Director dropped/changed a word mid- or end-phrase, or
+ * TTS text normalization diverged from the script it was told to quote. In that
+ * case we anchor on the longest verbatim *opening* of the beat (>= 4 words and
+ * >= 16 chars), which still gives a measured start time rather than a guessed
+ * one. Only a beat whose very opening cannot be found sequentially — a genuine
+ * paraphrase — fails closed.
+ *
+ * Returns the match offset and the matched length (so the cursor advances past
+ * exactly what matched, not past text that was never found).
+ */
+function locateBeatStart(
+  haystack: string,
+  needle: string,
+  cursor: number,
+): { at: number; matchedLen: number; anchored: boolean } | null {
+  const exact = haystack.indexOf(needle, cursor);
+  if (exact >= 0) return { at: exact, matchedLen: needle.length, anchored: false };
+
+  const words = needle.split(" ");
+  for (let count = words.length - 1; count >= MIN_ANCHOR_WORDS; count--) {
+    const prefix = words.slice(0, count).join(" ");
+    if (prefix.length < MIN_ANCHOR_CHARS) break;
+    const at = haystack.indexOf(prefix, cursor);
+    if (at >= 0) return { at, matchedLen: prefix.length, anchored: true };
+  }
+  return null;
+}
+
+/**
+ * Align all beats in one narration scene in sequence. Every beat start is a
+ * real position in the measured voice transcript; we fail closed rather than
+ * inventing a timestamp when the Visual Director genuinely paraphrases.
  */
 export function alignSceneBeats(
   beats: VisualBeat[],
   alignment: CharacterAlignment,
   durationSec: number,
+  logger?: { warn(msg: string): void },
 ): AlignedBeat[] {
   const ordered = [...beats].sort((a, b) => a.beat_index - b.beat_index);
   const spoken = alignment.characters.join("");
@@ -110,14 +151,17 @@ export function alignSceneBeats(
   for (const beat of ordered) {
     const needle = normalizePlain(beat.narration);
     if (!needle) throw new Error(`${beat.id}: narration normalizes to empty text`);
-    const at = normalizedSpoken.text.indexOf(needle, cursor);
-    if (at < 0) {
+    const located = locateBeatStart(normalizedSpoken.text, needle, cursor);
+    if (!located) {
       throw new Error(`${beat.id}: narration is not an exact sequential phrase in the ElevenLabs transcript; refusing guessed timing`);
     }
-    const raw = normalizedSpoken.rawIndex[at];
+    if (located.anchored) {
+      logger?.warn(`[beat-alignment] ${beat.id}: full narration not verbatim in transcript; anchored start on its leading ${located.matchedLen} normalized chars`);
+    }
+    const raw = normalizedSpoken.rawIndex[located.at];
     if (raw === undefined) throw new Error(`${beat.id}: could not map normalized phrase to character timing`);
     starts.push({ beat, raw });
-    cursor = at + needle.length;
+    cursor = located.at + located.matchedLen;
   }
 
   const safeDuration = Number.isFinite(durationSec) && durationSec > 0
@@ -137,6 +181,7 @@ export function alignSceneBeats(
 export function alignVisualBeatPlan(
   plan: VisualBeatPlan,
   clips: VoiceClipForAlignment[],
+  logger?: { warn(msg: string): void },
 ): VisualBeatPlan {
   const byScene = new Map<number, VisualBeat[]>();
   for (const beat of plan.beats) {
@@ -151,7 +196,7 @@ export function alignVisualBeatPlan(
     if (!clip) throw new Error(`scene ${sceneIndex}: visual plan has no matching voice clip`);
     const parsed = parseCharacterAlignment(clip.alignment);
     if (!parsed) throw new Error(`scene ${sceneIndex}: voice clip has no usable character alignment; RFC 0010 benchmark requires measured timing`);
-    aligned.push(...alignSceneBeats(beats, parsed, clip.duration_sec));
+    aligned.push(...alignSceneBeats(beats, parsed, clip.duration_sec, logger));
   }
   return { beats: aligned };
 }

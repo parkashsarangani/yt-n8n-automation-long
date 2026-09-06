@@ -11,7 +11,6 @@ import {
   unsafeDirectionTextPrompts,
 } from "../src/agent-validators.ts";
 import { SchemaRegistry } from "../src/registry.ts";
-import { buildTextSafeRecoveryPrompt } from "../src/workers/illustrated-scene-assets.ts";
 import { assessVisualAssetRelease } from "../src/workers/visual-asset-release.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,14 +94,6 @@ test("growth_package 1.2.0 requires an authoritative next_video_bridge", async (
   assert.doesNotThrow(() => registry.validate("growth_package", "1.2.0", PACKAGE));
   const { next_video_bridge: _bridge, ...withoutBridge } = PACKAGE;
   assert.throws(() => registry.validate("growth_package", "1.2.0", withoutBridge), /next_video_bridge|required/i);
-});
-
-test("text-safe recovery preserves the visual beat while forbidding readable surfaces", () => {
-  const original = "a substitute teacher holding a paper seating chart beside a row of empty desks";
-  const recovered = buildTextSafeRecoveryPrompt(original);
-  assert.match(recovered, /substitute teacher holding a paper seating chart/i);
-  assert.match(recovered, /blank|face-down|turned away|cropped|obscured/i);
-  assert.match(recovered, /no names, letters, numbers/i);
 });
 
 test("pre-render visual release blocks the exact observed 3-of-6 fallback plus continuity failure", () => {

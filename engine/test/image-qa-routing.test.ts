@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { checkGeneratedImageForText, type FetchLike } from "../src/image-qa.ts";
+import { checkGeneratedImageMatchesNarration, type FetchLike } from "../src/image-qa.ts";
 
 const IMAGE = { bytes: new Uint8Array([1, 2, 3, 4]), media_type: "image/png" };
+const LINE = "a spoken narration line";
 const ENV_KEYS = [
   "LLM_ROUTER_MODE",
   "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
@@ -50,12 +51,12 @@ test("vision QA uses the shared FreeLLMAPI vision route first", async () => {
     const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
     const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url, headers: init.headers, body: JSON.parse(init.body) as Record<string, unknown> });
-      return okVision({ has_visible_text: false, reason: "clean" });
+      return okVision({ contradicts_narration: false, reason: "clean" });
     };
 
-    const result = await checkGeneratedImageForText(IMAGE, fetchImpl);
+    const result = await checkGeneratedImageMatchesNarration(IMAGE, LINE, fetchImpl);
 
-    assert.equal(result?.hasVisibleText, false);
+    assert.equal(result?.contradictsNarration, false);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.url, "http://freellmapi:3001/v1/chat/completions");
     assert.equal(calls[0]!.headers.Authorization, "Bearer free-key");
@@ -78,12 +79,12 @@ test("vision QA fails open from FreeLLMAPI to direct OpenAI", async () => {
       if (calls.length === 1) {
         return { ok: false, status: 429, json: async () => ({}), text: async () => "quota" };
       }
-      return okVision({ has_visible_text: false, reason: "clean" });
+      return okVision({ contradicts_narration: false, reason: "clean" });
     };
 
-    const result = await checkGeneratedImageForText(IMAGE, fetchImpl);
+    const result = await checkGeneratedImageMatchesNarration(IMAGE, LINE, fetchImpl);
 
-    assert.equal(result?.hasVisibleText, false);
+    assert.equal(result?.contradictsNarration, false);
     assert.equal(calls.length, 2);
     assert.equal(calls[0]!.url, "http://freellmapi:3001/v1/chat/completions");
     assert.equal(calls[0]!.body["model"], "auto:smart");
@@ -101,10 +102,10 @@ test("direct mode bypasses FreeLLMAPI for vision QA", async () => {
     const urls: string[] = [];
     const fetchImpl: FetchLike = async (url) => {
       urls.push(url);
-      return okVision({ has_visible_text: false, reason: "clean" });
+      return okVision({ contradicts_narration: false, reason: "clean" });
     };
 
-    await checkGeneratedImageForText(IMAGE, fetchImpl);
+    await checkGeneratedImageMatchesNarration(IMAGE, LINE, fetchImpl);
     assert.deepEqual(urls, ["https://api.openai.com/v1/chat/completions"]);
   });
 });
@@ -121,7 +122,7 @@ test("strict free mode keeps vision QA non-blocking without invoking paid fallba
       return { ok: false, status: 503, json: async () => ({}), text: async () => "down" };
     };
 
-    const result = await checkGeneratedImageForText(IMAGE, fetchImpl);
+    const result = await checkGeneratedImageMatchesNarration(IMAGE, LINE, fetchImpl);
     assert.equal(result, null);
     assert.deepEqual(urls, ["http://freellmapi:3001/v1/chat/completions"]);
   });
