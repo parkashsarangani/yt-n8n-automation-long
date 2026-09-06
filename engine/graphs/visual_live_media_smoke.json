@@ -1,0 +1,29 @@
+{
+  "graph_id": "visual_live_media_smoke",
+  "version": "1.0.0",
+  "description": "Short RFC 0010 development smoke path. Reuses a fixed script and cached voice artifact while keeping Visual Director, live Pexels/Fal sourcing, motion graphics, timeline construction, and candidate rendering live. No control render or publication side effects.",
+  "nodes": [
+    { "id": "script", "type": "input", "schema_id": "script" },
+    { "id": "voice", "type": "input", "schema_id": "voice" },
+    {
+      "id": "visual_direction",
+      "transformation": "visual_director",
+      "in": ["script", "voice"]
+    },
+    {
+      "id": "visual_assets",
+      "transformation": "visual_beat_assets",
+      "in": ["visual_direction", "voice"]
+    },
+    {
+      "id": "visual_timeline",
+      "transformation": "visual_timeline",
+      "in": ["visual_direction", "visual_assets", "voice"]
+    },
+    {
+      "id": "candidate_render",
+      "transformation": "visual_benchmark_render",
+      "in": ["visual_timeline"]
+    }
+  ]
+}
