@@ -7,6 +7,7 @@
 
 import { resolveTextModels } from "./llm-routing.ts";
 import { freeImageChainReady, resolveFreeImageModels } from "./freellm-media-models.ts";
+import { policyFlag } from "./fallback-policy.ts";
 import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 
 export interface StageSpec {
@@ -150,12 +151,25 @@ function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
     : isSet(env, "FREELLMAPI_API_KEY");
 }
 
+/**
+ * Generated images are available when EITHER a real free FreeLLMAPI image chain
+ * exists (unified key + at least one concrete model id — same rule as the
+ * resolver's `freeImageChainReady`) OR a fal credential exists AND
+ * `PAID_IMAGE_FALLBACK` permits paid generation. A configured `FAL_KEY` with
+ * `PAID_IMAGE_FALLBACK=false` and no free chain is NOT a usable image path.
+ */
+export function imagesStageSatisfied(env: NodeJS.ProcessEnv = process.env): boolean {
+  return freeImageChainReady(env)
+    || (isSet(env, "FAL_KEY") && policyFlag(env["PAID_IMAGE_FALLBACK"], true));
+}
+
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
   if (spec.id === "speech") return speechSatisfied(env);
   if (spec.id === "visual_qa") {
     return realVisionQaEnabled(env) ? isSet(env, "OPENAI_API_KEY") : isSet(env, "FREELLMAPI_API_KEY");
   }
+  if (spec.id === "images") return imagesStageSatisfied(env);
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -171,6 +185,13 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
   if (spec.id === "visual_qa") {
     const key = realVisionQaEnabled(env) ? "OPENAI_API_KEY" : "FREELLMAPI_API_KEY";
     return isSet(env, key) ? [] : [key];
+  }
+  if (spec.id === "images") {
+    if (imagesStageSatisfied(env)) return [];
+    // Prefer whichever path is closer to ready.
+    if (isSet(env, "FREELLMAPI_API_KEY")) return ["FREELLMAPI_IMAGE_MODELS"];
+    if (isSet(env, "FAL_KEY")) return policyFlag(env["PAID_IMAGE_FALLBACK"], true) ? ["FAL_KEY"] : ["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"];
+    return ["FAL_KEY"];
   }
   return spec.requires
     .map((group) => group.filter((k) => !isSet(env, k)))
@@ -209,7 +230,7 @@ function imageProvider(env: NodeJS.ProcessEnv): string {
   const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
   const editModel = env["FAL_EDIT_MODEL"]?.trim() || `${model}/edit`;
   const hasFal = isSet(env, "FAL_KEY");
-  const paidImage = /^(1|true|yes|on)$/i.test((env["PAID_IMAGE_FALLBACK"] ?? "true").trim());
+  const paidImage = policyFlag(env["PAID_IMAGE_FALLBACK"], true);
   // Free chain counts only when the unified key is also present (same rule as
   // the images capability stage and the resolver).
   if (freeImageChainReady(env)) {
@@ -219,9 +240,10 @@ function imageProvider(env: NodeJS.ProcessEnv): string {
       ? `freellmapi media [${head}] (free-first) -> fal/${model} + ${editModel} (paid last resort)`
       : `freellmapi media [${head}] (free only, no paid fallback)`;
   }
-  return hasFal
+  // No free chain: fal is the provider only when PAID_IMAGE_FALLBACK permits it.
+  return hasFal && paidImage
     ? `fal/${model} + ${editModel}`
-    : "unavailable (no free FreeLLMAPI image chain, no fal credential)";
+    : "unavailable (no free FreeLLMAPI image chain; paid fal generation is off or unconfigured)";
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {

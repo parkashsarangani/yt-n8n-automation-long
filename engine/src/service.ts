@@ -31,6 +31,7 @@ import { OpenAIProvider } from "./providers/openai.ts";
 import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
 import { StockImageProvider } from "./providers/stock.ts";
 import { FreeMediaImageProvider } from "./providers/free-media-image.ts";
+import { policyFlag } from "./fallback-policy.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
@@ -253,12 +254,16 @@ export class VidGenService {
     const speech: SpeechProvider = can("speech")
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
-    // fal credential -> fal-backed provider (free-first still runs inside the
-    // resolver before any fal spend). No fal but a configured free FreeLLMAPI
-    // image chain -> free-only provider. Neither -> fake.
+    // Defense in depth (mirrors capabilities.imagesStageSatisfied):
+    //   fal key + PAID_IMAGE_FALLBACK on  -> fal-backed provider; the resolver
+    //                                        still tries the free chain first.
+    //   otherwise (incl. fal key present but paid OFF) -> free-only provider,
+    //                                        so fal is never even constructed.
+    //   stage not satisfied at all -> fake.
+    const paidImageOn = policyFlag(process.env["PAID_IMAGE_FALLBACK"], true);
     const images: ImageProvider = !can("images")
       ? new FakeImageProvider()
-      : env("FAL_KEY")
+      : env("FAL_KEY") && paidImageOn
         ? new StockImageProvider({
           ...(env("FAL_MODEL") ? { model: env("FAL_MODEL") } : {}),
           ...(env("FAL_EDIT_MODEL") ? { editModel: env("FAL_EDIT_MODEL") } : {}),

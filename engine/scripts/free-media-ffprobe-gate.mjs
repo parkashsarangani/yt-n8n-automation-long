@@ -49,11 +49,15 @@ function probe(file) {
     const width = Number(v.width ?? 0);
     const height = Number(v.height ?? 0);
     const codec = String(v.codec_name ?? "");
+    const container = String(j.format?.format_name ?? "");
     const problems = [];
+    // The gateway video contract is MP4 — a WebM/other container must not be
+    // promoted even if its stream is otherwise fine.
+    if (!/(^|,)(mov|mp4|m4a|3gp|3g2|mj2)($|,)/.test(container)) problems.push(`non-MP4 container "${container || "?"}"`);
     if (!SUPPORTED_CODECS.has(codec)) problems.push(`unsupported codec ${codec || "?"}`);
     if (!(duration >= MIN_DURATION_SEC && duration <= MAX_DURATION_SEC)) problems.push(`duration ${duration}s out of [${MIN_DURATION_SEC}, ${MAX_DURATION_SEC}]`);
     if (!(width >= MIN_DIMENSION && height >= MIN_DIMENSION)) problems.push(`dimensions ${width}x${height} too small`);
-    return { ok: problems.length === 0, reason: problems.join("; "), codec, duration, width, height };
+    return { ok: problems.length === 0, reason: problems.join("; "), codec, container, duration, width, height };
   } catch (err) {
     return { ok: false, reason: `ffprobe failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}` };
   }

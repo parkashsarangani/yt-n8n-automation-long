@@ -60,16 +60,30 @@ export interface FreeLlmVideoOptions {
   fetchImpl?: typeof fetch;
 }
 
-function sniffVideoMediaType(contentType: string | null, bytes: Uint8Array): string | null {
+/**
+ * The gateway's `/v1/videos/generations` contract is MP4. Enforce it fail-closed
+ * so a WebM/other container can never be written as `video/mp4` downstream and
+ * can never be promoted by the bake-off. Returns "video/mp4" only for a real
+ * MP4/QuickTime `ftyp` box (with an MP4-compatible content-type or none);
+ * anything else — including `video/webm` — returns null and the model is
+ * treated as unavailable.
+ */
+function mp4MediaTypeOrNull(contentType: string | null, bytes: Uint8Array): string | null {
   const ct = (contentType ?? "").split(";", 1)[0]!.trim().toLowerCase();
-  if (ct.startsWith("video/")) return ct;
-  // MP4 / QuickTime: an 'ftyp' box near the start.
+  if (ct && !["video/mp4", "video/quicktime", "application/mp4", "application/octet-stream", "binary/octet-stream"].includes(ct)) {
+    return null;
+  }
   if (bytes.length > 12) {
     const tag = String.fromCharCode(bytes[4]!, bytes[5]!, bytes[6]!, bytes[7]!);
-    if (tag === "ftyp") return "video/mp4";
+    if (tag === "ftyp") {
+      const brand = String.fromCharCode(bytes[8]!, bytes[9]!, bytes[10]!, bytes[11]!).toLowerCase();
+      // Reject an ftyp whose major brand is a non-MP4 family (e.g. "webm").
+      if (/^(isom|iso2|iso5|iso6|mp4[12]|avc1|dash|m4v |mmp4|qt {2}|f4v )$/.test(brand) || brand.startsWith("iso") || brand.startsWith("mp4")) {
+        return "video/mp4";
+      }
+      return null;
+    }
   }
-  // WebM / Matroska EBML header.
-  if (bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "video/webm";
   return null;
 }
 
@@ -141,8 +155,12 @@ export class FreeLlmVideoProvider {
     if (bytes.length < MIN_VIDEO_BYTES || bytes.length > MAX_VIDEO_BYTES) {
       throw new ProviderError(`freellmapi-video/${model} returned an empty or implausible video body (${bytes.length} bytes)`);
     }
-    const media = sniffVideoMediaType(res.headers.get("content-type"), bytes);
-    if (!media) throw new ProviderError(`freellmapi-video/${model} response is not recognizable video`);
+    const media = mp4MediaTypeOrNull(res.headers.get("content-type"), bytes);
+    if (!media) {
+      throw new ProviderError(
+        `freellmapi-video/${model} did not return an MP4 (content-type ${res.headers.get("content-type") ?? "none"}); the gateway video contract is MP4-only`,
+      );
+    }
     const durationHeader = Number(res.headers.get("x-duration") ?? res.headers.get("x-video-duration") ?? "");
     return {
       bytes,

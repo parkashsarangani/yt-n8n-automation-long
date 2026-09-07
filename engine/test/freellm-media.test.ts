@@ -27,8 +27,14 @@ const PNG_BYTES = Buffer.from(PNG_B64, "base64");
 
 function mp4Bytes(): Uint8Array {
   const b = new Uint8Array(2048);
-  // 'ftyp' box tag at offset 4 for the sniffer's secondary path.
-  b.set([0x66, 0x74, 0x79, 0x70], 4);
+  // A minimal real MP4 ftyp box: size, 'ftyp', major brand 'isom'.
+  b.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d], 0);
+  return b;
+}
+
+function webmBytes(): Uint8Array {
+  const b = new Uint8Array(2048);
+  b.set([0x1a, 0x45, 0xdf, 0xa3], 0); // EBML header
   return b;
 }
 
@@ -151,15 +157,47 @@ test("image 12: a malformed / empty image response advances the chain, then fail
   });
 });
 
-test("image 13: generated-image capability exists with free image models even without FAL_KEY", async () => {
-  const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
-  assert.match(src, /generated_image: freeImage \|\| \(policy\.paidImageFallback && Boolean\(process\.env\["FAL_KEY"\]/);
-  // The images STAGE is satisfied by the free chain alone; service.ts wires a
-  // free-only provider when FAL_KEY is absent.
-  const caps = await readFile(path.join(ROOT, "src/capabilities.ts"), "utf8");
-  assert.match(caps, /requires: \[\["FAL_KEY"\], \["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"\]\]/);
+test("image 13 (env matrix): the images stage / capability report agree with the resolver on every combination", async () => {
+  const { STAGES, credentialsSatisfied, capabilityReport } = await import("../src/capabilities.ts");
+  const spec = STAGES.find((s) => s.id === "images")!;
+  const provider = (env: NodeJS.ProcessEnv) =>
+    capabilityReport({ allowPublish: false, env }).find((s) => s.id === "images")!.provider;
+
+  // free chain (key + list), no fal -> satisfied, free-only.
+  let env = { FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: "flux" } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), true);
+  assert.match(provider(env), /free only, no paid fallback/);
+
+  // list set but NO key -> not satisfied anywhere.
+  env = { FREELLMAPI_IMAGE_MODELS: "flux" } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), false);
+  assert.match(provider(env), /unavailable/);
+
+  // whitespace-only list -> parses to [], not satisfied.
+  env = { FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: " , " } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), false);
+
+  // fal key + PAID_IMAGE_FALLBACK off + no free chain -> NOT a usable image path.
+  env = { FAL_KEY: "fk", PAID_IMAGE_FALLBACK: "false" } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), false);
+  assert.match(provider(env), /unavailable/);
+
+  // fal key + paid on -> satisfied, fal is the provider.
+  env = { FAL_KEY: "fk" } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), true);
+  assert.match(provider(env), /^fal\//);
+
+  // free chain + fal + paid on -> satisfied, free-first then fal.
+  env = { FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: "flux", FAL_KEY: "fk" } as NodeJS.ProcessEnv;
+  assert.equal(credentialsSatisfied(spec, env), true);
+  assert.match(provider(env), /free-first.*fal/);
+
+  // resolver capability uses the same helper name.
+  const resolver = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
+  assert.match(resolver, /const freeImage = freeImageChainReady\(\);/);
+  // service wires the free-only provider unless fal is usable as a paid route.
   const svc = await readFile(path.join(ROOT, "src/service.ts"), "utf8");
-  assert.match(svc, /env\("FAL_KEY"\)\s*\?\s*new StockImageProvider/);
+  assert.match(svc, /env\("FAL_KEY"\) && paidImageOn/);
   assert.match(svc, /:\s*new FreeMediaImageProvider\(\)/);
 });
 
@@ -296,6 +334,39 @@ test("video 23: a gateway auth failure is terminal, not retried across models", 
     await assert.rejects(() => p.generate("x"), (e: unknown) => e instanceof FreeMediaAuthError);
     assert.equal(calls, 1);
   });
+});
+
+test("video: the gateway contract is MP4-only — a WebM body is rejected, not stored as mp4 (§ review 2)", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_VIDEO_MODELS: "vid-a,vid-b" }, async () => {
+    // vid-a: valid-looking WebM (video/webm + EBML header). vid-b: real MP4.
+    const p = new FreeLlmVideoProvider({ fetchImpl: async (_u, init) => {
+      const m = (JSON.parse(String(init?.body)) as { model: string }).model;
+      return m === "vid-a"
+        ? new Response(webmBytes(), { status: 200, headers: { "content-type": "video/webm" } })
+        : new Response(mp4Bytes(), { status: 200, headers: { "content-type": "video/mp4", "x-provider": "pollinations", "x-model": "veo" } });
+    } });
+    const out = await p.generate("x");
+    assert.ok(out);
+    assert.equal(out!.requested_model, "vid-b", "WebM was rejected; the MP4 model was used");
+    assert.equal(out!.media_type, "video/mp4");
+    assert.equal(p.lastAttempts[0]!.status, "failed");
+    assert.match(p.lastAttempts[0]!.failure_reason ?? "", /MP4-only/);
+  });
+});
+
+test("video: a byte-valid MP4 with a non-MP4 content-type is still accepted (octet-stream)", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_VIDEO_MODELS: "vid-a" }, async () => {
+    const p = new FreeLlmVideoProvider({ fetchImpl: async () => new Response(mp4Bytes(), { status: 200, headers: { "content-type": "application/octet-stream" } }) });
+    const out = await p.generate("x");
+    assert.ok(out);
+    assert.equal(out!.media_type, "video/mp4");
+  });
+});
+
+test("bake-off: the ffprobe gate also requires an MP4-family container", async () => {
+  const gate = await readFile(path.join(ROOT, "scripts/free-media-ffprobe-gate.mjs"), "utf8");
+  assert.match(gate, /non-MP4 container/);
+  assert.match(gate, /mov\|mp4\|m4a\|3gp\|3g2\|mj2/);
 });
 
 // --- resolver wiring (§10, §27) --------------------------------------
