@@ -1,6 +1,5 @@
 import type { BlobRef } from "../artifact.ts";
 import { alignVisualBeatPlan, type VoiceClipForAlignment } from "../audio/beat-alignment.ts";
-import { checkGeneratedImageMatchesNarration } from "../image-qa.ts";
 import { candidateWindows, extractVideoSegment, sampleVideoFrames } from "../media/video-analysis.ts";
 import { FalVideoProvider } from "../providers/fal-video.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
@@ -343,22 +342,18 @@ async function generateImage(
         failures.push("provider returned no image");
         continue;
       }
-      const [contradictionQa, beatQa] = await Promise.all([
-        checkGeneratedImageMatchesNarration(image, beat.narration),
-        scoreVisualBeatImage(image, beat, undefined, previous ? { previous } : {}),
-      ]);
-      // beatQa is the primary gate: without it we cannot rank the candidate.
-      // A missing contradiction check (VLM outage) is not by itself a reason to
-      // discard an image the scorer accepted -- infra failures fail open.
+
+      // One authoritative multimodal request per generated image. The RFC 0010
+      // scorer already evaluates visible requirements, forbidden/misleading
+      // content, required action, filler, continuity and why-failure evidence;
+      // the older RFC 0009 contradiction-only call added cost without adding an
+      // independent admission signal here.
+      const beatQa = await scoreVisualBeatImage(image, beat, undefined, previous ? { previous } : {});
       if (!beatQa) {
         failures.push("visual QA unavailable");
         unverified.push(image);
         markVisionQaUnavailable(health, `${beat.id}: generated-image candidate could not be scored`);
         break;
-      }
-      if (contradictionQa?.contradictsNarration) {
-        failures.push(`narration contradiction: ${contradictionQa.reason}`);
-        continue;
       }
       if (beatQa.generic_filler || beatQa.why_failure) {
         failures.push(`generic/irrelevant: ${beatQa.reason}`);
