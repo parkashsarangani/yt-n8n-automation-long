@@ -1,6 +1,5 @@
-import { llmRoutingConfig } from "./llm-routing.ts";
 import { prepareVisionImage } from "./media/vision-image.ts";
-import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
+import { ensureVisionCapability } from "./vision-capability.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -110,8 +109,27 @@ function evidenceAdjustedResult(parsed: Record<string, unknown>, beat: VisualBea
   };
 }
 
+interface DirectEndpoint {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  label: string;
+  timeoutMs?: number;
+}
+
+function directEndpoint(): DirectEndpoint | null {
+  const apiKey = process.env["OPENAI_API_KEY"]?.trim();
+  if (!apiKey) return null;
+  return {
+    baseUrl: (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, ""),
+    apiKey,
+    model: process.env["OPENAI_IMAGE_QA_MODEL"] ?? process.env["OPENAI_MODEL"] ?? "gpt-5.6-luna",
+    label: "direct-openai",
+  };
+}
+
 async function request(
-  endpoint: { baseUrl: string; apiKey: string; model: string; label: string; timeoutMs?: number },
+  endpoint: DirectEndpoint,
   frames: RequestFrames,
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch,
@@ -132,16 +150,17 @@ async function request(
     `EMOTIONAL INTENT: ${beat.intent.emotion}`,
     `COMPOSITION INTENT: ${beat.retention.composition}`,
     `CONTINUITY GROUP: ${beat.continuity.group || "none"}; recurring entities: ${beat.continuity.entities.join(", ") || "none"}`,
+    beat.continuity.identity ? `PINNED VISUAL IDENTITY: ${beat.continuity.identity.slice(0,500)}` : "",
     "Evidence rules are strict. requirements_visible=true ONLY when every important MUST VISIBLY INCLUDE requirement is actually present in the CURRENT pixels; topical association is not evidence.",
     "If REQUIRED ACTION/STATE is non-empty, action_evidence=true ONLY when the sampled CURRENT frames visibly show that subject performing/entering/completing the action or state. Never infer an action because the location, clothing, or object makes it plausible. For video, use visible chronological progression across the CURRENT samples.",
-    "If recurring entity IDs are present, identity_continuity_evidence=true ONLY when the same recurring person/object is visually consistent with adjacent context: face/body silhouette, age, hair, clothing, distinguishing attributes and environment when visible. A different actor/wardrobe is a failure, even if the narration topic matches.",
+    "If recurring entity IDs are present, identity_continuity_evidence=true ONLY when the same recurring person/object is visually consistent with adjacent context and the PINNED VISUAL IDENTITY when supplied: face/body silhouette, age, hair, clothing, distinguishing attributes and environment when visible. A different actor/wardrobe is a failure, even if the narration topic matches.",
     "composition_failure=true for unusable framing such as headless/accidental crop, split/composite imbalance, key subject obscured, or a prop dominating the frame without explanatory need. implausible_object_scale=true when a phone/prop/object is visibly oversized or physically implausible. environment_mismatch=true when a recurring location changes materially without narrative reason.",
     "garbled_text=true ONLY for obvious pseudo-writing, malformed letters, unreadable AI UI/signage/handwriting, or corrupted typography that materially harms the frame. Legitimate readable text, numbers, clock faces, dates, map labels, equations and required numeric labels are allowed and MUST NOT be flagged merely because text is visible.",
     "semantic_match=immediate specific communication of required concepts, not topical association. action_match=required physical action/state; 1.0 if none. visual_interest=specificity, composition, legibility, useful motion/information and attention value. continuity=recurring identity/location/object preservation against adjacent visuals; 1.0 if none required.",
     "generic_filler=true if the current visual could accompany many unrelated sentences OR if a required real-world action is replaced by generic location/crowd footage. why_failure=true if a normal viewer would reasonably ask 'why am I seeing this?' or if the concept is technically present but framing/identity/text artifacts make the shot unusable.",
     "repetitive_with_context=true only when the current visual repeats the recent visual grammar/shot/composition so strongly that it feels monotonous rather than purposeful continuity.",
     "Respond ONLY JSON: {\"semantic_match\":0.0,\"action_match\":0.0,\"visual_interest\":0.0,\"continuity\":0.0,\"generic_filler\":false,\"why_failure\":false,\"repetitive_with_context\":false,\"requirements_visible\":true,\"action_evidence\":true,\"identity_continuity_evidence\":true,\"composition_failure\":false,\"garbled_text\":false,\"implausible_object_scale\":false,\"environment_mismatch\":false,\"reason\":\"one concrete sentence\"}",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   try {
     const res = await fetchImpl(`${endpoint.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -163,10 +182,19 @@ async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualB
     ...(raw.previous?{previous:await prepareVisionImage(raw.previous)}:{}),
     ...(raw.next?{next:await prepareVisionImage(raw.next)}:{}),
   };
-  const routing=llmRoutingConfig();
-  if(routing.mode==="freellmapi"&&routing.apiKey&&!freeVisionTripped()){ const free=await request({baseUrl:routing.baseUrl,apiKey:routing.apiKey,model:routing.visionModel,label:"freellmapi",timeoutMs:FREE_VISION_ATTEMPT_TIMEOUT_MS},frames,beat,fetchImpl); recordFreeVisionResult(free!==null); if(free)return free; if(!routing.failOpenToDirect)return null; }
-  const apiKey=process.env["OPENAI_API_KEY"]?.trim(); if(!apiKey)return null;
-  return request({baseUrl:(process.env["OPENAI_BASE_URL"]??DEFAULT_BASE_URL).replace(/\/$/,""),apiKey,model:process.env["OPENAI_IMAGE_QA_MODEL"]??process.env["OPENAI_MODEL"]??"gpt-5.6-luna",label:"direct-openai"},frames,beat,fetchImpl);
+  const endpoint=directEndpoint();
+  if(!endpoint)return null;
+
+  // Production uses the native fetch and therefore proves once per run that
+  // the endpoint actually sees image pixels. Injected fetches are test doubles;
+  // their own unit tests directly verify request shape and scoring behavior.
+  if(fetchImpl === (fetch as unknown as VisualBeatFetch)){
+    const capable=await ensureVisionCapability({
+      baseUrl:endpoint.baseUrl,apiKey:endpoint.apiKey,model:endpoint.model,label:endpoint.label,timeoutMs:15_000,
+    });
+    if(!capable)return null;
+  }
+  return request(endpoint,frames,beat,fetchImpl);
 }
 
 export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:{previous?:QaImage;next?:QaImage}={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl); }
