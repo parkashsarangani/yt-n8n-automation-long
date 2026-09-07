@@ -103,8 +103,8 @@ jobs:
               "FAL_MODEL:",
               # Free-first media chain must be wired into the deploy env, and the
               # image-stage guard must accept the free-first provider string.
-              # (Assertions use non-${{ substrings: Actions pre-evaluates ${{ }}
-              # inside run: blocks.)
+              # Assertion strings avoid the GitHub expression delimiter, which
+              # Actions pre-evaluates anywhere in a run block.
               "FREELLMAPI_IMAGE_MODELS:",
               "vars.FREELLMAPI_IMAGE_MODELS",
               "FREELLMAPI_VIDEO_MODELS:",
