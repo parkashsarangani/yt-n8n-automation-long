@@ -53,14 +53,27 @@ function progress(): number {
  * drawn already-complete: re-animating the walking result from zero on the
  * beat that talks about the message is exactly the "three independent resets"
  * problem, and it also makes consecutive beats look identical.
+ *
+ * Every element must REACH its value well before the beat ends and then hold.
+ * A marker still travelling when the narration moves on has not made its
+ * point, and a beat whose visual is still arriving during a narration pause is
+ * what makes an inter-beat gap read as a stall. Structure (axis, tracks,
+ * caption) is drawn statically elsewhere, so the frame is never empty while
+ * this runs.
  */
-function entrance(r: number, retained: boolean | undefined, index: number, count: number): number {
+const ENTRANCE_START = 0.1;
+const ENTRANCE_DURATION = 0.3;
+/** Everything has arrived and is holding by here, whatever the element count. */
+const ENTRANCE_SETTLED = 0.9;
+
+export function entrance(r: number, retained: boolean | undefined, index: number, count: number): number {
   if (retained) return 1;
-  // Stagger multiple new elements so a viewer can follow them one at a time
-  // rather than watching everything arrive at once.
-  const span = 0.7 / Math.max(1, count);
-  const start = 0.15 + index * span;
-  return Math.max(0, Math.min(1, (r - start) / Math.max(0.001, span * 1.6)));
+  // Stagger multiple new elements so a viewer can follow them one at a time,
+  // compressing the stagger rather than the individual ramp as count grows.
+  const last = ENTRANCE_SETTLED - ENTRANCE_DURATION;
+  const stagger = count > 1 ? Math.min(0.18, (last - ENTRANCE_START) / (count - 1)) : 0;
+  const start = ENTRANCE_START + index * stagger;
+  return Math.max(0, Math.min(1, (r - start) / ENTRANCE_DURATION));
 }
 
 function ease(t: number): number {

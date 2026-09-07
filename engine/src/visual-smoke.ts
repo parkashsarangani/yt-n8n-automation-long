@@ -1,4 +1,4 @@
-import type { VisualMode } from "./visual-routing.ts";
+import type { VisualMode, VisualRepresentation } from "./visual-routing.ts";
 
 export interface VisualSmokeRenderedBeat {
   id: string;
@@ -18,6 +18,7 @@ export interface VisualSmokeResolvedBeat {
   id: string;
   requested_mode?: VisualMode;
   resolved_mode: VisualMode | null;
+  representation?: VisualRepresentation;
   status: "resolved" | "fallback" | "unavailable";
   semantic_verified: boolean;
   candidate_count?: number;
@@ -68,6 +69,15 @@ export interface VisualSmokeReport {
     generic_filler_count: number;
     generic_filler_ratio: number;
     resolved_modes: Record<VisualMode, number>;
+    /**
+     * What the pixels actually were. `resolved_modes` alone cannot tell a run
+     * where every explanatory graphic rendered a real diagram from one where
+     * every one of them degraded to text -- both report the same
+     * motion_graphic count.
+     */
+    semantic_graphic_count: number;
+    kinetic_text_count: number;
+    semantic_fallback_count: number;
   };
   beats: VisualSmokeRenderedBeat[];
   resolved_beats: VisualSmokeResolvedBeat[];
@@ -133,6 +143,19 @@ export function evaluateVisualSmoke(
   if (qaUnavailableResolved.length > 0) {
     technicalFailures.push(`${qaUnavailableResolved.length} beat(s) shipped unverified because the vision QA route was unreachable`);
   }
+  // A motion graphic is still verified after rendering rather than before, so
+  // semantic_verified=false at the asset stage is expected for that mode. What
+  // is NOT expected is the Visual Director failing to author a drawable scene
+  // at all: those beats degrade to kinetic text, which is honest but is not an
+  // explanatory graphic. Surface it, because the mode counters cannot.
+  const semanticFallbacks = resolved.filter((beat) => (beat.note ?? "").includes("SEMANTIC_FALLBACK"));
+  const motionGraphicBeats = resolved.filter((beat) => beat.resolved_mode === "motion_graphic");
+  if (motionGraphicBeats.length > 0 && semanticFallbacks.length > motionGraphicBeats.length / 2) {
+    sourcingFailures.push(
+      `${semanticFallbacks.length}/${motionGraphicBeats.length} motion-graphic beat(s) had no drawable semantic scene and degraded to kinetic text`,
+    );
+  }
+
   const unverifiedMedia = resolved.filter((beat) =>
     beat.status !== "unavailable" &&
     beat.resolved_mode !== null &&
@@ -281,6 +304,9 @@ export function evaluateVisualSmoke(
       generic_filler_count: fillerCount,
       generic_filler_ratio: fillerRatio,
       resolved_modes: modeCounts,
+      semantic_graphic_count: resolved.filter((beat) => beat.representation === "semantic_graphic").length,
+      kinetic_text_count: resolved.filter((beat) => beat.representation === "kinetic_text").length,
+      semantic_fallback_count: semanticFallbacks.length,
     },
     beats: rendered,
     resolved_beats: resolved,
