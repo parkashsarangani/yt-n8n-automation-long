@@ -46,7 +46,8 @@ jobs:
           for required in (
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
               "FREELLMAPI_API_KEY:",
-              "FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
+              "FREELLMAPI_TEXT_MODELS: ${FREELLMAPI_TEXT_MODELS:-}",
+              "VISUAL_QA_MODE: ${VISUAL_QA_MODE:-proxy}",
               "FAL_KEY:",
               "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
               "FAL_EDIT_MODEL:",
@@ -75,21 +76,32 @@ jobs:
               "http://freellmapi:3001/api/ping",
               "FREELLMAPI_API_KEY:",
               "LLM_ROUTER_MODE:",
-              "FREELLMAPI_TEXT_MODEL: gemini-3.5-flash",
+              "FREELLMAPI_TEXT_MODELS: ${{ vars.FREELLMAPI_TEXT_MODELS || '' }}",
+              "VISUAL_QA_MODE: ${{ vars.VISUAL_QA_MODE || 'proxy' }}",
               "/v1/chat/completions",
+              "every configured free text model is unavailable",
               "SPEECH_PROVIDER_MODE: elevenlabs",
               "OPENAI_API_KEY:",
-              "OPENAI_IMAGE_QA_MODEL:",
               "OPENAI_MODERATION_MODEL:",
               "TTS_MODERATION_TIMEOUT_MS:",
               "/v1/moderations",
-              "authoritative visual QA and pre-TTS moderation",
               "FAL_KEY:",
               "FAL_MODEL:",
               "sole image-generation provider",
-              "direct OpenAI fail-open",
           ):
               assert required in deploy, f"missing production RFC 0010 contract: {required}"
+
+          for forbidden in (
+              "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
+              "direct OpenAI fail-open",
+              "gemini-3.5-flash",
+              "process.exit(3)",
+              "VISUAL_QA_MODE: real",
+          ):
+              assert forbidden not in deploy, f"obsolete paid-fallback contract remains in deploy: {forbidden}"
+
+          assert "grep -qiE '(^|,)[[:space:]]*auto" in deploy, "deploy must reject an auto model id"
+          assert 'if [ "${VISUAL_QA_MODE}" = "real" ]' in deploy, "deploy must refuse real vision on production"
 
           for graph_name, graph in (
               ("illustrated_story", story_graph),
