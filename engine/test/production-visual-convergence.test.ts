@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { visualDirectorCoverageErrors } from "../src/agent-validators.ts";
 import { sliceCharacterAlignment } from "../src/workers/visual-timeline-render.ts";
 import { buildVisualTimelineManifest } from "../src/workers/visual-timeline-manifest.ts";
 import { assessVisualBeatRelease } from "../src/workers/visual-beat-release.ts";
@@ -38,6 +39,28 @@ test("production visual director is full-episode and illustration-first", async 
   assert.match(prompt, /Never stop at 90–120 seconds/i);
   assert.match(prompt, /ILLUSTRATION FIRST/i);
   assert.match(prompt, /final takeaway.*visible payoff\/transformation/is);
+});
+
+test("visual director hard coverage validator rejects truncated or paraphrased production plans", () => {
+  const script = { scenes: [
+    { scene_index: 0, narration: "Exact opening." },
+    { scene_index: 1, narration: "Exact closing." },
+  ] };
+  assert.deepEqual(visualDirectorCoverageErrors({ beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Exact opening." },
+    { id: "beat_002", scene_index: 1, beat_index: 0, narration: "Exact closing." },
+  ] }, script), []);
+
+  const truncated = visualDirectorCoverageErrors({ beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Exact opening." },
+  ] }, script);
+  assert.ok(truncated.some((error) => /scene 1: visual plan has no beats/.test(error)));
+
+  const paraphrased = visualDirectorCoverageErrors({ beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Opening paraphrase." },
+    { id: "beat_002", scene_index: 1, beat_index: 0, narration: "Exact closing." },
+  ] }, script);
+  assert.ok(paraphrased.some((error) => /does not exactly reproduce/.test(error)));
 });
 
 test("beat audio alignment is sliced and rebased for phrase-aware production captions", () => {
