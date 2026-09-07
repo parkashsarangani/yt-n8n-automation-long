@@ -28,7 +28,7 @@ export interface VisualBeat {
   intent: { purpose: string; information: string; emotion: string; importance: number };
   visual_contract: { required: string[]; forbidden: string[]; required_action: string; viewer_takeaway: string };
   routing: { preferred: VisualMode; fallback: VisualMode; image_style?: "realistic" | "illustration" | "not_applicable" };
-  continuity: { group: string; entities: string[] };
+  continuity: { group: string; entities: string[]; identity?: string };
   retention: {
     novelty_required: boolean;
     visual_change_strength: number;
@@ -158,7 +158,7 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
     const scene = byScene.get(beat.scene_index) ?? []; scene.push(beat); byScene.set(beat.scene_index, scene);
   }
   for (const [sceneIndex, sceneBeats] of byScene) {
-    const ordered = [...sceneBeats].sort((a,b) => a.beat_index - b.beat_index);
+    const ordered = [...sceneBeats].sort((a, b) => a.beat_index - b.beat_index);
     for (let i=0;i<ordered.length;i++) {
       const current = ordered[i]!;
       if (current.beat_index !== i) errors.push(`scene ${sceneIndex}: beat_index must be contiguous from 0`);
