@@ -13,7 +13,6 @@ import {
   validateSemanticScene,
   type SemanticScene,
 } from "../semantic-scene.ts";
-import { freeVisionTripped } from "../vision-route-health.ts";
 import {
   scoreVisualBeatFrames,
   scoreVisualBeatImage,
@@ -108,6 +107,21 @@ interface ReferenceCapableImageProvider {
   }>;
 }
 
+interface VisionQaRunHealth {
+  unavailable: boolean;
+  reason?: string;
+}
+
+function markVisionQaUnavailable(health: VisionQaRunHealth, reason: string): void {
+  if (!health.unavailable) health.reason = reason;
+  health.unavailable = true;
+}
+
+function qaUnavailableError(health: VisionQaRunHealth, beatId: string): Error {
+  const suffix = health.reason ? ` (${health.reason})` : "";
+  return new Error(`QA_UNAVAILABLE: ${beatId}: vision QA is unavailable for this resolver run${suffix}`);
+}
+
 function capabilities(): VisualCapabilities {
   return {
     stock_video: Boolean(process.env["PEXELS_API_KEY"]?.trim()),
@@ -151,7 +165,24 @@ function queriesForBeat(beat: VisualBeat): string[] {
   return raw.filter((value) => value.trim()).slice(0, 5);
 }
 
-function strengthenedPrompt(beat: VisualBeat, concept: string): string {
+/** First non-empty identity description for a continuity group wins for the run. */
+export function continuityIdentity(beat: VisualBeat, pinned: Map<string, string>): string {
+  const group = beat.continuity.group?.trim();
+  if (!group) return "";
+  const established = pinned.get(group);
+  if (established) return established;
+  const own = beat.continuity.identity?.trim();
+  if (own) pinned.set(group, own);
+  return own ?? "";
+}
+
+const NO_PSEUDO_TEXT =
+  "Any paper, screen, sign, label or document in frame must be BLANK, turned away, or far enough from the camera that no individual letterform is resolvable. Never render simulated handwriting, invented lettering, fake interface text, watermarks, subtitles or captions.";
+
+const RESTRAINED_METAPHOR =
+  "Keep the real-world scene dominant. Any symbolic signal, trail, arrow, pulse or highlight must be small, subtle and secondary to the physical action. No energy beams, explosions, portals, lens flares, sci-fi holograms or glowing overlays that take over the frame. Everyday objects stay ordinary size and plausibly framed.";
+
+function strengthenedPrompt(beat: VisualBeat, concept: string, identity = ""): string {
   const style = beat.routing.image_style === "illustration"
     ? "Purposeful editorial illustration with specific physical staging; never generic decorative art."
     : "Photorealistic cinematic real-world visual language unless the requested subject is inherently abstract.";
@@ -164,9 +195,10 @@ function strengthenedPrompt(beat: VisualBeat, concept: string): string {
     beat.visual_contract.forbidden.length ? `EXCLUDE: ${beat.visual_contract.forbidden.join("; ")}.` : "",
     `COMPOSITION: ${beat.retention.composition}; CAMERA: ${beat.retention.camera_treatment ?? "appropriate"}; SUBJECT PLACEMENT: ${beat.retention.subject_placement ?? "appropriate"}.`,
     beat.continuity.group
-      ? `CONTINUITY: group ${beat.continuity.group}; recurring entity ids ${beat.continuity.entities.join(", ") || "none"}. Preserve their physical identity.`
+      ? `CONTINUITY: group ${beat.continuity.group}; recurring entity ids ${beat.continuity.entities.join(", ") || "none"}. Preserve their physical identity exactly.`
       : "",
-    "No readable text, letters, numbers, logos, subtitles, captions, watermarks, UI or accidental typography.",
+    identity ? `THE RECURRING SUBJECT IS ALWAYS: ${identity}. Do not change age, build, hair, clothing, carried items or distinguishing attributes.` : "",
+    NO_PSEUDO_TEXT,
   ].filter(Boolean).join(" ");
 }
 
@@ -203,9 +235,12 @@ async function loadAlignedPlan(
 async function generateImage(
   beat: VisualBeat,
   ctx: WorkerContext,
+  health: VisionQaRunHealth,
   previous?: QaImage,
   continuityReference?: QaImage,
+  identity = "",
 ): Promise<ModeResult> {
+  if (health.unavailable) throw qaUnavailableError(health, beat.id);
   const provider = ctx.media.images;
   if (!provider) throw new Error("generated_image requires an image provider");
   if (provider.id.toLowerCase().includes("freellmapi")) {
@@ -222,6 +257,7 @@ async function generateImage(
   const unverified: QaImage[] = [];
   const failures: string[] = [];
   let firstAcceptable: number | undefined;
+  let attemptedCandidates = 0;
 
   // Reusable image bank: an image generated for a semantically similar beat in
   // any earlier run/episode can satisfy this one for free. Retrieval only
@@ -249,17 +285,31 @@ async function generateImage(
           ...qaFields(qa),
         };
       }
-      if (!qa) unverified.push(image); // QA down: a tagged reuse still beats paying fal
+      if (!qa) {
+        unverified.push(image);
+        markVisionQaUnavailable(health, `${beat.id}: image-bank candidate could not be scored`);
+        break;
+      }
     }
   }
 
+  if (health.unavailable && unverified.length > 0) {
+    const salvage = unverified[0]!;
+    ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unavailable while validating the image bank; reusing the first tagged image unverified and skipping fal spend (QA_UNAVAILABLE)`);
+    const ref = await ctx.blobs.put(salvage.bytes, { role: "image", media_type: salvage.media_type });
+    return {
+      image_uri: ref.uri, preview_uri: ref.uri, blobs: [ref], preview: salvage,
+      candidate_count: 0, semantic_verified: false, source_provider: "image-bank",
+      note: "QA_UNAVAILABLE: vision QA unreachable; image-bank candidate shipped unverified",
+    };
+  }
+
   for (let index = 0; index < concepts.length; index++) {
-    // QA is down AND the bank already gave us a tagged fallback -> generating a
-    // paid fal image we cannot even score is pure waste.
-    if (unverified.length > 0 && freeVisionTripped()) break;
+    if (health.unavailable) break;
     const concept = concepts[index]!;
     try {
-      const prompt = strengthenedPrompt(beat, concept);
+      const prompt = strengthenedPrompt(beat, concept, identity);
+      attemptedCandidates += 1;
       const bankContext = {
         graph: "visual_benchmark",
         scene_index: beat.scene_index,
@@ -303,10 +353,8 @@ async function generateImage(
       if (!beatQa) {
         failures.push("visual QA unavailable");
         unverified.push(image);
-        // The vision route is confirmed down for this run -- generating the
-        // remaining paid concepts only to not-score them is wasted fal spend.
-        if (freeVisionTripped()) break;
-        continue;
+        markVisionQaUnavailable(health, `${beat.id}: generated-image candidate could not be scored`);
+        break;
       }
       if (contradictionQa?.contradictsNarration) {
         failures.push(`narration contradiction: ${contradictionQa.reason}`);
@@ -341,7 +389,7 @@ async function generateImage(
         preview_uri: ref.uri,
         blobs: [ref],
         preview: salvage,
-        candidate_count: concepts.length,
+        candidate_count: attemptedCandidates,
         semantic_verified: false,
         source_provider: provider.id,
         note: "QA_UNAVAILABLE: vision QA unreachable; generated image shipped unverified",
@@ -356,7 +404,7 @@ async function generateImage(
     preview_uri: ref.uri,
     blobs: [ref],
     preview: chosen.image,
-    candidate_count: concepts.length,
+    candidate_count: attemptedCandidates,
     ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
     source_provider: provider.id,
     ...qaFields(chosen.qa),
@@ -374,8 +422,10 @@ interface WindowCandidate {
 async function resolveStockVideo(
   beat: VisualBeat,
   ctx: WorkerContext,
+  health: VisionQaRunHealth,
   previous?: QaImage,
 ): Promise<ModeResult> {
+  if (health.unavailable) throw qaUnavailableError(health, beat.id);
   const pexels = new PexelsVideoProvider();
   const queries = queriesForBeat(beat);
   if (queries.length < 3) throw new Error(`${beat.id}: Visual Director supplied fewer than 3 stock query variants`);
@@ -407,7 +457,11 @@ async function resolveStockVideo(
           if (!salvage) salvage = { source, start: window.start, end: window.end, frames };
           if (qaDown) break;
           const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
-          if (!qa) { qaDown = true; break; }
+          if (!qa) {
+            qaDown = true;
+            markVisionQaUnavailable(health, `${beat.id}: stock-video window could not be scored`);
+            break;
+          }
           if (candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
             sourceAccepted = true;
             accepted.push({ source, start: window.start, end: window.end, frames, qa });
@@ -531,8 +585,11 @@ function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): M
 async function generateVideo(
   beat: VisualBeat,
   ctx: WorkerContext,
+  health: VisionQaRunHealth,
   previous?: QaImage,
+  identity = "",
 ): Promise<ModeResult> {
+  if (health.unavailable) throw qaUnavailableError(health, beat.id);
   if (!beat.hero_role && beat.intent.importance < 0.85) {
     throw new Error(`${beat.id}: generated video is reserved for hero/high-value beats`);
   }
@@ -541,21 +598,28 @@ async function generateVideo(
   const motion = beat.asset_brief.generated_video_prompt?.trim() || beat.asset_brief.generation_prompt;
   const accepted: Array<{ bytes: Uint8Array; frames: QaImage[]; qa: VisualBeatQaResult; model: string; duration: number }> = [];
   let firstAcceptable: number | undefined;
+  let attemptedCandidates = 0;
   let salvage: { bytes: Uint8Array; frames: QaImage[]; model: string; duration: number } | undefined;
 
   for (let index = 0; index < concepts.length; index++) {
+    if (health.unavailable) break;
     const concept = concepts[index]!;
     try {
-      const generated = await provider.generate(`${concept}. MOTION: ${motion}`, beat.end_sec - beat.start_sec);
+      attemptedCandidates += 1;
+      const identityClause = identity
+        ? `THE RECURRING SUBJECT IS ALWAYS: ${identity}. Keep age, build, hair, clothing, carried items and distinguishing attributes identical to earlier shots.`
+        : "";
+      const generated = await provider.generate(
+        `${concept}. MOTION: ${motion}. ${identityClause} ${RESTRAINED_METAPHOR} ${NO_PSEUDO_TEXT}`.trim(),
+        beat.end_sec - beat.start_sec,
+      );
       const sampled = await sampleVideoFrames(generated.bytes, 0, generated.duration_sec, 5);
       const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
       if (!salvage) salvage = { bytes: generated.bytes, frames, model: generated.model, duration: generated.duration_sec };
       const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
       if (!qa) {
-        // premium text-to-video is the most expensive candidate -- do not keep
-        // generating it just to not-score it.
-        if (freeVisionTripped()) break;
-        continue;
+        markVisionQaUnavailable(health, `${beat.id}: generated-video candidate could not be scored`);
+        break;
       }
       if (candidateAccepted(qa.scores) && !qa.generic_filler && !qa.why_failure) {
         if (firstAcceptable === undefined) firstAcceptable = index + 1;
@@ -569,7 +633,7 @@ async function generateVideo(
   accepted.sort((a, b) => weightedVisualScore(b.qa.scores) - weightedVisualScore(a.qa.scores));
   const best = accepted[0];
   if (!best) {
-    if (salvage && freeVisionTripped()) {
+    if (salvage && health.unavailable) {
       ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unreachable; shipping the first generated video unverified (QA_UNAVAILABLE)`);
       const wantedS = Math.min(salvage.duration, beat.end_sec - beat.start_sec);
       const seg = wantedS < salvage.duration ? await extractVideoSegment(salvage.bytes, 0, wantedS) : salvage.bytes;
@@ -579,7 +643,7 @@ async function generateVideo(
       return {
         video_uri: vRef.uri, preview_uri: pRef.uri, blobs: [vRef, pRef], preview: prev,
         source_provider: "fal", source_id: salvage.model, source_in_sec: 0, source_out_sec: wantedS,
-        candidate_count: concepts.length, semantic_verified: false,
+        candidate_count: attemptedCandidates, semantic_verified: false,
         note: "QA_UNAVAILABLE: vision QA unreachable; generated video shipped unverified",
       };
     }
@@ -599,7 +663,7 @@ async function generateVideo(
     source_id: best.model,
     source_in_sec: 0,
     source_out_sec: wanted,
-    candidate_count: concepts.length,
+    candidate_count: attemptedCandidates,
     ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
     ...qaFields(best.qa),
   };
@@ -609,14 +673,16 @@ async function resolveMode(
   beat: VisualBeat,
   mode: VisualMode,
   ctx: WorkerContext,
+  health: VisionQaRunHealth,
   previous?: QaImage,
   continuityReference?: QaImage,
   semanticScene?: SemanticScene,
+  identity = "",
 ): Promise<ModeResult> {
   switch (mode) {
-    case "generated_image": return { representation: "generated_image", ...await generateImage(beat, ctx, previous, continuityReference) };
-    case "stock_video": return { representation: "stock_video", ...await resolveStockVideo(beat, ctx, previous) };
-    case "generated_video": return { representation: "generated_video", ...await generateVideo(beat, ctx, previous) };
+    case "generated_image": return { representation: "generated_image", ...await generateImage(beat, ctx, health, previous, continuityReference, identity) };
+    case "stock_video": return { representation: "stock_video", ...await resolveStockVideo(beat, ctx, health, previous) };
+    case "generated_video": return { representation: "generated_video", ...await generateVideo(beat, ctx, health, previous, identity) };
     case "motion_graphic": return motionGraphic(beat, semanticScene);
   }
 }
@@ -665,10 +731,16 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
       const blobs: BlobRef[] = [];
       const beats: ResolvedBeat[] = [];
       const continuityReferences = new Map<string, QaImage>();
+      const pinnedIdentity = new Map<string, string>();
+      const qaHealth: VisionQaRunHealth = { unavailable: false };
       let previousPreview: QaImage | undefined;
       const available = capabilities();
 
-      for (const beat of ordered) {
+      for (const plannedBeat of ordered) {
+        const identity = continuityIdentity(plannedBeat, pinnedIdentity);
+        const beat: VisualBeat = identity && plannedBeat.continuity.identity !== identity
+          ? { ...plannedBeat, continuity: { ...plannedBeat.continuity, identity } }
+          : plannedBeat;
         const requested = beat.routing.preferred;
         let selected = selectVisualMode(beat, history, available);
         let result: ModeResult | null = null;
@@ -681,7 +753,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         if (selected) {
           try {
             modeAttemptCount += 1;
-            result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference, threadedScenes.get(beat.id));
+            result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScenes.get(beat.id), identity);
           } catch (error) {
             note = error instanceof Error ? error.message : String(error);
             const alternate = alternateMode(beat, selected);
@@ -689,7 +761,7 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
               try {
                 selected = alternate;
                 modeAttemptCount += 1;
-                result = await resolveMode(beat, selected, ctx, previousPreview, continuityReference, threadedScenes.get(beat.id));
+                result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScenes.get(beat.id), identity);
                 note = `primary route failed; used declared alternate: ${note}`;
               } catch (fallbackError) {
                 note = `${note}; alternate failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`;
@@ -710,7 +782,13 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         if (result?.blobs) blobs.push(...result.blobs);
         if (result?.preview) {
           previousPreview = result.preview;
-          if (beat.continuity.group && beat.continuity.entities.length > 0) {
+          if (
+            beat.continuity.group &&
+            beat.continuity.entities.length > 0 &&
+            (selected === "generated_image" || selected === "generated_video")
+          ) {
+            // Never let anonymous stock or a diagram become the visual identity
+            // reference for a recurring person/object.
             continuityReferences.set(beat.continuity.group, result.preview);
           }
         }
