@@ -114,3 +114,11 @@ test("RFC0010 production release blocks unavailable/generic/why-failure beats bu
   assert.ok(bad.failures.some((failure) => /generic filler/.test(failure)));
   assert.ok(bad.failures.some((failure) => /why-failure/.test(failure)));
 });
+
+test("timeline render reports the real image container (free-first NVIDIA klein returns JPEG, not PNG)", async () => {
+  const { sniffImageMediaType } = await import("../src/workers/visual-timeline-render.ts");
+  assert.equal(sniffImageMediaType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0])), "image/jpeg");
+  assert.equal(sniffImageMediaType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0])), "image/png");
+  const webp = new Uint8Array(16); webp.set([0x52, 0x49, 0x46, 0x46], 0); webp.set([0x57, 0x45, 0x42, 0x50], 8);
+  assert.equal(sniffImageMediaType(webp), "image/webp");
+});

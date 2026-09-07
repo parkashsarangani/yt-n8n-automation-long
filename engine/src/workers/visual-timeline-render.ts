@@ -63,6 +63,18 @@ export function sliceCharacterAlignment(
   };
 }
 
+/**
+ * The free-first FreeLLMAPI image chain can return JPEG or WebP (NVIDIA's FLUX
+ * endpoint returns JPEG), not only PNG. Sniff the real container so the renderer
+ * is told the truth instead of a hard-coded "image/png".
+ */
+export function sniffImageMediaType(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/webp" {
+  if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length > 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  return "image/png";
+}
+
 export function makeVisualTimelineRenderWorker(): WorkerDef {
   return {
     name: "visual_timeline_render",
@@ -127,7 +139,7 @@ export function makeVisualTimelineRenderWorker(): WorkerDef {
           scene_index: beat.ordinal,
           audio: sliced.bytes,
           audio_media_type: sliced.media_type,
-          ...(image ? { image, image_media_type: "image/png" } : {}),
+          ...(image ? { image, image_media_type: sniffImageMediaType(image) } : {}),
           ...(video ? { video, video_media_type: "video/mp4" } : {}),
           ...(alignment ? { alignment } : {}),
           ...(beat.template_category ? { template_category: beat.template_category } : {}),

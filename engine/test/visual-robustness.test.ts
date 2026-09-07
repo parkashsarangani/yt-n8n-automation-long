@@ -137,18 +137,30 @@ test("pre-render visual release passes clean assets and only warns for bounded n
   assert.ok(bounded.warnings.some((warning) => /1\/20.*fallback/i.test(warning)));
 });
 
-test("illustrated graph requires a visual release before render while final QA still inspects raw assets", async () => {
+test("illustrated graph requires a visual release before render while final QA still inspects the asset manifest", async () => {
   const graph = JSON.parse(await readFile(path.join(ROOT, "graphs", "illustrated_story.json"), "utf8")) as {
     version: string;
     nodes: Array<{ id: string; transformation?: string; in?: string[] }>;
   };
-  assert.equal(graph.version, "8");
+  assert.equal(graph.version, "9");
   const release = graph.nodes.find((node) => node.id === "visual_asset_release");
   const render = graph.nodes.find((node) => node.id === "render");
   const qa = graph.nodes.find((node) => node.id === "qa");
-  assert.deepEqual(release?.in, ["assets"]);
-  assert.ok(render?.in?.includes("assets"));
+  const assets = graph.nodes.find((node) => node.id === "assets");
+
+  // Release gate runs on the RFC 0010 beat resolver output + measured timeline.
+  assert.equal(release?.transformation, "visual_beat_release");
+  assert.deepEqual(release?.in, ["visual_assets", "visual_timeline"]);
+
+  // Render is the RFC 0010 timeline renderer, gated on the visual release, and
+  // reads the beat-accurate timeline (not the flattened compat manifest).
+  assert.equal(render?.transformation, "visual_timeline_render");
+  assert.ok(render?.in?.includes("visual_timeline"));
   assert.ok(render?.in?.includes("visual_asset_release"));
+
+  // Final technical QA still inspects the scene-level asset manifest (produced
+  // by the compatibility shim), not the release verdict.
+  assert.equal(assets?.transformation, "visual_timeline_manifest");
   assert.ok(qa?.in?.includes("assets"));
   assert.equal(qa?.in?.includes("visual_asset_release"), false);
 });
