@@ -55,7 +55,6 @@ export function buildVisualTimelineManifest(assets: AssetArtifact, timeline: Vis
   const scenes = [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([sceneIndex, beats]) => {
     const imageUris = [...new Set(beats.flatMap((beat) => beat.image_uri ? [beat.image_uri] : beat.preview_uri ? [beat.preview_uri] : []))].slice(0, 5);
     const firstVideo = beats.find((beat) => beat.video_uri)?.video_uri;
-    const firstTemplate = beats.find((beat) => beat.template_category);
     const continuity = [...new Set(beats.map((beat) => beat.continuity_group).filter(Boolean))];
     const allTemplates = beats.every((beat) => beat.template_category === "explanation");
     return {
@@ -64,8 +63,10 @@ export function buildVisualTimelineManifest(assets: AssetArtifact, timeline: Vis
       ...(imageUris[0] ? { image_uri: imageUris[0] } : {}),
       ...(imageUris.length ? { image_uris: imageUris } : {}),
       ...(firstVideo ? { video_uri: firstVideo } : {}),
-      ...(allTemplates && firstTemplate ? { template_category: "explanation" } : {}),
-      ...(allTemplates && firstTemplate?.template_data ? { template_data: firstTemplate.template_data } : {}),
+      ...(allTemplates ? { template_category: "explanation" } : {}),
+      // Deliberately omit per-beat template_data here. visual_timeline allows a
+      // larger payload than asset_manifest and rendering reads the timeline
+      // directly. The compatibility manifest exists only for scene-level QA.
       ...(continuity.length === 1 ? { continuity_group: continuity[0] } : {}),
       duration_sec: Number(beats.reduce((sum, beat) => sum + beat.duration_sec, 0).toFixed(3)),
       prompt: beats.map((beat) => beat.narration).join(" ").slice(0, 3000),
