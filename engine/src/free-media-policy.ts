@@ -50,12 +50,6 @@ export function isTerminalFreeMediaFailure(value: unknown): boolean {
     || isDailyFreeImageCapacityMessage(message);
 }
 
-/** Next Cloudflare daily-limit reset. Workers AI documents 00:00 UTC. */
-export function nextUtcDailyReset(nowMs = Date.now()): number {
-  const now = new Date(nowMs);
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 5);
-}
-
 const TEXT_RISK = /\b(?:clock|watch|timepiece|dial|calendar|date|sign|logo|label|screen|phone|tablet|book|document|paper|newspaper|letter|chart|poster|badge|uniform|receipt|ticket|menu|map|number|numeral|text|writing|handwriting)\b/i;
 
 /**

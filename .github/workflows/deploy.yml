@@ -44,8 +44,10 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
 
-          # RFC 0010 generation. Images and premium text-to-video are direct fal;
-          # no FreeLLM image model or image fallback exists in Long.
+          # RFC 0010 generation. Images: free-first via the FreeLLMAPI media
+          # gateway (FREELLMAPI_IMAGE_MODELS, below) then paid fal as the last
+          # resort. Premium text-to-video is direct fal and stays behind the
+          # PAID_VIDEO_FALLBACK guard.
           FAL_KEY: ${{ secrets.FAL_KEY }}
           FAL_MODEL: ${{ vars.FAL_MODEL || 'fal-ai/flux-2' }}
           FAL_EDIT_MODEL: ${{ vars.FAL_EDIT_MODEL || '' }}

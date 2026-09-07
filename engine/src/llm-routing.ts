@@ -119,6 +119,3 @@ export function llmRoutingConfig(env: NodeJS.ProcessEnv = process.env): LlmRouti
   };
 }
 
-export function isFreeFirst(env: NodeJS.ProcessEnv = process.env): boolean {
-  return llmRoutingConfig(env).mode === "freellmapi";
-}
