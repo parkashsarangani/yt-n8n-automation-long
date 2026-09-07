@@ -10,7 +10,6 @@ const ENV_KEYS = [
   "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
   "FREELLMAPI_API_KEY",
   "FREELLMAPI_BASE_URL",
-  "FREELLMAPI_VISION_MODEL",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENAI_IMAGE_QA_MODEL",
@@ -43,12 +42,11 @@ function okVision(content: Record<string, unknown>) {
   };
 }
 
-test("vision QA bypasses FreeLLMAPI even when the text router is configured for it", async () => {
+test("vision QA ignores FreeLLMAPI text routing and calls direct OpenAI", async () => {
   await withEnv({
     LLM_ROUTER_MODE: "freellmapi",
     FREELLMAPI_API_KEY: "free-key",
     FREELLMAPI_BASE_URL: "http://freellmapi:3001/v1",
-    FREELLMAPI_VISION_MODEL: "auto:smart",
     OPENAI_API_KEY: "sk-paid",
     OPENAI_IMAGE_QA_MODEL: "gpt-5.6-luna",
   }, async () => {
@@ -70,7 +68,7 @@ test("vision QA bypasses FreeLLMAPI even when the text router is configured for 
   });
 });
 
-test("vision QA does not fall back to FreeLLMAPI when direct OpenAI credentials are absent", async () => {
+test("vision QA returns null when direct OpenAI credentials are absent", async () => {
   await withEnv({
     LLM_ROUTER_MODE: "freellmapi",
     FREELLMAPI_API_KEY: "free-key",

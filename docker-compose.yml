@@ -41,18 +41,17 @@ services:
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
       FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}
-      FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
 
       # Narration remains on the established ElevenLabs production path.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # OpenAI is used for LLM fail-open/direct rollback and the independent
-      # pre-TTS moderation/audit boundary that must approve the exact script
-      # before ElevenLabs synthesis.
+      # OpenAI is used for LLM fail-open/direct rollback, authoritative RFC 0010
+      # visual QA, and the pre-TTS moderation boundary.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      OPENAI_IMAGE_QA_MODEL: ${OPENAI_IMAGE_QA_MODEL:-}
       OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}
       TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
 

@@ -19,7 +19,7 @@ export interface StageSpec {
 export const STAGES: StageSpec[] = [
   {
     id: "reasoning",
-    label: "Story, dialogue, visual direction, thumbnail planning and visual QA",
+    label: "Story, dialogue, visual direction and thumbnail planning",
     requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
     optional: [
       "LLM_ROUTER_MODE",
@@ -27,12 +27,20 @@ export const STAGES: StageSpec[] = [
       "LLM_ROUTER_TIMEOUT_MS",
       "FREELLMAPI_BASE_URL",
       "FREELLMAPI_TEXT_MODEL",
-      "FREELLMAPI_VISION_MODEL",
       "OPENAI_MODEL",
     ],
     real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
     fallback: "unavailable",
     consequence: "runs fail at the first reasoning node — there is no offline model fallback for creative planning",
+  },
+  {
+    id: "visual_qa",
+    label: "RFC 0010 candidate and rendered-pixel visual QA",
+    requires: [["OPENAI_API_KEY"]],
+    optional: ["OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL"],
+    real: "openai/${OPENAI_IMAGE_QA_MODEL:-${OPENAI_MODEL:-gpt-5.6-luna}}",
+    fallback: "unavailable",
+    consequence: "RFC 0010 cannot verify visual relevance or produce a trustworthy benchmark result",
   },
   {
     id: "speech",
@@ -47,9 +55,9 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_MEDIA_TIMEOUT_MS",
       "ELEVENLABS_VOICE_ID",
     ],
-    real: "freellmapi-speech/${FREELLMAPI_SPEECH_MODEL:-auto}",
+    real: "elevenlabs",
     fallback: "fake",
-    consequence: "silent placeholder audio; set SPEECH_PROVIDER_MODE=elevenlabs to roll back to ElevenLabs",
+    consequence: "silent placeholder audio when no live speech provider is configured",
   },
   {
     id: "images",
@@ -58,7 +66,7 @@ export const STAGES: StageSpec[] = [
     optional: ["FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE"],
     real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
     fallback: "unavailable",
-    consequence: "generated-image beats cannot be produced; RFC 0010 never falls back to FreeLLMAPI image generation",
+    consequence: "generated-image visual beats cannot be produced; RFC 0010 never falls back to FreeLLMAPI image generation",
   },
   {
     id: "renderer",
@@ -166,6 +174,11 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
   return `openai/${openaiModel} (FreeLLMAPI unconfigured; fail-open)`;
 }
 
+function visualQaProvider(env: NodeJS.ProcessEnv): string {
+  const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
+  return `openai/${model}`;
+}
+
 function speechProvider(env: NodeJS.ProcessEnv): string {
   if (speechMode(env) === "elevenlabs") return "elevenlabs";
   return `freellmapi/${env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "auto"}`;
@@ -186,9 +199,10 @@ export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.Pro
     let provider: string;
     if (!real) provider = spec.fallback;
     else if (spec.id === "reasoning") provider = reasoningProvider(env);
+    else if (spec.id === "visual_qa") provider = visualQaProvider(env);
     else if (spec.id === "speech") provider = speechProvider(env);
     else if (spec.id === "images") provider = imageProvider(env);
-    else provider = spec.real.replace("${OPENAI_MODEL:-gpt-5.6-luna}", env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna");
+    else provider = spec.real;
 
     return {
       id: spec.id,

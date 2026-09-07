@@ -70,12 +70,11 @@ const blindPayload = {
   reason: "Option A communicates the action more specifically.",
 };
 
-test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI even when text routing is free-first", async () => {
+test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI text routing", async () => {
   const previous = {
     routerMode: process.env["LLM_ROUTER_MODE"],
     freeKey: process.env["FREELLMAPI_API_KEY"],
     freeBase: process.env["FREELLMAPI_BASE_URL"],
-    freeVision: process.env["FREELLMAPI_VISION_MODEL"],
     openAiKey: process.env["OPENAI_API_KEY"],
     openAiBase: process.env["OPENAI_BASE_URL"],
     openAiImageQaModel: process.env["OPENAI_IMAGE_QA_MODEL"],
@@ -84,7 +83,6 @@ test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI even when text rout
   process.env["LLM_ROUTER_MODE"] = "freellmapi";
   process.env["FREELLMAPI_API_KEY"] = "free-test-key";
   process.env["FREELLMAPI_BASE_URL"] = "http://freellmapi.invalid/v1";
-  process.env["FREELLMAPI_VISION_MODEL"] = "auto:smart";
   process.env["OPENAI_API_KEY"] = "openai-test-key";
   process.env["OPENAI_BASE_URL"] = "https://api.openai.test/v1";
   process.env["OPENAI_IMAGE_QA_MODEL"] = "vision-test-model";
@@ -93,8 +91,7 @@ test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI even when text rout
   const fetchImpl: VisualBeatFetch = async (url, init) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
     calls.push({ url, body });
-    const serialized = init.body;
-    const content = serialized.includes("Blindly compare two candidate visuals") ? blindPayload : qaPayload;
+    const content = init.body.includes("Blindly compare two candidate visuals") ? blindPayload : qaPayload;
     return {
       ok: true,
       status: 200,
@@ -124,7 +121,6 @@ test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI even when text rout
     restore("LLM_ROUTER_MODE", previous.routerMode);
     restore("FREELLMAPI_API_KEY", previous.freeKey);
     restore("FREELLMAPI_BASE_URL", previous.freeBase);
-    restore("FREELLMAPI_VISION_MODEL", previous.freeVision);
     restore("OPENAI_API_KEY", previous.openAiKey);
     restore("OPENAI_BASE_URL", previous.openAiBase);
     restore("OPENAI_IMAGE_QA_MODEL", previous.openAiImageQaModel);
