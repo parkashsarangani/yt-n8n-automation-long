@@ -47,12 +47,12 @@ jobs:
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
               "FREELLMAPI_API_KEY:",
               "FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
-              "FREELLMAPI_VISION_MODEL:",
               "FAL_KEY:",
               "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
               "FAL_EDIT_MODEL:",
               "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}",
               "OPENAI_API_KEY:",
+              "OPENAI_IMAGE_QA_MODEL:",
               "OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}",
               "TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}",
           ):
@@ -65,8 +65,9 @@ jobs:
               r"IMAGE_PROVIDER_MODE",
               r"FREELLMAPI_IMAGE_MODEL",
               r"FREELLMAPI_HERO_IMAGE",
+              r"FREELLMAPI_VISION_MODEL",
           ):
-              assert not re.search(forbidden, compose), f"obsolete image infrastructure remains in compose: {forbidden}"
+              assert not re.search(forbidden, compose), f"obsolete provider infrastructure remains in compose: {forbidden}"
 
           for required in (
               "yt-n8n-automation-shorts_default",
@@ -77,6 +78,8 @@ jobs:
               "FREELLMAPI_TEXT_MODEL: gemini-3.5-flash",
               "/v1/chat/completions",
               "SPEECH_PROVIDER_MODE: elevenlabs",
+              "OPENAI_API_KEY:",
+              "OPENAI_IMAGE_QA_MODEL:",
               "OPENAI_MODERATION_MODEL:",
               "TTS_MODERATION_TIMEOUT_MS:",
               "/v1/moderations",
@@ -101,11 +104,12 @@ jobs:
               "IMAGE_PROVIDER_MODE:",
               "FREELLMAPI_IMAGE_MODEL:",
               "FREELLMAPI_HERO_IMAGE_MODEL:",
+              "FREELLMAPI_VISION_MODEL:",
               "/v1/images/generations",
               "Models -> Image",
               "standard image row",
           ):
-              assert forbidden not in deploy, f"obsolete FreeLL image deployment contract remains: {forbidden}"
+              assert forbidden not in deploy, f"obsolete FreeLL media deployment contract remains: {forbidden}"
 
           # The unified key is inference-only. Long must never impersonate a
           # dashboard session or mutate the Shorts-owned FreeLL media registry.
