@@ -1,6 +1,4 @@
-import { llmRoutingConfig } from "./llm-routing.ts";
 import { prepareVisionImage } from "./media/vision-image.ts";
-import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -163,10 +161,23 @@ async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualB
     ...(raw.previous?{previous:await prepareVisionImage(raw.previous)}:{}),
     ...(raw.next?{next:await prepareVisionImage(raw.next)}:{}),
   };
-  const routing=llmRoutingConfig();
-  if(routing.mode==="freellmapi"&&routing.apiKey&&!freeVisionTripped()){ const free=await request({baseUrl:routing.baseUrl,apiKey:routing.apiKey,model:routing.visionModel,label:"freellmapi",timeoutMs:FREE_VISION_ATTEMPT_TIMEOUT_MS},frames,beat,fetchImpl); recordFreeVisionResult(free!==null); if(free)return free; if(!routing.failOpenToDirect)return null; }
-  const apiKey=process.env["OPENAI_API_KEY"]?.trim(); if(!apiKey)return null;
-  return request({baseUrl:(process.env["OPENAI_BASE_URL"]??DEFAULT_BASE_URL).replace(/\/$/,""),apiKey,model:process.env["OPENAI_IMAGE_QA_MODEL"]??process.env["OPENAI_MODEL"]??"gpt-5.6-luna",label:"direct-openai"},frames,beat,fetchImpl);
+
+  // RFC 0010 visual evidence is acceptance-critical. FreeLLMAPI auto:smart was
+  // observed returning HTTP 200 from a text-only fallback while ignoring every
+  // supplied image, so transport success cannot establish vision capability.
+  // Keep text reasoning on its pinned Gemini route, but make this visual QA path
+  // authoritative only through direct OpenAI vision.
+  const apiKey=process.env["OPENAI_API_KEY"]?.trim();
+  if(!apiKey){
+    console.warn("[visual-beat-qa] direct OpenAI vision unavailable: OPENAI_API_KEY is not configured");
+    return null;
+  }
+  return request({
+    baseUrl:(process.env["OPENAI_BASE_URL"]??DEFAULT_BASE_URL).replace(/\/$/,""),
+    apiKey,
+    model:process.env["OPENAI_IMAGE_QA_MODEL"]??process.env["OPENAI_MODEL"]??"gpt-5.6-luna",
+    label:"direct-openai",
+  },frames,beat,fetchImpl);
 }
 
 export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:{previous?:QaImage;next?:QaImage}={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl); }
