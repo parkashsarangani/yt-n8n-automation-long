@@ -66,7 +66,11 @@ export const STAGES: StageSpec[] = [
     id: "images",
     label: "Generated visual beats, illustrated stills and thumbnail artwork",
     requires: [["FAL_KEY"]],
-    optional: ["FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE", "PAID_IMAGE_FALLBACK", "PAID_VIDEO_FALLBACK"],
+    optional: [
+      "FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE",
+      "PAID_IMAGE_FALLBACK", "PAID_VIDEO_FALLBACK",
+      "FREELLMAPI_IMAGE_MODELS", "FREELLMAPI_VIDEO_MODELS", "FREELLMAPI_VIDEO_DURATION_SEC",
+    ],
     real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
     fallback: "unavailable",
     consequence: "generated-image visual beats cannot be produced; RFC 0010 never falls back to FreeLLMAPI image generation",

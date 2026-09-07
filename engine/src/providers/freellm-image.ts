@@ -88,7 +88,7 @@ export class FreeLlmImageProvider implements ImageProvider {
     if (item.b64_json) {
       const bytes = new Uint8Array(Buffer.from(item.b64_json, "base64"));
       const media = sniffImageMediaType(bytes);
-      if (!media || bytes.length < 128) throw new ProviderError("free image payload is not a recognizable image");
+      if (!media || bytes.length < 64) throw new ProviderError("free image payload is not a recognizable image");
       return { bytes, media_type: media };
     }
     if (item.url) {
