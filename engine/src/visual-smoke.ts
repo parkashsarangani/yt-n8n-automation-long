@@ -69,12 +69,7 @@ export interface VisualSmokeReport {
     generic_filler_count: number;
     generic_filler_ratio: number;
     resolved_modes: Record<VisualMode, number>;
-    /**
-     * What the pixels actually were. `resolved_modes` alone cannot tell a run
-     * where every explanatory graphic rendered a real diagram from one where
-     * every one of them degraded to text -- both report the same
-     * motion_graphic count.
-     */
+    /** What the pixels actually were, separate from provider mode. */
     semantic_graphic_count: number;
     kinetic_text_count: number;
     semantic_fallback_count: number;
@@ -89,15 +84,6 @@ const MAX_FALLBACK_RATIO = 0.25;
 const MAX_STOCK_QUERIES = 3;
 const MAX_MODE_ATTEMPTS = 2;
 
-/**
- * Development-health budgets, not RFC quality floors.
- *
- * Stock candidate_count is the number of real source windows frame-scored by
- * the resolver. One query can inspect at most 5 sources x 5 windows, so 75 is
- * equivalent to allowing roughly three full query strategies before stock
- * should give way to the declared fallback. Other modes map directly to the
- * RFC's bounded 3-5 image / <=3 premium-video candidate pools.
- */
 const CANDIDATE_BUDGET: Record<VisualMode, number> = {
   stock_video: 75,
   generated_image: 5,
@@ -107,6 +93,10 @@ const CANDIDATE_BUDGET: Record<VisualMode, number> = {
 
 function mean(values: number[]): number {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function qaUnavailable(beat: VisualSmokeResolvedBeat): boolean {
+  return (beat.note ?? "").includes("QA_UNAVAILABLE");
 }
 
 export function evaluateVisualSmoke(
@@ -127,27 +117,27 @@ export function evaluateVisualSmoke(
     technicalFailures.push(`rendered-frame QA unavailable for ${qaUnavailableCount}/${beatCount} beat(s)`);
   }
 
-  const unresolvedCount = resolved.filter((beat) => beat.status === "unavailable" || !beat.resolved_mode).length;
-  if (unresolvedCount > 0) sourcingFailures.push(`${unresolvedCount} beat(s) could not obtain an acceptable live visual candidate`);
-
-  // Stock/generated media are frame-gated before admission. Motion graphics are
-  // deterministic instructions and are intentionally verified after rendering,
-  // so semantic_verified=false at the asset stage is not a sourcing failure for
-  // that mode. A beat the resolver shipped unverified *because the vision route
-  // was unreachable* (note marked QA_UNAVAILABLE) is a QA-availability problem,
-  // not a sourcing problem -- classify it as technical so a route outage never
-  // looks like bad sourcing.
-  const qaUnavailableResolved = resolved.filter(
-    (beat) => beat.status !== "unavailable" && (beat.note ?? "").includes("QA_UNAVAILABLE"),
-  );
-  if (qaUnavailableResolved.length > 0) {
-    technicalFailures.push(`${qaUnavailableResolved.length} beat(s) shipped unverified because the vision QA route was unreachable`);
+  const unresolved = resolved.filter((beat) => beat.status === "unavailable" || !beat.resolved_mode);
+  const unresolvedCount = unresolved.length;
+  const qaUnavailableAssets = resolved.filter(qaUnavailable);
+  const unresolvedSourcing = unresolved.filter((beat) => !qaUnavailable(beat));
+  if (unresolvedSourcing.length > 0) {
+    sourcingFailures.push(`${unresolvedSourcing.length} beat(s) could not obtain an acceptable live visual candidate`);
   }
-  // A motion graphic is still verified after rendering rather than before, so
-  // semantic_verified=false at the asset stage is expected for that mode. What
-  // is NOT expected is the Visual Director failing to author a drawable scene
-  // at all: those beats degrade to kinetic text, which is honest but is not an
-  // explanatory graphic. Surface it, because the mode counters cannot.
+  if (qaUnavailableAssets.length > 0) {
+    const stopped = qaUnavailableAssets.filter((beat) => beat.status === "unavailable" || !beat.resolved_mode).length;
+    const shipped = qaUnavailableAssets.length - stopped;
+    const detail = [
+      shipped > 0 ? `${shipped} shipped unverified` : "",
+      stopped > 0 ? `${stopped} stopped before further sourcing` : "",
+    ].filter(Boolean).join(", ");
+    technicalFailures.push(`${qaUnavailableAssets.length} beat(s) affected because the vision QA route was unreachable${detail ? ` (${detail})` : ""}`);
+  }
+
+  // Motion graphics are deterministic instructions and are verified after
+  // rendering. A Director-authored motion-graphic beat that cannot produce a
+  // drawable semantic scene degrades honestly to kinetic text, but excessive
+  // degradation means the explanatory plan itself is not healthy.
   const semanticFallbacks = resolved.filter((beat) => (beat.note ?? "").includes("SEMANTIC_FALLBACK"));
   const motionGraphicBeats = resolved.filter((beat) => beat.resolved_mode === "motion_graphic");
   if (motionGraphicBeats.length > 0 && semanticFallbacks.length > motionGraphicBeats.length / 2) {
@@ -161,7 +151,7 @@ export function evaluateVisualSmoke(
     beat.resolved_mode !== null &&
     beat.resolved_mode !== "motion_graphic" &&
     !beat.semantic_verified &&
-    !(beat.note ?? "").includes("QA_UNAVAILABLE"),
+    !qaUnavailable(beat),
   );
   if (unverifiedMedia.length > 0) {
     sourcingFailures.push(`${unverifiedMedia.length} resolved media beat(s) were not semantically verified before admission`);
