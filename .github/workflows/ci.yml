@@ -83,7 +83,7 @@ jobs:
               "OPENAI_MODERATION_MODEL:",
               "TTS_MODERATION_TIMEOUT_MS:",
               "/v1/moderations",
-              "production TTS is fail-closed behind OpenAI moderation",
+              "authoritative visual QA and pre-TTS moderation",
               "FAL_KEY:",
               "FAL_MODEL:",
               "sole image-generation provider",
