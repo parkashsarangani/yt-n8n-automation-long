@@ -71,6 +71,41 @@ export function freeImagePrompt(prompt: string): string {
     + "Clothing, signs, devices, books, badges and objects must be plain and unbranded. No words, letters, numbers, logos, watermarks, glyphs, handwriting or readable symbols anywhere.";
 }
 
+/** Compact safety clause used when the full one does not fit a model's prompt cap. */
+const COMPACT_IMAGE_SAFETY =
+  " Photoreal, natural human anatomy and object scale. No readable text, letters, numbers, logos or watermarks.";
+
+/** Default max prompt length for free image models. FLUX/SDXL-class free
+ *  endpoints (notably NVIDIA's) reject long prompts with HTTP 422
+ *  `string_too_long`, and they follow terse prompts better anyway. Override
+ *  with FREELLMAPI_IMAGE_PROMPT_MAX. */
+export const DEFAULT_FREE_IMAGE_PROMPT_MAX = 700;
+
+export function freeImagePromptMax(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number(env["FREELLMAPI_IMAGE_PROMPT_MAX"]);
+  return Number.isFinite(parsed) && parsed >= 120 ? Math.floor(parsed) : DEFAULT_FREE_IMAGE_PROMPT_MAX;
+}
+
+/**
+ * Build the prompt actually sent to a free image model, bounded to `max` chars.
+ *
+ * If the full text-safety-wrapped prompt fits, use it. Otherwise keep the scene
+ * description (the most important part, always first) truncated at a word
+ * boundary and append a compact safety clause — the verbose free-model safety
+ * block is dropped rather than the subject. This stops NVIDIA-class endpoints
+ * 422-ing on the resolver's long `strengthenedPrompt` output.
+ */
+export function clampFreeImagePrompt(rawPrompt: string, max = DEFAULT_FREE_IMAGE_PROMPT_MAX): string {
+  const raw = rawPrompt.replace(/\s+/g, " ").trim();
+  const full = freeImagePrompt(raw);
+  if (full.length <= max) return full;
+  const room = Math.max(80, max - COMPACT_IMAGE_SAFETY.length);
+  let head = raw.slice(0, room);
+  const lastSpace = head.lastIndexOf(" ");
+  if (lastSpace > room * 0.6) head = head.slice(0, lastSpace);
+  return (head + COMPACT_IMAGE_SAFETY).slice(0, max);
+}
+
 export function semanticRecoveryPrompt(prompt: string, narration: string, reason: string): string {
   return `${prompt} SEMANTIC RECOVERY: the previous image contradicted the narration (${reason.slice(0, 280)}). `
     + `Preserve these narrated facts exactly: ${narration.slice(0, 500)}. `

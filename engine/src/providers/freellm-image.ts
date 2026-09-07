@@ -16,7 +16,8 @@
 
 import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../provider.ts";
 import {
-  freeImagePrompt,
+  clampFreeImagePrompt,
+  freeImagePromptMax,
   FreeMediaAuthError,
   isDailyFreeImageCapacityMessage,
 } from "../free-media-policy.ts";
@@ -67,9 +68,10 @@ export class FreeLlmImageProvider implements ImageProvider {
   private readonly baseUrl: string;
   private readonly models: string[];
   private readonly timeoutMs: number;
+  private readonly promptMax: number;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(opts: FreeLlmImageOptions = {}) {
+  constructor(opts: FreeLlmImageOptions & { promptMax?: number } = {}) {
     const key = opts.apiKey ?? process.env["FREELLMAPI_API_KEY"];
     if (!key?.trim()) throw new ProviderError("FreeLlmImageProvider needs FREELLMAPI_API_KEY");
     this.apiKey = key.trim();
@@ -80,6 +82,7 @@ export class FreeLlmImageProvider implements ImageProvider {
     }
     const raw = Number(opts.timeoutMs ?? process.env["FREELLMAPI_MEDIA_TIMEOUT_MS"] ?? 60_000);
     this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 ? raw : 60_000;
+    this.promptMax = opts.promptMax && opts.promptMax >= 120 ? Math.floor(opts.promptMax) : freeImagePromptMax();
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `freellmapi-image/[${this.models.join(",")}]`;
   }
@@ -129,7 +132,7 @@ export class FreeLlmImageProvider implements ImageProvider {
         headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          prompt: freeImagePrompt(prompt),
+          prompt: clampFreeImagePrompt(prompt, this.promptMax),
           n: Math.max(1, Math.min(4, count)),
           size: SIZES[aspect],
           response_format: "b64_json",

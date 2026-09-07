@@ -74,7 +74,8 @@ export const STAGES: StageSpec[] = [
     optional: [
       "FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE",
       "PAID_IMAGE_FALLBACK", "PAID_VIDEO_FALLBACK",
-      "FREELLMAPI_IMAGE_MODELS", "FREELLMAPI_VIDEO_MODELS", "FREELLMAPI_VIDEO_DURATION_SEC",
+      "FREELLMAPI_IMAGE_MODELS", "FREELLMAPI_IMAGE_PROMPT_MAX",
+      "FREELLMAPI_VIDEO_MODELS", "FREELLMAPI_VIDEO_DURATION_SEC",
     ],
     real: "freellmapi media gateway (free-first) then fal/${FAL_MODEL:-fal-ai/flux-2} when PAID_IMAGE_FALLBACK",
     fallback: "unavailable",
