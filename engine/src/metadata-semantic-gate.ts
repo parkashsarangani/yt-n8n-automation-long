@@ -50,7 +50,23 @@ export type SemanticGateConcern =
   | "forbidden_present"
   | "missing_required_intent";
 
+/**
+ * Explicit, source-aware outcome of the metadata screen.
+ *
+ *   PASS   — the sourcing intent is semantically likely to fit the beat.
+ *   REJECT — the prompt/query is off-topic, forbidden, filler, or omits the subject.
+ *   UNAVAILABLE — the screen could not run (free text chain outage); represented
+ *                 by a `null` return from `metadataSemanticGate`, never a score.
+ *
+ * `confidence` is the model's confidence in THIS METADATA DECISION. It is never
+ * a pixel-quality score and must not be laundered into semantic_match /
+ * visual_interest / action / continuity as if an image had been inspected.
+ */
+export type SemanticGateDecision = "pass" | "reject";
+
 export interface SemanticGateResult {
+  decision: SemanticGateDecision;
+  /** Back-compat convenience: `decision === "pass"`. */
   accept: boolean;
   reason: string;
   concern: SemanticGateConcern;
@@ -143,8 +159,10 @@ export async function metadataSemanticGate(
     const overall = confObj && typeof confObj === "object" && typeof (confObj as Record<string, unknown>)["overall"] === "number"
       ? Math.max(0, Math.min(1, (confObj as Record<string, number>)["overall"]!))
       : 0.5;
+    const decision: SemanticGateDecision = parsed["accept"] === true ? "pass" : "reject";
     return {
-      accept: parsed["accept"] === true,
+      decision,
+      accept: decision === "pass",
       reason: typeof parsed["reason"] === "string" ? parsed["reason"].slice(0, 400) : "",
       concern,
       confidence: overall,

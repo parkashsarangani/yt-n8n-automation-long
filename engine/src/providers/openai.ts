@@ -25,6 +25,7 @@ import {
   type ProviderCapabilities,
 } from "../provider.ts";
 import { llmRoutingConfig, type LlmRoutingConfig } from "../llm-routing.ts";
+import { fallbackPolicy } from "../fallback-policy.ts";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -195,15 +196,27 @@ export class OpenAIProvider implements ModelProvider {
    *
    * `direct` mode is an explicit manual operator rollback and calls paid
    * OpenAI. The default `freellmapi` mode walks the ordered free-model chain
-   * and, when every model is unavailable, fails loudly. There is deliberately
-   * NO automatic paid fallback: exhausting the free list is a real outage the
-   * caller must see, not a reason to start spending.
+   * first. Only AFTER every free model fails with a retryable/availability
+   * condition (429, 5xx, timeout, malformed, model removed) does it consider
+   * the paid OpenAI text model, and only when `PAID_TEXT_FALLBACK` is enabled
+   * (production default) and an OpenAI key is configured. Immediate failures —
+   * invalid request, malformed caller payload, policy refusal, bad credentials
+   * — are still thrown at once and never reach the paid model. When paid
+   * fallback is disabled, free-chain exhaustion FAILS LOUDLY with no paid call.
    */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const routing = llmRoutingConfig();
     if (routing.mode === "direct") return this.completeDirect(req);
+    const paidTextFallbackAllowed = fallbackPolicy().paidTextFallback && Boolean(this.apiKey);
+
     if (!routing.apiKey) {
-      throw new ProviderError("FreeLLMAPI reasoning requires FREELLMAPI_API_KEY (there is no paid text fallback)");
+      if (paidTextFallbackAllowed) {
+        console.warn("[llm-routing] FREELLMAPI_API_KEY not set; using paid OpenAI text fallback (PAID_TEXT_FALLBACK=true)");
+        return this.completeDirect(req);
+      }
+      throw new ProviderError(
+        "FreeLLMAPI reasoning requires FREELLMAPI_API_KEY and no paid text fallback is available (PAID_TEXT_FALLBACK disabled or OPENAI_API_KEY unset)",
+      );
     }
 
     const attempted: string[] = [];
@@ -212,7 +225,8 @@ export class OpenAIProvider implements ModelProvider {
       try {
         return await this.completeFree(req, routing, model);
       } catch (err) {
-        // A refusal or a caller/schema error is identical on every model.
+        // A refusal or a caller/schema error is identical on every model AND on
+        // the paid model, so it is thrown immediately without any fallback.
         if (err instanceof ProviderRefusal) throw err;
         if (!retryableFreeReasoningError(err)) throw err;
         attempted.push(model);
@@ -226,8 +240,14 @@ export class OpenAIProvider implements ModelProvider {
     }
 
     const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    if (paidTextFallbackAllowed) {
+      console.warn(
+        `[llm-routing] all ${attempted.length} free text model(s) unavailable [${attempted.join(", ")}]; using paid OpenAI text fallback (PAID_TEXT_FALLBACK=true)`,
+      );
+      return this.completeDirect(req);
+    }
     throw new ProviderError(
-      `all ${attempted.length} configured free text model(s) unavailable [${attempted.join(", ")}]: ${detail}`,
+      `all ${attempted.length} configured free text model(s) unavailable [${attempted.join(", ")}] and paid text fallback is disabled: ${detail}`,
     );
   }
 

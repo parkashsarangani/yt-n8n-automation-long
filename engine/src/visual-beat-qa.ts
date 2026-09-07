@@ -1,3 +1,5 @@
+import { fallbackPolicy } from "./fallback-policy.ts";
+import { DEFAULT_FREELLMAPI_BASE_URL } from "./llm-routing.ts";
 import { prepareVisionImage } from "./media/vision-image.ts";
 import { metadataSemanticGate, type SemanticGateInput } from "./metadata-semantic-gate.ts";
 import type { ModelProvider } from "./provider.ts";
@@ -135,26 +137,45 @@ function evidenceAdjustedResult(parsed: Record<string, unknown>, beat: VisualBea
  * boolean is LEFT UNSET — the proxy did not look at a pixel and must not be
  * read as having confirmed action, identity, framing, typography or scale.
  */
+/**
+ * Adapt an explicit metadata-screen decision (PASS / REJECT) to the QA result
+ * shape the resolver consumes.
+ *
+ * A PASS emits scores that clear the resolver's shared acceptance floor so a
+ * proxy-approved candidate can ship in proxy mode. These are NOT pixel-quality
+ * measurements and must never be read as a passed visual-quality benchmark:
+ * `source` stays `metadata_proxy`, `semantic_verified` stays false at the call
+ * site, every vision-only evidence boolean is LEFT UNSET, and the real-vision
+ * benchmark path (`VISUAL_QA_MODE=real`) never calls this function at all — it
+ * only ever consumes `direct_vision` results.
+ */
 function proxyToQaResult(gate: NonNullable<Awaited<ReturnType<typeof metadataSemanticGate>>>): VisualBeatQaResult {
-  const pass = gate.accept;
-  const strength = pass ? Math.max(0.9, gate.confidence) : Math.min(0.4, gate.confidence);
+  const pass = gate.decision === "pass";
   return {
-    scores: {
-      // Sourcing-intent screen only. Not a pixel-verified semantic score.
-      semantic_match: pass ? Math.max(0.9, strength) : 0.3,
-      // The proxy cannot see an action. Per the existing "1.0 if none"
-      // convention it does not penalise here; the `accept` decision already
-      // reflects whether the prompt/query targets the intended action.
-      action_match: pass ? 1 : 0.2,
-      visual_interest: pass ? 0.85 : 0.3,
-      continuity: 1,
-    },
+    scores: pass
+      ? { semantic_match: 0.9, action_match: 1, visual_interest: 0.85, continuity: 1 }
+      : { semantic_match: 0.3, action_match: 0.2, visual_interest: 0.3, continuity: 1 },
     generic_filler: !pass && gate.concern === "generic_filler",
     why_failure: !pass,
     repetitive_with_context: false,
-    reason: `metadata proxy [${gate.concern}]: ${gate.reason}`.slice(0, 500),
+    reason: `metadata proxy [${gate.decision}/${gate.concern}] (no pixel inspected): ${gate.reason}`.slice(0, 500),
     source: "metadata_proxy",
   };
+}
+
+interface FreeVisionEndpoint extends DirectEndpoint { free: true }
+
+/**
+ * Ordered concrete free vision-capable endpoints to try before any paid vision
+ * QA. Each id comes from FREE_VISION_MODELS; the FreeLLMAPI base URL and key are
+ * reused. May be empty. Every endpoint is still canary-gated by the caller.
+ */
+function freeVisionEndpoints(): FreeVisionEndpoint[] {
+  const apiKey = process.env["FREELLMAPI_API_KEY"]?.trim();
+  const models = fallbackPolicy().freeVisionModels;
+  if (!apiKey || models.length === 0) return [];
+  const baseUrl = (process.env["FREELLMAPI_BASE_URL"] ?? DEFAULT_FREELLMAPI_BASE_URL).replace(/\/$/, "");
+  return models.map((model) => ({ baseUrl, apiKey, model, label: `free-vision:${model}`, timeoutMs: 30_000, free: true }));
 }
 
 interface DirectEndpoint {
@@ -258,13 +279,37 @@ async function routedRequest(
     ...(raw.previous?{previous:await prepareVisionImage(raw.previous)}:{}),
     ...(raw.next?{next:await prepareVisionImage(raw.next)}:{}),
   };
+  const nativeFetch = fetchImpl === (fetch as unknown as VisualBeatFetch);
+
+  // VISION QA policy (fallback-policy §VISION QA): free real vision models
+  // first, paid OpenAI vision last. A free VLM's scores are trusted ONLY after
+  // it passes the deterministic image-perception canary — HTTP 200, a
+  // self-reported "saw_image", or a promising model name are not enough. A
+  // free VLM that fails the canary is skipped and the next one is tried.
+  for (const free of freeVisionEndpoints()) {
+    const capable = await ensureVisionCapability(
+      { baseUrl: free.baseUrl, apiKey: free.apiKey, model: free.model, label: free.label, timeoutMs: 15_000 },
+      fetchImpl as unknown as Parameters<typeof ensureVisionCapability>[1],
+    );
+    if (!capable) {
+      console.warn(`[visual-beat-qa] free vision model ${free.model} failed the perception canary; skipping`);
+      continue;
+    }
+    const scored = await request(free, frames, beat, fetchImpl);
+    if (scored) return scored;
+  }
+
+  // Paid OpenAI vision fallback — only when explicitly enabled. Otherwise the
+  // beat's QA is UNAVAILABLE (null); the resolver's run-local outage latch then
+  // ships the first candidate unverified rather than fabricating scores.
+  if (!fallbackPolicy().paidVisionFallback) return null;
   const endpoint=directEndpoint();
   if(!endpoint)return null;
 
   // Production uses the native fetch and therefore proves once per run that
   // the endpoint actually sees image pixels. Injected fetches are test doubles;
   // their own unit tests directly verify request shape and scoring behavior.
-  if(fetchImpl === (fetch as unknown as VisualBeatFetch)){
+  if(nativeFetch){
     const capable=await ensureVisionCapability({
       baseUrl:endpoint.baseUrl,apiKey:endpoint.apiKey,model:endpoint.model,label:endpoint.label,timeoutMs:15_000,
     });

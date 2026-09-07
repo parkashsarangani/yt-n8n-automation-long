@@ -2,6 +2,7 @@ import type { BlobRef } from "../artifact.ts";
 import { alignVisualBeatPlan, type VoiceClipForAlignment } from "../audio/beat-alignment.ts";
 import { candidateWindows, extractVideoSegment, sampleVideoFrames } from "../media/video-analysis.ts";
 import { FalVideoProvider } from "../providers/fal-video.ts";
+import { fallbackPolicy } from "../fallback-policy.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -122,11 +123,17 @@ function qaUnavailableError(health: VisionQaRunHealth, beatId: string): Error {
 }
 
 function capabilities(): VisualCapabilities {
+  const policy = fallbackPolicy();
   return {
     stock_video: Boolean(process.env["PEXELS_API_KEY"]?.trim()),
     generated_image: true,
     motion_graphic: true,
-    generated_video: Boolean(process.env["FAL_KEY"]?.trim()),
+    // HARD COST GUARD (fallback-policy §VIDEO): paid video generation is a
+    // capability ONLY when PAID_VIDEO_FALLBACK is explicitly enabled. With the
+    // code default (off) a configured FAL_KEY + video model is still NOT a
+    // usable route, so the resolver falls to a semantic non-video
+    // representation instead of ever spending on Kling/Fal.
+    generated_video: policy.paidVideoFallback && Boolean(process.env["FAL_KEY"]?.trim()),
   };
 }
 
@@ -301,6 +308,18 @@ async function generateImage(
       candidate_count: 0, semantic_verified: false, source_provider: "image-bank",
       note: "QA_UNAVAILABLE: vision QA unreachable; image-bank candidate shipped unverified",
     };
+  }
+
+  // IMAGE policy (fallback-policy §IMAGE): cache / bank-reuse / free stock are
+  // all attempted above and elsewhere for free. Paid image *generation* (fal)
+  // is the last resort and only permitted when PAID_IMAGE_FALLBACK is enabled.
+  // When it is disabled and nothing free satisfied the beat, hand back to the
+  // router so a declared non-generated alternate (stock / semantic graphic) is
+  // used instead of spending.
+  if (!fallbackPolicy().paidImageFallback && candidates.length === 0) {
+    throw new Error(
+      `${beat.id}: paid image generation is disabled (PAID_IMAGE_FALLBACK=false) and no free image source satisfied the beat`,
+    );
   }
 
   for (let index = 0; index < concepts.length; index++) {
@@ -594,6 +613,14 @@ async function generateVideo(
   identity = "",
 ): Promise<ModeResult> {
   if (health.unavailable) throw qaUnavailableError(health, beat.id);
+  // Defense in depth for the hard cost guard: even if some caller reaches this
+  // function with generated_video selected, a paid video generator is never
+  // constructed or invoked while PAID_VIDEO_FALLBACK is disabled.
+  if (!fallbackPolicy().paidVideoFallback) {
+    throw new Error(
+      `${beat.id}: paid video generation is disabled (PAID_VIDEO_FALLBACK=false); resolve this beat with a non-video representation`,
+    );
+  }
   if (!beat.hero_role && beat.intent.importance < 0.85) {
     throw new Error(`${beat.id}: generated video is reserved for hero/high-value beats`);
   }

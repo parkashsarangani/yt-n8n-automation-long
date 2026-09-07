@@ -15,6 +15,7 @@ const ENV_KEYS = [
   "FREELLMAPI_TEXT_MODELS",
   "OPENAI_API_KEY",
   "OPENAI_MODEL",
+  "PAID_TEXT_FALLBACK",
 ] as const;
 
 async function withEnv<T>(values: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
@@ -174,11 +175,12 @@ test("malformed structured output on one model advances to the next", async () =
   });
 });
 
-test("every pinned model unavailable fails explicitly, listing what was tried, with no paid call", async () => {
+test("with paid text fallback disabled, every pinned model unavailable fails explicitly and makes no paid call", async () => {
   await withEnv({
     FREELLMAPI_API_KEY: "k",
     FREELLMAPI_TEXT_MODELS: THREE,
     OPENAI_API_KEY: "sk-paid",
+    PAID_TEXT_FALLBACK: "false",
   }, async () => {
     const urls: string[] = [];
     const provider = new OpenAIProvider({
@@ -230,8 +232,8 @@ test("a content-policy refusal is not retried across models", async () => {
   });
 });
 
-test("freellmapi mode with no FreeLLMAPI key fails clearly and never calls paid OpenAI", async () => {
-  await withEnv({ OPENAI_API_KEY: "sk-paid" }, async () => {
+test("freellmapi mode with no FreeLLMAPI key and paid fallback disabled fails clearly and never calls paid OpenAI", async () => {
+  await withEnv({ OPENAI_API_KEY: "sk-paid", PAID_TEXT_FALLBACK: "false" }, async () => {
     const urls: string[] = [];
     const provider = new OpenAIProvider({
       apiKey: "sk-paid",
