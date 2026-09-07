@@ -1,5 +1,6 @@
 import { prepareVisionImage } from "./media/vision-image.ts";
 import { metadataSemanticGate, type SemanticGateInput } from "./metadata-semantic-gate.ts";
+import type { ModelProvider } from "./provider.ts";
 import { ensureVisionCapability } from "./vision-capability.ts";
 import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
@@ -242,12 +243,13 @@ async function routedRequest(
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch,
   sourcing?: VisualBeatSourcing,
+  proxyProvider?: ModelProvider,
 ): Promise<VisualBeatQaResult | null> {
   // Default path: no paid vision. Screen the sourcing intent from metadata
   // with one free text-model call. `null` here means the free text chain is
   // entirely down (infra), which the caller treats as QA-unavailable.
   if (!realVisionQaEnabled()) {
-    const gate = await metadataSemanticGate(proxyInput(beat, sourcing));
+    const gate = await metadataSemanticGate(proxyInput(beat, sourcing), proxyProvider ? { provider: proxyProvider } : {});
     return gate ? proxyToQaResult(gate) : null;
   }
 
@@ -271,5 +273,7 @@ async function routedRequest(
   return request(endpoint,frames,beat,fetchImpl);
 }
 
-export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:{previous?:QaImage;next?:QaImage;sourcing?:VisualBeatSourcing}={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl,adjacent.sourcing); }
-export async function scoreVisualBeatFrames(frames:QaImage[],beat:VisualBeat,adjacent:{previous?:QaImage;next?:QaImage;sourcing?:VisualBeatSourcing}={},fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:frames.slice(0,6),...adjacent},beat,fetchImpl,adjacent.sourcing); }
+type QaAdjacent = { previous?: QaImage; next?: QaImage; sourcing?: VisualBeatSourcing; proxyProvider?: ModelProvider };
+
+export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:QaAdjacent={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl,adjacent.sourcing,adjacent.proxyProvider); }
+export async function scoreVisualBeatFrames(frames:QaImage[],beat:VisualBeat,adjacent:QaAdjacent={},fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:frames.slice(0,6),...adjacent},beat,fetchImpl,adjacent.sourcing,adjacent.proxyProvider); }
