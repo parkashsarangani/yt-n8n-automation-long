@@ -123,7 +123,8 @@ async function bakeImage(model: string, outDir: string): Promise<Attempt> {
     availability: "BROKEN", cost: "UNKNOWN", quality: "UNKNOWN", promotable: false, artifact: null,
   };
   try {
-    const provider = new FreeLlmImageProvider({ models: [model] });
+    const pm = Number(arg("prompt-max"));
+    const provider = new FreeLlmImageProvider({ models: [model], ...(Number.isFinite(pm) && pm >= 120 ? { promptMax: pm } : {}) });
     const out = await provider.generate({ prompt: IMAGE_PROMPT, aspect: "16:9" });
     const image = out.images[0]!;
     const dims = pngJpegDimensions(image.bytes);

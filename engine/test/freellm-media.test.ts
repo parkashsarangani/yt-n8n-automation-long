@@ -509,3 +509,43 @@ test("routing: a FreeLLMAPI gateway auth failure aborts the run — no alternate
     }
   }
 });
+
+// --- prompt-length clamp (NVIDIA-class free image models 422 on long prompts) ---
+
+test("clampFreeImagePrompt keeps the scene and bounds the length", async () => {
+  const { clampFreeImagePrompt, DEFAULT_FREE_IMAGE_PROMPT_MAX } = await import("../src/free-media-policy.ts");
+
+  // A short prompt gets the full text-safety wrapper.
+  const short = clampFreeImagePrompt("a red cube on a table");
+  assert.ok(short.length <= DEFAULT_FREE_IMAGE_PROMPT_MAX);
+  assert.match(short, /^a red cube on a table/);
+
+  // The resolver's long strengthened prompt (with the verbose safety block) is
+  // clamped: subject kept, verbose block dropped, compact safety appended.
+  const long = "A commuter walks through a modern European train station holding a smartphone showing a navigation route. " +
+    "Photorealistic cinematic real-world visual language. ".repeat(20);
+  const clamped = clampFreeImagePrompt(long, 500);
+  assert.ok(clamped.length <= 500, `clamped length ${clamped.length}`);
+  assert.match(clamped, /^A commuter walks through a modern European train station/);
+  assert.match(clamped, /No readable text, letters, numbers, logos or watermarks\.$/);
+});
+
+test("FreeLlmImageProvider clamps the prompt it sends (default and per-instance)", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_IMAGE_MODELS: "img-a" }, async () => {
+    let sentLen = 0;
+    const p = new FreeLlmImageProvider({ promptMax: 300, fetchImpl: async (_u, init) => {
+      sentLen = (JSON.parse(String(init?.body)) as { prompt: string }).prompt.length;
+      return imgResponse({ data: [{ b64_json: PNG_B64 }], model: "m", provider: "nvidia" });
+    } });
+    await p.generate({ prompt: "photorealistic train station commuter ".repeat(40), aspect: "16:9" });
+    assert.ok(sentLen <= 300, `sent ${sentLen} chars`);
+  });
+});
+
+test("FREELLMAPI_IMAGE_PROMPT_MAX env overrides the default cap", async () => {
+  const { freeImagePromptMax } = await import("../src/free-media-policy.ts");
+  assert.equal(freeImagePromptMax({} as NodeJS.ProcessEnv), 700);
+  assert.equal(freeImagePromptMax({ FREELLMAPI_IMAGE_PROMPT_MAX: "480" } as NodeJS.ProcessEnv), 480);
+  assert.equal(freeImagePromptMax({ FREELLMAPI_IMAGE_PROMPT_MAX: "junk" } as NodeJS.ProcessEnv), 700);
+  assert.equal(freeImagePromptMax({ FREELLMAPI_IMAGE_PROMPT_MAX: "10" } as NodeJS.ProcessEnv), 700);
+});

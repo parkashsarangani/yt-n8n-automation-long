@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      image_prompt_max:
+        description: "Max chars sent to a free image model (blank = default 700; lower e.g. 500 if a model 422s string_too_long)"
+        required: false
+        type: string
+        default: ""
       run_live:
         description: "Actually call the free media models (false = deterministic validation only)"
         required: false
@@ -101,8 +106,9 @@ jobs:
           fi
           docker network connect "$SHARED_LLM_NETWORK" free-media-bakeoff-engine
 
+          PM='${{ github.event.inputs.image_prompt_max }}'
           docker exec free-media-bakeoff-engine \
-            node --import tsx scripts/free-media-smoke.ts --out /tmp/media-bakeoff 2>&1 | tee free-media-bakeoff.log
+            node --import tsx scripts/free-media-smoke.ts --out /tmp/media-bakeoff ${PM:+--prompt-max "$PM"} 2>&1 | tee free-media-bakeoff.log
 
           rm -rf free-media-bakeoff
           docker cp free-media-bakeoff-engine:/tmp/media-bakeoff ./free-media-bakeoff

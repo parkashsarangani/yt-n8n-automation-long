@@ -57,6 +57,7 @@ services:
       # is a FREE-VIDEO ALLOWLIST — only models proven zero-cost belong there,
       # and empty (the default) keeps paid video generation impossible.
       FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}
+      FREELLMAPI_IMAGE_PROMPT_MAX: ${FREELLMAPI_IMAGE_PROMPT_MAX:-}
       FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}
       FREELLMAPI_VIDEO_DURATION_SEC: ${FREELLMAPI_VIDEO_DURATION_SEC:-}
 

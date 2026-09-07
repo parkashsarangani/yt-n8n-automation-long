@@ -166,6 +166,14 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "empty; generated images use paid fal directly when PAID_IMAGE_FALLBACK=true",
   },
   {
+    key: "FREELLMAPI_IMAGE_PROMPT_MAX",
+    label: "FreeLLMAPI image prompt cap",
+    secret: false,
+    placeholder: "700",
+    help: "Max characters sent to a free image model. FLUX/SDXL-class free endpoints (notably NVIDIA's) reject long prompts with HTTP 422, so the resolver's long strengthened prompt is clamped: the scene is kept and the verbose safety block is replaced with a compact one. Lower this (e.g. 500) if a configured model still 422s.",
+    fallback: "700",
+  },
+  {
     key: "FREELLMAPI_VIDEO_MODELS",
     label: "FreeLLMAPI free-video allowlist",
     secret: false,
