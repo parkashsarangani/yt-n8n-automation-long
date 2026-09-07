@@ -1,16 +1,15 @@
 /**
- * Process-local circuit breaker for the shared FreeLLMAPI vision route.
+ * Process-local circuit breaker retained for any future non-direct vision route.
  *
- * The shared `auto:smart` multimodal route is frequently unavailable for image
- * requests. Every vision QA call would otherwise pay the full per-request
- * timeout to rediscover that before failing open to direct OpenAI — tens of
- * minutes across a benchmark or smoke run.
+ * A route that has been proven unable/unreliable for image requests must stay
+ * disabled for the rest of the process/run. A later HTTP 200 is not evidence of
+ * recovery: the FreeLLMAPI incident that motivated this breaker returned
+ * fabricated 200s from a text-only fallback and those successes repeatedly
+ * erased the failure count. Only an explicit reset/new process may close a
+ * tripped breaker.
  *
- * After a small number of consecutive FreeLLMAPI vision failures the breaker
- * trips and callers skip straight to the direct route for the rest of the
- * process. A single success closes it again. This never changes *which*
- * provider is authoritative, only whether we bother trying the free route
- * first.
+ * RFC 0010 visual QA no longer calls FreeLLMAPI at all; this is a defensive
+ * backstop for any future optional/free vision route.
  */
 
 const TRIP_THRESHOLD = (() => {
@@ -18,40 +17,37 @@ const TRIP_THRESHOLD = (() => {
   return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 2;
 })();
 
-/** Shorter timeout for the *first* (free) attempt so a dead route is cheap to
- * detect; the direct attempt keeps the full budget. Overridable. */
 export const FREE_VISION_ATTEMPT_TIMEOUT_MS = (() => {
   const raw = Number(process.env["FREE_VISION_TIMEOUT_MS"]);
   return Number.isFinite(raw) && raw >= 1000 ? raw : 15_000;
 })();
 
 let consecutiveFailures = 0;
+let tripped = false;
 
-/** True when the free vision route has failed enough times in a row that
- * callers should skip it and go straight to the direct route. */
 export function freeVisionTripped(): boolean {
-  return consecutiveFailures >= TRIP_THRESHOLD;
+  return tripped;
 }
 
-/** Record the outcome of a FreeLLMAPI vision attempt. */
+/** Record the outcome of an optional/free vision attempt. Once tripped, sticky. */
 export function recordFreeVisionResult(ok: boolean): void {
+  if (tripped) return;
   if (ok) {
-    if (consecutiveFailures > 0) {
-      console.warn("[vision-route-health] FreeLLMAPI vision recovered; breaker closed");
-    }
     consecutiveFailures = 0;
     return;
   }
   consecutiveFailures += 1;
-  if (consecutiveFailures === TRIP_THRESHOLD) {
+  if (consecutiveFailures >= TRIP_THRESHOLD) {
+    tripped = true;
     console.warn(
-      `[vision-route-health] FreeLLMAPI vision failed ${consecutiveFailures}x in a row; ` +
-        "skipping it for the rest of this run and using the direct route",
+      `[vision-route-health] optional vision route failed ${consecutiveFailures}x; ` +
+        "route disabled for the rest of this run",
     );
   }
 }
 
-/** Test hook. */
+/** Test/new-run hook. */
 export function resetVisionRouteHealth(): void {
   consecutiveFailures = 0;
+  tripped = false;
 }

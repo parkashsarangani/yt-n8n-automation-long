@@ -1,14 +1,13 @@
 /**
  * Fal image provider (RFC 0004).
  *
- * FLUX.2 Pro is the production still-image source. Single-image generation
- * implements the shared ImageProvider contract; generatePack is an optional
- * Fal-specific extension used by the hybrid visual worker. A pack may receive
- * a canonical reference from an earlier scene, so recurring subjects are
- * reference-conditioned across the episode instead of merely sharing prompt text.
+ * FLUX.2 is the production still-image source. A pack may receive a canonical
+ * reference from an earlier scene, so recurring subjects are reference-
+ * conditioned across the episode instead of merely sharing prompt text.
  */
 
 import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../provider.ts";
+import { assertFalAccountAvailable, recordFalHttpFailure } from "./fal-account-health.ts";
 
 const SIZES: Record<Aspect, { width: number; height: number }> = {
   "9:16": { width: 1024, height: 1792 },
@@ -22,7 +21,6 @@ export interface FalOptions {
   editModel?: string;
   baseUrl?: string;
   outputFormat?: "png" | "jpeg";
-  /** USD per generated image, for cost accounting. */
   pricePerImage?: number;
   fetchImpl?: typeof fetch;
 }
@@ -52,30 +50,19 @@ export class FalImageProvider implements ImageProvider {
     const key = opts.apiKey ?? process.env["FAL_KEY"];
     if (!key) throw new ProviderError("FalImageProvider needs an API key (FAL_KEY)");
     this.apiKey = key;
-    // FLUX.2 [dev] rather than [pro]: verified live (a real generation
-    // against this exact house-style prompt, RFC 0008) that the distilled
-    // dev tier hits the illustrated-story house style -- faceless stick
-    // figures, real environment/object detail, muted wash, paper grain --
-    // at a standard of quality no different from pro for this use case, at
-    // roughly half fal.ai's per-megapixel price ($0.012/MP flat vs pro's
-    // ~$0.03 first MP + $0.015/extra MP). Same request/response shape as
-    // pro (image_size, seed, enable_safety_checker, output_format;
-    // image_urls for /edit), confirmed against fal.ai's own API reference,
-    // so this was a pure config change, not a rewrite.
     this.model = opts.model ?? "fal-ai/flux-2";
     this.editModel = opts.editModel ?? `${this.model}/edit`;
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.outputFormat = opts.outputFormat ?? "png";
     this.pricePerImage = opts.pricePerImage ?? 0.025;
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    // A hung fal.run request has no natural end; without this an unattended
-    // benchmark/smoke can wait indefinitely on one image.
     const raw = Number(process.env["FAL_TIMEOUT_MS"]);
     this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 ? raw : 180_000;
     this.id = `fal/${this.model}`;
   }
 
   private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    assertFalAccountAvailable();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -91,6 +78,7 @@ export class FalImageProvider implements ImageProvider {
   }
 
   private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
+    assertFalAccountAvailable();
     const res = await this.fetchWithTimeout(`${this.baseUrl}/${model}`, {
       method: "POST",
       headers: {
@@ -101,9 +89,10 @@ export class FalImageProvider implements ImageProvider {
     });
 
     if (!res.ok) {
-      throw new ProviderError(
-        `${this.id} returned ${res.status}: ${(await res.text()).slice(0, 500)}`,
-      );
+      const body = (await res.text()).slice(0, 500);
+      recordFalHttpFailure(res.status, body);
+      assertFalAccountAvailable();
+      throw new ProviderError(`${this.id} returned ${res.status}: ${body}`);
     }
 
     const body = (await res.json()) as FalResponse;
@@ -158,17 +147,6 @@ export class FalImageProvider implements ImageProvider {
     return { images, usage };
   }
 
-  /**
-   * Build a shot pack around one anchor. This method is intentionally strict:
-   * callers author the exact temporal shot windows that the compositor will
-   * render, so silently filtering a prompt or capping the list would make the
-   * generated pack disagree with narration timing. Invalid packs fail and the
-   * hybrid worker retains the deterministic motion scene instead.
-   *
-   * When reference is supplied, the first shot is itself an edit of that
-   * earlier canonical image. Remaining shots edit the new scene anchor. This
-   * preserves recurring identity across scenes and within each shot pack.
-   */
   async generatePack(req: {
     prompts: string[];
     aspect: Aspect;

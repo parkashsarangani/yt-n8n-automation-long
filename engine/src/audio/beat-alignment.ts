@@ -32,10 +32,6 @@ function canonicalChar(ch: string): string {
     .toLowerCase();
 }
 
-/**
- * Normalize for robust substring matching while retaining an index back into
- * the exact TTS character stream. Punctuation is ignored; whitespace collapses.
- */
 function normalizeMapped(raw: string): NormalizedText {
   let text = "";
   const rawIndex: number[] = [];
@@ -91,28 +87,35 @@ function startTime(alignment: CharacterAlignment, rawIndex: number): number {
   return 0;
 }
 
-/** Minimum distinctive opening a beat must share with the transcript to be
- * anchored when its full narration is not a verbatim contiguous phrase. The
- * search is always forward of the previous beat's match, so a modest anchor
- * still lands on the correct sequential position; these bounds just stop a
- * one- or two-word fragment from anchoring anywhere. */
+function previousSpokenEnd(alignment: CharacterAlignment, rawIndex: number): number | null {
+  for (let i = Math.min(rawIndex - 1, alignment.characters.length - 1); i >= 0; i--) {
+    if (!alignment.characters[i]?.trim()) continue;
+    const value = alignment.character_end_times_seconds[i];
+    if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  }
+  return null;
+}
+
+const VISUAL_PAUSE_MIN_SEC = 0.25;
+const VISUAL_EARLY_ESTABLISH_MAX_SEC = 0.40;
+
+/**
+ * If a measured beat boundary is preceded by a genuine speech pause, let the
+ * next visual establish during the tail of that pause instead of combining
+ * silence + visual reset + new speech. Audio is authoritative and untouched.
+ */
+function visualBoundaryTime(alignment: CharacterAlignment, rawIndex: number): number {
+  const spokenStart = startTime(alignment, rawIndex);
+  const previousEnd = previousSpokenEnd(alignment, rawIndex);
+  if (previousEnd === null) return spokenStart;
+  const gap = spokenStart - previousEnd;
+  if (!(gap > VISUAL_PAUSE_MIN_SEC)) return spokenStart;
+  return Math.max(previousEnd, spokenStart - Math.min(VISUAL_EARLY_ESTABLISH_MAX_SEC, gap));
+}
+
 const MIN_ANCHOR_WORDS = 3;
 const MIN_ANCHOR_CHARS = 12;
 
-/**
- * Locate a beat's start in the normalized transcript, at or after `cursor`.
- *
- * Preferred: the whole beat narration is a contiguous phrase (verbatim).
- * Fallback: the Visual Director dropped/changed a word mid- or end-phrase, or
- * TTS text normalization diverged from the script it was told to quote. In that
- * case we anchor on the longest verbatim *opening* of the beat (>= 3 words and
- * >= 12 chars), which still gives a measured start time rather than a guessed
- * one.
- *
- * Returns the match offset and the matched length (so the cursor advances past
- * exactly what matched, not past text that was never found), or null when even
- * the opening of the beat is not present sequentially.
- */
 function locateBeatStart(
   haystack: string,
   needle: string,
@@ -131,16 +134,6 @@ function locateBeatStart(
   return null;
 }
 
-/**
- * Align the beats of one narration scene against its measured voice transcript.
- *
- * Every retained beat start is a real position in the transcript — never a
- * reading-speed guess. When the Visual Director's quoted `narration` for a beat
- * cannot be located even by its verbatim opening, that beat is **dropped**: the
- * previous beat's visual simply covers its window. Nothing invents a timestamp.
- * The scene only fails closed when the plan is wholesale unusable — the first
- * beat is unlocatable, or more than half the beats had to be dropped.
- */
 export function alignSceneBeats(
   beats: VisualBeat[],
   alignment: CharacterAlignment,
@@ -187,10 +180,14 @@ export function alignSceneBeats(
     : alignment.character_end_times_seconds.at(-1) ?? 0;
   if (!(safeDuration > 0)) throw new Error("voice clip has no usable duration");
 
-  return starts.map(({ beat, raw }, index) => {
-    const begin = index === 0 ? 0 : startTime(alignment, raw);
-    const nextRaw = starts[index + 1]?.raw;
-    const end = nextRaw === undefined ? safeDuration : startTime(alignment, nextRaw);
+  // One boundary array drives BOTH the previous end and next start. This keeps
+  // visual_timeline perfectly contiguous even when a pause lets the next visual
+  // begin up to 400 ms before its first spoken character.
+  const boundaries = starts.map(({ raw }, index) => index === 0 ? 0 : visualBoundaryTime(alignment, raw));
+
+  return starts.map(({ beat }, index) => {
+    const begin = boundaries[index] ?? 0;
+    const end = boundaries[index + 1] ?? safeDuration;
     if (!(end > begin)) throw new Error(`${beat.id}: aligned audio window is non-positive (${begin.toFixed(3)}-${end.toFixed(3)})`);
     return { ...beat, start_sec: Number(begin.toFixed(3)), end_sec: Number(Math.min(safeDuration, end).toFixed(3)) };
   });
