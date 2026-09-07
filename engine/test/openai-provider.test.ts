@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+// This file exercises the explicit paid `direct` path (streaming SSE, bearer
+// auth, cost, refusals). Production text is free-only with no automatic paid
+// fallback, so reaching `completeDirect` now requires the operator rollback
+// switch. Pin it for the whole file; other suites cover the free chain.
+process.env["LLM_ROUTER_MODE"] = "direct";
+delete process.env["FREELLMAPI_API_KEY"];
+
 import { OpenAIProvider, defaultOpenAIBaseUrl, defaultOpenAIModel, estimateOpenAICost } from "../src/providers/openai.ts";
 import { ProviderError, ProviderRefusal } from "../src/provider.ts";
 

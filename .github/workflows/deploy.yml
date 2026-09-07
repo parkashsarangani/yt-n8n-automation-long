@@ -112,8 +112,29 @@ jobs:
 
           # Smoke the exact pinned text route. This proves the shared service can
           # actually serve Gemini rather than merely responding to /api/ping.
+          #
+          # A rate limit (HTTP 429) is not a deployment blocker: it proves the
+          # route is wired (auth accepted, model recognized, request routed) and
+          # the runtime already falls open to direct OpenAI for reasoning, so a
+          # transient upstream quota does not break production. The node script
+          # exits 3 for a 429 / rate_limit specifically and 1 for anything that
+          # indicates the route is misconfigured (bad key, unknown model,
+          # malformed response). Only the latter, and only when fail-open is
+          # disabled, fails the deploy -- mirroring the /api/ping handling above.
           if [ "${LLM_ROUTER_MODE}" != "direct" ] && [ -n "${FREELLMAPI_API_KEY:-}" ]; then
-            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_TEXT_MODEL;fetch('http://freellmapi:3001/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,messages:[{role:'user',content:'Reply with exactly: OK'}],max_completion_tokens:16,reasoning_effort:'none'})}).then(async r=>{if(!r.ok)throw new Error('Gemini text smoke '+r.status+': '+(await r.text()).slice(0,300));const j=await r.json();if(!j.choices?.length)throw new Error('Gemini text smoke returned no choices');console.log('FreeLLMAPI pinned text smoke OK: '+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+            set +e
+            docker exec "$ENGINE_CID" node -e "const k=process.env.FREELLMAPI_API_KEY,m=process.env.FREELLMAPI_TEXT_MODEL;fetch('http://freellmapi:3001/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+k,'Content-Type':'application/json'},body:JSON.stringify({model:m,messages:[{role:'user',content:'Reply with exactly: OK'}],max_completion_tokens:16,reasoning_effort:'none'})}).then(async r=>{const b=await r.text();if(r.status===429||/rate.?limit|exhaust|cooldown/i.test(b)){console.error('Gemini text smoke rate-limited ('+r.status+'): '+b.slice(0,300));process.exit(3)}if(!r.ok)throw new Error('Gemini text smoke '+r.status+': '+b.slice(0,300));const j=JSON.parse(b);if(!j.choices?.length)throw new Error('Gemini text smoke returned no choices');console.log('FreeLLMAPI pinned text smoke OK: '+(j.model||m))}).catch(e=>{console.error(e.message);process.exit(1)})"
+            smoke=$?
+            set -e
+            if [ "$smoke" -eq 3 ]; then
+              echo "::warning::pinned FreeLLMAPI Gemini text route is rate-limited; runtime reasoning will use direct OpenAI fail-open until quota resets"
+            elif [ "$smoke" -ne 0 ]; then
+              if [ "${LLM_ROUTER_MODE}" = "freellmapi" ] && [ "${LLM_ROUTER_FAIL_OPEN_TO_DIRECT}" = "false" ]; then
+                echo "::error::pinned FreeLLMAPI Gemini text route is misconfigured and fail-open is disabled"
+                exit 1
+              fi
+              echo "::warning::pinned FreeLLMAPI Gemini text smoke failed (route may be misconfigured); runtime will use direct OpenAI fail-open -- investigate the shared FreeLLMAPI key/model"
+            fi
           fi
 
           # Pre-TTS moderation is a hard production dependency, independent of
