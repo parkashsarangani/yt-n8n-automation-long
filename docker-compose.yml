@@ -36,11 +36,13 @@ services:
       # Text is deliberately pinned to Gemini: RFC 0010 forbids `auto` model
       # routing for production creative decisions.
       LLM_ROUTER_MODE: ${LLM_ROUTER_MODE:-freellmapi}
-      LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${LLM_ROUTER_FAIL_OPEN_TO_DIRECT:-true}
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
-      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}
+      # Ordered chain of concrete free models; empty = engine default. No paid fallback.
+      FREELLMAPI_TEXT_MODELS: ${FREELLMAPI_TEXT_MODELS:-}
+      # proxy (default): free text-only visual QA, no paid vision.
+      VISUAL_QA_MODE: ${VISUAL_QA_MODE:-proxy}
 
       # Narration remains on the established ElevenLabs production path.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}

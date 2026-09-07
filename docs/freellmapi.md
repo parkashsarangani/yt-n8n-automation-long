@@ -39,11 +39,12 @@ visible/audible discontinuity.
 
 ```text
 LLM_ROUTER_MODE=freellmapi
-LLM_ROUTER_FAIL_OPEN_TO_DIRECT=true
 FREELLMAPI_BASE_URL=http://freellmapi:3001/v1
-FREELLMAPI_TEXT_MODEL=auto:smart
-FREELLMAPI_VISION_MODEL=auto:smart
+# Ordered chain of concrete free model ids (empty = engine default). No auto.
+FREELLMAPI_TEXT_MODELS=gpt-oss-120b,llama-3.3-70b-fp8-fast,nemotron-3-super-120b,gpt-oss-20b
 LLM_ROUTER_TIMEOUT_MS=120000
+# Visual QA: proxy (free text metadata screen) by default; real is opt-in.
+VISUAL_QA_MODE=proxy
 ```
 
 `LLM_ROUTER_MODE=direct` is the immediate reasoning/vision rollback to Long's

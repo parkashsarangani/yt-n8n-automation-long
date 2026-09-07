@@ -1,4 +1,5 @@
 import { prepareVisionImages } from "./media/vision-image.ts";
+import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 import type { QaImage, VisualBeatFetch } from "./visual-beat-qa.ts";
 import type { VisualBeat } from "./visual-routing.ts";
 
@@ -89,6 +90,11 @@ export async function compareRenderedVisualsBlind(
   beat: VisualBeat,
   fetchImpl: VisualBeatFetch = fetch as unknown as VisualBeatFetch,
 ): Promise<BlindComparisonResult | null> {
+  // A blind control-vs-candidate comparison is inherently pixel work; there is
+  // no metadata proxy for it. Normal runs skip it (null = comparison
+  // unavailable). It only runs under the explicit manual real-vision benchmark.
+  if (!realVisionQaEnabled()) return null;
+
   const [optionA, optionB] = await Promise.all([prepareVisionImages(rawA), prepareVisionImages(rawB)]);
 
   // RFC 0010's comparative result is acceptance evidence just like its absolute

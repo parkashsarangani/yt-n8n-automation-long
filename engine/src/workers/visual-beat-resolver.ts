@@ -348,7 +348,10 @@ async function generateImage(
       // content, required action, filler, continuity and why-failure evidence;
       // the older RFC 0009 contradiction-only call added cost without adding an
       // independent admission signal here.
-      const beatQa = await scoreVisualBeatImage(image, beat, undefined, previous ? { previous } : {});
+      const beatQa = await scoreVisualBeatImage(image, beat, undefined, {
+        ...(previous ? { previous } : {}),
+        sourcing: { generation_prompt: concept, asset_metadata: `generated_image concept ${index + 1}/${concepts.length}` },
+      });
       if (!beatQa) {
         failures.push("visual QA unavailable");
         unverified.push(image);
@@ -451,7 +454,13 @@ async function resolveStockVideo(
           const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
           if (!salvage) salvage = { source, start: window.start, end: window.end, frames };
           if (qaDown) break;
-          const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
+          const qa = await scoreVisualBeatFrames(frames, beat, {
+            ...(previous ? { previous } : {}),
+            sourcing: {
+              stock_query: queries[queryIndex]!,
+              asset_metadata: `pexels ${source.id}${source.source_url ? ` ${source.source_url}` : ""}; window ${window.start.toFixed(1)}-${window.end.toFixed(1)}s`,
+            },
+          });
           if (!qa) {
             qaDown = true;
             markVisionQaUnavailable(health, `${beat.id}: stock-video window could not be scored`);
@@ -611,7 +620,10 @@ async function generateVideo(
       const sampled = await sampleVideoFrames(generated.bytes, 0, generated.duration_sec, 5);
       const frames: QaImage[] = sampled.map((frame) => ({ bytes: frame.bytes, media_type: frame.media_type }));
       if (!salvage) salvage = { bytes: generated.bytes, frames, model: generated.model, duration: generated.duration_sec };
-      const qa = await scoreVisualBeatFrames(frames, beat, previous ? { previous } : {});
+      const qa = await scoreVisualBeatFrames(frames, beat, {
+        ...(previous ? { previous } : {}),
+        sourcing: { generation_prompt: concept, asset_metadata: `generated_video motion: ${motion}` },
+      });
       if (!qa) {
         markVisionQaUnavailable(health, `${beat.id}: generated-video candidate could not be scored`);
         break;

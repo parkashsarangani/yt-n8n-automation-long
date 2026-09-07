@@ -1,15 +1,18 @@
 /**
  * OpenAI-compatible reasoning provider (RFC 0004).
  *
- * Production is free-first: when LLM_ROUTER_MODE is not `direct`, requests go
- * to the shared FreeLLMAPI instance first. FreeLLMAPI's OpenAI-compatible
- * response is deliberately non-streaming because its router aggregates hosted
- * provider responses. Bounded free retries absorb transient transport/model
- * formatting failures before the paid fail-open is considered. `direct`
- * remains the immediate rollback switch.
+ * Production is free-only: when LLM_ROUTER_MODE is not `direct`, requests walk
+ * an explicit ordered chain of concrete free FreeLLMAPI models. A model that is
+ * rate-limited / 5xx / times out / returns malformed content hands off to the
+ * next id in the list. When every configured model is unavailable the request
+ * FAILS — there is no automatic paid-OpenAI fallback. `direct` mode stays as a
+ * manual operator rollback that calls paid OpenAI, but nothing selects it
+ * automatically.
  *
- * response_format stays at `json_object`; the registry remains the strict
- * authoritative schema validator after generation.
+ * FreeLLMAPI's OpenAI-compatible response is deliberately non-streaming because
+ * its router aggregates hosted provider responses. response_format stays at
+ * `json_object`; the registry remains the strict authoritative schema
+ * validator after generation.
  */
 
 import {
@@ -180,44 +183,56 @@ export class OpenAIProvider implements ModelProvider {
     const routing = llmRoutingConfig();
     this.id = routing.mode === "direct"
       ? `openai/${this.model}`
-      : `freellmapi/${routing.textModel}+openai-failopen`;
+      : `freellmapi:[${routing.textModels.join(",")}]`;
   }
 
   capabilities(): ProviderCapabilities {
     return { structuredOutput: "native", maxOutputTokens: 128_000 };
   }
 
+  /**
+   * Text completion.
+   *
+   * `direct` mode is an explicit manual operator rollback and calls paid
+   * OpenAI. The default `freellmapi` mode walks the ordered free-model chain
+   * and, when every model is unavailable, fails loudly. There is deliberately
+   * NO automatic paid fallback: exhausting the free list is a real outage the
+   * caller must see, not a reason to start spending.
+   */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const routing = llmRoutingConfig();
     if (routing.mode === "direct") return this.completeDirect(req);
+    if (!routing.apiKey) {
+      throw new ProviderError("FreeLLMAPI reasoning requires FREELLMAPI_API_KEY (there is no paid text fallback)");
+    }
 
-    let freeError: unknown;
-    for (let attempt = 1; attempt <= this.freeAttempts; attempt++) {
+    const attempted: string[] = [];
+    let lastError: unknown;
+    for (const model of routing.textModels) {
       try {
-        return await this.completeFree(req, routing);
+        return await this.completeFree(req, routing, model);
       } catch (err) {
-        freeError = err;
-        if (!retryableFreeReasoningError(err) || attempt === this.freeAttempts) break;
-        console.warn(`[llm-routing] FreeLLMAPI reasoning attempt ${attempt}/${this.freeAttempts} failed; retrying free route`);
-        await this.sleepImpl(this.freeRetryDelayMs * attempt);
+        // A refusal or a caller/schema error is identical on every model.
+        if (err instanceof ProviderRefusal) throw err;
+        if (!retryableFreeReasoningError(err)) throw err;
+        attempted.push(model);
+        lastError = err;
+        // Cost/observability signal only; never log prompt or response bodies.
+        console.warn(`[llm-routing] free text model ${model} unavailable; trying next pinned model`);
+        if (this.freeRetryDelayMs > 0 && attempted.length < routing.textModels.length) {
+          await this.sleepImpl(this.freeRetryDelayMs);
+        }
       }
     }
 
-    if (!routing.failOpenToDirect) throw freeError;
-    if (!this.apiKey) {
-      const detail = freeError instanceof Error ? freeError.message : String(freeError);
-      throw new ProviderError(
-        `FreeLLMAPI reasoning failed and OPENAI_API_KEY is not set for fail-open: ${detail}`,
-      );
-    }
-    // Cost-oriented signal only. Do not log prompts, response bodies, API
-    // keys, or the upstream error text because provider errors can echo input.
-    console.warn("[llm-routing] FreeLLMAPI reasoning exhausted free retries; retrying through direct OpenAI");
-    return this.completeDirect(req);
+    const detail = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new ProviderError(
+      `all ${attempted.length} configured free text model(s) unavailable [${attempted.join(", ")}]: ${detail}`,
+    );
   }
 
-  private async completeFree(req: CompletionRequest, routing: LlmRoutingConfig): Promise<CompletionResult> {
-    const providerRef = `freellmapi/${routing.textModel}`;
+  private async completeFree(req: CompletionRequest, routing: LlmRoutingConfig, model: string): Promise<CompletionResult> {
+    const providerRef = `freellmapi/${model}`;
     if (!routing.apiKey) throw new ProviderError(`${providerRef} request failed: FREELLMAPI_API_KEY is not set`);
 
     const maxTokens = req.maxOutputTokens ?? this.defaultMaxTokens;
@@ -231,7 +246,7 @@ export class OpenAIProvider implements ModelProvider {
           "Content-Type": "application/json",
           Authorization: `Bearer ${routing.apiKey}`,
         },
-        body: JSON.stringify(structuredBody(routing.textModel, req, this.defaultMaxTokens, this.defaultEffort, false)),
+        body: JSON.stringify(structuredBody(model, req, this.defaultMaxTokens, this.defaultEffort, false)),
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -260,7 +275,7 @@ export class OpenAIProvider implements ModelProvider {
     const content = choice?.message?.content;
     if (typeof content !== "string" || !content) throw new ProviderError(`${providerRef} returned no content`);
 
-    const actualModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : routing.textModel;
+    const actualModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : model;
     return {
       value: parsedJson(providerRef, content),
       usage: {

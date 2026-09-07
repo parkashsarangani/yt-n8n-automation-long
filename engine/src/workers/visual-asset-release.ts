@@ -74,10 +74,17 @@ export function assessVisualAssetRelease(payload: unknown): VisualAssetAssessmen
   const scores = review?.scores && typeof review.scores === "object"
     ? review.scores as Record<string, unknown>
     : {};
-  const criticalFailures = CRITICAL_VISUAL_SCORES.flatMap((key) => {
-    const value = scores[key];
-    return finiteScore(value) && value < VISUAL_REVIEW_FAIL_FLOOR ? [`${key}=${value.toFixed(2)}`] : [];
-  });
+  // An "unavailable" review reports zero scores to mean "unknown", not "bad".
+  // Treating those zeros as critical failures would block every render whenever
+  // the review could not run (e.g. the no-cost text-proxy path does not produce
+  // an episode-level visual review). Skip the critical-score check in that case;
+  // it becomes a warning below instead.
+  const criticalFailures = review?.status === "unavailable"
+    ? []
+    : CRITICAL_VISUAL_SCORES.flatMap((key) => {
+      const value = scores[key];
+      return finiteScore(value) && value < VISUAL_REVIEW_FAIL_FLOOR ? [`${key}=${value.toFixed(2)}`] : [];
+    });
   if (criticalFailures.length > 0) {
     failures.push(`critical visual-review score below ${VISUAL_REVIEW_FAIL_FLOOR.toFixed(2)}: ${criticalFailures.join(", ")}`);
   }

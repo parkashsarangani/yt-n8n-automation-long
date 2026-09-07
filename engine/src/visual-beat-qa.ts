@@ -1,5 +1,8 @@
 import { prepareVisionImage } from "./media/vision-image.ts";
+import { metadataSemanticGate, type SemanticGateInput } from "./metadata-semantic-gate.ts";
+import type { ModelProvider } from "./provider.ts";
 import { ensureVisionCapability } from "./vision-capability.ts";
+import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 import type { CandidateScores, VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -20,7 +23,22 @@ export interface VisualBeatQaResult {
   garbled_text?: boolean;
   implausible_object_scale?: boolean;
   environment_mismatch?: boolean;
+  /**
+   * How this verdict was reached. `metadata_proxy` = a text-only
+   * sourcing-intent screen, no pixel was inspected; the vision-only booleans
+   * above are left unset. `direct_vision` = the paid pixel-inspecting path
+   * (opt-in only, guarded by the canary).
+   */
+  source: "metadata_proxy" | "direct_vision";
 }
+
+/** Per-candidate sourcing metadata the text-only proxy screens. */
+export interface VisualBeatSourcing {
+  generation_prompt?: string;
+  stock_query?: string;
+  asset_metadata?: string;
+}
+
 export type VisualBeatFetch = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
@@ -106,6 +124,36 @@ function evidenceAdjustedResult(parsed: Record<string, unknown>, beat: VisualBea
     implausible_object_scale: implausibleObjectScale,
     environment_mismatch: environmentMismatch,
     reason,
+    source: "direct_vision",
+  };
+}
+
+/**
+ * Adapt a text-only metadata-proxy verdict to the QA result shape the resolver
+ * consumes. Deliberately conservative: `accept` maps to scores that clear the
+ * acceptance floors, `reject` fails the beat, and every vision-only evidence
+ * boolean is LEFT UNSET — the proxy did not look at a pixel and must not be
+ * read as having confirmed action, identity, framing, typography or scale.
+ */
+function proxyToQaResult(gate: NonNullable<Awaited<ReturnType<typeof metadataSemanticGate>>>): VisualBeatQaResult {
+  const pass = gate.accept;
+  const strength = pass ? Math.max(0.9, gate.confidence) : Math.min(0.4, gate.confidence);
+  return {
+    scores: {
+      // Sourcing-intent screen only. Not a pixel-verified semantic score.
+      semantic_match: pass ? Math.max(0.9, strength) : 0.3,
+      // The proxy cannot see an action. Per the existing "1.0 if none"
+      // convention it does not penalise here; the `accept` decision already
+      // reflects whether the prompt/query targets the intended action.
+      action_match: pass ? 1 : 0.2,
+      visual_interest: pass ? 0.85 : 0.3,
+      continuity: 1,
+    },
+    generic_filler: !pass && gate.concern === "generic_filler",
+    why_failure: !pass,
+    repetitive_with_context: false,
+    reason: `metadata proxy [${gate.concern}]: ${gate.reason}`.slice(0, 500),
+    source: "metadata_proxy",
   };
 }
 
@@ -176,7 +224,35 @@ async function request(
   finally{ clearTimeout(timer); }
 }
 
-async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualBeatFetch):Promise<VisualBeatQaResult|null>{
+function proxyInput(beat: VisualBeat, sourcing: VisualBeatSourcing | undefined): SemanticGateInput {
+  return {
+    narration: beat.narration,
+    viewer_takeaway: beat.visual_contract.viewer_takeaway,
+    required: beat.visual_contract.required,
+    forbidden: beat.visual_contract.forbidden,
+    required_action: beat.visual_contract.required_action || undefined,
+    visual_mode: beat.routing.preferred,
+    generation_prompt: sourcing?.generation_prompt ?? beat.asset_brief.generation_prompt ?? undefined,
+    stock_query: sourcing?.stock_query ?? beat.asset_brief.query ?? undefined,
+    asset_metadata: sourcing?.asset_metadata,
+  };
+}
+
+async function routedRequest(
+  raw: RequestFrames,
+  beat: VisualBeat,
+  fetchImpl: VisualBeatFetch,
+  sourcing?: VisualBeatSourcing,
+  proxyProvider?: ModelProvider,
+): Promise<VisualBeatQaResult | null> {
+  // Default path: no paid vision. Screen the sourcing intent from metadata
+  // with one free text-model call. `null` here means the free text chain is
+  // entirely down (infra), which the caller treats as QA-unavailable.
+  if (!realVisionQaEnabled()) {
+    const gate = await metadataSemanticGate(proxyInput(beat, sourcing), proxyProvider ? { provider: proxyProvider } : {});
+    return gate ? proxyToQaResult(gate) : null;
+  }
+
   const frames:RequestFrames={
     candidate:await Promise.all(raw.candidate.map(prepareVisionImage)),
     ...(raw.previous?{previous:await prepareVisionImage(raw.previous)}:{}),
@@ -197,5 +273,7 @@ async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualB
   return request(endpoint,frames,beat,fetchImpl);
 }
 
-export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:{previous?:QaImage;next?:QaImage}={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl); }
-export async function scoreVisualBeatFrames(frames:QaImage[],beat:VisualBeat,adjacent:{previous?:QaImage;next?:QaImage}={},fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:frames.slice(0,6),...adjacent},beat,fetchImpl); }
+type QaAdjacent = { previous?: QaImage; next?: QaImage; sourcing?: VisualBeatSourcing; proxyProvider?: ModelProvider };
+
+export async function scoreVisualBeatImage(image:QaImage,beat:VisualBeat,fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch,adjacent:QaAdjacent={}):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:[image],...adjacent},beat,fetchImpl,adjacent.sourcing,adjacent.proxyProvider); }
+export async function scoreVisualBeatFrames(frames:QaImage[],beat:VisualBeat,adjacent:QaAdjacent={},fetchImpl:VisualBeatFetch=fetch as unknown as VisualBeatFetch):Promise<VisualBeatQaResult|null>{ return routedRequest({candidate:frames.slice(0,6),...adjacent},beat,fetchImpl,adjacent.sourcing,adjacent.proxyProvider); }

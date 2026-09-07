@@ -58,15 +58,11 @@ test("a stage is satisfied by any one complete group, not by a partial one", () 
   assert.equal(credentialsSatisfied(publish, { YOUTUBE_ACCESS_TOKEN: "ya29." }), true);
 });
 
-test("reasoning is FreeLLMAPI-first with explicit direct rollback and optional paid fail-open", () => {
+test("reasoning is free-only: the free key satisfies it, a paid-only key does not", () => {
   const reasoning = STAGES.find((s) => s.id === "reasoning")!;
   assert.equal(credentialsSatisfied(reasoning, {}), false);
   assert.equal(credentialsSatisfied(reasoning, { FREELLMAPI_API_KEY: "free" }), true);
-  assert.equal(credentialsSatisfied(reasoning, { OPENAI_API_KEY: "paid" }), true, "default fail-open keeps existing deployments live while FreeLLMAPI is configured");
-  assert.equal(credentialsSatisfied(reasoning, {
-    OPENAI_API_KEY: "paid",
-    LLM_ROUTER_FAIL_OPEN_TO_DIRECT: "false",
-  }), false, "strict free mode must not pretend a paid-only credential is usable");
+  assert.equal(credentialsSatisfied(reasoning, { OPENAI_API_KEY: "paid" }), false, "there is no paid text fallback; a paid-only key cannot run reasoning");
   assert.equal(credentialsSatisfied(reasoning, {
     FREELLMAPI_API_KEY: "free",
     LLM_ROUTER_MODE: "direct",
@@ -75,22 +71,32 @@ test("reasoning is FreeLLMAPI-first with explicit direct rollback and optional p
     OPENAI_API_KEY: "paid",
     LLM_ROUTER_MODE: "direct",
   }), true);
-  assert.match(reasoning.consequence, /no offline model fallback/);
+  assert.match(reasoning.consequence, /no paid fallback/);
 });
 
-test("reasoning capability report exposes pinned Gemini primary and paid fail-open", () => {
+test("reasoning capability report shows the ordered free-model chain, no paid fallback", () => {
   const reasoning = capabilityReport({
     allowPublish: false,
     env: {
       FREELLMAPI_API_KEY: "free",
-      FREELLMAPI_TEXT_MODEL: "gemini-3.5-flash",
+      FREELLMAPI_TEXT_MODELS: "model-a,model-b,model-c,model-d",
       OPENAI_API_KEY: "paid",
       OPENAI_MODEL: "gpt-5.6-luna",
     },
   }).find((s) => s.id === "reasoning")!;
   assert.equal(reasoning.real, true);
-  assert.equal(reasoning.provider, "freellmapi/gemini-3.5-flash → openai/gpt-5.6-luna fail-open");
+  assert.equal(reasoning.provider, "freellmapi free chain [model-a, model-b, model-c, +1]");
+  assert.doesNotMatch(reasoning.provider, /openai|fail-open/);
   assert.deepEqual(reasoning.missing, []);
+});
+
+test("reasoning is unavailable when the free key is missing, even with a paid key present", () => {
+  const reasoning = capabilityReport({
+    allowPublish: false,
+    env: { OPENAI_API_KEY: "paid", OPENAI_MODEL: "gpt-5.6-luna" },
+  }).find((s) => s.id === "reasoning")!;
+  assert.equal(reasoning.real, false);
+  assert.deepEqual(reasoning.missing, ["FREELLMAPI_API_KEY"]);
 });
 
 test("direct rollback is reported as direct OpenAI rather than FreeLLMAPI", () => {
@@ -104,24 +110,31 @@ test("direct rollback is reported as direct OpenAI rather than FreeLLMAPI", () =
     },
   }).find((s) => s.id === "reasoning")!;
   assert.equal(reasoning.real, true);
-  assert.equal(reasoning.provider, "openai/gpt-5.6-terra");
+  assert.equal(reasoning.provider, "openai/gpt-5.6-terra (manual rollback)");
 });
 
-test("visual QA is a direct OpenAI capability independent of FreeLLMAPI reasoning", () => {
+test("visual QA defaults to the free text proxy; real pixel vision is opt-in", () => {
   const visual = STAGES.find((s) => s.id === "visual_qa")!;
-  assert.equal(credentialsSatisfied(visual, { FREELLMAPI_API_KEY: "free" }), false);
-  assert.equal(credentialsSatisfied(visual, { OPENAI_API_KEY: "paid" }), true);
+  // Default (proxy) mode: the free key satisfies it, a paid-only key does not.
+  assert.equal(credentialsSatisfied(visual, { FREELLMAPI_API_KEY: "free" }), true);
+  assert.equal(credentialsSatisfied(visual, { OPENAI_API_KEY: "paid" }), false);
+  // Opt-in real mode: now it needs the OpenAI key.
+  assert.equal(credentialsSatisfied(visual, { VISUAL_QA_MODE: "real", OPENAI_API_KEY: "paid" }), true);
+  assert.equal(credentialsSatisfied(visual, { VISUAL_QA_MODE: "real", FREELLMAPI_API_KEY: "free" }), false);
 
-  const report = capabilityReport({
+  const proxy = capabilityReport({
     allowPublish: false,
-    env: {
-      FREELLMAPI_API_KEY: "free",
-      OPENAI_API_KEY: "paid",
-      OPENAI_IMAGE_QA_MODEL: "vision-model",
-    },
+    env: { FREELLMAPI_API_KEY: "free" },
   }).find((s) => s.id === "visual_qa")!;
-  assert.equal(report.real, true);
-  assert.equal(report.provider, "openai/vision-model");
+  assert.equal(proxy.real, true);
+  assert.equal(proxy.provider, "free text semantic proxy (no paid vision)");
+
+  const realVision = capabilityReport({
+    allowPublish: false,
+    env: { VISUAL_QA_MODE: "real", OPENAI_API_KEY: "paid", OPENAI_IMAGE_QA_MODEL: "vision-model" },
+  }).find((s) => s.id === "visual_qa")!;
+  assert.equal(realVision.real, true);
+  assert.equal(realVision.provider, "openai/vision-model (real vision, opt-in)");
 });
 
 test("blank and whitespace-only Fal keys do not enable illustration artwork", () => {
@@ -148,18 +161,6 @@ test("report names the shortest route to fixing an unsatisfied stage", () => {
   assert.deepEqual(publish.missing, ["YOUTUBE_REFRESH_TOKEN"]);
 });
 
-test("strict free mode reports the FreeLLMAPI key as the missing reasoning credential", () => {
-  const reasoning = capabilityReport({
-    allowPublish: false,
-    env: {
-      OPENAI_API_KEY: "paid",
-      LLM_ROUTER_FAIL_OPEN_TO_DIRECT: "false",
-    },
-  }).find((s) => s.id === "reasoning")!;
-  assert.equal(reasoning.real, false);
-  assert.deepEqual(reasoning.missing, ["FREELLMAPI_API_KEY"]);
-});
-
 test("credentials present but publishing switched off is reported as blocked, not missing", () => {
   const publish = capabilityReport({
     allowPublish: false,
@@ -175,7 +176,7 @@ test("a fully configured deployment reports every stage live", () => {
     allowPublish: true,
     env: {
       FREELLMAPI_API_KEY: "free-test",
-      FREELLMAPI_TEXT_MODEL: "gemini-3.5-flash",
+      FREELLMAPI_TEXT_MODELS: "model-a,model-b,model-c",
       OPENAI_API_KEY: "sk-test",
       OPENAI_MODEL: "gpt-5.6-luna",
       ELEVENLABS_API_KEY: "el",
@@ -187,8 +188,8 @@ test("a fully configured deployment reports every stage live", () => {
     },
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
-  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi/gemini-3.5-flash → openai/gpt-5.6-luna fail-open");
-  assert.equal(report.find((s) => s.id === "visual_qa")!.provider, "openai/gpt-5.6-luna");
+  assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi free chain [model-a, model-b, model-c]");
+  assert.equal(report.find((s) => s.id === "visual_qa")!.provider, "free text semantic proxy (no paid vision)");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {
@@ -249,10 +250,9 @@ test("the keys the illustrated-story and RFC0010 paths need are saveable end to 
   const keys = [
     "FREELLMAPI_API_KEY",
     "LLM_ROUTER_MODE",
-    "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
     "LLM_ROUTER_TIMEOUT_MS",
     "FREELLMAPI_BASE_URL",
-    "FREELLMAPI_TEXT_MODEL",
+    "FREELLMAPI_TEXT_MODELS",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
     "OPENAI_IMAGE_QA_MODEL",

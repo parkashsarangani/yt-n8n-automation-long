@@ -21,9 +21,11 @@ jobs:
     timeout-minutes: 75
     env:
       FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
-      FREELLMAPI_TEXT_MODEL: gemini-3.5-flash
+      # Ordered chain of concrete free models; empty = engine default.
+      FREELLMAPI_TEXT_MODELS: ${{ vars.FREELLMAPI_TEXT_MODELS || '' }}
       LLM_ROUTER_MODE: freellmapi
-      LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
+      # This is the explicit MANUAL real-vision benchmark path. Normal runs use the proxy.
+      VISUAL_QA_MODE: real
       LLM_ROUTER_TIMEOUT_MS: ${{ vars.LLM_ROUTER_TIMEOUT_MS || '120000' }}
       SHARED_LLM_NETWORK: ${{ vars.SHARED_LLM_NETWORK || 'yt-n8n-automation-shorts_default' }}
 
@@ -77,8 +79,8 @@ jobs:
               exit 1
             fi
           done
-          if [[ "$FREELLMAPI_TEXT_MODEL" == auto* ]] || [[ ! "$FREELLMAPI_TEXT_MODEL" =~ [Gg][Ee][Mm][Ii][Nn][Ii] ]]; then
-            echo "::error::text decisions must remain pinned to a concrete Gemini model; got $FREELLMAPI_TEXT_MODEL"
+          if printf '%s' "${FREELLMAPI_TEXT_MODELS:-}" | grep -qiE '(^|,)[[:space:]]*auto(:|[[:space:]]*(,|$))'; then
+            echo "::error::FREELLMAPI_TEXT_MODELS may not contain auto routing"
             exit 1
           fi
 

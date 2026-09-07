@@ -1,3 +1,8 @@
+// This suite exercises the opt-in REAL (pixel-inspecting) vision path.
+// Normal runs use the text-only metadata proxy; the real path only runs when
+// VISUAL_QA_MODE is explicitly enabled.
+process.env["VISUAL_QA_MODE"] = "real";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { compareRenderedVisualsBlind } from "../src/visual-benchmark-judge.ts";

@@ -107,7 +107,7 @@ async function generateAccepted(provider: ReferenceCapableProvider, prompt: stri
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference, tier);
-      const semantic = narration ? await checkGeneratedImageMatchesNarration(image, narration) : null;
+      const semantic = narration ? await checkGeneratedImageMatchesNarration(image, narration, undefined, prompt) : null;
       const failures: string[] = [];
       if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
       if (!failures.length) return image;

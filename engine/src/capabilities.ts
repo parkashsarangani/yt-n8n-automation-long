@@ -5,6 +5,9 @@
  * capability reporting, and credential coverage tests.
  */
 
+import { resolveTextModels } from "./llm-routing.ts";
+import { realVisionQaEnabled } from "./visual-qa-mode.ts";
+
 export interface StageSpec {
   id: string;
   label: string;
@@ -23,24 +26,23 @@ export const STAGES: StageSpec[] = [
     requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
     optional: [
       "LLM_ROUTER_MODE",
-      "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
       "LLM_ROUTER_TIMEOUT_MS",
       "FREELLMAPI_BASE_URL",
-      "FREELLMAPI_TEXT_MODEL",
+      "FREELLMAPI_TEXT_MODELS",
       "OPENAI_MODEL",
     ],
-    real: "freellmapi/${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}",
+    real: "freellmapi ordered free-model chain",
     fallback: "unavailable",
-    consequence: "runs fail at the first reasoning node — there is no offline model fallback for creative planning",
+    consequence: "runs fail at the first reasoning node — the free-model chain is the only text path, there is no paid fallback",
   },
   {
     id: "visual_qa",
-    label: "RFC 0010 candidate and rendered-pixel visual QA",
-    requires: [["OPENAI_API_KEY"]],
-    optional: ["OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL"],
-    real: "openai/${OPENAI_IMAGE_QA_MODEL:-${OPENAI_MODEL:-gpt-5.6-luna}}",
+    label: "Visual QA (text metadata proxy by default; real vision is opt-in)",
+    requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
+    optional: ["VISUAL_QA_MODE", "OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL"],
+    real: "free text semantic proxy (no paid vision) unless VISUAL_QA_MODE=real",
     fallback: "unavailable",
-    consequence: "RFC 0010 cannot verify visual relevance or produce a trustworthy benchmark result",
+    consequence: "candidate sourcing intent cannot be screened; a real pixel-level benchmark still needs VISUAL_QA_MODE=real + OPENAI_API_KEY",
   },
   {
     id: "speech",
@@ -121,19 +123,16 @@ function routerMode(env: NodeJS.ProcessEnv): "freellmapi" | "direct" {
   return env["LLM_ROUTER_MODE"]?.trim().toLowerCase() === "direct" ? "direct" : "freellmapi";
 }
 
-function failOpen(env: NodeJS.ProcessEnv): boolean {
-  const v = env["LLM_ROUTER_FAIL_OPEN_TO_DIRECT"]?.trim().toLowerCase();
-  return v === undefined || !["false", "0", "off", "no"].includes(v);
-}
-
 function speechMode(env: NodeJS.ProcessEnv): "freellmapi" | "elevenlabs" {
   return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "elevenlabs";
 }
 
 function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
-  if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY");
-  if (isSet(env, "FREELLMAPI_API_KEY")) return true;
-  return failOpen(env) && isSet(env, "OPENAI_API_KEY");
+  // `direct` is the explicit manual paid rollback. Default `freellmapi` mode
+  // has no paid fallback, so it needs the free key and nothing else.
+  return routerMode(env) === "direct"
+    ? isSet(env, "OPENAI_API_KEY")
+    : isSet(env, "FREELLMAPI_API_KEY");
 }
 
 function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
@@ -145,16 +144,23 @@ function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
   if (spec.id === "speech") return speechSatisfied(env);
+  if (spec.id === "visual_qa") {
+    return realVisionQaEnabled(env) ? isSet(env, "OPENAI_API_KEY") : isSet(env, "FREELLMAPI_API_KEY");
+  }
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
 function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
   if (spec.id === "reasoning") {
     if (routerMode(env) === "direct") return isSet(env, "OPENAI_API_KEY") ? [] : ["OPENAI_API_KEY"];
-    if (!isSet(env, "FREELLMAPI_API_KEY") && !failOpen(env)) return ["FREELLMAPI_API_KEY"];
+    if (!isSet(env, "FREELLMAPI_API_KEY")) return ["FREELLMAPI_API_KEY"];
   }
   if (spec.id === "speech") {
     const key = speechMode(env) === "elevenlabs" ? "ELEVENLABS_API_KEY" : "FREELLMAPI_API_KEY";
+    return isSet(env, key) ? [] : [key];
+  }
+  if (spec.id === "visual_qa") {
+    const key = realVisionQaEnabled(env) ? "OPENAI_API_KEY" : "FREELLMAPI_API_KEY";
     return isSet(env, key) ? [] : [key];
   }
   return spec.requires
@@ -164,19 +170,25 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
 
 function reasoningProvider(env: NodeJS.ProcessEnv): string {
   const openaiModel = env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
-  if (routerMode(env) === "direct") return `openai/${openaiModel}`;
-  if (isSet(env, "FREELLMAPI_API_KEY")) {
-    const freeModel = env["FREELLMAPI_TEXT_MODEL"]?.trim() || "gemini-3.5-flash";
-    return failOpen(env) && isSet(env, "OPENAI_API_KEY")
-      ? `freellmapi/${freeModel} → openai/${openaiModel} fail-open`
-      : `freellmapi/${freeModel}`;
+  if (routerMode(env) === "direct") return `openai/${openaiModel} (manual rollback)`;
+  let chain: string[];
+  try {
+    chain = resolveTextModels(env);
+  } catch {
+    chain = ["<invalid FREELLMAPI_TEXT_MODELS>"];
   }
-  return `openai/${openaiModel} (FreeLLMAPI unconfigured; fail-open)`;
+  const head = chain.slice(0, 3).join(", ") + (chain.length > 3 ? `, +${chain.length - 3}` : "");
+  return isSet(env, "FREELLMAPI_API_KEY")
+    ? `freellmapi free chain [${head}]`
+    : `freellmapi free chain [${head}] (FREELLMAPI_API_KEY unset - reasoning unavailable)`;
 }
 
 function visualQaProvider(env: NodeJS.ProcessEnv): string {
-  const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
-  return `openai/${model}`;
+  if (realVisionQaEnabled(env)) {
+    const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
+    return `openai/${model} (real vision, opt-in)`;
+  }
+  return "free text semantic proxy (no paid vision)";
 }
 
 function speechProvider(env: NodeJS.ProcessEnv): string {

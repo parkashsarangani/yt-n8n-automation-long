@@ -21,7 +21,9 @@
 // results rather than synthetic quality scores.
 
 import { prepareVisionImages } from "./media/vision-image.ts";
+import { metadataSemanticGate } from "./metadata-semantic-gate.ts";
 import { ensureVisionCapability } from "./vision-capability.ts";
+import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 
 const TIMEOUT_MS = (() => {
   const raw = Number(process.env["IMAGE_QA_TIMEOUT_MS"]);
@@ -143,6 +145,11 @@ async function askVisionMany(
   opts: { timeoutMs?: number; label?: string } = {},
 ): Promise<Record<string, unknown> | null> {
   if (rawImages.length === 0) return null;
+  // Normal runs do not pay for OpenAI vision. Callers of the illustrated-story
+  // vision helpers below degrade non-fatally on `null`: a contradiction check
+  // becomes "no contradiction", hero ranking falls to the first candidate, and
+  // the episode review is reported "unavailable" (a warning, not a fail).
+  if (!realVisionQaEnabled()) return null;
   const images = await prepareVisionImages(rawImages);
 
   const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
@@ -191,9 +198,32 @@ export async function checkGeneratedImageMatchesNarration(
   image: { bytes: Uint8Array; media_type: string },
   narration: string,
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
+  prompt?: string,
 ): Promise<SemanticQaResult | null> {
   const line = narration.trim().slice(0, 400);
   if (!line) return null;
+
+  // No paid vision on a normal run. When the generation prompt is available we
+  // still screen prompt/narration consistency with the free text proxy — a
+  // metadata check, not a pixel check, so a "no contradiction" here never
+  // asserts the image is correct, only that the prompt targeted the line.
+  if (!realVisionQaEnabled()) {
+    const p = prompt?.trim();
+    if (!p) return null;
+    const gate = await metadataSemanticGate({
+      narration: line,
+      required: [],
+      forbidden: [],
+      visual_mode: "generated_image",
+      generation_prompt: p,
+    });
+    if (!gate) return null;
+    return {
+      contradictsNarration: !gate.accept && gate.concern === "prompt_narration_mismatch",
+      reason: `metadata proxy: ${gate.reason}`,
+    };
+  }
+
   const parsed = await askVision(
     image,
     `This illustration plays under this spoken narration: "${line}"\n\nDecide ONLY whether it actively contradicts or materially misrepresents the line (wrong event, wrong causal direction, figurative phrase rendered as a false literal event). Do NOT flag an image merely for being atmospheric, partial, stylised, loose, abstract, or oblique b-roll. If you are unsure, answer false. Respond ONLY JSON: {\"contradicts_narration\":true|false,\"reason\":\"one short sentence\"}`,
