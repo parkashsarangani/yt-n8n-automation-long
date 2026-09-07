@@ -6,6 +6,7 @@
  */
 
 import { resolveTextModels } from "./llm-routing.ts";
+import { freeImageChainReady, resolveFreeImageModels } from "./freellm-media-models.ts";
 import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 
 export interface StageSpec {
@@ -205,13 +206,14 @@ function speechProvider(env: NodeJS.ProcessEnv): string {
 }
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
-  const freeChain = (env["FREELLMAPI_IMAGE_MODELS"]?.trim() || "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
   const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
   const editModel = env["FAL_EDIT_MODEL"]?.trim() || `${model}/edit`;
   const hasFal = isSet(env, "FAL_KEY");
   const paidImage = /^(1|true|yes|on)$/i.test((env["PAID_IMAGE_FALLBACK"] ?? "true").trim());
-  if (freeChain.length > 0) {
+  // Free chain counts only when the unified key is also present (same rule as
+  // the images capability stage and the resolver).
+  if (freeImageChainReady(env)) {
+    const freeChain = resolveFreeImageModels(env);
     const head = freeChain.slice(0, 3).join(", ") + (freeChain.length > 3 ? ", +" + (freeChain.length - 3) : "");
     return hasFal && paidImage
       ? `freellmapi media [${head}] (free-first) -> fal/${model} + ${editModel} (paid last resort)`

@@ -5,7 +5,7 @@ import { FalVideoProvider } from "../providers/fal-video.ts";
 import { FreeLlmImageProvider } from "../providers/freellm-image.ts";
 import { FreeLlmVideoProvider } from "../providers/freellm-video.ts";
 import { fallbackPolicy } from "../fallback-policy.ts";
-import { resolveFreeImageModels, resolveFreeVideoModels } from "../freellm-media-models.ts";
+import { freeImageChainReady, freeVideoChainReady } from "../freellm-media-models.ts";
 import { FreeMediaAuthError } from "../free-media-policy.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
@@ -111,7 +111,7 @@ interface ReferenceCapableImageProvider {
   }>;
 }
 
-interface VisionQaRunHealth {
+export interface VisionQaRunHealth {
   unavailable: boolean;
   reason?: string;
 }
@@ -128,8 +128,9 @@ function qaUnavailableError(health: VisionQaRunHealth, beatId: string): Error {
 
 function capabilities(): VisualCapabilities {
   const policy = fallbackPolicy();
-  const freeImage = resolveFreeImageModels().length > 0;
-  const freeVideo = resolveFreeVideoModels().length > 0;
+  // Key + non-empty list, matching the `images` capability stage exactly.
+  const freeImage = freeImageChainReady();
+  const freeVideo = freeVideoChainReady();
   return {
     stock_video: Boolean(process.env["PEXELS_API_KEY"]?.trim()),
     // A working free FreeLLMAPI image chain makes generated images available on
@@ -264,7 +265,7 @@ async function generateFreeLlmImage(
   identity: string,
   previous?: QaImage,
 ): Promise<ModeResult | null> {
-  if (resolveFreeImageModels().length === 0) return null;
+  if (!freeImageChainReady()) return null;
   let provider: FreeLlmImageProvider;
   try {
     provider = new FreeLlmImageProvider();
@@ -710,7 +711,7 @@ async function generateFreeLlmVideo(
   previous?: QaImage,
   identity = "",
 ): Promise<ModeResult | null> {
-  if (resolveFreeVideoModels().length === 0) return null;
+  if (!freeVideoChainReady()) return null;
   let provider: FreeLlmVideoProvider;
   try {
     provider = new FreeLlmVideoProvider();
@@ -884,6 +885,61 @@ async function resolveMode(
   }
 }
 
+export interface BeatResolutionOutcome {
+  result: ModeResult | null;
+  selected: VisualMode | null;
+  note: string;
+  modeAttemptCount: number;
+}
+
+/**
+ * Resolve one beat: try the selected mode, and on failure the single declared
+ * alternate. A `FreeMediaAuthError` (bad unified FreeLLMAPI key) is a
+ * run/configuration failure and is RE-THROWN from both attempts — it must never
+ * be smoothed over by an alternate mode, because that could route a free-media
+ * beat into a paid-capable alternate.
+ */
+export async function resolveBeatWithDeclaredAlternate(
+  beat: VisualBeat,
+  initialSelected: VisualMode | null,
+  available: VisualCapabilities,
+  ctx: WorkerContext,
+  qaHealth: VisionQaRunHealth,
+  previousPreview: QaImage | undefined,
+  continuityReference: QaImage | undefined,
+  threadedScene: SemanticScene | undefined,
+  identity: string,
+): Promise<BeatResolutionOutcome> {
+  let selected = initialSelected;
+  let result: ModeResult | null = null;
+  let note = "";
+  let modeAttemptCount = 0;
+  if (!selected) return { result, selected: null, note: "neither agent-declared mode is available", modeAttemptCount };
+  try {
+    modeAttemptCount += 1;
+    result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScene, identity);
+  } catch (error) {
+    if (error instanceof FreeMediaAuthError) throw error;
+    note = error instanceof Error ? error.message : String(error);
+    const alternate = alternateMode(beat, selected);
+    if (alternate && available[alternate]) {
+      try {
+        selected = alternate;
+        modeAttemptCount += 1;
+        result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScene, identity);
+        note = `primary route failed; used declared alternate: ${note}`;
+      } catch (fallbackError) {
+        if (fallbackError instanceof FreeMediaAuthError) throw fallbackError;
+        note = `${note}; alternate failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`;
+        selected = null;
+      }
+    } else {
+      selected = null;
+    }
+  }
+  return { result, selected, note, modeAttemptCount };
+}
+
 function alternateMode(beat: VisualBeat, current: VisualMode): VisualMode | null {
   if (current === beat.routing.preferred) return beat.routing.fallback;
   if (current === beat.routing.fallback) return beat.routing.preferred;
@@ -939,38 +995,26 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           ? { ...plannedBeat, continuity: { ...plannedBeat.continuity, identity } }
           : plannedBeat;
         const requested = beat.routing.preferred;
-        let selected = selectVisualMode(beat, history, available);
-        let result: ModeResult | null = null;
-        let note = "";
-        let modeAttemptCount = 0;
         const continuityReference = beat.continuity.group
           ? continuityReferences.get(beat.continuity.group)
           : undefined;
 
-        if (selected) {
-          try {
-            modeAttemptCount += 1;
-            result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScenes.get(beat.id), identity);
-          } catch (error) {
-            note = error instanceof Error ? error.message : String(error);
-            const alternate = alternateMode(beat, selected);
-            if (alternate && available[alternate]) {
-              try {
-                selected = alternate;
-                modeAttemptCount += 1;
-                result = await resolveMode(beat, selected, ctx, qaHealth, previousPreview, continuityReference, threadedScenes.get(beat.id), identity);
-                note = `primary route failed; used declared alternate: ${note}`;
-              } catch (fallbackError) {
-                note = `${note}; alternate failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`;
-                selected = null;
-              }
-            } else {
-              selected = null;
-            }
-          }
-        } else {
-          note = "neither agent-declared mode is available";
-        }
+        // A FreeMediaAuthError propagates straight out of execute() here — a bad
+        // unified key is a run/configuration failure, never a routing fallback.
+        const resolution = await resolveBeatWithDeclaredAlternate(
+          beat,
+          selectVisualMode(beat, history, available),
+          available,
+          ctx,
+          qaHealth,
+          previousPreview,
+          continuityReference,
+          threadedScenes.get(beat.id),
+          identity,
+        );
+        let { result, note } = resolution;
+        let selected = resolution.selected;
+        const modeAttemptCount = resolution.modeAttemptCount;
 
         // A mode can report its own diagnostic (a semantic scene that had to
         // fall back to kinetic text, a QA_UNAVAILABLE degrade-accept). Keep it

@@ -65,3 +65,18 @@ export function resolveFreeVideoDurationSec(env: NodeJS.ProcessEnv = process.env
 export function freeLlmMediaBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return (clean(env["FREELLMAPI_BASE_URL"]) ?? "http://freellmapi:3001/v1").replace(/\/+$/, "");
 }
+
+/**
+ * Single source of truth for "can the free FreeLLMAPI media path actually run".
+ * A configured model list is not enough — the unified key must be present too,
+ * exactly as the `images` capability stage requires. Every consumer
+ * (capabilities.ts, service.ts, visual-beat-resolver.ts) must call these rather
+ * than re-deriving the condition.
+ */
+export function freeImageChainReady(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(clean(env["FREELLMAPI_API_KEY"])) && resolveFreeImageModels(env).length > 0;
+}
+
+export function freeVideoChainReady(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(clean(env["FREELLMAPI_API_KEY"])) && resolveFreeVideoModels(env).length > 0;
+}

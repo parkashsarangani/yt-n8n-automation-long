@@ -130,7 +130,12 @@ async function bakeImage(model: string, outDir: string): Promise<Attempt> {
     const ext = image.media_type.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
     const file = `image-${sanitize(model)}.${ext}`;
     writeFileSync(path.join(outDir, file), image.bytes);
-    const [routedProvider, routedModel] = out.usage.model.split("/", 2);
+    // usage.model is "<provider>/<full model id>" and the model id itself may
+    // contain slashes (e.g. "nvidia/black-forest-labs/flux.2-klein-4b"), so
+    // split only at the FIRST slash.
+    const slash = out.usage.model.indexOf("/");
+    const routedProvider = slash >= 0 ? out.usage.model.slice(0, slash) : "freellmapi";
+    const routedModel = slash >= 0 ? out.usage.model.slice(slash + 1) : out.usage.model;
     const quality: Quality = image.bytes.byteLength > 4096 && Boolean(dims) && dims!.width >= 512 && dims!.height >= 288 ? "PASS" : "FAIL";
     return {
       ...base, status: "success", http_status: 200, latency_ms: Date.now() - started,

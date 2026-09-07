@@ -13,7 +13,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 
 const dir = process.argv[2];
@@ -28,10 +28,14 @@ const MAX_DURATION_SEC = 120;
 const MIN_DIMENSION = 240;
 
 const reportPath = path.join(dir, "media-bakeoff-report.json");
-const report = existsSync(reportPath) ? JSON.parse(readFileSync(reportPath, "utf8")) : { attempts: [] };
-const byArtifact = new Map(
-  (report.attempts ?? []).filter((a) => a.modality === "video" && a.artifact).map((a) => [a.artifact, a]),
-);
+if (!existsSync(reportPath)) {
+  console.error(`[ffprobe-gate] ${reportPath} not found — the smoke step did not produce a report`);
+  process.exit(1);
+}
+const report = JSON.parse(readFileSync(reportPath, "utf8"));
+// The REPORT is authoritative: every video attempt the smoke recorded as
+// AVAILABLE + FREE + status=success must have a real, decodable artifact.
+const videoAttempts = (report.attempts ?? []).filter((a) => a.modality === "video");
 
 function probe(file) {
   try {
@@ -55,38 +59,46 @@ function probe(file) {
   }
 }
 
-const videos = readdirSync(dir).filter((f) => /^video-.*\.mp4$/.test(f));
 let hardFailures = 0;
 const results = [];
 
-for (const file of videos) {
-  const r = probe(path.join(dir, file));
-  const attempt = byArtifact.get(file);
-  results.push({ file, ...r });
-  if (attempt) {
-    attempt.codec = r.codec ?? null;
-    attempt.duration_sec = r.duration ?? attempt.duration_sec ?? null;
-    attempt.width = r.width ?? attempt.width ?? null;
-    attempt.height = r.height ?? attempt.height ?? null;
-    attempt.quality = r.ok ? "PASS" : "FAIL";
-    attempt.promotable = r.ok && attempt.availability === "AVAILABLE" && attempt.cost === "FREE";
-    if (!r.ok) attempt.failure_reason = `ffprobe gate: ${r.reason}`;
-    // A free, available model that produced undecodable bytes is a real failure.
-    if (!r.ok && attempt.availability === "AVAILABLE" && attempt.cost === "FREE") hardFailures += 1;
-  } else if (!r.ok) {
+for (const attempt of videoAttempts) {
+  const expectedFree = attempt.status === "success" && attempt.availability === "AVAILABLE" && attempt.cost === "FREE";
+  const file = attempt.artifact;
+  let r;
+  if (!file) {
+    r = { ok: false, reason: attempt.status === "success" ? "report claims success but no artifact was written" : "no artifact (attempt did not succeed)" };
+  } else {
+    const full = path.join(dir, file);
+    if (!existsSync(full) || statSync(full).size === 0) {
+      r = { ok: false, reason: `declared artifact ${file} is missing or empty` };
+    } else {
+      r = probe(full);
+    }
+  }
+  results.push({ requested_model: attempt.requested_model, file: file ?? null, expected_free: expectedFree, ...r });
+
+  attempt.codec = r.codec ?? null;
+  attempt.duration_sec = r.duration ?? attempt.duration_sec ?? null;
+  attempt.width = r.width ?? attempt.width ?? null;
+  attempt.height = r.height ?? attempt.height ?? null;
+  attempt.quality = r.ok ? "PASS" : "FAIL";
+  attempt.promotable = r.ok && expectedFree;
+  if (!r.ok && expectedFree) {
+    attempt.failure_reason = `ffprobe gate: ${r.reason}`;
     hardFailures += 1;
   }
-  console.log(`[ffprobe-gate] ${file}: ${r.ok ? "PASS" : "FAIL"} ${r.reason ? `(${r.reason})` : ""}`);
+  console.log(`[ffprobe-gate] ${attempt.requested_model} (${file ?? "no artifact"}): ${r.ok ? "PASS" : "FAIL"}${r.reason ? ` (${r.reason})` : ""}`);
 }
 
-report.ffprobe_gate = { checked: videos.length, results, hard_failures: hardFailures };
+report.ffprobe_gate = { checked: videoAttempts.length, results, hard_failures: hardFailures };
 writeFileSync(reportPath, JSON.stringify(report, null, 2));
 writeFileSync(path.join(dir, "ffprobe-gate.json"), JSON.stringify(results, null, 2));
 
-if (videos.length === 0) {
-  console.log("[ffprobe-gate] no generated videos to probe");
+if (videoAttempts.length === 0) {
+  console.log("[ffprobe-gate] the report declared no video attempts");
 }
 if (hardFailures > 0) {
-  console.error(`[ffprobe-gate] ${hardFailures} video(s) claimed free+available but failed decode validation`);
+  console.error(`[ffprobe-gate] ${hardFailures} video(s) the smoke recorded as free+available did not pass decode validation`);
   process.exit(1);
 }

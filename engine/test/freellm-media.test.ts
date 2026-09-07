@@ -8,11 +8,15 @@ import {
   assertConcreteMediaModels,
   resolveFreeImageModels,
   resolveFreeVideoModels,
+  freeImageChainReady,
+  freeVideoChainReady,
 } from "../src/freellm-media-models.ts";
 import { FreeLlmImageProvider } from "../src/providers/freellm-image.ts";
 import { FreeLlmVideoProvider } from "../src/providers/freellm-video.ts";
 import { FreeMediaAuthError } from "../src/free-media-policy.ts";
 import { ProviderError } from "../src/provider.ts";
+import { resolveBeatWithDeclaredAlternate } from "../src/workers/visual-beat-resolver.ts";
+import type { VisualBeat, VisualCapabilities } from "../src/visual-routing.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -307,7 +311,8 @@ test("resolver: free image + free video chains run before the paid paths", async
 
 test("video 20+21: generated_video capability follows a configured free allowlist, not the paid guard", async () => {
   const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
-  assert.match(src, /const freeVideo = resolveFreeVideoModels\(\)\.length > 0;/);
+  assert.match(src, /const freeVideo = freeVideoChainReady\(\);/);
+  assert.match(src, /const freeImage = freeImageChainReady\(\);/);
   assert.match(src, /generated_video: freeVideo \|\| \(policy\.paidVideoFallback/);
 });
 
@@ -340,4 +345,96 @@ test("bake-off: the ffprobe gate script exists and fails hard on undecodable fre
   // Video quality is never asserted PASS by the smoke itself — the gate decides.
   assert.match(smoke, /quality: "UNKNOWN", promotable: false, artifact: file/);
   assert.doesNotMatch(smoke, /classification:/);
+});
+
+// --- capability coherence: key + list, centralized (§ review 2) -------
+
+test("free media chain readiness requires BOTH the unified key and a non-empty list", () => {
+  const cases: Array<[Record<string, string | undefined>, boolean, boolean]> = [
+    [{ FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: "flux", FREELLMAPI_VIDEO_MODELS: "v" }, true, true],
+    [{ FREELLMAPI_API_KEY: "", FREELLMAPI_IMAGE_MODELS: "flux", FREELLMAPI_VIDEO_MODELS: "v" }, false, false],
+    [{ FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: "", FREELLMAPI_VIDEO_MODELS: "" }, false, false],
+    [{ FREELLMAPI_API_KEY: "k", FREELLMAPI_IMAGE_MODELS: "flux", FREELLMAPI_VIDEO_MODELS: "" }, true, false],
+  ];
+  for (const [env, image, video] of cases) {
+    assert.equal(freeImageChainReady(env as NodeJS.ProcessEnv), image, JSON.stringify(env));
+    assert.equal(freeVideoChainReady(env as NodeJS.ProcessEnv), video, JSON.stringify(env));
+  }
+});
+
+test("resolver, capabilities and service all gate the free media chain on freeImageChainReady/freeVideoChainReady", async () => {
+  const resolver = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
+  assert.match(resolver, /const freeImage = freeImageChainReady\(\);/);
+  assert.match(resolver, /const freeVideo = freeVideoChainReady\(\);/);
+  assert.match(resolver, /if \(!freeImageChainReady\(\)\) return null;/);
+  assert.match(resolver, /if \(!freeVideoChainReady\(\)\) return null;/);
+  const caps = await readFile(path.join(ROOT, "src/capabilities.ts"), "utf8");
+  assert.match(caps, /if \(freeImageChainReady\(env\)\)/);
+});
+
+// --- routing-level: a bad gateway key ends the run, never a paid alternate (§ review 1)
+
+function authBeat(): VisualBeat {
+  return {
+    id: "beat_auth", scene_index: 0, beat_index: 0, start_sec: 0, end_sec: 4,
+    narration: "A commuter runs for the closing train doors.",
+    context: { previous: "", next: "" },
+    intent: { purpose: "ESTABLISH", information: "x", emotion: "tension", importance: 0.9 },
+    visual_contract: { required: ["commuter"], forbidden: [], required_action: "runs for the doors", viewer_takeaway: "he makes it" },
+    // preferred free video, declared alternate paid-capable generated_image.
+    routing: { preferred: "generated_video", fallback: "generated_image", image_style: "realistic" },
+    continuity: { group: "", entities: [] },
+    retention: { novelty_required: false, visual_change_strength: 0.6, composition: "medium_action", camera_treatment: "tracking", subject_placement: "center", explanatory_pattern: "action" },
+    asset_brief: {
+      query: "commuter running train", query_variants: ["a", "b", "c"],
+      generation_prompt: "commuter running for train doors",
+      generation_variants: ["a", "b", "c"], generated_video_prompt: "runs and boards", motion_graphic_brief: "",
+    },
+  };
+}
+
+test("routing: a FreeLLMAPI gateway auth failure aborts the run — no alternate mode, no fal call (§ review 1)", async () => {
+  const ENV = ["FREELLMAPI_API_KEY", "FREELLMAPI_BASE_URL", "FREELLMAPI_VIDEO_MODELS", "FAL_KEY", "PAID_VIDEO_FALLBACK", "PAID_IMAGE_FALLBACK", "VISUAL_QA_MODE"] as const;
+  const prev = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+  const realFetch = globalThis.fetch;
+  let falImageCalls = 0;
+  try {
+    process.env["FREELLMAPI_API_KEY"] = "bad-key";
+    process.env["FREELLMAPI_BASE_URL"] = "http://freellmapi.test/v1";
+    process.env["FREELLMAPI_VIDEO_MODELS"] = "vid-a";
+    process.env["FAL_KEY"] = "fal-configured";
+    process.env["PAID_IMAGE_FALLBACK"] = "true";
+    delete process.env["PAID_VIDEO_FALLBACK"];
+    delete process.env["VISUAL_QA_MODE"];
+
+    globalThis.fetch = (async (url: string | URL) => {
+      if (String(url).includes("/videos/generations")) return new Response("Invalid API key", { status: 403 });
+      return realFetch(url as string);
+    }) as typeof fetch;
+
+    const falImage = {
+      id: "cartoon-art/fal/fal-ai/flux-2",
+      generate: async () => { falImageCalls += 1; return { images: [{ bytes: new Uint8Array([1]), media_type: "image/png" }], usage: { input_tokens: 0, output_tokens: 0, units: 1, cost_usd: 0.02, provider: "fal", model: "flux-2" } }; },
+      generatePack: async () => { falImageCalls += 1; return { images: [], usage: { input_tokens: 0, output_tokens: 0, units: 0, cost_usd: 0, provider: "fal", model: "flux-2" } }; },
+    };
+    const ctx = {
+      logger: { log() {}, warn() {}, error() {} },
+      blobs: { put: async () => ({ uri: "blob://x" }) },
+      media: { images: falImage },
+      progress: async () => {}, attemptNumber: 1,
+    } as never;
+    const available: VisualCapabilities = { stock_video: false, generated_image: true, motion_graphic: true, generated_video: true };
+
+    await assert.rejects(
+      () => resolveBeatWithDeclaredAlternate(authBeat(), "generated_video", available, ctx, { unavailable: false }, undefined, undefined, undefined, ""),
+      (e: unknown) => e instanceof FreeMediaAuthError,
+    );
+    assert.equal(falImageCalls, 0, "the paid fal image alternate must never be reached on a gateway auth failure");
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ENV) {
+      const v = prev[k];
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });
