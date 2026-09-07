@@ -60,7 +60,8 @@
               "type":"object","additionalProperties":false,"required":["group","entities"],
               "properties": {
                 "group":{"type":"string","maxLength":80},
-                "entities":{"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"}}
+                "entities":{"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"}},
+                "identity":{"type":"string","maxLength":700,"description":"Stable pixel-level identity description for a recurring continuity group: age/presentation, hair, wardrobe, distinguishing object/colour and recurring environment cues. The first non-empty description wins for the group; later beats may not redefine it."}
               }
             },
             "retention": {
