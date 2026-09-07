@@ -1,3 +1,7 @@
+// Exercises the opt-in real (paid) vision path. Normal runs use the free
+// text-only metadata proxy and make no OpenAI vision call at all.
+process.env["VISUAL_QA_MODE"] = "real";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 

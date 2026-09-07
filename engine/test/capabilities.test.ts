@@ -113,21 +113,28 @@ test("direct rollback is reported as direct OpenAI rather than FreeLLMAPI", () =
   assert.equal(reasoning.provider, "openai/gpt-5.6-terra (manual rollback)");
 });
 
-test("visual QA is a direct OpenAI capability independent of FreeLLMAPI reasoning", () => {
+test("visual QA defaults to the free text proxy; real pixel vision is opt-in", () => {
   const visual = STAGES.find((s) => s.id === "visual_qa")!;
-  assert.equal(credentialsSatisfied(visual, { FREELLMAPI_API_KEY: "free" }), false);
-  assert.equal(credentialsSatisfied(visual, { OPENAI_API_KEY: "paid" }), true);
+  // Default (proxy) mode: the free key satisfies it, a paid-only key does not.
+  assert.equal(credentialsSatisfied(visual, { FREELLMAPI_API_KEY: "free" }), true);
+  assert.equal(credentialsSatisfied(visual, { OPENAI_API_KEY: "paid" }), false);
+  // Opt-in real mode: now it needs the OpenAI key.
+  assert.equal(credentialsSatisfied(visual, { VISUAL_QA_MODE: "real", OPENAI_API_KEY: "paid" }), true);
+  assert.equal(credentialsSatisfied(visual, { VISUAL_QA_MODE: "real", FREELLMAPI_API_KEY: "free" }), false);
 
-  const report = capabilityReport({
+  const proxy = capabilityReport({
     allowPublish: false,
-    env: {
-      FREELLMAPI_API_KEY: "free",
-      OPENAI_API_KEY: "paid",
-      OPENAI_IMAGE_QA_MODEL: "vision-model",
-    },
+    env: { FREELLMAPI_API_KEY: "free" },
   }).find((s) => s.id === "visual_qa")!;
-  assert.equal(report.real, true);
-  assert.equal(report.provider, "openai/vision-model");
+  assert.equal(proxy.real, true);
+  assert.equal(proxy.provider, "free text semantic proxy (no paid vision)");
+
+  const realVision = capabilityReport({
+    allowPublish: false,
+    env: { VISUAL_QA_MODE: "real", OPENAI_API_KEY: "paid", OPENAI_IMAGE_QA_MODEL: "vision-model" },
+  }).find((s) => s.id === "visual_qa")!;
+  assert.equal(realVision.real, true);
+  assert.equal(realVision.provider, "openai/vision-model (real vision, opt-in)");
 });
 
 test("blank and whitespace-only Fal keys do not enable illustration artwork", () => {
@@ -182,7 +189,7 @@ test("a fully configured deployment reports every stage live", () => {
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
   assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi free chain [model-a, model-b, model-c]");
-  assert.equal(report.find((s) => s.id === "visual_qa")!.provider, "openai/gpt-5.6-luna");
+  assert.equal(report.find((s) => s.id === "visual_qa")!.provider, "free text semantic proxy (no paid vision)");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {

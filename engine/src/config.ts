@@ -118,11 +118,19 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "gpt-5.6-luna is used",
   },
   {
+    key: "VISUAL_QA_MODE",
+    label: "Visual QA mode",
+    secret: false,
+    placeholder: "proxy",
+    help: "proxy (default): a free text-only metadata semantic screen, no paid vision. real: opt-in pixel-inspecting OpenAI vision, used only by the manual benchmark / live-media smoke. Normal automated runs must stay on proxy.",
+    fallback: "proxy (no paid vision)",
+  },
+  {
     key: "OPENAI_IMAGE_QA_MODEL",
-    label: "OpenAI visual QA model",
+    label: "OpenAI visual QA model (real-vision mode only)",
     secret: false,
     placeholder: "gpt-5.6-luna",
-    help: "Authoritative multimodal model for RFC 0010 candidate scoring, rendered-frame QA, and blind control-vs-candidate comparison.",
+    help: "Multimodal model used only when VISUAL_QA_MODE=real for candidate scoring, rendered-frame QA and blind comparison.",
     fallback: "OPENAI_MODEL, then gpt-5.6-luna",
   },
   {

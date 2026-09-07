@@ -6,6 +6,7 @@
  */
 
 import { resolveTextModels } from "./llm-routing.ts";
+import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 
 export interface StageSpec {
   id: string;
@@ -36,12 +37,12 @@ export const STAGES: StageSpec[] = [
   },
   {
     id: "visual_qa",
-    label: "RFC 0010 candidate and rendered-pixel visual QA",
-    requires: [["OPENAI_API_KEY"]],
-    optional: ["OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL"],
-    real: "openai/${OPENAI_IMAGE_QA_MODEL:-${OPENAI_MODEL:-gpt-5.6-luna}}",
+    label: "Visual QA (text metadata proxy by default; real vision is opt-in)",
+    requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
+    optional: ["VISUAL_QA_MODE", "OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL"],
+    real: "free text semantic proxy (no paid vision) unless VISUAL_QA_MODE=real",
     fallback: "unavailable",
-    consequence: "RFC 0010 cannot verify visual relevance or produce a trustworthy benchmark result",
+    consequence: "candidate sourcing intent cannot be screened; a real pixel-level benchmark still needs VISUAL_QA_MODE=real + OPENAI_API_KEY",
   },
   {
     id: "speech",
@@ -143,6 +144,9 @@ function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
   if (spec.id === "speech") return speechSatisfied(env);
+  if (spec.id === "visual_qa") {
+    return realVisionQaEnabled(env) ? isSet(env, "OPENAI_API_KEY") : isSet(env, "FREELLMAPI_API_KEY");
+  }
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -153,6 +157,10 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
   }
   if (spec.id === "speech") {
     const key = speechMode(env) === "elevenlabs" ? "ELEVENLABS_API_KEY" : "FREELLMAPI_API_KEY";
+    return isSet(env, key) ? [] : [key];
+  }
+  if (spec.id === "visual_qa") {
+    const key = realVisionQaEnabled(env) ? "OPENAI_API_KEY" : "FREELLMAPI_API_KEY";
     return isSet(env, key) ? [] : [key];
   }
   return spec.requires
@@ -176,8 +184,11 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
 }
 
 function visualQaProvider(env: NodeJS.ProcessEnv): string {
-  const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
-  return `openai/${model}`;
+  if (realVisionQaEnabled(env)) {
+    const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
+    return `openai/${model} (real vision, opt-in)`;
+  }
+  return "free text semantic proxy (no paid vision)";
 }
 
 function speechProvider(env: NodeJS.ProcessEnv): string {
