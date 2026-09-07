@@ -47,7 +47,7 @@ Each `VisualBeat` records:
 - forbidden/generic/misleading imagery;
 - preferred and fallback visual modes;
 - image style (`realistic`, `illustration`, or not applicable);
-- stable continuity group/entity ids;
+- stable continuity group/entity ids and, where needed, a pinned visual identity description;
 - novelty requirement and change strength;
 - composition, camera treatment, subject placement and explanatory pattern;
 - 3-5 materially different stock queries;
@@ -82,6 +82,10 @@ TEXT / REASONING
 FreeLLMAPI -> concrete Google model: gemini-3.5-flash
 (no auto/auto:* production text routing)
 
+VISUAL QA
+Direct OpenAI vision -> OPENAI_IMAGE_QA_MODEL / OPENAI_MODEL
+(per-process capability canary before native production scoring; no FreeLLMAPI vision route)
+
 IMAGE GENERATION
 fal.ai -> FLUX.2 / configured fal image model
 (no FreeLLMAPI image generation or image fallback)
@@ -99,7 +103,7 @@ ElevenLabs existing production voice path
 
 `FAL_TEXT_TO_VIDEO_MODEL` is deliberately separate from long-compose's older `FAL_VIDEO_MODEL` image-to-video contract.
 
-FreeLLMAPI may still serve multimodal QA. It does not generate images.
+FreeLLMAPI is not accepted as visual evidence in RFC 0010. Production probes demonstrated that its automatic vision route could return HTTP 200 from a text-only fallback while ignoring supplied images. The visual-QA route therefore uses direct OpenAI only, and native production scoring first runs a deterministic image-perception canary for that process.
 
 ## 4. Voice timing is measured, not guessed
 
@@ -110,7 +114,8 @@ Rules:
 - beat narration must be an exact sequential phrase from the voice transcript;
 - paraphrases fail closed rather than receiving guessed timing;
 - first beat starts at scene 0;
-- each beat ends at the actual start of the next phrase;
+- meaningful measured narration pauses may establish the next visual slightly early, within the bounded transition policy;
+- adjacent visual windows remain contiguous with one shared boundary;
 - the last beat ends at the measured voice-clip duration;
 - the final timeline rejects gaps, overlaps and uncovered trailing narration.
 
@@ -120,18 +125,19 @@ Asset duration, stock windows, generated-video duration and render timing theref
 
 ### Generated images
 
-For an image beat, the resolver generates 3-5 agent-authored concepts through fal.ai. Every candidate is checked for:
+For an image beat, the resolver generates 3-5 agent-authored concepts through fal.ai. Each candidate makes one authoritative RFC 0010 visual-QA request that evaluates:
 
-- accidental readable text;
-- narration contradiction;
+- whether the required entities/concepts are actually visible;
+- whether forbidden or misleading content is present;
+- required action/state evidence;
 - semantic match;
-- required action/state match;
 - visual interest;
-- continuity against the preceding selected visual;
+- recurring-identity continuity when required;
+- composition/framing failures, implausible object scale, environment mismatch, and harmful AI pseudo-text;
 - generic filler;
 - "why am I seeing this?" failure.
 
-Only candidates clearing every hard floor enter ranking. A pretty but semantically weak image cannot win.
+Only candidates clearing every hard floor and evidence backstop enter ranking. A pretty but semantically weak image cannot win. The older RFC 0009 contradiction-only image check is not duplicated on the RFC 0010 path.
 
 ### Stock video
 
@@ -152,6 +158,10 @@ A Pexels title, tag, thumbnail or API search match is never sufficient evidence.
 
 Premium generated video is restricted to `hero_role` or high-importance beats. Up to three candidates are generated through fal text-to-video, sampled as actual frames, VLM-scored and ranked. If no candidate clears the gate, only the Visual Director's declared fallback may be used.
 
+### QA outage behavior
+
+Visual QA is acceptance-critical and has run-local health. Once the direct visual route becomes unavailable during a resolver run, subsequent media candidate loops stop spending provider calls they cannot score. An already-produced candidate may be surfaced only as explicitly `QA_UNAVAILABLE`; smoke/benchmark evaluation treats that as a technical failure rather than successful semantic verification.
+
 ## 6. Hard candidate floors
 
 ```text
@@ -161,7 +171,7 @@ visual_interest >= 0.80
 continuity     >= 0.70
 ```
 
-In addition, `generic_filler` and `why_failure` must both be false.
+In addition, `generic_filler` and `why_failure` must both be false. Evidence booleans can clamp otherwise-high scalar scores when required pixels/actions/identity are absent.
 
 The ranking weights only already-admissible candidates:
 
@@ -191,13 +201,13 @@ When a beat declares `novelty_required=true` and its preferred representation wo
 - measured scene-relative audio window;
 - absolute episode start/end;
 - original immutable voice source;
-- resolved visual mode;
-- selected image/video or semantic Remotion template;
+- resolved visual mode and representation (`semantic_graphic`, `kinetic_text`, generated media or stock);
+- selected image/video or semantic Remotion scene;
 - narration/takeaway;
 - continuity metadata;
 - composition/camera/placement/pattern.
 
-The benchmark renderer slices the immutable existing voice per beat, maps each beat to an existing long-compose scene and renders with the same production Remotion/FFmpeg service. Placeholder/degraded scenes are forbidden.
+The benchmark renderer slices the immutable existing voice per beat, maps each beat to the existing long-compose service and renders with the same production Remotion/FFmpeg stack. Placeholder/degraded scenes are forbidden. A motion-graphic beat without a drawable semantic scene degrades explicitly to kinetic text rather than inventing generic geometry, and smoke reporting records that distinction.
 
 The benchmark does not introduce a second renderer and does not modify the production graph.
 
@@ -210,13 +220,14 @@ For each beat, the VLM receives:
 - three chronological frames from the actual rendered beat;
 - the preceding rendered visual;
 - the following rendered visual;
-- exact narration and semantic contract.
+- exact narration and semantic contract;
+- pinned continuity identity when one exists.
 
-It re-scores semantic match, action, visual interest and continuity, and explicitly flags generic filler, "why am I seeing this?" failures and visual repetition.
+It re-scores semantic match, action, visual interest and continuity, and explicitly flags generic filler, "why am I seeing this?" failures, visual repetition and evidence failures.
 
 ## 10. Blind control-vs-V2 comparison
 
-The benchmark also samples the same timestamps from the existing production/control render. Per beat, control and V2 are deterministically shuffled into anonymous A/B positions before the VLM comparison. The evaluator is not told which system produced either option.
+The benchmark also samples the same timestamps from the existing production/control render. Per beat, control and V2 are deterministically shuffled into anonymous A/B positions before a direct-OpenAI visual comparison. The evaluator is not told which system produced either option.
 
 The blind comparison records V2/control wins and semantic/interest scores, but relative improvement cannot compensate for absolute V2 quality failure. "Better than the old version" is not enough.
 
@@ -239,7 +250,12 @@ If the benchmark fails, production visual direction remains unchanged. If it pas
 
 ## 12. How to run the benchmark
 
-Use artifacts from an existing completed episode:
+The repository provides two live workflows, both manual-only:
+
+- `RFC 0010 Live Media Smoke` for bounded development verification;
+- `RFC 0010 Live Visual Benchmark` for the full 90-120s control-vs-candidate acceptance run.
+
+The lower-level benchmark command remains available for existing artifacts:
 
 ```bash
 cd engine
@@ -249,7 +265,9 @@ npm run visual:benchmark -- \
   <control-rendered-video-artifact-id>
 ```
 
-Required live capabilities are fal.ai, Pexels, the existing long-compose renderer and a reasoning/VLM route. The command never publishes. It outputs the V2 `rendered_video` artifact and `visual_benchmark_report`, and exits non-zero when the kill gate fails.
+Required live capabilities are pinned-Gemini text reasoning (or configured direct reasoning fallback), direct OpenAI visual QA, fal.ai, Pexels, ElevenLabs, and the existing long-compose renderer. The command never publishes. It outputs the V2 `rendered_video` artifact and `visual_benchmark_report`, and exits non-zero when the kill gate fails.
+
+The paid live benchmark is deliberately not part of ordinary pull-request CI. Normal merge validation is deterministic; live provider capacity and the final quality benchmark are separate operational checks.
 
 ## Explicitly frozen until benchmark PASS
 
