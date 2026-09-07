@@ -11,7 +11,7 @@ import {
 } from "../src/freellm-media-models.ts";
 import { FreeLlmImageProvider } from "../src/providers/freellm-image.ts";
 import { FreeLlmVideoProvider } from "../src/providers/freellm-video.ts";
-import { FreeMediaTerminalError } from "../src/free-media-policy.ts";
+import { FreeMediaAuthError } from "../src/free-media-policy.ts";
 import { ProviderError } from "../src/provider.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -150,15 +150,51 @@ test("image 12: a malformed / empty image response advances the chain, then fail
 test("image 13: generated-image capability exists with free image models even without FAL_KEY", async () => {
   const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
   assert.match(src, /generated_image: freeImage \|\| \(policy\.paidImageFallback && Boolean\(process\.env\["FAL_KEY"\]/);
+  // The images STAGE is satisfied by the free chain alone; service.ts wires a
+  // free-only provider when FAL_KEY is absent.
+  const caps = await readFile(path.join(ROOT, "src/capabilities.ts"), "utf8");
+  assert.match(caps, /requires: \[\["FAL_KEY"\], \["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"\]\]/);
+  const svc = await readFile(path.join(ROOT, "src/service.ts"), "utf8");
+  assert.match(svc, /env\("FAL_KEY"\)\s*\?\s*new StockImageProvider/);
+  assert.match(svc, /:\s*new FreeMediaImageProvider\(\)/);
 });
 
-test("image: a gateway auth failure stops the chain instead of retrying every model (§33 test 23)", async () => {
+test("image: Cloudflare daily quota is per-model — the chain advances to the next free model, no paid escalation (§ review 1)", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_IMAGE_MODELS: "cf-flux,pollinations-turbo,nvidia-x" }, async () => {
+    const models: string[] = [];
+    const p = new FreeLlmImageProvider({ fetchImpl: async (_u, init) => {
+      const m = (JSON.parse(String(init?.body)) as { model: string }).model;
+      models.push(m);
+      return m === "cf-flux"
+        ? imgResponse({ error: { message: "You have used up your daily free allocation of 10,000 neurons" } }, 429)
+        : imgResponse({ data: [{ b64_json: PNG_B64 }], model: m, provider: m === "pollinations-turbo" ? "pollinations" : "nvidia" });
+    } });
+    const out = await p.generate({ prompt: "x", aspect: "16:9" });
+    assert.deepEqual(models, ["cf-flux", "pollinations-turbo"], "exhausted Cloudflare -> Pollinations attempted");
+    assert.equal(out.usage.model, "pollinations/pollinations-turbo");
+  });
+});
+
+test("image: a gateway auth failure stops the chain instead of retrying every model, and never permits paid (§33 test 23, § review 2)", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "bad", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_IMAGE_MODELS: "img-a,img-b,img-c" }, async () => {
     let calls = 0;
     const p = new FreeLlmImageProvider({ fetchImpl: async () => { calls++; return imgResponse({ error: "Invalid API key" }, 401); } });
-    await assert.rejects(() => p.generate({ prompt: "x", aspect: "16:9" }), (e: unknown) => e instanceof FreeMediaTerminalError);
+    await assert.rejects(() => p.generate({ prompt: "x", aspect: "16:9" }), (e: unknown) => e instanceof FreeMediaAuthError);
     assert.equal(calls, 1, "did not retry other models with the same broken credential");
   });
+  // The resolver rethrows the auth error out of the free path (no fal fallback).
+  const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
+  const gi = src.slice(src.indexOf("async function generateFreeLlmImage("), src.indexOf("\nasync function generateImage("));
+  assert.match(gi, /if \(err instanceof FreeMediaAuthError\) throw err;/);
+  const gv = src.slice(src.indexOf("async function generateFreeLlmVideo("), src.indexOf("\nasync function generateVideo("));
+  assert.match(gv, /if \(err instanceof FreeMediaAuthError\) throw err;/);
+});
+
+test("image: routed free provider/model provenance survives to the resolved beat (§ review 6)", async () => {
+  const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
+  const gi = src.slice(src.indexOf("async function generateFreeLlmImage("), src.indexOf("\nasync function generateImage("));
+  assert.match(gi, /source_provider: "freellmapi-image", source_id: best\.value\.routed/);
+  assert.match(gi, /routed: out\.usage\.model/);
 });
 
 // --- videos (§33 tests 14-23) -----------------------------------------
@@ -253,7 +289,7 @@ test("video 23: a gateway auth failure is terminal, not retried across models", 
   await withEnv({ FREELLMAPI_API_KEY: "bad", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_VIDEO_MODELS: "vid-a,vid-b" }, async () => {
     let calls = 0;
     const p = new FreeLlmVideoProvider({ fetchImpl: async () => { calls++; return new Response("Invalid API key", { status: 403 }); } });
-    await assert.rejects(() => p.generate("x"), (e: unknown) => e instanceof FreeMediaTerminalError);
+    await assert.rejects(() => p.generate("x"), (e: unknown) => e instanceof FreeMediaAuthError);
     assert.equal(calls, 1);
   });
 });
@@ -273,4 +309,35 @@ test("video 20+21: generated_video capability follows a configured free allowlis
   const src = await readFile(path.join(ROOT, "src/workers/visual-beat-resolver.ts"), "utf8");
   assert.match(src, /const freeVideo = resolveFreeVideoModels\(\)\.length > 0;/);
   assert.match(src, /generated_video: freeVideo \|\| \(policy\.paidVideoFallback/);
+});
+
+// --- bake-off classification (§ review 4) ----------------------------
+
+test("bake-off: auth error, daily quota, and paid-only are three DIFFERENT outcomes", async () => {
+  const { isFreeMediaAuthFailure, isDailyFreeImageCapacityMessage, FreeMediaAuthError: AuthErr } =
+    await import("../src/free-media-policy.ts");
+
+  const auth = new AuthErr("gateway rejected the unified key (401)");
+  assert.equal(isFreeMediaAuthFailure(auth), true);
+  assert.equal(isDailyFreeImageCapacityMessage(auth), false, "a bad key is NOT a quota problem");
+
+  const quota = new Error("freellmapi-image/cf daily free allocation exhausted: used up your daily free allocation of 10,000 neurons");
+  assert.equal(isDailyFreeImageCapacityMessage(quota), true);
+  assert.equal(isFreeMediaAuthFailure(quota), false, "an exhausted quota is NOT an auth problem");
+
+  const paid = new Error("freellmapi-video/x is not a free route right now: please top up your balance");
+  assert.equal(isFreeMediaAuthFailure(paid), false);
+  assert.equal(isDailyFreeImageCapacityMessage(paid), false);
+});
+
+test("bake-off: the ffprobe gate script exists and fails hard on undecodable free video", async () => {
+  const gate = await readFile(path.join(ROOT, "scripts/free-media-ffprobe-gate.mjs"), "utf8");
+  assert.match(gate, /SUPPORTED_CODECS/);
+  assert.match(gate, /attempt\.quality = r\.ok \? "PASS" : "FAIL"/);
+  assert.match(gate, /hardFailures > 0/);
+  assert.match(gate, /process\.exit\(1\)/);
+  const smoke = await readFile(path.join(ROOT, "scripts/free-media-smoke.ts"), "utf8");
+  // Video quality is never asserted PASS by the smoke itself — the gate decides.
+  assert.match(smoke, /quality: "UNKNOWN", promotable: false, artifact: file/);
+  assert.doesNotMatch(smoke, /classification:/);
 });

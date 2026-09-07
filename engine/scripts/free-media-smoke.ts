@@ -22,7 +22,7 @@ import path from "node:path";
 import { FreeLlmImageProvider } from "../src/providers/freellm-image.ts";
 import { FreeLlmVideoProvider } from "../src/providers/freellm-video.ts";
 import { assertConcreteMediaModels } from "../src/freellm-media-models.ts";
-import { isTerminalFreeMediaFailure } from "../src/free-media-policy.ts";
+import { isDailyFreeImageCapacityMessage, isFreeMediaAuthFailure } from "../src/free-media-policy.ts";
 
 process.env["PAID_VIDEO_FALLBACK"] = "false";
 
@@ -39,7 +39,11 @@ const VIDEO_PROMPT =
   + "the arriving train. Natural human movement, realistic phone scale, stable camera, no "
   + "captions, no logo, no surreal effects.";
 
-type Classification = "PASS" | "UNRELIABLE" | "PAID" | "BROKEN";
+// Three independent dimensions. A broken credential or an exhausted daily free
+// quota must NOT be reported as "this model costs money".
+type Availability = "AVAILABLE" | "QUOTA_EXHAUSTED" | "AUTH_ERROR" | "BROKEN";
+type Cost = "FREE" | "PAID_ONLY" | "UNKNOWN";
+type Quality = "PASS" | "FAIL" | "UNKNOWN";
 
 interface Attempt {
   modality: "image" | "video";
@@ -56,8 +60,25 @@ interface Attempt {
   duration_sec: number | null;
   codec: string | null;
   failure_reason: string | null;
-  classification: Classification;
+  availability: Availability;
+  cost: Cost;
+  quality: Quality;
+  /** Only a model that is AVAILABLE + FREE + quality PASS may be promoted. */
+  promotable: boolean;
   artifact: string | null;
+}
+
+function classifyFailure(err: unknown, reason: string): { availability: Availability; cost: Cost } {
+  if (isFreeMediaAuthFailure(err) || /rejected the unified key|invalid api key|\b40[13]\b/i.test(reason)) {
+    return { availability: "AUTH_ERROR", cost: "UNKNOWN" };
+  }
+  if (isDailyFreeImageCapacityMessage(err) || /daily free allocation|daily .*quota/i.test(reason)) {
+    return { availability: "QUOTA_EXHAUSTED", cost: "FREE" };
+  }
+  if (/not a free route|payment required|top ?up|insufficient .*balance|paid[_ -]?only|out of credits|billing/i.test(reason)) {
+    return { availability: "AVAILABLE", cost: "PAID_ONLY" };
+  }
+  return { availability: "BROKEN", cost: "UNKNOWN" };
 }
 
 function arg(name: string): string | undefined {
@@ -99,7 +120,7 @@ async function bakeImage(model: string, outDir: string): Promise<Attempt> {
     modality: "image", requested_model: model, routed_provider: null, routed_model: null,
     status: "failed", http_status: null, latency_ms: 0, content_type: null, bytes: 0,
     width: null, height: null, duration_sec: null, codec: null, failure_reason: null,
-    classification: "BROKEN", artifact: null,
+    availability: "BROKEN", cost: "UNKNOWN", quality: "UNKNOWN", promotable: false, artifact: null,
   };
   try {
     const provider = new FreeLlmImageProvider({ models: [model] });
@@ -110,20 +131,19 @@ async function bakeImage(model: string, outDir: string): Promise<Attempt> {
     const file = `image-${sanitize(model)}.${ext}`;
     writeFileSync(path.join(outDir, file), image.bytes);
     const [routedProvider, routedModel] = out.usage.model.split("/", 2);
-    const ok = image.bytes.byteLength > 4096 && Boolean(dims) && (dims!.width >= 512) && (dims!.height >= 288);
+    const quality: Quality = image.bytes.byteLength > 4096 && Boolean(dims) && dims!.width >= 512 && dims!.height >= 288 ? "PASS" : "FAIL";
     return {
       ...base, status: "success", http_status: 200, latency_ms: Date.now() - started,
       content_type: image.media_type, bytes: image.bytes.byteLength,
       width: dims?.width ?? null, height: dims?.height ?? null,
       routed_provider: routedProvider ?? "freellmapi", routed_model: routedModel ?? model,
-      classification: ok ? "PASS" : "UNRELIABLE", artifact: file,
+      availability: "AVAILABLE", cost: out.usage.cost_usd > 0 ? "PAID_ONLY" : "FREE", quality,
+      promotable: quality === "PASS", artifact: file,
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return {
-      ...base, latency_ms: Date.now() - started, failure_reason: reason,
-      classification: isTerminalFreeMediaFailure(err) || /not a free route|payment|top ?up|paid/i.test(reason) ? "PAID" : "BROKEN",
-    };
+    const { availability, cost } = classifyFailure(err, reason);
+    return { ...base, latency_ms: Date.now() - started, failure_reason: reason, availability, cost };
   }
 }
 
@@ -133,19 +153,20 @@ async function bakeVideo(model: string, outDir: string): Promise<Attempt> {
     modality: "video", requested_model: model, routed_provider: null, routed_model: null,
     status: "failed", http_status: null, latency_ms: 0, content_type: null, bytes: 0,
     width: null, height: null, duration_sec: null, codec: null, failure_reason: null,
-    classification: "BROKEN", artifact: null,
+    availability: "BROKEN", cost: "UNKNOWN", quality: "UNKNOWN", promotable: false, artifact: null,
   };
   try {
     const provider = new FreeLlmVideoProvider({ models: [model] });
     const out = await provider.generate(VIDEO_PROMPT);
     const attempt = provider.lastAttempts[0];
     if (!out) {
-      const notFree = Boolean(attempt?.not_free);
+      const reason = attempt?.failure_reason ?? "no video produced";
+      const { availability, cost } = attempt?.not_free
+        ? { availability: "AVAILABLE" as Availability, cost: "PAID_ONLY" as Cost }
+        : classifyFailure(reason, reason);
       return {
         ...base, latency_ms: Date.now() - started,
-        http_status: attempt?.http_status ?? null,
-        failure_reason: attempt?.failure_reason ?? "no video produced",
-        classification: notFree ? "PAID" : "BROKEN",
+        http_status: attempt?.http_status ?? null, failure_reason: reason, availability, cost,
       };
     }
     const file = `video-${sanitize(model)}.mp4`;
@@ -155,17 +176,16 @@ async function bakeVideo(model: string, outDir: string): Promise<Attempt> {
       content_type: out.media_type, bytes: out.bytes.byteLength,
       duration_sec: out.duration_sec ?? null,
       routed_provider: out.upstream_provider, routed_model: out.routed_model,
-      // ffprobe in the workflow validates real streams; here we only know bytes
-      // and content-type, so the best we can say pre-probe is UNRELIABLE.
-      classification: out.bytes.byteLength > 65536 ? "UNRELIABLE" : "BROKEN",
-      artifact: file,
+      availability: "AVAILABLE", cost: "FREE",
+      // quality stays UNKNOWN here — the workflow's ffprobe GATE decides
+      // PASS/FAIL (real video stream, supported codec, non-zero duration, sane
+      // dimensions) and rewrites this field before promotion.
+      quality: "UNKNOWN", promotable: false, artifact: file,
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return {
-      ...base, latency_ms: Date.now() - started, failure_reason: reason,
-      classification: isTerminalFreeMediaFailure(err) || /not a free route|payment|top ?up|paid/i.test(reason) ? "PAID" : "BROKEN",
-    };
+    const { availability, cost } = classifyFailure(err, reason);
+    return { ...base, latency_ms: Date.now() - started, failure_reason: reason, availability, cost };
   }
 }
 
@@ -195,17 +215,21 @@ async function main(): Promise<void> {
     paid_video_fallback: process.env["PAID_VIDEO_FALLBACK"],
     attempts,
     summary: {
-      image_pass: attempts.filter((a) => a.modality === "image" && a.classification === "PASS").map((a) => a.requested_model),
-      video_candidates: attempts.filter((a) => a.modality === "video" && a.status === "success").map((a) => a.requested_model),
-      paid_or_broken: attempts.filter((a) => a.classification === "PAID" || a.classification === "BROKEN").map((a) => `${a.requested_model} (${a.classification})`),
+      promotable_images: attempts.filter((a) => a.modality === "image" && a.promotable).map((a) => a.requested_model),
+      video_needs_ffprobe_gate: attempts.filter((a) => a.modality === "video" && a.status === "success").map((a) => a.requested_model),
+      quota_exhausted: attempts.filter((a) => a.availability === "QUOTA_EXHAUSTED").map((a) => a.requested_model),
+      auth_error: attempts.filter((a) => a.availability === "AUTH_ERROR").map((a) => a.requested_model),
+      paid_only: attempts.filter((a) => a.cost === "PAID_ONLY").map((a) => a.requested_model),
+      broken: attempts.filter((a) => a.availability === "BROKEN").map((a) => a.requested_model),
     },
   };
   writeFileSync(path.join(outDir, "media-bakeoff-report.json"), JSON.stringify(report, null, 2));
   const lines = attempts.map((a) =>
-    `${a.modality}\t${a.requested_model}\t${a.classification}\t${a.status}\t${a.bytes}B\t${a.width ?? "?"}x${a.height ?? "?"}\t${a.failure_reason ?? ""}`);
-  writeFileSync(path.join(outDir, "media-bakeoff-summary.txt"), `modality\tmodel\tclass\tstatus\tbytes\tdims\treason\n${lines.join("\n")}\n`);
+    `${a.modality}\t${a.requested_model}\t${a.availability}\t${a.cost}\t${a.quality}\tpromotable=${a.promotable}\t${a.bytes}B\t${a.width ?? "?"}x${a.height ?? "?"}\t${a.failure_reason ?? ""}`);
+  writeFileSync(path.join(outDir, "media-bakeoff-summary.txt"),
+    `modality\tmodel\tavailability\tcost\tquality\tpromotable\tbytes\tdims\treason\n${lines.join("\n")}\n`);
   console.log(`[free-media-smoke] wrote ${attempts.length} attempt(s) to ${outDir}`);
-  for (const a of attempts) console.log(`  ${a.modality} ${a.requested_model}: ${a.classification} (${a.status})`);
+  for (const a of attempts) console.log(`  ${a.modality} ${a.requested_model}: availability=${a.availability} cost=${a.cost} quality=${a.quality} promotable=${a.promotable}`);
 }
 
 main().catch((err) => {

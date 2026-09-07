@@ -107,21 +107,12 @@ jobs:
           rm -rf free-media-bakeoff
           docker cp free-media-bakeoff-engine:/tmp/media-bakeoff ./free-media-bakeoff
 
-      - name: ffprobe every generated video
+      - name: ffprobe GATE — validate every generated video and promote/fail
         if: ${{ inputs.run_live }}
         shell: bash
         run: |
-          set -uo pipefail
-          shopt -s nullglob
-          probe_json='[]'
-          for v in free-media-bakeoff/video-*.mp4; do
-            info=$(ffprobe -v error -print_format json -show_format -show_streams "$v" 2>/dev/null || echo '{}')
-            dur=$(printf '%s' "$info" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const vs=(j.streams||[]).find(x=>x.codec_type==='video')||{};console.log(JSON.stringify({file:'$(basename "$v")',codec:vs.codec_name||null,width:vs.width||null,height:vs.height||null,duration:Number(j.format&&j.format.duration||0)||null}))}catch(e){console.log(JSON.stringify({file:'$(basename "$v")',error:'unparseable'}))}})")
-            probe_json=$(node -e "const a=$probe_json;a.push($dur);console.log(JSON.stringify(a))")
-          done
-          printf '%s\n' "$probe_json" > free-media-bakeoff/ffprobe.json
-          echo "ffprobe results:"
-          cat free-media-bakeoff/ffprobe.json
+          set -euo pipefail
+          node engine/scripts/free-media-ffprobe-gate.mjs free-media-bakeoff
 
       - name: Upload bake-off outputs
         if: ${{ always() && inputs.run_live }}

@@ -17,7 +17,7 @@
  */
 
 import { ProviderError } from "../provider.ts";
-import { FreeMediaTerminalError } from "../free-media-policy.ts";
+import { FreeMediaAuthError } from "../free-media-policy.ts";
 import {
   freeLlmMediaBaseUrl,
   resolveFreeVideoDurationSec,
@@ -124,7 +124,7 @@ export class FreeLlmVideoProvider {
     if (!res.ok) {
       const body = (await res.text()).slice(0, 400);
       if (res.status === 401 || res.status === 403) {
-        throw new FreeMediaTerminalError(`freellmapi media gateway rejected the unified key (${res.status}): ${body}`);
+        throw new FreeMediaAuthError(`freellmapi media gateway rejected the unified key (${res.status}): ${body}`);
       }
       if (res.status === 402 || PAYMENT_REQUIRED.test(body)) {
         const err = new ProviderError(`freellmapi-video/${model} is not a free route right now: ${body}`);
@@ -164,7 +164,7 @@ export class FreeLlmVideoProvider {
         this.lastAttempts.push({ requested_model: model, status: "success", http_status: 200 });
         return out;
       } catch (err) {
-        if (err instanceof FreeMediaTerminalError) throw err;
+        if (err instanceof FreeMediaAuthError) throw err;
         const notFree = Boolean((err as { notFree?: boolean }).notFree);
         this.lastAttempts.push({
           requested_model: model,

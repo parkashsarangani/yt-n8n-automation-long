@@ -6,7 +6,7 @@ import { FreeLlmImageProvider } from "../providers/freellm-image.ts";
 import { FreeLlmVideoProvider } from "../providers/freellm-video.ts";
 import { fallbackPolicy } from "../fallback-policy.ts";
 import { resolveFreeImageModels, resolveFreeVideoModels } from "../freellm-media-models.ts";
-import { FreeMediaTerminalError } from "../free-media-policy.ts";
+import { FreeMediaAuthError } from "../free-media-policy.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -271,7 +271,7 @@ async function generateFreeLlmImage(
   } catch {
     return null;
   }
-  const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult }> = [];
+  const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult; routed: string }> = [];
   let firstAcceptable: number | undefined;
   let attempted = 0;
   for (let index = 0; index < concepts.length; index++) {
@@ -291,24 +291,23 @@ async function generateFreeLlmImage(
       }
       if (qa.generic_filler || qa.why_failure) continue;
       if (candidateAccepted(qa.scores) && firstAcceptable === undefined) firstAcceptable = index + 1;
-      candidates.push({ image, qa });
+      candidates.push({ image, qa, routed: out.usage.model });
     } catch (err) {
-      // A bad unified key / exhausted hard daily ceiling is terminal for the
-      // free path this run; let the caller decide on paid fallback.
-      if (err instanceof FreeMediaTerminalError) {
-        ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free image generation terminally unavailable: ${err.message}`);
-        return null;
-      }
+      // A bad unified FreeLLMAPI key is a configuration error: stop, and never
+      // let a paid provider be tried instead. A per-provider daily quota ceiling
+      // is NOT terminal — FreeLlmImageProvider already advanced through every
+      // configured free model before throwing.
+      if (err instanceof FreeMediaAuthError) throw err;
       ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free image candidate failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   const best = chooseVisualCandidate(candidates.map((c) => scored(c, c.qa)));
   if (!best) return null;
   const ref = await ctx.blobs.put(best.value.image.bytes, { role: "image", media_type: best.value.image.media_type });
-  ctx.logger.warn(`[visual_beat_assets] ${beat.id}: used a free FreeLLMAPI image, no fal spend`);
+  ctx.logger.warn(`[visual_beat_assets] ${beat.id}: used a free FreeLLMAPI image (${best.value.routed}), no fal spend`);
   return {
     image_uri: ref.uri, preview_uri: ref.uri, blobs: [ref], preview: best.value.image,
-    candidate_count: attempted, source_provider: "freellmapi-image",
+    candidate_count: attempted, source_provider: "freellmapi-image", source_id: best.value.routed,
     ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
     ...qaFields(best.value.qa),
   };
@@ -325,8 +324,12 @@ async function generateImage(
   if (health.unavailable) throw qaUnavailableError(health, beat.id);
   const provider = ctx.media.images;
   if (!provider) throw new Error("generated_image requires an image provider");
-  if (provider.id.toLowerCase().includes("freellmapi")) {
-    throw new Error(`RFC 0010 forbids FreeLLMAPI image generation (${provider.id})`);
+  // The raw FreeLLM chat/speech client must never be wired here as the image
+  // provider. The sanctioned free-first image path is the dedicated
+  // FreeLlmImageProvider used inside generateFreeLlmImage() (id "free-media-*"),
+  // not a "freellmapi-speech"/"freellmapi:[…]" text provider.
+  if (/freellmapi(-speech|:|\/chat)/i.test(provider.id)) {
+    throw new Error(`the FreeLLM text/speech client cannot be used for image generation (${provider.id})`);
   }
   const concepts = promptsForBeat(beat);
   if (concepts.length < 3) throw new Error(`${beat.id}: Visual Director supplied fewer than 3 image candidates`);
@@ -401,9 +404,12 @@ async function generateImage(
   // When it is disabled and nothing free satisfied the beat, hand back to the
   // router so a declared non-generated alternate (stock / semantic graphic) is
   // used instead of spending.
-  if (!fallbackPolicy().paidImageFallback && candidates.length === 0) {
+  const paidImageAvailable = fallbackPolicy().paidImageFallback && provider.id.toLowerCase().includes("fal");
+  if (!paidImageAvailable && candidates.length === 0) {
     throw new Error(
-      `${beat.id}: paid image generation is disabled (PAID_IMAGE_FALLBACK=false) and no free image source satisfied the beat`,
+      `${beat.id}: paid image generation is unavailable `
+      + `(PAID_IMAGE_FALLBACK=${fallbackPolicy().paidImageFallback}, fal provider=${provider.id}) `
+      + `and no free image source satisfied the beat`,
     );
   }
 
@@ -720,10 +726,9 @@ async function generateFreeLlmVideo(
   try {
     generated = await provider.generate(`${concept}. MOTION: ${motion}. ${identityClause} ${RESTRAINED_METAPHOR} ${NO_PSEUDO_TEXT}`.trim());
   } catch (err) {
-    if (err instanceof FreeMediaTerminalError) {
-      ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free video generation terminally unavailable: ${err.message}`);
-      return null;
-    }
+    // A bad unified FreeLLMAPI key is a configuration error: propagate loudly.
+    // Never let it fall through to the paid-video guard as "free unavailable".
+    if (err instanceof FreeMediaAuthError) throw err;
     ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free video generation failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }

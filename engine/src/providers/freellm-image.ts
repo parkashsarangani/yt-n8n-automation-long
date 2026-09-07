@@ -17,7 +17,7 @@
 import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../provider.ts";
 import {
   freeImagePrompt,
-  FreeMediaTerminalError,
+  FreeMediaAuthError,
   isDailyFreeImageCapacityMessage,
 } from "../free-media-policy.ts";
 import { freeLlmMediaBaseUrl, resolveFreeImageModels } from "../freellm-media-models.ts";
@@ -103,7 +103,9 @@ export class FreeLlmImageProvider implements ImageProvider {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
-        const res = await this.fetchImpl(parsed.toString(), { signal: controller.signal });
+        // `redirect: "error"` stops a public https URL being bounced to an
+        // internal address after the hostname check has already passed.
+        const res = await this.fetchImpl(parsed.toString(), { signal: controller.signal, redirect: "error" });
         if (!res.ok) throw new ProviderError(`free image download failed (${res.status})`);
         const buf = new Uint8Array(await res.arrayBuffer());
         if (buf.length === 0 || buf.length > MAX_IMAGE_BYTES) throw new ProviderError("free image download was empty or too large");
@@ -143,10 +145,13 @@ export class FreeLlmImageProvider implements ImageProvider {
     if (!res.ok) {
       const body = (await res.text()).slice(0, 400);
       if (isGatewayAuthFailure(res.status)) {
-        throw new FreeMediaTerminalError(`freellmapi media gateway rejected the unified key (${res.status}): ${body}`);
+        // Config error — stop the whole free media operation, never escalate to paid.
+        throw new FreeMediaAuthError(`freellmapi media gateway rejected the unified key (${res.status}): ${body}`);
       }
       if (isDailyFreeImageCapacityMessage(body)) {
-        throw new FreeMediaTerminalError(`freellmapi-image/${model} daily free allocation exhausted: ${body}`);
+        // A hard daily ceiling for THIS upstream provider only — advance to the
+        // next configured free model, do not abort the chain.
+        throw new ProviderError(`freellmapi-image/${model} daily free allocation exhausted: ${body}`);
       }
       if (isRetryableModelFailure(res.status)) {
         throw new ProviderError(`freellmapi-image/${model} unavailable (${res.status}): ${body}`);
@@ -186,12 +191,18 @@ export class FreeLlmImageProvider implements ImageProvider {
           },
         };
       } catch (err) {
-        // A bad unified key or an exhausted hard daily ceiling is terminal —
-        // do not keep hammering other models with the same broken condition.
-        if (err instanceof FreeMediaTerminalError) throw err;
+        // A bad unified key is a config error — stop, and never let a paid
+        // provider be tried as a "free path unavailable" fallback.
+        if (err instanceof FreeMediaAuthError) throw err;
+        // Everything else — including a per-provider daily quota ceiling — is
+        // local to this model. Try the next configured free model.
         attempted.push(model);
         lastError = err;
-        console.warn(`[freellm-media] free image model ${model} unavailable; trying next configured model`);
+        console.warn(
+          isDailyFreeImageCapacityMessage(err)
+            ? `[freellm-media] free image model ${model} hit its daily free quota; trying next configured model`
+            : `[freellm-media] free image model ${model} unavailable; trying next configured model`,
+        );
       }
     }
     const detail = lastError instanceof Error ? lastError.message : String(lastError);

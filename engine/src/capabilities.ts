@@ -65,15 +65,18 @@ export const STAGES: StageSpec[] = [
   {
     id: "images",
     label: "Generated visual beats, illustrated stills and thumbnail artwork",
-    requires: [["FAL_KEY"]],
+    // Either a fal credential OR a configured free FreeLLMAPI image chain
+    // satisfies this stage. With only the free chain, generation is entirely
+    // free and there is no paid last resort.
+    requires: [["FAL_KEY"], ["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"]],
     optional: [
       "FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE",
       "PAID_IMAGE_FALLBACK", "PAID_VIDEO_FALLBACK",
       "FREELLMAPI_IMAGE_MODELS", "FREELLMAPI_VIDEO_MODELS", "FREELLMAPI_VIDEO_DURATION_SEC",
     ],
-    real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
+    real: "freellmapi media gateway (free-first) then fal/${FAL_MODEL:-fal-ai/flux-2} when PAID_IMAGE_FALLBACK",
     fallback: "unavailable",
-    consequence: "generated-image visual beats cannot be produced; RFC 0010 never falls back to FreeLLMAPI image generation",
+    consequence: "generated-image visual beats cannot be produced (no free FreeLLMAPI image chain and no fal credential)",
   },
   {
     id: "renderer",
@@ -202,9 +205,21 @@ function speechProvider(env: NodeJS.ProcessEnv): string {
 }
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
+  const freeChain = (env["FREELLMAPI_IMAGE_MODELS"]?.trim() || "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
   const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
   const editModel = env["FAL_EDIT_MODEL"]?.trim() || `${model}/edit`;
-  return `fal/${model} + ${editModel}`;
+  const hasFal = isSet(env, "FAL_KEY");
+  const paidImage = /^(1|true|yes|on)$/i.test((env["PAID_IMAGE_FALLBACK"] ?? "true").trim());
+  if (freeChain.length > 0) {
+    const head = freeChain.slice(0, 3).join(", ") + (freeChain.length > 3 ? ", +" + (freeChain.length - 3) : "");
+    return hasFal && paidImage
+      ? `freellmapi media [${head}] (free-first) -> fal/${model} + ${editModel} (paid last resort)`
+      : `freellmapi media [${head}] (free only, no paid fallback)`;
+  }
+  return hasFal
+    ? `fal/${model} + ${editModel}`
+    : "unavailable (no free FreeLLMAPI image chain, no fal credential)";
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
