@@ -164,7 +164,7 @@ test("video: PAID_VIDEO_FALLBACK=false is the code default and blocks the genera
     assert.equal(paidVideoGenerationAllowed(), false);
   });
   const src = await resolverSource();
-  assert.match(src, /generated_video: policy\.paidVideoFallback && Boolean\(process\.env\["FAL_KEY"\]/);
+  assert.match(src, /generated_video: freeVideo \|\| \(policy\.paidVideoFallback && Boolean\(process\.env\["FAL_KEY"\]/);
 });
 
 test("video: generateVideo() refuses to construct or call the paid provider while PAID_VIDEO_FALLBACK=false", async () => {
@@ -184,7 +184,7 @@ test("video: a free-video-unavailable beat resolves to a non-video representatio
   // The router only offers generated_video as a route when the capability is
   // true; with the guard it is false, so selectVisualMode / alternateMode fall
   // to the beat's declared non-video alternate or a semantic representation.
-  assert.match(src, /generated_video: policy\.paidVideoFallback/);
+  assert.match(src, /generated_video: freeVideo \|\| \(policy\.paidVideoFallback/);
   assert.match(src, /resolve this beat with a non-video representation/);
 });
 

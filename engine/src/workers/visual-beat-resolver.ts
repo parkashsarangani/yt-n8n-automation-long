@@ -2,7 +2,11 @@ import type { BlobRef } from "../artifact.ts";
 import { alignVisualBeatPlan, type VoiceClipForAlignment } from "../audio/beat-alignment.ts";
 import { candidateWindows, extractVideoSegment, sampleVideoFrames } from "../media/video-analysis.ts";
 import { FalVideoProvider } from "../providers/fal-video.ts";
+import { FreeLlmImageProvider } from "../providers/freellm-image.ts";
+import { FreeLlmVideoProvider } from "../providers/freellm-video.ts";
 import { fallbackPolicy } from "../fallback-policy.ts";
+import { resolveFreeImageModels, resolveFreeVideoModels } from "../freellm-media-models.ts";
+import { FreeMediaTerminalError } from "../free-media-policy.ts";
 import { PexelsVideoProvider, type StockVideoCandidate } from "../providers/pexels-video.ts";
 import type { ImageBankContext } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -124,16 +128,21 @@ function qaUnavailableError(health: VisionQaRunHealth, beatId: string): Error {
 
 function capabilities(): VisualCapabilities {
   const policy = fallbackPolicy();
+  const freeImage = resolveFreeImageModels().length > 0;
+  const freeVideo = resolveFreeVideoModels().length > 0;
   return {
     stock_video: Boolean(process.env["PEXELS_API_KEY"]?.trim()),
-    generated_image: true,
+    // A working free FreeLLMAPI image chain makes generated images available on
+    // its own — fal is no longer a prerequisite. Fal still qualifies as the
+    // paid last resort when PAID_IMAGE_FALLBACK is on.
+    generated_image: freeImage || (policy.paidImageFallback && Boolean(process.env["FAL_KEY"]?.trim())),
     motion_graphic: true,
-    // HARD COST GUARD (fallback-policy §VIDEO): paid video generation is a
-    // capability ONLY when PAID_VIDEO_FALLBACK is explicitly enabled. With the
-    // code default (off) a configured FAL_KEY + video model is still NOT a
-    // usable route, so the resolver falls to a semantic non-video
-    // representation instead of ever spending on Kling/Fal.
-    generated_video: policy.paidVideoFallback && Boolean(process.env["FAL_KEY"]?.trim()),
+    // A configured FREE video allowlist makes generated video available for
+    // free. HARD COST GUARD otherwise: a configured FAL_KEY only enables the
+    // capability when PAID_VIDEO_FALLBACK is explicitly on — the code default
+    // (off) still resolves free-video-unavailable beats to a semantic
+    // non-video representation, never to paid Kling/Fal.
+    generated_video: freeVideo || (policy.paidVideoFallback && Boolean(process.env["FAL_KEY"]?.trim())),
   };
 }
 
@@ -238,6 +247,73 @@ async function loadAlignedPlan(
   return alignVisualBeatPlan(plan, clips, ctx.logger);
 }
 
+/**
+ * Free-first generated image via the FreeLLMAPI media gateway.
+ *
+ * Runs the same multimodal admission gate as the paid path. A free image that
+ * clears the gate skips fal entirely. Returns null when no free image model is
+ * configured, or none produced an acceptable candidate — the caller then falls
+ * through to the PAID_IMAGE_FALLBACK decision. Continuity beats are not handled
+ * here: recurring-identity shots need the reference-conditioned pack path.
+ */
+async function generateFreeLlmImage(
+  beat: VisualBeat,
+  ctx: WorkerContext,
+  health: VisionQaRunHealth,
+  concepts: string[],
+  identity: string,
+  previous?: QaImage,
+): Promise<ModeResult | null> {
+  if (resolveFreeImageModels().length === 0) return null;
+  let provider: FreeLlmImageProvider;
+  try {
+    provider = new FreeLlmImageProvider();
+  } catch {
+    return null;
+  }
+  const candidates: Array<{ image: QaImage; qa: VisualBeatQaResult }> = [];
+  let firstAcceptable: number | undefined;
+  let attempted = 0;
+  for (let index = 0; index < concepts.length; index++) {
+    if (health.unavailable) break;
+    try {
+      attempted += 1;
+      const out = await provider.generate({ prompt: strengthenedPrompt(beat, concepts[index]!, identity), aspect: "16:9", count: 1 });
+      const image = out.images[0];
+      if (!image) continue;
+      const qa = await scoreVisualBeatImage(image, beat, undefined, {
+        ...(previous ? { previous } : {}),
+        sourcing: { generation_prompt: concepts[index]!, asset_metadata: `freellmapi image ${out.usage.model} concept ${index + 1}/${concepts.length}` },
+      });
+      if (!qa) {
+        markVisionQaUnavailable(health, `${beat.id}: free-image candidate could not be scored`);
+        break;
+      }
+      if (qa.generic_filler || qa.why_failure) continue;
+      if (candidateAccepted(qa.scores) && firstAcceptable === undefined) firstAcceptable = index + 1;
+      candidates.push({ image, qa });
+    } catch (err) {
+      // A bad unified key / exhausted hard daily ceiling is terminal for the
+      // free path this run; let the caller decide on paid fallback.
+      if (err instanceof FreeMediaTerminalError) {
+        ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free image generation terminally unavailable: ${err.message}`);
+        return null;
+      }
+      ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free image candidate failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const best = chooseVisualCandidate(candidates.map((c) => scored(c, c.qa)));
+  if (!best) return null;
+  const ref = await ctx.blobs.put(best.value.image.bytes, { role: "image", media_type: best.value.image.media_type });
+  ctx.logger.warn(`[visual_beat_assets] ${beat.id}: used a free FreeLLMAPI image, no fal spend`);
+  return {
+    image_uri: ref.uri, preview_uri: ref.uri, blobs: [ref], preview: best.value.image,
+    candidate_count: attempted, source_provider: "freellmapi-image",
+    ...(firstAcceptable !== undefined ? { first_acceptable_candidate_index: firstAcceptable } : {}),
+    ...qaFields(best.value.qa),
+  };
+}
+
 async function generateImage(
   beat: VisualBeat,
   ctx: WorkerContext,
@@ -310,9 +386,18 @@ async function generateImage(
     };
   }
 
-  // IMAGE policy (fallback-policy §IMAGE): cache / bank-reuse / free stock are
-  // all attempted above and elsewhere for free. Paid image *generation* (fal)
-  // is the last resort and only permitted when PAID_IMAGE_FALLBACK is enabled.
+  // Free-first generated image: the FreeLLMAPI media gateway (Cloudflare /
+  // Pollinations / NVIDIA / ... — all credentials owned by FreeLLMAPI) is tried
+  // before any paid fal generation. Skipped for continuity beats, which need
+  // the reference-conditioned pack path below.
+  if (!continuityReference) {
+    const free = await generateFreeLlmImage(beat, ctx, health, concepts, identity, previous);
+    if (free) return free;
+  }
+
+  // IMAGE policy (fallback-policy §IMAGE): cache / bank-reuse / free stock /
+  // free generation are all attempted above for free. Paid image *generation*
+  // (fal) is the last resort and only permitted when PAID_IMAGE_FALLBACK is on.
   // When it is disabled and nothing free satisfied the beat, hand back to the
   // router so a declared non-generated alternate (stock / semantic graphic) is
   // used instead of spending.
@@ -605,6 +690,73 @@ function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): M
   };
 }
 
+/**
+ * Free-first generated video via the FreeLLMAPI media gateway, using the
+ * `FREELLMAPI_VIDEO_MODELS` FREE-VIDEO ALLOWLIST only. Returns null when the
+ * allowlist is empty, every model is unavailable / not a free route, or no
+ * candidate cleared the visual gate. A "payment required" response is recorded
+ * and skipped — never escalated to a paid call.
+ */
+async function generateFreeLlmVideo(
+  beat: VisualBeat,
+  ctx: WorkerContext,
+  health: VisionQaRunHealth,
+  previous?: QaImage,
+  identity = "",
+): Promise<ModeResult | null> {
+  if (resolveFreeVideoModels().length === 0) return null;
+  let provider: FreeLlmVideoProvider;
+  try {
+    provider = new FreeLlmVideoProvider();
+  } catch {
+    return null;
+  }
+  const concept = promptsForBeat(beat)[0] ?? beat.asset_brief.generation_prompt;
+  const motion = beat.asset_brief.generated_video_prompt?.trim() || beat.asset_brief.generation_prompt;
+  const identityClause = identity
+    ? `THE RECURRING SUBJECT IS ALWAYS: ${identity}. Keep age, build, hair, clothing and distinguishing attributes identical to earlier shots.`
+    : "";
+  let generated;
+  try {
+    generated = await provider.generate(`${concept}. MOTION: ${motion}. ${identityClause} ${RESTRAINED_METAPHOR} ${NO_PSEUDO_TEXT}`.trim());
+  } catch (err) {
+    if (err instanceof FreeMediaTerminalError) {
+      ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free video generation terminally unavailable: ${err.message}`);
+      return null;
+    }
+    ctx.logger.warn(`[visual_beat_assets] ${beat.id}: free video generation failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  if (!generated) return null;
+
+  const wantS = beat.end_sec - beat.start_sec;
+  const sampled = await sampleVideoFrames(generated.bytes, 0, generated.duration_sec ?? wantS, 5);
+  const frames: QaImage[] = sampled.map((f) => ({ bytes: f.bytes, media_type: f.media_type }));
+  const qa = await scoreVisualBeatFrames(frames, beat, {
+    ...(previous ? { previous } : {}),
+    sourcing: { generation_prompt: concept, asset_metadata: `freellmapi video ${generated.upstream_provider}/${generated.routed_model} motion: ${motion}` },
+  });
+  if (!qa) {
+    markVisionQaUnavailable(health, `${beat.id}: free-video candidate could not be scored`);
+    return null;
+  }
+  if (!candidateAccepted(qa.scores) || qa.generic_filler || qa.why_failure) return null;
+
+  const available = generated.duration_sec ?? wantS;
+  const segment = available > wantS ? await extractVideoSegment(generated.bytes, 0, wantS) : generated.bytes;
+  const vRef = await ctx.blobs.put(segment, { role: "video", media_type: "video/mp4" });
+  const preview = frames[Math.floor(frames.length / 2)]!;
+  const pRef = await ctx.blobs.put(preview.bytes, { role: "image", media_type: preview.media_type });
+  ctx.logger.warn(`[visual_beat_assets] ${beat.id}: used a free FreeLLMAPI video (${generated.upstream_provider}), no paid video spend`);
+  return {
+    video_uri: vRef.uri, preview_uri: pRef.uri, blobs: [vRef, pRef], preview,
+    source_provider: "freellmapi-video", source_id: `${generated.upstream_provider}/${generated.routed_model}`,
+    source_in_sec: 0, source_out_sec: Math.min(available, wantS),
+    candidate_count: 1, first_acceptable_candidate_index: 1,
+    ...qaFields(qa),
+  };
+}
+
 async function generateVideo(
   beat: VisualBeat,
   ctx: WorkerContext,
@@ -613,6 +765,12 @@ async function generateVideo(
   identity = "",
 ): Promise<ModeResult> {
   if (health.unavailable) throw qaUnavailableError(health, beat.id);
+
+  // Free-first: the FreeLLMAPI media gateway free-video allowlist is attempted
+  // before any paid path and independently of PAID_VIDEO_FALLBACK.
+  const free = await generateFreeLlmVideo(beat, ctx, health, previous, identity);
+  if (free) return free;
+
   // Defense in depth for the hard cost guard: even if some caller reaches this
   // function with generated_video selected, a paid video generator is never
   // constructed or invoked while PAID_VIDEO_FALLBACK is disabled.
