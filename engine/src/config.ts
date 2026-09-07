@@ -226,8 +226,8 @@ export const CREDENTIALS: CredentialSpec[] = [
     secret: true,
     required: true,
     placeholder: "fal key",
-    help: "Sole generated-image credential after RFC 0010. Used for FLUX.2 generation and reference-conditioned continuity edits.",
-    fallback: "generated-image visual beats are unavailable; there is no FreeLLM image fallback",
+    help: "Paid image generation (FLUX.2) and reference-conditioned continuity edits. The last resort after the free-first FreeLLMAPI image chain (FREELLMAPI_IMAGE_MODELS) when PAID_IMAGE_FALLBACK is on; also the only path for reference-conditioned continuity packs.",
+    fallback: "generated images fall back to the free FreeLLMAPI image chain if configured, otherwise the beat is unavailable",
   },
   {
     key: "FAL_MODEL",

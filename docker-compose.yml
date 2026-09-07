@@ -33,8 +33,9 @@ services:
 
       # Shared FreeLLMAPI. Shorts owns the one container and encrypted provider
       # state; production deploy attaches this engine to the Shorts network.
-      # Text is deliberately pinned to Gemini: RFC 0010 forbids `auto` model
-      # routing for production creative decisions.
+      # Text walks an ordered chain of concrete free models (llm-routing.ts).
+      # `auto` / `auto:*` is rejected everywhere — it lets the gateway silently
+      # swap in a weaker model.
       LLM_ROUTER_MODE: ${LLM_ROUTER_MODE:-freellmapi}
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}

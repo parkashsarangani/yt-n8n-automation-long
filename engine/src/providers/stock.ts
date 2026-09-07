@@ -1,11 +1,12 @@
 /**
- * Backward-compatible image provider adapter.
+ * fal.ai image provider adapter.
  *
- * RFC 0010 removes FreeLLMAPI image generation entirely. The historical
- * StockImageProvider name remains temporarily so existing service wiring and
- * tests do not need an unrelated rename, but every real image generation call
- * is delegated directly to fal.ai's FLUX.2 provider with reference-conditioned
- * pack support.
+ * The historical `StockImageProvider` name is kept so service wiring, tests and
+ * the `.id` string (`cartoon-art/fal/...`, which the resolver and the deploy
+ * guard match on) stay stable. Every call delegates to fal.ai's FLUX.2 provider
+ * with reference-conditioned pack support. This is the PAID image path — the
+ * resolver tries the free FreeLLMAPI image chain first (see
+ * workers/visual-beat-resolver.ts `generateFreeLlmImage`).
  */
 
 import type { Aspect, ImageProvider } from "../provider.ts";

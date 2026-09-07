@@ -1,9 +1,8 @@
 /**
- * FreeLLMAPI speech provider.
- *
- * RFC 0010 removes FreeLLMAPI image generation from the Long project. This
- * module keeps only the existing optional FreeLLM narration path so deployment
- * can continue sharing the Shorts-owned FreeLLMAPI service for TTS.
+ * FreeLLMAPI speech provider — the optional `SPEECH_PROVIDER_MODE=freellmapi`
+ * narration rollback path (production speech is ElevenLabs). Selected in
+ * providers/elevenlabs.ts. Image and video generation now have their own
+ * free-first clients (providers/freellm-image.ts, providers/freellm-video.ts).
  */
 
 import { ProviderError, type SpeechProvider, type Usage } from "../provider.ts";
