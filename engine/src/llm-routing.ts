@@ -10,7 +10,8 @@
  *
  * RFC 0010 intentionally does NOT use FreeLLMAPI's automatic text model
  * selection. Production reasoning is pinned to a Google Gemini model so an
- * `auto` route can never silently lower output quality.
+ * `auto` route can never silently lower output quality. Visual QA is a separate
+ * direct-OpenAI path and therefore does not belong in this router.
  */
 
 export type LlmRouterMode = "freellmapi" | "direct";
@@ -21,13 +22,11 @@ export interface LlmRoutingConfig {
   baseUrl: string;
   apiKey: string | undefined;
   textModel: string;
-  visionModel: string;
   timeoutMs: number;
 }
 
 export const DEFAULT_FREELLMAPI_BASE_URL = "http://freellmapi:3001/v1";
 export const DEFAULT_FREELLMAPI_TEXT_MODEL = "gemini-3.5-flash";
-export const DEFAULT_FREELLMAPI_VISION_MODEL = "auto:smart";
 export const DEFAULT_LLM_ROUTER_TIMEOUT_MS = 120_000;
 
 function clean(value: string | undefined): string | undefined {
@@ -82,7 +81,6 @@ export function llmRoutingConfig(env: NodeJS.ProcessEnv = process.env): LlmRouti
     baseUrl: (clean(env["FREELLMAPI_BASE_URL"]) ?? DEFAULT_FREELLMAPI_BASE_URL).replace(/\/$/, ""),
     apiKey: clean(env["FREELLMAPI_API_KEY"]),
     textModel,
-    visionModel: clean(env["FREELLMAPI_VISION_MODEL"]) ?? DEFAULT_FREELLMAPI_VISION_MODEL,
     timeoutMs: timeout(env["LLM_ROUTER_TIMEOUT_MS"]),
   };
 }
