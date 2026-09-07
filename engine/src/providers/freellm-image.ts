@@ -23,7 +23,11 @@ import {
 } from "../free-media-policy.ts";
 import { freeLlmMediaBaseUrl, resolveFreeImageModels } from "../freellm-media-models.ts";
 
-const SIZES: Record<Aspect, string> = { "9:16": "1024x1792", "16:9": "1792x1024", "1:1": "1024x1024" };
+// Blessed FLUX/SDXL resolutions: multiples of 64, ~1MP, 16:9-ish. NVIDIA's free
+// image endpoints reject arbitrary width/height with HTTP 422 `literal_error`;
+// Pollinations / Cloudflare accept these too. The renderer crops to the exact
+// frame aspect, so 1344x768 (1.75) vs a true 16:9 (1.778) is immaterial.
+const SIZES: Record<Aspect, string> = { "9:16": "768x1344", "16:9": "1344x768", "1:1": "1024x1024" };
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
 interface GenImage { bytes: Uint8Array; media_type: string }

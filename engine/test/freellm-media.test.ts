@@ -549,3 +549,22 @@ test("FREELLMAPI_IMAGE_PROMPT_MAX env overrides the default cap", async () => {
   assert.equal(freeImagePromptMax({ FREELLMAPI_IMAGE_PROMPT_MAX: "junk" } as NodeJS.ProcessEnv), 700);
   assert.equal(freeImagePromptMax({ FREELLMAPI_IMAGE_PROMPT_MAX: "10" } as NodeJS.ProcessEnv), 700);
 });
+
+test("FreeLlmImageProvider sends a FLUX-blessed size (multiple of 64), not an arbitrary WxH", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_IMAGE_MODELS: "img-a" }, async () => {
+    const sizes: string[] = [];
+    const p = new FreeLlmImageProvider({ fetchImpl: async (_u, init) => {
+      sizes.push((JSON.parse(String(init?.body)) as { size: string }).size);
+      return imgResponse({ data: [{ b64_json: PNG_B64 }], model: "m", provider: "nvidia" });
+    } });
+    await p.generate({ prompt: "x", aspect: "16:9" });
+    await p.generate({ prompt: "x", aspect: "9:16" });
+    await p.generate({ prompt: "x", aspect: "1:1" });
+    for (const s of sizes) {
+      const [w, h] = s.split("x").map(Number);
+      assert.equal(w! % 64, 0, `${s} width multiple of 64`);
+      assert.equal(h! % 64, 0, `${s} height multiple of 64`);
+    }
+    assert.deepEqual(sizes, ["1344x768", "768x1344", "1024x1024"]);
+  });
+});
