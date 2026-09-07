@@ -1,7 +1,5 @@
-import { llmRoutingConfig } from "./llm-routing.ts";
 import { prepareVisionImages } from "./media/vision-image.ts";
 import type { QaImage, VisualBeatFetch } from "./visual-beat-qa.ts";
-import { FREE_VISION_ATTEMPT_TIMEOUT_MS, freeVisionTripped, recordFreeVisionResult } from "./vision-route-health.ts";
 import type { VisualBeat } from "./visual-routing.ts";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -60,7 +58,10 @@ async function request(
       }),
       signal: controller.signal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn(`[visual-benchmark-judge] ${endpoint.label} failed: HTTP ${response.status}`);
+      return null;
+    }
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const raw = payload.choices?.[0]?.message?.content;
     if (typeof raw !== "string") return null;
@@ -89,15 +90,16 @@ export async function compareRenderedVisualsBlind(
   fetchImpl: VisualBeatFetch = fetch as unknown as VisualBeatFetch,
 ): Promise<BlindComparisonResult | null> {
   const [optionA, optionB] = await Promise.all([prepareVisionImages(rawA), prepareVisionImages(rawB)]);
-  const routing = llmRoutingConfig();
-  if (routing.mode === "freellmapi" && routing.apiKey && !freeVisionTripped()) {
-    const result = await request({ baseUrl: routing.baseUrl, apiKey: routing.apiKey, model: routing.visionModel, label: "freellmapi", timeoutMs: FREE_VISION_ATTEMPT_TIMEOUT_MS }, optionA, optionB, beat, fetchImpl);
-    recordFreeVisionResult(result !== null);
-    if (result) return result;
-    if (!routing.failOpenToDirect) return null;
-  }
+
+  // RFC 0010's comparative result is acceptance evidence just like its absolute
+  // rendered-frame score. FreeLLMAPI auto:smart has been observed returning
+  // text-only HTTP-200 fallbacks that ignore supplied images, so the blind judge
+  // must never treat that transport response as visual evidence.
   const apiKey = process.env["OPENAI_API_KEY"]?.trim();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    console.warn("[visual-benchmark-judge] direct OpenAI vision unavailable: OPENAI_API_KEY is not configured");
+    return null;
+  }
   return request({
     baseUrl: (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, ""),
     apiKey,
