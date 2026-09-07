@@ -2,9 +2,8 @@ name: RFC 0010 Live Visual Benchmark
 
 # The full 90-120s control-vs-candidate benchmark regenerates the entire
 # RFC 0009 control episode (~25 fal.ai images) and is the FINAL acceptance
-# gate, not the dev loop. It is manual-dispatch only so a routine push never
-# launches a euro of spend. Use `RFC 0010 Live Media Smoke` (run_live_media)
-# for iteration.
+# gate, not the dev loop. It is manual-dispatch only so routine development
+# never launches paid media generation.
 on:
   workflow_dispatch: {}
 
@@ -21,7 +20,6 @@ jobs:
     env:
       FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
       FREELLMAPI_TEXT_MODEL: gemini-3.5-flash
-      FREELLMAPI_VISION_MODEL: ${{ vars.FREELLMAPI_VISION_MODEL || 'auto:smart' }}
       LLM_ROUTER_MODE: freellmapi
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
       LLM_ROUTER_TIMEOUT_MS: ${{ vars.LLM_ROUTER_TIMEOUT_MS || '120000' }}
@@ -29,6 +27,7 @@ jobs:
 
       OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+      OPENAI_IMAGE_QA_MODEL: ${{ vars.OPENAI_IMAGE_QA_MODEL || vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
       OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL || 'omni-moderation-latest' }}
       TTS_MODERATION_TIMEOUT_MS: ${{ vars.TTS_MODERATION_TIMEOUT_MS || '30000' }}
 
@@ -106,8 +105,8 @@ jobs:
           fi
           docker network connect "$SHARED_LLM_NETWORK" vidgen-benchmark-engine
 
-          # Bounded-retry pre-flight: a transient shared-key 429 must not destroy
-          # the 120-minute benchmark; genuine auth/model errors still fail fast.
+          # This checks only the pinned text reasoning route. Visual acceptance
+          # is direct OpenAI and separately guarded by the per-run vision canary.
           docker exec vidgen-benchmark-engine node --import tsx scripts/freellmapi-smoke.ts
 
       - name: Generate control and RFC 0010 candidate
