@@ -76,6 +76,12 @@ test("agent output budgets stay bounded", () => {
     "episode_director.json": 16000,
     "watchability_critic.json": 18000,
     "visual_planner.json": 10000,
+    // 24000: RFC 0010's Visual Director emits a full VisualBeat plan for a
+    // whole episode -- one beat every 2-6s, each carrying mode routing,
+    // 3-5 candidate briefs, novelty/continuity metadata and rationale.
+    // Output scales with beat count, not difficulty; reasoning tier is
+    // unchanged (effort "medium").
+    "visual_director.json": 24000,
     // growth_packager is new in RFC 0009 and must be bounded like the rest --
     // an unlisted agent would silently escape this test entirely.
     "growth_packager.json": 5000,

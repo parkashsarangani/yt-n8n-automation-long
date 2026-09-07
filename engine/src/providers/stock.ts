@@ -1,19 +1,15 @@
 /**
- * Cartoon-first image provider compatibility adapter.
+ * Backward-compatible image provider adapter.
  *
- * IMAGE_PROVIDER_MODE selects the concrete generator without changing the graph:
- *   - freellmapi: shared FreeLLMAPI media endpoint (production experiment)
- *   - fal: existing FLUX.2 + reference-conditioned edit path
- *
- * Unset mode stays on Fal for backward-compatible local/test behavior. Production
- * explicitly sets freellmapi in Compose/deploy. FreeLLMAPI intentionally cannot
- * preserve the canonical-reference edit contract; generatePack therefore
- * generates each requested shot independently when the experiment is enabled.
+ * RFC 0010 removes FreeLLMAPI image generation entirely. The historical
+ * StockImageProvider name remains temporarily so existing service wiring and
+ * tests do not need an unrelated rename, but every real image generation call
+ * is delegated directly to fal.ai's FLUX.2 provider with reference-conditioned
+ * pack support.
  */
 
-import type { Aspect, ImageProvider, Usage } from "../provider.ts";
+import type { Aspect, ImageProvider } from "../provider.ts";
 import { FalImageProvider, type GeneratedImage } from "./fal.ts";
-import { FreeLLMImageProvider } from "./freellmapi-media.ts";
 
 export interface StockImageOptions {
   falKey?: string;
@@ -22,45 +18,25 @@ export interface StockImageOptions {
   /** USD per generated image, for cost accounting. Passed through to FalImageProvider. */
   pricePerImage?: number;
   fetchImpl?: typeof fetch;
+  // Historical stock credentials are retained in the option shape only to
+  // avoid breaking old/manual callers. They are not used for image generation.
   pexelsKey?: string;
   unsplashKey?: string;
   pixabayKey?: string;
 }
 
-type PackCapable = ImageProvider & {
-  generatePack?: (req: {
-    prompts: string[];
-    aspect: Aspect;
-    seed: number;
-    reference?: GeneratedImage;
-    tier?: "hero" | "standard";
-  }) => Promise<{ images: GeneratedImage[]; usage?: Usage }>;
-};
-
-function imageProviderMode(): "freellmapi" | "fal" {
-  return process.env["IMAGE_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi"
-    ? "freellmapi"
-    : "fal";
-}
-
 export class StockImageProvider implements ImageProvider {
   readonly id: string;
-  private readonly delegate: PackCapable;
+  private readonly delegate: FalImageProvider;
 
   constructor(opts: StockImageOptions = {}) {
-    if (imageProviderMode() === "fal") {
-      this.delegate = new FalImageProvider({
-        ...(opts.falKey ? { apiKey: opts.falKey } : {}),
-        ...(opts.model ? { model: opts.model } : {}),
-        ...(opts.editModel ? { editModel: opts.editModel } : {}),
-        ...(opts.pricePerImage !== undefined ? { pricePerImage: opts.pricePerImage } : {}),
-        ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-      });
-    } else {
-      this.delegate = new FreeLLMImageProvider({
-        ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-      });
-    }
+    this.delegate = new FalImageProvider({
+      ...(opts.falKey ? { apiKey: opts.falKey } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.editModel ? { editModel: opts.editModel } : {}),
+      ...(opts.pricePerImage !== undefined ? { pricePerImage: opts.pricePerImage } : {}),
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    });
     this.id = `cartoon-art/${this.delegate.id}`;
   }
 
@@ -68,30 +44,13 @@ export class StockImageProvider implements ImageProvider {
     return this.delegate.generate(req);
   }
 
-  async generatePack(req: { prompts: string[]; aspect: Aspect; seed: number; reference?: GeneratedImage; tier?: "hero" | "standard" }) {
-    if (this.delegate.generatePack) return this.delegate.generatePack(req);
-
-    const images: GeneratedImage[] = [];
-    let units = 0;
-    let actualModel = process.env["FREELLMAPI_IMAGE_MODEL"]?.trim() || "auto";
-    for (const prompt of req.prompts) {
-      const out = await this.delegate.generate({ prompt, aspect: req.aspect, count: 1, ...(req.tier ? { tier: req.tier } : {}) });
-      const image = out.images[0];
-      if (!image) throw new Error(`${this.delegate.id} returned no image for shot pack`);
-      images.push(image);
-      units += out.usage.units ?? out.images.length;
-      if (out.usage.model) actualModel = out.usage.model;
-    }
-    return {
-      images,
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        units,
-        cost_usd: 0,
-        provider: "freellmapi",
-        model: actualModel,
-      } satisfies Usage,
-    };
+  generatePack(req: {
+    prompts: string[];
+    aspect: Aspect;
+    seed: number;
+    reference?: GeneratedImage;
+    tier?: "hero" | "standard";
+  }) {
+    return this.delegate.generatePack(req);
   }
 }

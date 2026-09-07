@@ -1,28 +1,33 @@
 // Vision QA for generated illustrations.
 //
-// RFC 0008 introduced two narrowly-scoped per-image checks: visible text and
-// active contradiction of narration. RFC 0009 keeps those but adds the two
-// viewer-facing capabilities the illustrated format now depends on:
+// RFC 0008 introduced a per-image "active contradiction of narration" check.
+// RFC 0009 adds the two viewer-facing capabilities the illustrated format now
+// depends on:
 //   1) rank multiple candidates for scarce hero shots; and
 //   2) review the ordered episode visually, in overlapping windows, so
 //      individually-valid frames can still be rejected for repetition,
 //      weak opening/payoff, style drift, continuity breaks, or AI artefacts.
 //
-// These calls remain deliberately self-contained instead of giving arbitrary
-// workers a model client. FreeLLMAPI is primary when enabled; direct OpenAI is
-// the fail-open/rollback path. All infrastructure failures still fail OPEN and
-// return null: a QA outage must be visible in logs but must not deadlock
-// production.
+// A separate per-image "visible text" rejection used to live here. It was
+// removed: it triggered heavy regeneration loops (a numbers/scale explainer
+// legitimately shows clocks, rulers, calendars) and the style negative prompts
+// already discourage garbled typography. Occasional real text is tolerated.
+//
+// Vision scoring is DIRECT OpenAI only. The shared FreeLLMAPI auto route was
+// proven to return HTTP 200 from a text-only fallback while silently dropping
+// image parts, so a successful response from that proxy is not visual evidence.
+// Production direct vision is guarded by a process-local read-the-number canary
+// before any score is trusted. Infrastructure failures remain explicit `null`
+// results rather than synthetic quality scores.
 
-import { llmRoutingConfig } from "./llm-routing.ts";
+import { prepareVisionImages } from "./media/vision-image.ts";
+import { ensureVisionCapability } from "./vision-capability.ts";
 
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = (() => {
+  const raw = Number(process.env["IMAGE_QA_TIMEOUT_MS"]);
+  return Number.isFinite(raw) && raw >= 1000 ? raw : 45_000;
+})();
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-
-export interface ImageQaResult {
-  hasVisibleText: boolean;
-  reason: string;
-}
 
 export interface SemanticQaResult {
   contradictsNarration: boolean;
@@ -83,9 +88,6 @@ async function requestVisionJson(
     content: Array<Record<string, unknown>>;
     maxCompletionTokens: number;
     timeoutMs?: number;
-    // Only for diagnostics: which caller/route this is, so a failure log
-    // line says *what* went dark (e.g. "episode-visual-review via direct")
-    // without ever including prompts, responses, or provider error bodies.
     label?: string;
   },
   fetchImpl: FetchLike,
@@ -134,13 +136,14 @@ async function requestVisionJson(
 }
 
 async function askVisionMany(
-  images: Array<{ bytes: Uint8Array; media_type: string }>,
+  rawImages: Array<{ bytes: Uint8Array; media_type: string }>,
   instruction: string,
   fetchImpl: FetchLike,
   maxCompletionTokens = 500,
   opts: { timeoutMs?: number; label?: string } = {},
 ): Promise<Record<string, unknown> | null> {
-  if (images.length === 0) return null;
+  if (rawImages.length === 0) return null;
+  const images = await prepareVisionImages(rawImages);
 
   const content: Array<Record<string, unknown>> = [{ type: "text", text: instruction }];
   for (const image of images) {
@@ -148,33 +151,23 @@ async function askVisionMany(
     content.push({ type: "image_url", image_url: { url: dataUri, detail: "low" } });
   }
 
-  const routing = llmRoutingConfig();
   const directApiKey = process.env["OPENAI_API_KEY"]?.trim();
+  if (!directApiKey) return null;
   const directBaseUrl = (process.env["OPENAI_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
   const directModel = process.env["OPENAI_IMAGE_QA_MODEL"] ?? process.env["OPENAI_MODEL"] ?? "gpt-5.6-luna";
   const label = opts.label ?? "vision QA";
 
-  if (routing.mode === "freellmapi") {
-    if (routing.apiKey) {
-      const free = await requestVisionJson({
-        baseUrl: routing.baseUrl,
-        apiKey: routing.apiKey,
-        model: routing.visionModel,
-        content,
-        maxCompletionTokens,
-        timeoutMs: opts.timeoutMs,
-        label: `${label} (freellmapi)`,
-      }, fetchImpl);
-      if (free) return free;
-      if (!routing.failOpenToDirect) return null;
-      // Per-request failure reason is already logged by requestVisionJson.
-      console.warn(`[llm-routing] FreeLLMAPI ${label} failed; retrying through direct OpenAI`);
-    } else if (!routing.failOpenToDirect) {
-      return null;
-    }
+  if (fetchImpl === (fetch as unknown as FetchLike)) {
+    const capable = await ensureVisionCapability({
+      baseUrl: directBaseUrl,
+      apiKey: directApiKey,
+      model: directModel,
+      label: "direct-openai",
+      timeoutMs: 15_000,
+    });
+    if (!capable) return null;
   }
 
-  if (!directApiKey) return null;
   return requestVisionJson({
     baseUrl: directBaseUrl,
     apiKey: directApiKey,
@@ -192,22 +185,6 @@ async function askVision(
   fetchImpl: FetchLike,
 ): Promise<Record<string, unknown> | null> {
   return askVisionMany([image], instruction, fetchImpl, 220);
-}
-
-export async function checkGeneratedImageForText(
-  image: { bytes: Uint8Array; media_type: string },
-  fetchImpl: FetchLike = fetch as unknown as FetchLike,
-): Promise<ImageQaResult | null> {
-  const parsed = await askVision(
-    image,
-    "This illustration must contain no readable text, letters, numbers, logos, or watermarks anywhere -- including props, signage, packaging, screens, engraving, and texture. Respond ONLY JSON: {\"has_visible_text\":true|false,\"reason\":\"one short sentence\"}",
-    fetchImpl,
-  );
-  if (!parsed || typeof parsed["has_visible_text"] !== "boolean") return null;
-  return {
-    hasVisibleText: parsed["has_visible_text"],
-    reason: typeof parsed["reason"] === "string" ? parsed["reason"] : "",
-  };
 }
 
 export async function checkGeneratedImageMatchesNarration(
@@ -291,8 +268,8 @@ export async function reviewIllustratedSequence(
 ): Promise<VisualSequenceReviewResult | null> {
   if (entries.length < 2) return null;
 
-  const WINDOW = 10;
-  const STRIDE = 8;
+  const WINDOW = 6;
+  const STRIDE = 5;
   const chunks: VisualSequenceEntry[][] = [];
   for (let start = 0; start < entries.length; start += STRIDE) {
     const slice = entries.slice(start, start + WINDOW);
@@ -319,15 +296,6 @@ export async function reviewIllustratedSequence(
       `Review this ORDERED window from one illustrated YouTube episode. Image order exactly matches this list:\n${index}\n\nScore 0..1: opening_visual_strength (first episode shot must be the strongest attention-grabber), scene_relevance, subject_legibility, emotional_readability, shot_variety, visual_redundancy (1 means little harmful repetition), continuity, style_consistency, ai_artifacts (1 means clean/no obvious artefacts), payoff_visual_strength (final episode shot should visibly resolve/land the story). Flag ONLY shot ids that should be regenerated before render because a concrete visual defect/repetition/irrelevance is materially hurting the episode. Do not flag merely because the art is stylised or calm. Respond ONLY JSON: {\"scores\":{\"opening_visual_strength\":0.0,\"scene_relevance\":0.0,\"subject_legibility\":0.0,\"emotional_readability\":0.0,\"shot_variety\":0.0,\"visual_redundancy\":0.0,\"continuity\":0.0,\"style_consistency\":0.0,\"ai_artifacts\":0.0,\"payoff_visual_strength\":0.0},\"flagged_shots\":[\"scene:shot\"],\"reason\":\"short concrete summary\"}`,
       fetchImpl,
       900,
-      // This window can carry up to 12 full images plus a 10-dimension,
-      // flagged-shot, free-text-reason response -- a much heavier request
-      // than the single-image per-shot checks that share this function's
-      // default 20s budget. Production run 31e171c3 saw this window
-      // silently time out twice in a row (visual_asset_release reported
-      // "episode-level visual review unavailable", burning two of the three
-      // targeted-regeneration attempts on infrastructure latency rather than
-      // real content feedback) before a third attempt finally completed and
-      // returned a genuine, specific verdict.
       { timeoutMs: 45000, label: "episode-visual-review" },
     );
     if (!parsed || typeof parsed["scores"] !== "object" || parsed["scores"] === null) continue;

@@ -70,6 +70,26 @@ export interface SpeechProvider {
 /** Image generation, for the asset collector worker (RFC 0004). */
 export type Aspect = "9:16" | "16:9" | "1:1";
 
+/**
+ * Scene context for the persistent image bank. Carried through generation calls
+ * so a cached image can be traced back to the exact narration beat / visual
+ * requirement it was produced for, and a future semantic-reuse layer has
+ * something to match on. Real generation providers ignore it.
+ */
+export interface ImageBankContext {
+  graph?: string;
+  scene_index?: number;
+  /** RFC 0010 beat id, or "scene:shot" for the illustrated pipeline. */
+  beat_id?: string;
+  mode?: string;
+  /** The spoken narration line the image plays under. */
+  narration?: string;
+  /** What must be visible — the visual contract / prompt subject. */
+  requirement?: string;
+  /** Which of the 3-5 authored candidate concepts this is. */
+  concept_index?: number;
+}
+
 export interface ImageProvider {
   readonly id: string;
   generate(req: {
@@ -82,6 +102,8 @@ export interface ImageProvider {
      * (RFC 0009 hero shots). Providers without such a route ignore it.
      */
     tier?: "hero" | "standard";
+    /** Optional provenance for the image bank; ignored by generation providers. */
+    context?: ImageBankContext;
   }): Promise<{
     images: Array<{ bytes: Uint8Array; media_type: string }>;
     usage: Usage;

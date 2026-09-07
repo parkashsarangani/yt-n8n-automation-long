@@ -1275,6 +1275,10 @@ async function buildTemplateScene(templateName, templateData, duration, audioPat
         // EntityMark prefers this over its hash-picked shape when present.
         entityIcons: d.entityIcons || {},
         semanticRepresentation: d.semanticRepresentation,
+        // RFC 0010's structured explanatory scene (axis/markers/values/steps).
+        // When present it takes over the whole frame and the generic blueprint
+        // registry is bypassed entirely — see Rfc0010Scene.tsx.
+        rfc0010SemanticScene: d.rfc0010SemanticScene,
         // The authored connections between those entities (their `kind` is
         // what lets a diagram draw "A blocks B" rather than an arrow that
         // says the opposite). Indices address `elements` above. An absent or

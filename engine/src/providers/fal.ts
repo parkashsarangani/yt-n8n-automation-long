@@ -1,14 +1,13 @@
 /**
  * Fal image provider (RFC 0004).
  *
- * FLUX.2 Pro is the production still-image source. Single-image generation
- * implements the shared ImageProvider contract; generatePack is an optional
- * Fal-specific extension used by the hybrid visual worker. A pack may receive
- * a canonical reference from an earlier scene, so recurring subjects are
- * reference-conditioned across the episode instead of merely sharing prompt text.
+ * FLUX.2 is the production still-image source. A pack may receive a canonical
+ * reference from an earlier scene, so recurring subjects are reference-
+ * conditioned across the episode instead of merely sharing prompt text.
  */
 
 import { ProviderError, type Aspect, type ImageProvider, type Usage } from "../provider.ts";
+import { assertFalAccountAvailable, recordFalHttpFailure } from "./fal-account-health.ts";
 
 const SIZES: Record<Aspect, { width: number; height: number }> = {
   "9:16": { width: 1024, height: 1792 },
@@ -22,7 +21,6 @@ export interface FalOptions {
   editModel?: string;
   baseUrl?: string;
   outputFormat?: "png" | "jpeg";
-  /** USD per generated image, for cost accounting. */
   pricePerImage?: number;
   fetchImpl?: typeof fetch;
 }
@@ -46,56 +44,62 @@ export class FalImageProvider implements ImageProvider {
   private readonly outputFormat: "png" | "jpeg";
   private readonly pricePerImage: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(opts: FalOptions = {}) {
     const key = opts.apiKey ?? process.env["FAL_KEY"];
     if (!key) throw new ProviderError("FalImageProvider needs an API key (FAL_KEY)");
     this.apiKey = key;
-    // FLUX.2 [dev] rather than [pro]: verified live (a real generation
-    // against this exact house-style prompt, RFC 0008) that the distilled
-    // dev tier hits the illustrated-story house style -- faceless stick
-    // figures, real environment/object detail, muted wash, paper grain --
-    // at a standard of quality no different from pro for this use case, at
-    // roughly half fal.ai's per-megapixel price ($0.012/MP flat vs pro's
-    // ~$0.03 first MP + $0.015/extra MP). Same request/response shape as
-    // pro (image_size, seed, enable_safety_checker, output_format;
-    // image_urls for /edit), confirmed against fal.ai's own API reference,
-    // so this was a pure config change, not a rewrite.
     this.model = opts.model ?? "fal-ai/flux-2";
     this.editModel = opts.editModel ?? `${this.model}/edit`;
     this.baseUrl = opts.baseUrl ?? "https://fal.run";
     this.outputFormat = opts.outputFormat ?? "png";
     this.pricePerImage = opts.pricePerImage ?? 0.025;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    const raw = Number(process.env["FAL_TIMEOUT_MS"]);
+    this.timeoutMs = Number.isFinite(raw) && raw >= 5_000 ? raw : 180_000;
     this.id = `fal/${this.model}`;
   }
 
-  private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
-    let res: Response;
+  private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    assertFalAccountAvailable();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/${model}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
+      return await this.fetchImpl(url, { ...(init ?? {}), signal: controller.signal });
     } catch (err) {
-      throw new ProviderError(`${this.id} request failed: ${String(err)}`);
+      const aborted = err instanceof Error && err.name === "AbortError";
+      throw new ProviderError(
+        aborted ? `${this.id} request timed out after ${this.timeoutMs}ms` : `${this.id} request failed: ${String(err)}`,
+      );
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  private async request(model: string, input: Record<string, unknown>): Promise<GeneratedImage> {
+    assertFalAccountAvailable();
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/${model}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
 
     if (!res.ok) {
-      throw new ProviderError(
-        `${this.id} returned ${res.status}: ${(await res.text()).slice(0, 500)}`,
-      );
+      const body = (await res.text()).slice(0, 500);
+      recordFalHttpFailure(res.status, body);
+      assertFalAccountAvailable();
+      throw new ProviderError(`${this.id} returned ${res.status}: ${body}`);
     }
 
     const body = (await res.json()) as FalResponse;
     const image = (body.images ?? []).find((item) => item.url);
     if (!image?.url) throw new ProviderError(`${this.id} returned no images (blocked or empty)`);
 
-    const dl = await this.fetchImpl(image.url);
+    const dl = await this.fetchWithTimeout(image.url);
     if (!dl.ok) throw new ProviderError(`${this.id} image download failed: ${dl.status}`);
     return {
       bytes: new Uint8Array(await dl.arrayBuffer()),
@@ -143,17 +147,6 @@ export class FalImageProvider implements ImageProvider {
     return { images, usage };
   }
 
-  /**
-   * Build a shot pack around one anchor. This method is intentionally strict:
-   * callers author the exact temporal shot windows that the compositor will
-   * render, so silently filtering a prompt or capping the list would make the
-   * generated pack disagree with narration timing. Invalid packs fail and the
-   * hybrid worker retains the deterministic motion scene instead.
-   *
-   * When reference is supplied, the first shot is itself an edit of that
-   * earlier canonical image. Remaining shots edit the new scene anchor. This
-   * preserves recurring identity across scenes and within each shot pack.
-   */
   async generatePack(req: {
     prompts: string[];
     aspect: Aspect;

@@ -7,81 +7,80 @@ import { CREDENTIALS } from "../src/config.ts";
 const speech = STAGES.find((s) => s.id === "speech")!;
 const images = STAGES.find((s) => s.id === "images")!;
 
-test("all experimental media controls are exposed through Long config", () => {
+test("media controls expose FreeLL speech but no FreeLL image-generation mode", () => {
   const settable = new Set(CREDENTIALS.map((c) => c.key));
   for (const key of [
-    "IMAGE_PROVIDER_MODE",
     "SPEECH_PROVIDER_MODE",
-    "FREELLMAPI_IMAGE_MODEL",
     "FREELLMAPI_SPEECH_MODEL",
     "FREELLMAPI_SPEECH_VOICE",
     "FREELLMAPI_SPEECH_FORMAT",
     "FREELLMAPI_MEDIA_TIMEOUT_MS",
+    "FAL_KEY",
+    "FAL_MODEL",
+    "FAL_EDIT_MODEL",
   ]) {
     assert.equal(settable.has(key), true, `${key} must be saveable through the config UI`);
   }
+  for (const removed of ["IMAGE_PROVIDER_MODE", "FREELLMAPI_IMAGE_MODEL", "FREELLMAPI_IMAGE_HERO_MODEL"]) {
+    assert.equal(settable.has(removed), false, `${removed} must not remain configurable after RFC 0010`);
+  }
 });
 
-test("unset media modes retain ElevenLabs and Fal credential semantics", () => {
+test("unset media modes retain ElevenLabs speech and Fal image semantics", () => {
   assert.equal(credentialsSatisfied(speech, { ELEVENLABS_API_KEY: "el" }), true);
   assert.equal(credentialsSatisfied(speech, { FREELLMAPI_API_KEY: "free" }), false);
   assert.equal(credentialsSatisfied(images, { FAL_KEY: "fal" }), true);
   assert.equal(credentialsSatisfied(images, { FREELLMAPI_API_KEY: "free" }), false);
 });
 
-test("FreeLLM media modes are satisfied by the shared unified key", () => {
+test("FreeLLM unified key can satisfy speech but never the image stage", () => {
   const env = {
     SPEECH_PROVIDER_MODE: "freellmapi",
-    IMAGE_PROVIDER_MODE: "freellmapi",
     FREELLMAPI_API_KEY: "free",
   };
   assert.equal(credentialsSatisfied(speech, env), true);
-  assert.equal(credentialsSatisfied(images, env), true);
+  assert.equal(credentialsSatisfied(images, env), false);
 });
 
-test("FreeLLM media modes do not silently use paid media credentials when the shared key is missing", () => {
+test("FreeLL speech does not silently use ElevenLabs when the unified key is missing", () => {
   const env = {
     SPEECH_PROVIDER_MODE: "freellmapi",
-    IMAGE_PROVIDER_MODE: "freellmapi",
     ELEVENLABS_API_KEY: "el",
     FAL_KEY: "fal",
   };
   assert.equal(credentialsSatisfied(speech, env), false);
-  assert.equal(credentialsSatisfied(images, env), false);
+  assert.equal(credentialsSatisfied(images, env), true);
 
   const report = capabilityReport({ allowPublish: false, env });
   assert.deepEqual(report.find((s) => s.id === "speech")!.missing, ["FREELLMAPI_API_KEY"]);
-  assert.deepEqual(report.find((s) => s.id === "images")!.missing, ["FREELLMAPI_API_KEY"]);
+  assert.equal(report.find((s) => s.id === "images")!.real, true);
 });
 
-test("capability report makes the experimental limitations and selected models visible", () => {
+test("capability report exposes FreeLL speech and fal image models independently", () => {
   const report = capabilityReport({
     allowPublish: false,
     env: {
       SPEECH_PROVIDER_MODE: "freellmapi",
-      IMAGE_PROVIDER_MODE: "freellmapi",
       FREELLMAPI_API_KEY: "free",
       FREELLMAPI_SPEECH_MODEL: "openai-audio",
-      FREELLMAPI_IMAGE_MODEL: "flux",
+      FAL_KEY: "fal",
+      FAL_MODEL: "fal-ai/flux-2",
+      FAL_EDIT_MODEL: "fal-ai/flux-2/edit",
     },
   });
   assert.equal(report.find((s) => s.id === "speech")!.provider, "freellmapi/openai-audio");
-  assert.equal(
-    report.find((s) => s.id === "images")!.provider,
-    "freellmapi/flux (text-to-image; no reference edit)",
-  );
+  assert.equal(report.find((s) => s.id === "images")!.provider, "fal/fal-ai/flux-2 + fal-ai/flux-2/edit");
 });
 
-test("rollback modes report the established paid providers", () => {
+test("ElevenLabs speech rollback does not affect fal-only image generation", () => {
   const report = capabilityReport({
     allowPublish: false,
     env: {
       SPEECH_PROVIDER_MODE: "elevenlabs",
-      IMAGE_PROVIDER_MODE: "fal",
       ELEVENLABS_API_KEY: "el",
       FAL_KEY: "fal",
     },
   });
   assert.equal(report.find((s) => s.id === "speech")!.provider, "elevenlabs");
-  assert.equal(report.find((s) => s.id === "images")!.provider, "fal/flux-2 + flux-2/edit");
+  assert.equal(report.find((s) => s.id === "images")!.provider, "fal/fal-ai/flux-2 + fal-ai/flux-2/edit");
 });

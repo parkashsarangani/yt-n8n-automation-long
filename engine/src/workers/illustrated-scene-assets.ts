@@ -7,7 +7,7 @@
  * review + targeted regeneration. QA retries reuse unchanged successful work.
  */
 import type { Artifact, BlobRef } from "../artifact.ts";
-import { checkGeneratedImageForText, checkGeneratedImageMatchesNarration, rankHeroImageCandidates, reviewIllustratedSequence, type VisualSequenceEntry, type VisualSequenceReviewResult } from "../image-qa.ts";
+import { checkGeneratedImageMatchesNarration, rankHeroImageCandidates, reviewIllustratedSequence, type VisualSequenceEntry, type VisualSequenceReviewResult } from "../image-qa.ts";
 import type { Aspect, ImageProvider } from "../provider.ts";
 import { FreeMediaTerminalError, isTerminalFreeMediaFailure, semanticRecoveryPrompt } from "../free-media-policy.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -37,15 +37,6 @@ function clean(value: unknown, max: number): string { return typeof value === "s
 export function buildIllustratedPrompt(subject: string, style: ImageStyle = DEFAULT_STYLE): string {
   const bundle = STYLE_BUNDLES[style] ?? STYLE_BUNDLES[DEFAULT_STYLE];
   return `${clean(subject, 500)}. VISUAL IDENTITY: ${bundle.positive}. EXCLUDE: ${bundle.negative}. No typography.`;
-}
-
-/**
- * A scene-specific recovery prompt used only after vision QA actually finds
- * text. It changes physical framing rather than asking a weak free model to
- * "try again" with the same text-bearing prop.
- */
-export function buildTextSafeRecoveryPrompt(prompt: string): string {
-  return `${clean(prompt, 1200)} TEXT-SAFE RECOVERY: communicate the same story beat through people, hands, posture, object placement, silhouette, and environment. Any paper, chart, document, book, sign, badge, phone, screen, board, clock, watch, timepiece, dial, or calendar must be blank, face-down, closed, turned away, cropped, obscured, edge-on, or too distant to read. Clock/watch faces must not be visible at all. Absolutely no names, letters, numbers, dial ticks, symbols, logos, handwriting, labels, or typography.`;
 }
 
 /** Hard deterministic enforcement for RFC 0009 Decisions 3-5. */
@@ -116,9 +107,8 @@ async function generateAccepted(provider: ReferenceCapableProvider, prompt: stri
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const image = await generateOne(provider, prompt, (seed + attempt) & 0x7fffffff, budget, reference, tier);
-      const [text, semantic] = await Promise.all([checkGeneratedImageForText(image), narration ? checkGeneratedImageMatchesNarration(image, narration) : Promise.resolve(null)]);
+      const semantic = narration ? await checkGeneratedImageMatchesNarration(image, narration) : null;
       const failures: string[] = [];
-      if (text?.hasVisibleText) failures.push(`visible text: ${text.reason}`);
       if (semantic?.contradictsNarration) failures.push(`contradicts narration: ${semantic.reason}`);
       if (!failures.length) return image;
       lastError = new Error(failures.join("; "));
@@ -173,19 +163,13 @@ async function generateShot(provider: ReferenceCapableProvider, prompt: string, 
   return candidates[ranked?.bestIndex ?? 0]!;
 }
 
-function isVisibleTextFailure(err: unknown): boolean { return /visible text:/i.test(err instanceof Error ? err.message : String(err)); }
 function isSemanticFailure(err: unknown): boolean { return /contradicts narration:/i.test(err instanceof Error ? err.message : String(err)); }
 
-async function generateShotWithTextRecovery(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
+async function generateShotWithRecovery(provider: ReferenceCapableProvider, prompt: string, shot: DirectionShot, narration: string, reference: GeneratedImage | undefined, logger: WorkerContext["logger"], shotId: string, budget: ImageBudget, allowMultipleCandidates = true): Promise<GeneratedImage> {
   try {
     return await generateShot(provider, prompt, shot, narration, reference, logger, shotId, budget, allowMultipleCandidates);
   } catch (err) {
     if (isTerminalFreeMediaFailure(err)) throw err;
-    if (isVisibleTextFailure(err)) {
-      const recoveryPrompt = buildTextSafeRecoveryPrompt(prompt);
-      logger.warn(`[illustrated_scene_assets] ${shotId}: visible text persisted; making one feedback-driven text-safe recovery call`);
-      return generateShot(provider, recoveryPrompt, shot, narration, reference, logger, `${shotId}:text-safe`, budget, false);
-    }
     if (isSemanticFailure(err)) {
       const reason = err instanceof Error ? err.message : String(err);
       const recoveryPrompt = semanticRecoveryPrompt(prompt, narration, reason);
@@ -257,7 +241,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
           const item: WorkingShot = { id, sceneIndex: scene.scene_index, shot, narration, prompt, source: "placeholder" };
           if (provider) {
             try {
-              item.image = await generateShotWithTextRecovery(provider, prompt, shot, narration, reference, ctx.logger, id, budget);
+              item.image = await generateShotWithRecovery(provider, prompt, shot, narration, reference, ctx.logger, id, budget);
               item.source = "primary";
               if (!reference) reference = item.image;
             } catch (err) {
@@ -280,7 +264,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
       for (const item of deferred) {
         if (!provider || !reference) break;
         try {
-          item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`, budget);
+          item.image = await generateShotWithRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${item.id}:deferred`, budget);
           item.source = "primary";
           ctx.logger.warn(`[illustrated_scene_assets] ${item.id}: deferred retry succeeded with reference conditioning; render receives a real image instead of a blank frame`);
         } catch (err) {
@@ -305,7 +289,7 @@ export function makeIllustratedSceneAssetsWorker(opts: IllustratedSceneAssetsWor
             break;
           }
           try {
-            item.image = await generateShotWithTextRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
+            item.image = await generateShotWithRecovery(provider, item.prompt, item.shot, item.narration, reference, ctx.logger, `${id}:review`, budget, false);
             item.source = "primary";
             regenerated.push(id);
           } catch (err) {

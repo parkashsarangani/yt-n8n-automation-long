@@ -31,6 +31,8 @@ design against.
 | [0006](0006-observability-and-qa.md) | Observability & QA | Accepted | Per-transformation run records; QA as six narrow checks with PASS/FAIL/WARN |
 | [0007](0007-schema-registry.md) | Artifact Schema Registry | Accepted | One schema per artifact type, versioned; validate on write and read; migrators |
 | [0008](0008-illustrated-story-format.md) | Illustrated Story Format | Accepted | Voice-over over hand-drawn illustrated story beats, no characters; one script-level watchability gate replaces the semantic diagram/character/QA stack |
+| [0009](0009-growth-optimization-system.md) | Growth Optimization System | Accepted | Package-first growth loop, hero beats, watchability, visual release QA, and analytics feedback |
+| [0010](0010-visual-director-and-multimodal-asset-routing.md) | Visual Director and Multimodal Asset Routing | Implementing | Beat-level semantic visual contracts, representation routing, novelty control, fal-only image generation, pinned Gemini text routing, and a comparison kill gate |
 
 ## Deliberately deferred
 
@@ -45,19 +47,13 @@ Not omissions — decisions to make on evidence rather than assumption. Each is 
 | Most QA checks | Should be written against real failures, not imagined ones | First published videos |
 | Multi-tenancy, billing, review UI | Personal tool for now | Deciding it is a product |
 
-## Next
+## Current implementation focus
 
-The walking skeleton — the test of whether these seven are right:
-
-```
-intent → story agent → script agent → visual plan → [reuse long-compose render] → human gate → publish
-```
-
-One video, end to end. Then Discovery, Research, and Fact Checking get designed with evidence.
+RFC 0010 deliberately isolates the visual-quality problem before any further renderer work. The production `illustrated_story` graph remains the control while `visual_benchmark` runs the same approved script through the new Visual Director and beat-level resolver. Only after the comparison gate passes should the production graph be migrated.
 
 ## Relationship to the existing pipeline
 
 The long-form pipeline in this repo (`n8n/long-workflow.json`, `long-compose/`) is working
 software and becomes the **Production and Distribution tail**: `long-compose` is a worker, the
-YouTube nodes are the first publish target, and its Claude prompts seed the first agents.
-Nothing is discarded.
+YouTube nodes are the first publish target, and its prompts seed the first agents.
+Nothing is discarded without an evidence-backed replacement.

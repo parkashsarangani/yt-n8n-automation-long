@@ -33,53 +33,43 @@ services:
 
       # Shared FreeLLMAPI. Shorts owns the one container and encrypted provider
       # state; production deploy attaches this engine to the Shorts network.
+      # Text is deliberately pinned to Gemini: RFC 0010 forbids `auto` model
+      # routing for production creative decisions.
       LLM_ROUTER_MODE: ${LLM_ROUTER_MODE:-freellmapi}
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${LLM_ROUTER_FAIL_OPEN_TO_DIRECT:-true}
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
-      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-auto:smart}
-      FREELLMAPI_VISION_MODEL: ${FREELLMAPI_VISION_MODEL:-auto:smart}
+      FREELLMAPI_TEXT_MODEL: ${FREELLMAPI_TEXT_MODEL:-gemini-3.5-flash}
 
-      # Experimental media routing. Media model ids are installation/catalog
-      # specific. `auto` remains a portable default only while no separately-
-      # metered hero row is configured; hero escalation requires this standard
-      # image model to be pinned to a different concrete media model id.
-      IMAGE_PROVIDER_MODE: ${IMAGE_PROVIDER_MODE:-freellmapi}
-      SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-freellmapi}
-      FREELLMAPI_IMAGE_MODEL: ${FREELLMAPI_IMAGE_MODEL:-auto}
-      FREELLMAPI_SPEECH_MODEL: ${FREELLMAPI_SPEECH_MODEL:-auto}
-      FREELLMAPI_SPEECH_VOICE: ${FREELLMAPI_SPEECH_VOICE:-onyx}
-      FREELLMAPI_SPEECH_FORMAT: ${FREELLMAPI_SPEECH_FORMAT:-mp3}
-      FREELLMAPI_MEDIA_TIMEOUT_MS: ${FREELLMAPI_MEDIA_TIMEOUT_MS:-120000}
-
-      # Optional hero-shot escalation: a separately-registered, quota-limited
-      # model (e.g. a hosted trial API) reserved for RFC 0009 hero shots only.
-      # Empty by default -- deliberately opt-in, since this is meant to stay a
-      # scarce escalation, never the default image route.
-      FREELLMAPI_HERO_IMAGE_MODEL: ${FREELLMAPI_HERO_IMAGE_MODEL:-}
-      FREELLMAPI_HERO_IMAGE_MAX_CALLS: ${FREELLMAPI_HERO_IMAGE_MAX_CALLS:-10}
-      # Current OpenAI-compatible hero bridge has a tighter request-string
-      # contract than NVIDIA's native endpoint. Keep it configurable while
-      # defaulting conservatively enough to prevent deterministic 422 failures.
-      FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS: ${FREELLMAPI_HERO_IMAGE_PROMPT_MAX_CHARS:-1000}
-
-      # Paid OpenAI remains only for LLM fail-open/direct rollback.
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
-
-      # Retained for SPEECH_PROVIDER_MODE=elevenlabs rollback.
+      # Narration remains on the established ElevenLabs production path.
+      SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # Retained for IMAGE_PROVIDER_MODE=fal rollback and optional AI video.
+      # OpenAI is used for LLM fail-open/direct rollback, authoritative RFC 0010
+      # visual QA, and the pre-TTS moderation boundary.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      OPENAI_IMAGE_QA_MODEL: ${OPENAI_IMAGE_QA_MODEL:-}
+      OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}
+      TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
+
+      # RFC 0010 generation: fal.ai only. FAL_TEXT_TO_VIDEO_MODEL is isolated
+      # from long-compose's older image-to-video FAL_VIDEO_MODEL contract.
       FAL_KEY: ${FAL_KEY:-}
+      FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}
+      FAL_EDIT_MODEL: ${FAL_EDIT_MODEL:-}
+      FAL_TEXT_TO_VIDEO_MODEL: ${FAL_TEXT_TO_VIDEO_MODEL:-fal-ai/kling-video/v2.5-turbo/pro/text-to-video}
+      FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
+
+      # RFC 0010 stock-video candidates are frame-verified before admission.
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
 
-      # Legacy stock credentials retained for old/manual artifacts only.
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      # Legacy image-search credentials retained for old/manual artifacts only.
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
 
@@ -97,8 +87,8 @@ services:
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. Cartoon scenes dominate this service;
-  # stock/AI-video variables remain only as compatibility escape hatches.
+  # Video assembly: FFmpeg + Remotion. Its legacy image-to-video path remains
+  # unchanged while RFC 0010 runs as an isolated benchmark.
   long-compose:
     build: ./long-compose
     restart: unless-stopped

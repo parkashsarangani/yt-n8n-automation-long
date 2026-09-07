@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "status": "active",
   "description": "The assembled video. Bytes live in the blob store; the payload records what was rendered and how it went, including the external job id so a run can be traced back to the renderer's own logs.",
-  "produced_by": ["render", "cartoon_render"],
+  "produced_by": ["render", "cartoon_render", "visual_benchmark_render"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "RenderedVideoArtifact",
@@ -15,19 +15,11 @@
       "media_type": { "type": "string", "minLength": 3, "maxLength": 80 },
       "thumbnail_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
       "scene_count": { "type": "integer", "minimum": 1 },
-      "degraded_scenes": {
-        "type": "integer",
-        "minimum": 0,
-        "description": "Scenes rendered with a placeholder instead of a generated image."
-      },
+      "degraded_scenes": { "type": "integer", "minimum": 0, "description": "Scenes rendered with a placeholder instead of a generated image." },
       "duration_sec": { "type": "number", "minimum": 0 },
       "render_time_sec": { "type": "number", "minimum": 0 },
       "renderer": { "type": "string", "maxLength": 120 },
-      "job_id": {
-        "type": "string",
-        "maxLength": 200,
-        "description": "The renderer's own job identifier, for cross-referencing its logs."
-      }
+      "job_id": { "type": "string", "maxLength": 200, "description": "The renderer's own job identifier, for cross-referencing its logs." }
     }
   }
 }
