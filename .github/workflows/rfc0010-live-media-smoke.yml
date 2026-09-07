@@ -1,33 +1,10 @@
 name: RFC 0010 Live Media Smoke
 
 on:
-  # RFC 0010 development loop. Pushes to the candidate surface run the short
-  # live smoke, never the RFC 0009 control/full acceptance benchmark. Narration
-  # is regenerated for the exact current script on every run; only the semantic
-  # image bank persists across scripts, where every reused image is revalidated.
-  push:
-    branches: [rfc-0010-visual-director]
-    paths:
-      - ".github/workflows/rfc0010-live-media-smoke.yml"
-      - "engine/scripts/rfc0010-live-media-smoke.ts"
-      - "engine/scripts/rfc0010-smoke-preflight.ts"
-      - "engine/src/visual-smoke.ts"
-      - "engine/src/visual-routing.ts"
-      - "engine/src/vision-route-health.ts"
-      - "engine/src/audio/beat-alignment.ts"
-      - "engine/src/visual-beat-qa.ts"
-      - "engine/src/visual-benchmark-judge.ts"
-      - "engine/src/workers/visual-beat-resolver.ts"
-      - "engine/src/workers/visual-timeline.ts"
-      - "engine/src/workers/tts-moderation.ts"
-      - "engine/src/moderation/**"
-      - "engine/src/providers/cached-image.ts"
-      - "engine/graphs/visual_live_media_smoke.json"
-      - "engine/prompts/visual_director/**"
   workflow_dispatch:
     inputs:
       run_live_media:
-        description: "Run live Pexels/Fal/vision/TTS-backed smoke after deterministic validation"
+        description: "Run live Pexels/Fal/OpenAI-vision/TTS-backed smoke after deterministic validation"
         required: false
         type: boolean
         default: false
@@ -45,7 +22,6 @@ jobs:
     env:
       FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
       FREELLMAPI_TEXT_MODEL: gemini-3.5-flash
-      FREELLMAPI_VISION_MODEL: ${{ vars.FREELLMAPI_VISION_MODEL || 'auto:smart' }}
       LLM_ROUTER_MODE: freellmapi
       LLM_ROUTER_FAIL_OPEN_TO_DIRECT: ${{ vars.LLM_ROUTER_FAIL_OPEN_TO_DIRECT || 'true' }}
       LLM_ROUTER_TIMEOUT_MS: ${{ vars.LLM_ROUTER_TIMEOUT_MS || '120000' }}
@@ -53,6 +29,7 @@ jobs:
 
       OPENAI_API_KEY: ${{ secrets.OPEN_AI_KEY }}
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
+      OPENAI_IMAGE_QA_MODEL: ${{ vars.OPENAI_IMAGE_QA_MODEL || vars.OPENAI_MODEL || 'gpt-5.6-luna' }}
       OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL || 'omni-moderation-latest' }}
       TTS_MODERATION_TIMEOUT_MS: ${{ vars.TTS_MODERATION_TIMEOUT_MS || '30000' }}
 
@@ -78,25 +55,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Build and run the unit suite exactly like ci.yml: a plain
-          # `docker run` with no compose environment block and no DB/provider
-          # env, so tests that assert clean-environment routing behaviour and
-          # tests that spin up their own Postgres (testcontainers) behave the
-          # same as on hosted CI. The live steps below run their own
-          # `docker compose build engine` (layer-cached, fast).
           docker build -t rfc0010-smoke-engine:validate ./engine
           docker run --rm rfc0010-smoke-engine:validate npm run typecheck
           docker run --rm rfc0010-smoke-engine:validate npm test
 
       - name: Validation-only complete
-        if: ${{ !inputs.run_live_media && github.event_name != 'push' }}
+        if: ${{ !inputs.run_live_media }}
         shell: bash
         run: |
           echo "RFC 0010 smoke deterministic validation complete."
           echo "run_live_media=false: no Gemini/OpenAI/Fal/Pexels/ElevenLabs requests were made by this workflow."
 
       - name: Validate live smoke configuration
-        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -112,18 +83,16 @@ jobs:
           fi
 
       - name: Build isolated live-media compositor
-        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
           docker volume create rfc0010-image-bank >/dev/null
-          # Rebuild the engine image for this project so `compose run engine`
-          # below runs THIS commit, not a stale cached layer from a prior run.
           docker compose -p vidgen-rfc0010-smoke build engine long-compose
 
       - name: Start isolated compositor
-        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -140,7 +109,7 @@ jobs:
           exit 1
 
       - name: Start engine and verify reasoning route
-        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
+        if: ${{ inputs.run_live_media }}
         shell: bash
         run: |
           set -euo pipefail
@@ -156,13 +125,11 @@ jobs:
           fi
           docker network connect "$SHARED_LLM_NETWORK" vidgen-rfc0010-smoke-engine
 
-          # Development smoke must not spend 12 minutes proving a known Gemini
-          # quota outage. Try the pinned route, then quickly verify the same
-          # configured direct fail-open used by runtime.
+          # Verify the pinned text route and the configured direct fail-open.
           docker exec vidgen-rfc0010-smoke-engine node --import tsx scripts/rfc0010-smoke-preflight.ts
 
       - name: Run fixed-input live-media smoke
-        if: ${{ inputs.run_live_media || github.event_name == 'push' }}
+        if: ${{ inputs.run_live_media }}
         id: smoke
         shell: bash
         run: |
@@ -182,7 +149,7 @@ jobs:
           node -e "const fs=require('fs');const p='rfc0010-live-media-smoke-export/smoke-report.json';if(!fs.existsSync(p)){console.error('missing smoke-report.json');process.exit(1)}const r=JSON.parse(fs.readFileSync(p,'utf8'));console.log('smoke pass='+r.pass);if(!r.pass){console.error(JSON.stringify({technical:r.technical_failures,sourcing:r.sourcing_failures,efficiency:r.efficiency_failures,coverage:r.coverage_failures,quality:r.quality_failures},null,2));process.exit(2)}"
 
       - name: Upload smoke render and diagnostics
-        if: ${{ always() && (inputs.run_live_media || github.event_name == 'push') }}
+        if: ${{ always() && inputs.run_live_media }}
         uses: actions/upload-artifact@v4
         with:
           name: rfc0010-live-media-smoke-${{ github.run_number }}
@@ -193,7 +160,7 @@ jobs:
           retention-days: 14
 
       - name: Cleanup isolated smoke runtime
-        if: ${{ always() && (inputs.run_live_media || github.event_name == 'push') }}
+        if: ${{ always() && inputs.run_live_media }}
         shell: bash
         run: |
           docker rm -f vidgen-rfc0010-smoke-engine vidgen-rfc0010-smoke-compose >/dev/null 2>&1 || true
