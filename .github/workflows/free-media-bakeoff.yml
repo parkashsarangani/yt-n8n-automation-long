@@ -1,0 +1,131 @@
+name: Free Media Bake-off
+
+# Manual only. Empirically proves candidate FREE image/video models on the
+# shared FreeLLMAPI media gateway. Consumes ONLY free media quota: it never
+# calls fal / Kling and never triggers the RFC 0010 benchmark or live-media
+# smoke. PAID_VIDEO_FALLBACK is forced false.
+on:
+  workflow_dispatch:
+    inputs:
+      image_models:
+        description: "Comma-separated FreeLLMAPI image model ids to bake off (blank = FREELLMAPI_IMAGE_MODELS var)"
+        required: false
+        type: string
+        default: ""
+      video_models:
+        description: "Comma-separated FreeLLMAPI FREE-video model ids to bake off (blank = FREELLMAPI_VIDEO_MODELS var; blank is fine)"
+        required: false
+        type: string
+        default: ""
+      run_live:
+        description: "Actually call the free media models (false = deterministic validation only)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: free-media-bakeoff
+  cancel-in-progress: false
+
+jobs:
+  bakeoff:
+    name: Free media bake-off
+    runs-on: self-hosted
+    environment: production
+    timeout-minutes: 60
+    env:
+      FREELLMAPI_API_KEY: ${{ secrets.FREELLMAPI_API_KEY }}
+      FREELLMAPI_BASE_URL: ${{ vars.FREELLMAPI_BASE_URL || 'http://freellmapi:3001/v1' }}
+      FREELLMAPI_IMAGE_MODELS: ${{ github.event.inputs.image_models != '' && github.event.inputs.image_models || vars.FREELLMAPI_IMAGE_MODELS || '' }}
+      FREELLMAPI_VIDEO_MODELS: ${{ github.event.inputs.video_models != '' && github.event.inputs.video_models || vars.FREELLMAPI_VIDEO_MODELS || '' }}
+      SHARED_LLM_NETWORK: ${{ vars.SHARED_LLM_NETWORK || 'yt-n8n-automation-shorts_default' }}
+      # Hard cost guard: this workflow must never be able to reach paid video.
+      PAID_VIDEO_FALLBACK: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Deterministic engine validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t free-media-bakeoff-engine:validate ./engine
+          docker run --rm free-media-bakeoff-engine:validate npm run typecheck
+          docker run --rm free-media-bakeoff-engine:validate npm test
+
+      - name: Validation-only complete
+        if: ${{ !inputs.run_live }}
+        shell: bash
+        run: |
+          echo "Deterministic validation complete."
+          echo "run_live=false: no FreeLLMAPI media requests were made by this workflow."
+
+      - name: Guard configuration
+        if: ${{ inputs.run_live }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${FREELLMAPI_API_KEY:-}" ]; then
+            echo "::error::FREELLMAPI_API_KEY is required"
+            exit 1
+          fi
+          for list in "${FREELLMAPI_IMAGE_MODELS:-}" "${FREELLMAPI_VIDEO_MODELS:-}"; do
+            if printf '%s' "$list" | grep -qiE '(^|,)[[:space:]]*auto(:|[[:space:]]*(,|$))'; then
+              echo "::error::media model lists may not contain auto routing"
+              exit 1
+            fi
+          done
+          if [ -z "${FREELLMAPI_IMAGE_MODELS:-}" ] && [ -z "${FREELLMAPI_VIDEO_MODELS:-}" ]; then
+            echo "::error::nothing to bake off — provide image_models and/or video_models"
+            exit 1
+          fi
+
+      - name: Run the bake-off against the shared FreeLLMAPI media gateway
+        if: ${{ inputs.run_live }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f free-media-bakeoff-engine >/dev/null 2>&1 || true
+          docker run -d --name free-media-bakeoff-engine \
+            -e FREELLMAPI_API_KEY \
+            -e FREELLMAPI_BASE_URL \
+            -e FREELLMAPI_IMAGE_MODELS \
+            -e FREELLMAPI_VIDEO_MODELS \
+            -e PAID_VIDEO_FALLBACK \
+            free-media-bakeoff-engine:validate sleep infinity >/dev/null
+
+          if ! docker network inspect "$SHARED_LLM_NETWORK" >/dev/null 2>&1; then
+            echo "::error::shared FreeLLMAPI network $SHARED_LLM_NETWORK is unavailable"
+            exit 1
+          fi
+          docker network connect "$SHARED_LLM_NETWORK" free-media-bakeoff-engine
+
+          docker exec free-media-bakeoff-engine \
+            node --import tsx scripts/free-media-smoke.ts --out /tmp/media-bakeoff 2>&1 | tee free-media-bakeoff.log
+
+          rm -rf free-media-bakeoff
+          docker cp free-media-bakeoff-engine:/tmp/media-bakeoff ./free-media-bakeoff
+
+      - name: ffprobe GATE — validate every generated video and promote/fail
+        if: ${{ inputs.run_live }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node engine/scripts/free-media-ffprobe-gate.mjs free-media-bakeoff
+
+      - name: Upload bake-off outputs
+        if: ${{ always() && inputs.run_live }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-media-bakeoff
+          path: |
+            free-media-bakeoff/
+            free-media-bakeoff.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup
+        if: ${{ always() && inputs.run_live }}
+        shell: bash
+        run: docker rm -f free-media-bakeoff-engine >/dev/null 2>&1 || true

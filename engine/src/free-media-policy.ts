@@ -1,6 +1,7 @@
 import { ProviderError } from "./provider.ts";
 
 export const FREE_MEDIA_TERMINAL_PREFIX = "[free-media-terminal]";
+export const FREE_MEDIA_AUTH_PREFIX = "[free-media-auth]";
 
 const DAILY_IMAGE_CAPACITY = /(?:used up your daily free allocation|daily free allocation|10[,.]?000 neurons|daily (?:image )?quota.{0,40}(?:exhaust|limit|used)|quota.{0,40}(?:exhaust|used up))/i;
 
@@ -15,6 +16,26 @@ export class FreeMediaTerminalError extends ProviderError {
   constructor(message: string) {
     super(`${FREE_MEDIA_TERMINAL_PREFIX} ${message}`);
   }
+}
+
+/**
+ * The shared FreeLLMAPI media gateway rejected the unified key itself (401/403).
+ * This is a CONFIGURATION error — a typo'd or expired `FREELLMAPI_API_KEY` — not
+ * a free-provider outage. It must stop the free media operation WITHOUT letting
+ * a paid provider be tried as a "the free path is unavailable" fallback, exactly
+ * as a bad key does on the free text chain.
+ */
+export class FreeMediaAuthError extends ProviderError {
+  override name = "FreeMediaAuthError";
+
+  constructor(message: string) {
+    super(`${FREE_MEDIA_AUTH_PREFIX} ${message}`);
+  }
+}
+
+export function isFreeMediaAuthFailure(value: unknown): boolean {
+  const message = value instanceof Error ? value.message : String(value ?? "");
+  return value instanceof FreeMediaAuthError || message.includes(FREE_MEDIA_AUTH_PREFIX);
 }
 
 export function isDailyFreeImageCapacityMessage(value: unknown): boolean {

@@ -64,11 +64,23 @@ jobs:
               r"(?m)^  llm-gateway:\s*$",
               r"(?m)^  freellmapi_data:\s*$",
               r"IMAGE_PROVIDER_MODE",
-              r"FREELLMAPI_IMAGE_MODEL",
+              # The retired single-model FreeLLM image/vision selectors. The
+              # free-first media chain uses the plural list vars
+              # FREELLMAPI_IMAGE_MODELS / FREELLMAPI_VIDEO_MODELS, so the
+              # negative lookahead keeps those from tripping this guard.
+              r"FREELLMAPI_IMAGE_MODEL(?![A-Z])",
               r"FREELLMAPI_HERO_IMAGE",
-              r"FREELLMAPI_VISION_MODEL",
+              r"FREELLMAPI_VISION_MODEL(?![A-Z])",
           ):
               assert not re.search(forbidden, compose), f"obsolete provider infrastructure remains in compose: {forbidden}"
+
+          # The free-first media generation chain (this is a deliberate revisit
+          # of the earlier "no FreeLLM image generation" stance, for cost).
+          for required in (
+              "FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}",
+              "FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}",
+          ):
+              assert required in compose, f"missing free media chain contract: {required}"
 
           for required in (
               "yt-n8n-automation-shorts_default",

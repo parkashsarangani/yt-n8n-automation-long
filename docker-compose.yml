@@ -52,6 +52,13 @@ services:
       FREE_VISION_MODELS: ${FREE_VISION_MODELS:-}
       PAID_IMAGE_FALLBACK: ${PAID_IMAGE_FALLBACK:-true}
       PAID_VIDEO_FALLBACK: ${PAID_VIDEO_FALLBACK:-false}
+      # Free-first media generation via the shared FreeLLMAPI media gateway.
+      # Ordered concrete model ids; empty = no free route. FREELLMAPI_VIDEO_MODELS
+      # is a FREE-VIDEO ALLOWLIST — only models proven zero-cost belong there,
+      # and empty (the default) keeps paid video generation impossible.
+      FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}
+      FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}
+      FREELLMAPI_VIDEO_DURATION_SEC: ${FREELLMAPI_VIDEO_DURATION_SEC:-}
 
       # Narration remains on the established ElevenLabs production path.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
