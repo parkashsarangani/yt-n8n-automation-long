@@ -8,7 +8,8 @@
     "cartoon_scene_compiler",
     "semantic_visual_assets",
     "hybrid_visual_assets",
-    "illustrated_scene_assets"
+    "illustrated_scene_assets",
+    "visual_timeline_manifest"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
