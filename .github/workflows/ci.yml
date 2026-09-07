@@ -101,7 +101,18 @@ jobs:
               "/v1/moderations",
               "FAL_KEY:",
               "FAL_MODEL:",
-              "sole image-generation provider",
+              # Free-first media chain must be wired into the deploy env, and the
+              # image-stage guard must accept the free-first provider string.
+              # Assertion strings avoid the GitHub expression delimiter, which
+              # Actions pre-evaluates anywhere in a run block.
+              "FREELLMAPI_IMAGE_MODELS:",
+              "vars.FREELLMAPI_IMAGE_MODELS",
+              "FREELLMAPI_VIDEO_MODELS:",
+              "vars.FREELLMAPI_VIDEO_MODELS",
+              "PAID_VIDEO_FALLBACK:",
+              "vars.PAID_VIDEO_FALLBACK",
+              "free-first image generation",
+              'test("fal/|freellmapi media")',
           ):
               assert required in deploy, f"missing production RFC 0010 contract: {required}"
 

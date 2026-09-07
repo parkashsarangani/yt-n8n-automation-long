@@ -52,6 +52,23 @@ jobs:
           FAL_TEXT_TO_VIDEO_MODEL: ${{ vars.FAL_TEXT_TO_VIDEO_MODEL || 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video' }}
           FAL_PRICE_PER_IMAGE: ${{ vars.FAL_PRICE_PER_IMAGE || '' }}
 
+          # Free-first image / video generation via the shared FreeLLMAPI media
+          # gateway. Empty lists = no free route. For images the paid fal
+          # generator is the last resort (PAID_IMAGE_FALLBACK). For video there
+          # is NO paid fallback: FREELLMAPI_VIDEO_MODELS is a FREE-only allowlist
+          # and PAID_VIDEO_FALLBACK is hard-off by default.
+          FREELLMAPI_IMAGE_MODELS: ${{ vars.FREELLMAPI_IMAGE_MODELS || '' }}
+          FREELLMAPI_IMAGE_PROMPT_MAX: ${{ vars.FREELLMAPI_IMAGE_PROMPT_MAX || '' }}
+          FREELLMAPI_VIDEO_MODELS: ${{ vars.FREELLMAPI_VIDEO_MODELS || '' }}
+          FREELLMAPI_VIDEO_DURATION_SEC: ${{ vars.FREELLMAPI_VIDEO_DURATION_SEC || '' }}
+
+          # Capability-specific free-first fallback policy (four booleans).
+          PAID_TEXT_FALLBACK: ${{ vars.PAID_TEXT_FALLBACK || 'true' }}
+          PAID_VISION_FALLBACK: ${{ vars.PAID_VISION_FALLBACK || 'true' }}
+          PAID_IMAGE_FALLBACK: ${{ vars.PAID_IMAGE_FALLBACK || 'true' }}
+          PAID_VIDEO_FALLBACK: ${{ vars.PAID_VIDEO_FALLBACK || 'false' }}
+          FREE_VISION_MODELS: ${{ vars.FREE_VISION_MODELS || '' }}
+
           # RFC 0010 stock candidates. The resolver downloads and frame-verifies
           # the actual clips before using an exact selected segment.
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -65,16 +82,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          if printf '%s' "${FREELLMAPI_TEXT_MODELS:-}" | grep -qiE '(^|,)[[:space:]]*auto(:|[[:space:]]*(,|$))'; then
-            echo "::error::FREELLMAPI_TEXT_MODELS may not contain auto routing; pin concrete model ids"
-            exit 1
-          fi
+          for list_name in FREELLMAPI_TEXT_MODELS FREELLMAPI_IMAGE_MODELS FREELLMAPI_VIDEO_MODELS; do
+            eval "list_val=\${$list_name:-}"
+            if printf '%s' "$list_val" | grep -qiE '(^|,)[[:space:]]*auto(:|[[:space:]]*(,|$))'; then
+              echo "::error::$list_name may not contain auto routing; pin concrete model ids"
+              exit 1
+            fi
+          done
           if [ "${VISUAL_QA_MODE}" = "real" ]; then
             echo "::error::VISUAL_QA_MODE=real would incur paid OpenAI vision on production runs"
             exit 1
           fi
-          if [ -z "${FAL_KEY:-}" ]; then
-            echo "::error::FAL_KEY is required: fal.ai is the sole image-generation provider"
+          # Image generation needs a fal key OR a free-first FreeLLMAPI image chain.
+          if [ -z "${FAL_KEY:-}" ] && [ -z "${FREELLMAPI_IMAGE_MODELS:-}" ]; then
+            echo "::error::image generation needs FAL_KEY or FREELLMAPI_IMAGE_MODELS (free-first image generation)"
             exit 1
           fi
           if [ -z "${OPENAI_API_KEY:-}" ]; then
@@ -156,8 +177,10 @@ jobs:
           echo "=== Active graph and provider wiring ==="
           config=$(curl -sf -H "Host: localhost" http://127.0.0.1:4321/api/config)
           echo "$config" | jq '{graph, providers: [.providers[] | {role, provider, real}]}'
-          if ! echo "$config" | jq -e '.providers[] | select(.role == "images" and .real == true and (.provider | startswith("fal/")))' > /dev/null; then
-            echo "::error::image stage must be live through fal.ai"
+          # The image stage must be live through fal OR the free-first FreeLLMAPI
+          # media gateway (its provider string contains "freellmapi media").
+          if ! echo "$config" | jq -e '.providers[] | select(.role == "images" and .real == true and (.provider | test("fal/|freellmapi media")))' > /dev/null; then
+            echo "::error::image stage must be live (fal or free-first FreeLLMAPI media)"
             exit 1
           fi
           if ! echo "$config" | jq -e '.providers[] | select(.role == "speech" and .real == true)' > /dev/null; then exit 1; fi
