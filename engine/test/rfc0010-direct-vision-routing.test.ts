@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { compareRenderedVisualsBlind } from "../src/visual-benchmark-judge.ts";
 import { scoreVisualBeatFrames, type VisualBeatFetch } from "../src/visual-beat-qa.ts";
 import type { VisualBeat } from "../src/visual-routing.ts";
 
@@ -60,7 +61,16 @@ const qaPayload = {
   reason: "The required commuter, phone and send action are visibly present.",
 };
 
-test("RFC0010 visual QA bypasses FreeLLMAPI even when text routing is free-first", async () => {
+const blindPayload = {
+  winner: "A",
+  a_semantic: 0.95,
+  a_interest: 0.84,
+  b_semantic: 0.60,
+  b_interest: 0.70,
+  reason: "Option A communicates the action more specifically.",
+};
+
+test("RFC0010 absolute and blind visual QA bypass FreeLLMAPI even when text routing is free-first", async () => {
   const previous = {
     routerMode: process.env["LLM_ROUTER_MODE"],
     freeKey: process.env["FREELLMAPI_API_KEY"],
@@ -81,23 +91,31 @@ test("RFC0010 visual QA bypasses FreeLLMAPI even when text routing is free-first
 
   const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
   const fetchImpl: VisualBeatFetch = async (url, init) => {
-    calls.push({ url, body: JSON.parse(init.body) as Record<string, unknown> });
+    const body = JSON.parse(init.body) as Record<string, unknown>;
+    calls.push({ url, body });
+    const serialized = init.body;
+    const content = serialized.includes("Blindly compare two candidate visuals") ? blindPayload : qaPayload;
     return {
       ok: true,
       status: 200,
       async json() {
-        return { choices: [{ message: { content: JSON.stringify(qaPayload) } }] };
+        return { choices: [{ message: { content: JSON.stringify(content) } }] };
       },
     };
   };
 
   try {
-    const result = await scoreVisualBeatFrames([frame], beat(), {}, fetchImpl);
-    assert.ok(result);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.url, "https://api.openai.test/v1/chat/completions");
-    assert.equal(calls[0]!.body["model"], "vision-test-model");
-    assert.ok(!calls[0]!.url.includes("freellmapi"));
+    const absolute = await scoreVisualBeatFrames([frame], beat(), {}, fetchImpl);
+    const blind = await compareRenderedVisualsBlind([frame], [frame], beat(), fetchImpl);
+
+    assert.ok(absolute);
+    assert.ok(blind);
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, "https://api.openai.test/v1/chat/completions");
+      assert.equal(call.body["model"], "vision-test-model");
+      assert.ok(!call.url.includes("freellmapi"));
+    }
   } finally {
     const restore = (name: string, value: string | undefined) => {
       if (value === undefined) delete process.env[name];
