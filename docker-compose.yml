@@ -44,6 +44,15 @@ services:
       # proxy (default): free text-only visual QA, no paid vision.
       VISUAL_QA_MODE: ${VISUAL_QA_MODE:-proxy}
 
+      # Capability-specific free-first fallback policy. Free providers are always
+      # tried first; these flags gate the paid last resort per capability.
+      # Text / vision / image default ON; paid VIDEO generation is HARD-OFF.
+      PAID_TEXT_FALLBACK: ${PAID_TEXT_FALLBACK:-true}
+      PAID_VISION_FALLBACK: ${PAID_VISION_FALLBACK:-true}
+      FREE_VISION_MODELS: ${FREE_VISION_MODELS:-}
+      PAID_IMAGE_FALLBACK: ${PAID_IMAGE_FALLBACK:-true}
+      PAID_VIDEO_FALLBACK: ${PAID_VIDEO_FALLBACK:-false}
+
       # Narration remains on the established ElevenLabs production path.
       SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
