@@ -107,6 +107,23 @@ test("direct rollback is reported as direct OpenAI rather than FreeLLMAPI", () =
   assert.equal(reasoning.provider, "openai/gpt-5.6-terra");
 });
 
+test("visual QA is a direct OpenAI capability independent of FreeLLMAPI reasoning", () => {
+  const visual = STAGES.find((s) => s.id === "visual_qa")!;
+  assert.equal(credentialsSatisfied(visual, { FREELLMAPI_API_KEY: "free" }), false);
+  assert.equal(credentialsSatisfied(visual, { OPENAI_API_KEY: "paid" }), true);
+
+  const report = capabilityReport({
+    allowPublish: false,
+    env: {
+      FREELLMAPI_API_KEY: "free",
+      OPENAI_API_KEY: "paid",
+      OPENAI_IMAGE_QA_MODEL: "vision-model",
+    },
+  }).find((s) => s.id === "visual_qa")!;
+  assert.equal(report.real, true);
+  assert.equal(report.provider, "openai/vision-model");
+});
+
 test("blank and whitespace-only Fal keys do not enable illustration artwork", () => {
   const images = STAGES.find((s) => s.id === "images")!;
   assert.equal(credentialsSatisfied(images, { FAL_KEY: "" }), false);
@@ -171,6 +188,7 @@ test("a fully configured deployment reports every stage live", () => {
   });
   assert.deepEqual(report.filter((s) => !s.real).map((s) => s.id), []);
   assert.equal(report.find((s) => s.id === "reasoning")!.provider, "freellmapi/gemini-3.5-flash → openai/gpt-5.6-luna fail-open");
+  assert.equal(report.find((s) => s.id === "visual_qa")!.provider, "openai/gpt-5.6-luna");
 });
 
 test("the stopgap access token can publish but cannot measure", () => {
@@ -225,7 +243,7 @@ test("saving an unknown key is reported, not silently dropped", async () => {
   delete process.env["FAL_KEY"];
 });
 
-test("the keys the illustrated-story pipeline actually needs are saveable end to end", async () => {
+test("the keys the illustrated-story and RFC0010 paths need are saveable end to end", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "vidgen-cred-"));
   const file = path.join(dir, ".env");
   const keys = [
@@ -235,9 +253,9 @@ test("the keys the illustrated-story pipeline actually needs are saveable end to
     "LLM_ROUTER_TIMEOUT_MS",
     "FREELLMAPI_BASE_URL",
     "FREELLMAPI_TEXT_MODEL",
-    "FREELLMAPI_VISION_MODEL",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
+    "OPENAI_IMAGE_QA_MODEL",
     "FAL_KEY",
     "YOUTUBE_CLIENT_ID",
     "YOUTUBE_CLIENT_SECRET",
