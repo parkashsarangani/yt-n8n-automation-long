@@ -78,7 +78,13 @@ test("a genuine narration pause establishes the next visual during silence", () 
 test("a long narration pause never gives away more than 400 ms", () => {
   const boundary = alignedBoundary(2.4, 0.4); // 2 second pause.
   assert.equal(boundary.secondStart, 2.0);
-  assert.equal(2.4 - boundary.secondStart, 0.4);
+  // The lead is capped at 400 ms. `2.4 - 2.0` lands one ULP below 0.4 in
+  // IEEE-754, and alignSceneBeats already rounds every boundary to 3dp
+  // (Number(begin.toFixed(3))) -- match that same precision rather than
+  // comparing a raw float subtraction for exact equality.
+  const lead = Number((2.4 - boundary.secondStart).toFixed(3));
+  assert.ok(lead <= 0.4, `early-establish lead ${lead}s must not exceed the 400 ms cap`);
+  assert.equal(lead, 0.4);
 });
 
 test("early establishment never moves before the previous spoken character ends", () => {
