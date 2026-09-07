@@ -55,6 +55,9 @@ function evidenceAdjustedResult(parsed: Record<string, unknown>, beat: VisualBea
   const actionRequired = beat.visual_contract.required_action.trim().length > 0;
   const identityRequired = beat.continuity.group.trim().length > 0 && beat.continuity.entities.length > 0;
 
+  // Explicit evidence fields prevent a high scalar score from laundering absent
+  // pixels. Score-derived defaults only preserve compatibility when a model
+  // accidentally omits a new JSON key.
   const requirementsVisible = boolOr(parsed["requirements_visible"], semanticRaw >= 0.90);
   const actionEvidence = actionRequired ? boolOr(parsed["action_evidence"], actionRaw >= 0.70) : true;
   const identityContinuityEvidence = identityRequired ? boolOr(parsed["identity_continuity_evidence"], continuityRaw >= 0.70) : true;
@@ -63,6 +66,9 @@ function evidenceAdjustedResult(parsed: Record<string, unknown>, beat: VisualBea
   const implausibleObjectScale = bool(parsed["implausible_object_scale"]);
   const environmentMismatch = bool(parsed["environment_mismatch"]);
 
+  // Run #9 exposed a concrete false positive: generic station footage received
+  // ~0.90 action before final rendered QA correctly found no visible phone-send
+  // action. Observable-evidence booleans are therefore authoritative backstops.
   const semanticMatch = requirementsVisible ? semanticRaw : Math.min(semanticRaw, 0.40);
   const actionMatch = actionRequired && !actionEvidence ? Math.min(actionRaw, 0.20) : actionRaw;
   const continuity = identityRequired && !identityContinuityEvidence ? Math.min(continuityRaw, 0.20) : continuityRaw;
@@ -179,6 +185,9 @@ async function routedRequest(raw:RequestFrames,beat:VisualBeat,fetchImpl:VisualB
   const endpoint=directEndpoint();
   if(!endpoint)return null;
 
+  // Production uses the native fetch and therefore proves once per run that
+  // the endpoint actually sees image pixels. Injected fetches are test doubles;
+  // their own unit tests directly verify request shape and scoring behavior.
   if(fetchImpl === (fetch as unknown as VisualBeatFetch)){
     const capable=await ensureVisionCapability({
       baseUrl:endpoint.baseUrl,apiKey:endpoint.apiKey,model:endpoint.model,label:endpoint.label,timeoutMs:15_000,
