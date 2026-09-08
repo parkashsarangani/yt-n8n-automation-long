@@ -162,6 +162,7 @@ test("a genuine WATCHABILITY_BLOCKED score deficiency still regenerates the scri
   const report = await store.put({
     schema_id: "watchability_report",
     payload: {
+      target_duration_sec: 540,
       verdict: "revise",
       scores: {
         hook: 0.78,
