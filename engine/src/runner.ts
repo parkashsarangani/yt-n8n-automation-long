@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import type { Artifact, BlobRef, Confidence, ProducedBy } from "./artifact.ts";
 import type { BlobStore } from "./blobs.ts";
+import { canonicalize } from "./canonical.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
@@ -217,12 +218,21 @@ export class Runner {
     // script, while graph/run-record inputs remain the declared DAG edges so
     // executor dependency reconstruction stays deterministic.
     let artifactParents = inputIds;
+    let revision: Awaited<ReturnType<typeof buildScriptRevisionContext>> = null;
     if (def.revision_input === "watchability") {
-      const revision = await buildScriptRevisionContext({
+      const intentPayload = inputs["intent"]?.payload;
+      const durationCandidate = intentPayload && typeof intentPayload === "object"
+        ? (intentPayload as { target_duration_sec?: unknown }).target_duration_sec
+        : undefined;
+      const targetDurationSec = typeof durationCandidate === "number" && Number.isFinite(durationCandidate)
+        ? durationCandidate
+        : null;
+      revision = await buildScriptRevisionContext({
         runId,
         nodeId: opts.nodeId,
         runLog: this.deps.runLog,
         store: this.deps.store,
+        targetDurationSec,
       });
       vars["revision"] = revision ? JSON.stringify(revision.payload, null, 2) : "null";
       if (revision) {
@@ -302,16 +312,6 @@ export class Runner {
         ({ payload: rawPayload, confidence } = unwrap(value, def.name));
       } catch (err) {
         if (!(err instanceof ProviderError)) throw err;
-        // unwrap() failing (missing "payload", or a malformed/out-of-range
-        // confidence.overall) used to propagate straight out of this loop,
-        // skipping the retry-with-feedback path entirely: no run_records
-        // entry, no chance for the model to see and fix the problem, and a
-        // hard failure on attempt 1 regardless of max_attempts -- a run
-        // needed a manual top-level retry every time this happened, and each
-        // retry gave the model a genuinely fresh attempt 1 rather than the
-        // in-agent retry budget doing its job. Treated the same as a schema
-        // validation failure now: recorded, fed back via lastErrors, and
-        // retried within this agent's own attempt budget.
         lastErrors = [err.message];
         await this.writeRecord({
           run_id: runId,
@@ -351,12 +351,6 @@ export class Runner {
             repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
-      // "Fix what the system already knows how to fix, don't spend a retry
-      // attempt on it" -- for the one real production mistake the script
-      // writers keep making: writing the outro scene's real content in the
-      // correct final position and simply omitting is_outro:true. See
-      // repairMissingOutroFlag's own comment for the production evidence and
-      // why the repair stays conservative.
       const { data: payload, repairs: outroRepairs } = def.produces === "script"
         ? repairMissingOutroFlag(enumRepaired)
         : { data: enumRepaired, repairs: [] };
@@ -405,8 +399,51 @@ export class Runner {
         continue;
       }
 
+      // A content-addressed store reports `cache_hit` when the model returns the
+      // exact same script again. For a critic-guided revision that is not a
+      // successful cache reuse; it is a no-op rewrite. Reject it inside the
+      // agent's own retry budget so the next provider call sees an explicit
+      // correction instead of spending another outer watchability cycle.
+      if (
+        revision &&
+        def.produces === "script" &&
+        canonicalize(payload) === canonicalize(revision.payload.previous_script)
+      ) {
+        const error =
+          `critic-guided revision attempt ${revision.payload.attempt} returned a canonical-identical script; ` +
+          `materially rewrite the diagnosed weak scenes/dimensions instead of returning the prior payload`;
+        lastErrors = [error];
+        await this.writeRecord({
+          run_id: runId,
+          graph_id: opts.graphId ?? null,
+          node_id: opts.nodeId ?? null,
+          transformation: def.name,
+          transformation_version: transformationVersion,
+          inputs: inputIds,
+          output: null,
+          status: "retry",
+          attempt,
+          max_attempts: maxAttempts,
+          provider: provider.id,
+          model: usage?.model ?? null,
+          prompt_ref: def.prompt,
+          usage,
+          confidence,
+          started_at: startedAt,
+          startedMs,
+          error,
+          retry_reason: "other_semantic",
+        });
+        this.deps.logger?.warn(`[${def.name}] attempt ${attempt}/${maxAttempts} rejected no-op script revision`);
+        if (attempt === maxAttempts) {
+          throw new RunnerError(
+            `${def.name} failed to produce a material critic-guided revision after ${maxAttempts} attempts`,
+          );
+        }
+        continue;
+      }
+
       const semanticErrors = agentSemanticValidationErrors(def, payload, inputs);
-      // The HARD: marker is an internal routing signal, never user-facing text.
       const displayErrors = semanticErrors.map((e) => e.startsWith(HARD_ERROR_PREFIX) ? e.slice(HARD_ERROR_PREFIX.length) : e);
       if (semanticErrors.length > 0 && attempt < maxAttempts) {
         lastErrors = displayErrors;
@@ -430,11 +467,6 @@ export class Runner {
           startedMs,
           error: displayErrors.join("; "),
           retry_reason: classifyRetryReason(displayErrors),
-          // Semantic gate rejections only ever recorded the error message,
-          // never the payload that triggered it -- undiagnosable after the
-          // fact without re-running (real cost) or guessing. The schema
-          // path above doesn't need this: SchemaValidationError already
-          // names the offending path/value per error.
           detail: JSON.stringify(payload).slice(0, 50_000),
         });
         this.deps.logger?.warn(
@@ -442,16 +474,6 @@ export class Runner {
         );
         continue;
       }
-      // Schema-valid but still failing the quality gate on the last attempt.
-      // For a soft gate (style/quality, e.g. natural-dialogue phrasing),
-      // accept it rather than throwing away a structurally sound artifact and
-      // blocking the whole run. A hard gate is different: it mirrors an
-      // unconditional throw with no retry in a downstream worker, so
-      // accepting the artifact does not avoid the block -- it just spends one
-      // more attempt arriving at the identical permanent block one stage
-      // later (production case: run_39850b3e's visual_plan was accepted with
-      // an incompatible operation/primitive pair on attempt 3/3, and the
-      // compiler rejected the stored artifact with no way to recover).
       if (semanticErrors.length > 0 && hasHardSemanticError(semanticErrors)) {
         throw new RunnerError(
           `${def.name} produced a ${def.produces} that still fails a hard validation rule after ${maxAttempts} attempts: ${displayErrors.join("; ")}`,
@@ -525,9 +547,6 @@ export class Runner {
       ? (await this.deps.runLog.all()).filter((r) => r.run_id === runId && r.node_id === opts.nodeId)
       : [];
     const priorFailures = nodeRecords.filter((r) => r.status === "failed").length;
-    // Most recent earlier success for this exact node in this run, if any --
-    // still present in the log even after a "retry" record invalidates it
-    // for deriveCompleted()'s purposes (see regenerateNode()/pruneIncompleteDependencies).
     const priorSuccess = nodeRecords
       .filter((r) => r.output && (r.status === "ok" || r.status === "cache_hit" || r.status === "accepted_below_quality_bar"))
       .at(-1);
@@ -645,7 +664,6 @@ function renderRetryBlock(errors: string[]): string {
     `Do not change anything else, and do not explain the fix.\n`
   );
 }
-
 
 function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_contract" | "visual_explanation" | "other_semantic" {
   const text = errors.join(" ").toLowerCase();

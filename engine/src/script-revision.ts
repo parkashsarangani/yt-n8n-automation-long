@@ -1,8 +1,7 @@
 import type { ArtifactStore } from "./store.ts";
 import type { RunLog, RunRecord } from "./runlog.ts";
 import {
-  WATCHABILITY_AVERAGE_THRESHOLD,
-  WATCHABILITY_THRESHOLDS,
+  watchabilityProfile,
   type WatchabilityDimension,
 } from "./watchability-policy.ts";
 
@@ -41,10 +40,14 @@ function successful(records: RunRecord[], nodeId: string): RunRecord[] {
   return records.filter((r) => r.node_id === nodeId && r.output && SUCCESS.has(r.status));
 }
 
-function failuresFor(scores: Partial<Record<WatchabilityDimension, unknown>>): string[] {
+function failuresFor(
+  scores: Partial<Record<WatchabilityDimension, unknown>>,
+  targetDurationSec?: number | null,
+): string[] {
+  const profile = watchabilityProfile(targetDurationSec);
   const failures: string[] = [];
   const values: number[] = [];
-  for (const [dimension, threshold] of Object.entries(WATCHABILITY_THRESHOLDS) as Array<[WatchabilityDimension, number]>) {
+  for (const [dimension, threshold] of Object.entries(profile.thresholds) as Array<[WatchabilityDimension, number]>) {
     const score = scores[dimension];
     if (typeof score !== "number" || !Number.isFinite(score)) {
       failures.push(`${dimension}=missing (requires ${threshold.toFixed(2)})`);
@@ -53,11 +56,11 @@ function failuresFor(scores: Partial<Record<WatchabilityDimension, unknown>>): s
     values.push(score);
     if (score < threshold) failures.push(`${dimension}=${score.toFixed(2)} (requires ${threshold.toFixed(2)})`);
   }
-  const rawAverage = values.length === Object.keys(WATCHABILITY_THRESHOLDS).length
+  const rawAverage = values.length === Object.keys(profile.thresholds).length
     ? values.reduce((sum, score) => sum + score, 0) / values.length
     : 0;
-  if (rawAverage < WATCHABILITY_AVERAGE_THRESHOLD) {
-    failures.push(`average=${rawAverage.toFixed(3)} (requires ${WATCHABILITY_AVERAGE_THRESHOLD.toFixed(2)})`);
+  if (rawAverage < profile.averageThreshold) {
+    failures.push(`average=${rawAverage.toFixed(3)} (requires ${profile.averageThreshold.toFixed(2)})`);
   }
   return failures;
 }
@@ -78,8 +81,10 @@ export function revisionDirectives(
   weakestDimension: string | null,
   summary: string,
   mode: ScriptRevisionContextPayload["mode"],
+  targetDurationSec?: number | null,
 ): string[] {
-  const failed = (Object.entries(WATCHABILITY_THRESHOLDS) as Array<[WatchabilityDimension, number]>)
+  const profile = watchabilityProfile(targetDurationSec);
+  const failed = (Object.entries(profile.thresholds) as Array<[WatchabilityDimension, number]>)
     .filter(([dimension, threshold]) => {
       const score = scores[dimension];
       return typeof score !== "number" || !Number.isFinite(score) || score < threshold;
@@ -87,11 +92,16 @@ export function revisionDirectives(
     .map(([dimension]) => dimension);
 
   const ordered = [...new Set<WatchabilityDimension>([
-    ...(weakestDimension && weakestDimension in WATCHABILITY_THRESHOLDS ? [weakestDimension as WatchabilityDimension] : []),
+    ...(weakestDimension && weakestDimension in profile.thresholds ? [weakestDimension as WatchabilityDimension] : []),
     ...failed,
   ])];
   const directives = ordered.flatMap((dimension) => DIMENSION_DIRECTIVES[dimension] ? [DIMENSION_DIRECTIVES[dimension]!] : []);
   if (summary.trim()) directives.unshift(`Directly repair the critic's diagnosed loss point: ${summary.trim().slice(0, 420)}`);
+  if (profile.mode === "compact") {
+    directives.unshift(
+      "This is a compact <=90s episode: keep the hook/package/payoff bars intact, but repair suspense with one decisive escalation + turn and treat the first 30 seconds as fast promise fulfillment rather than a long-form act.",
+    );
+  }
   if (mode === "structural_rebuild") {
     directives.unshift(
       "Do a structural rewrite, not a paraphrase: preserve the selected package, required payoff and valid facts, but replace weak causal beats/opening order where necessary.",
@@ -114,6 +124,7 @@ export async function buildScriptRevisionContext(opts: {
   nodeId: string | null | undefined;
   runLog: RunLog;
   store: ArtifactStore;
+  targetDurationSec?: number | null;
 }): Promise<ScriptRevisionContextBuild | null> {
   if (!opts.nodeId) return null;
   const records = (await opts.runLog.all()).filter((r) => r.run_id === opts.runId);
@@ -157,8 +168,8 @@ export async function buildScriptRevisionContext(opts: {
         verdict: typeof report.verdict === "string" ? report.verdict : null,
         abandon_recommended: report.abandon_recommended === true,
       },
-      release_failures: failuresFor(scores),
-      directives: revisionDirectives(scores, weakest, summary, mode),
+      release_failures: failuresFor(scores, opts.targetDurationSec),
+      directives: revisionDirectives(scores, weakest, summary, mode, opts.targetDurationSec),
     },
     parents: [previousScript.artifact_id, reportArtifact.artifact_id],
   };
