@@ -12,17 +12,17 @@ function scoresAt(value = 0.9): Record<string, number> {
 
 test("failed drafts are ordered by distance from the real release surface, not flattened at 0.789", () => {
   const highMeanButBadPayoff = scoresAt(0.90);
-  highMeanButBadPayoff["payoff"] = 0.70; // raw mean stays very high, but misses payoff by 0.05
+  highMeanButBadPayoff["payoff"] = 0.65; // raw mean stays very high, but misses payoff by 0.10
 
   const lowerMeanButNearPass = {
-    hook: 0.82,
-    first_30_fidelity: 0.80,
-    package_fidelity: 0.84,
-    suspense: 0.75,
-    watchability: 0.77, // only 0.01 below its floor
-    entertainment: 0.72,
-    payoff: 0.75,
-    youtube_fit: 0.75,
+    hook: 0.80,
+    first_30_fidelity: 0.78, // 0.02 below its 0.80 floor
+    package_fidelity: 0.75,
+    suspense: 0.73, // 0.02 below its 0.75 floor
+    watchability: 0.74, // 0.01 below its 0.75 floor
+    entertainment: 0.70,
+    payoff: 0.74, // 0.01 below its 0.75 floor
+    youtube_fit: 0.74, // 0.01 below its 0.75 floor
   };
 
   const a = assessWatchability({ verdict: "revise", scores: highMeanButBadPayoff });

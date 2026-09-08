@@ -721,7 +721,14 @@ export class VidGenService {
    * startRun() generally so a manually-started episode gets the same
    * self-healing rather than parking with an avoidable defect.
    */
-  private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2, maxVisualReleaseRegens = 3): Promise<void> {
+  private async driveUnattended(
+    runId: string,
+    // One less than MAX_ATTEMPTS_BEFORE_ACCEPTING: the final round pins the best
+    // of the earlier drafts for a terminal evaluation rather than drafting again.
+    maxRetries = MAX_ATTEMPTS_BEFORE_ACCEPTING - 1,
+    maxAssetRegens = 2,
+    maxVisualReleaseRegens = 3,
+  ): Promise<void> {
     let assetRegens = 0;
     let visualReleaseRegens = 0;
     const scriptAttempts: Array<{ scriptId: string; reportId: string; avg: number }> = [];

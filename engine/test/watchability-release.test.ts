@@ -1,7 +1,41 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { assessWatchability, WATCHABILITY_THRESHOLDS, WATCHABILITY_AVERAGE_THRESHOLD } from "../src/workers/watchability-release.ts";
-import { watchabilityProfile } from "../src/watchability-policy.ts";
+import {
+  watchabilityProfile,
+  MATERIAL_WEAKNESS_FLOOR,
+  MAX_ATTEMPTS_BEFORE_ACCEPTING,
+  COMPACT_WATCHABILITY_THRESHOLDS,
+  COMPACT_WATCHABILITY_AVERAGE_THRESHOLD,
+} from "../src/watchability-policy.ts";
+
+test("the canonical production watchability floors are exactly the operator-set values", () => {
+  // Operator-set 2026-09-08. Changing any of these is a deliberate product
+  // decision, not a drive-by edit.
+  assert.deepEqual(WATCHABILITY_THRESHOLDS, {
+    hook: 0.80,
+    first_30_fidelity: 0.80,
+    package_fidelity: 0.75,
+    suspense: 0.75,
+    watchability: 0.75,
+    entertainment: 0.70,
+    payoff: 0.75,
+    youtube_fit: 0.75,
+  });
+  assert.equal(WATCHABILITY_AVERAGE_THRESHOLD, 0.75);
+  assert.equal(MATERIAL_WEAKNESS_FLOOR, 0.50);
+  assert.equal(MAX_ATTEMPTS_BEFORE_ACCEPTING, 3);
+
+  // Compact (<=90s) keeps only its two duration-specific relaxations plus a
+  // 0.02 aggregate relaxation; every other floor inherits the long-form value.
+  assert.equal(COMPACT_WATCHABILITY_THRESHOLDS.first_30_fidelity, 0.70);
+  assert.equal(COMPACT_WATCHABILITY_THRESHOLDS.suspense, 0.65);
+  assert.equal(COMPACT_WATCHABILITY_AVERAGE_THRESHOLD, 0.73);
+  for (const dim of ["hook", "package_fidelity", "watchability", "entertainment", "payoff", "youtube_fit"] as const) {
+    assert.equal(COMPACT_WATCHABILITY_THRESHOLDS[dim], WATCHABILITY_THRESHOLDS[dim]);
+  }
+  assert.ok(COMPACT_WATCHABILITY_AVERAGE_THRESHOLD < WATCHABILITY_AVERAGE_THRESHOLD, "a compact probe is never held to a stricter aggregate than long form");
+});
 
 function passingScores() {
   const out: Record<string, number> = {};
@@ -23,10 +57,10 @@ test("compact profile changes only first-30, suspense and aggregate floors", () 
   assert.equal(compact.mode, "compact");
   assert.equal(compact.thresholds.first_30_fidelity, 0.70);
   assert.equal(compact.thresholds.suspense, 0.65);
-  assert.equal(compact.averageThreshold, 0.77);
+  assert.equal(compact.averageThreshold, 0.73);
   assert.equal(long.thresholds.first_30_fidelity, 0.80);
   assert.equal(long.thresholds.suspense, 0.75);
-  assert.equal(long.averageThreshold, 0.79);
+  assert.equal(long.averageThreshold, 0.75);
   for (const dimension of ["hook", "package_fidelity", "watchability", "entertainment", "payoff", "youtube_fit"] as const) {
     assert.equal(compact.thresholds[dimension], long.thresholds[dimension], `${dimension} must not be weakened for a 60s probe`);
   }
@@ -86,7 +120,7 @@ test("90-180s smoothly interpolates rather than switching to a second graph/prof
   assert.equal(mid.mode, "transition");
   assert.equal(mid.thresholds.first_30_fidelity, 0.75);
   assert.equal(mid.thresholds.suspense, 0.70);
-  assert.equal(mid.averageThreshold, 0.78);
+  assert.equal(mid.averageThreshold, 0.74);
 });
 
 test("an execution-level weakness blocks for revision without abandoning the topic", () => {

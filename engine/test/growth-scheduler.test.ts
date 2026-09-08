@@ -55,11 +55,11 @@ test("a candidate missing package fields runs as a plain brief instead of failin
 test("watchability failover starts only after the bounded final evaluation", () => {
   const retrying = {
     status: "blocked", waiting: [],
-    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 5): average=0.769" }],
+    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 2): average=0.740" }],
   } as any;
   const exhausted = {
     status: "blocked", waiting: [],
-    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6): average=0.769" }],
+    failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 3): average=0.740" }],
   } as any;
   const packageContract = {
     status: "blocked", waiting: [],
@@ -67,7 +67,7 @@ test("watchability failover starts only after the bounded final evaluation", () 
   } as any;
 
   assert.equal(watchabilityRetryState(retrying), "retrying", "an intermediate blocked status belongs to the same run's unattended retry loop");
-  assert.equal(watchabilityRetryState(exhausted), "exhausted", "the sixth evaluation is the bounded terminal creative failure");
+  assert.equal(watchabilityRetryState(exhausted), "exhausted", "the third evaluation is the bounded terminal creative failure");
   assert.equal(watchabilityRetryState(packageContract), null, "a structural package failure must never be disguised as creative exhaustion");
   assert.equal(creativeFailureKind(retrying), null, "candidate N+1 must not start while candidate N is still retrying");
   assert.equal(creativeFailureKind(exhausted), "watchability");
@@ -76,8 +76,8 @@ test("watchability failover starts only after the bounded final evaluation", () 
 
 test("creative terminal states authorize topic failover but infrastructure failures never do", () => {
   const parkedAbandon = { status: "waiting", waiting: [{ node_id: "creative_viability" }], failures: [] } as any;
-  const blockedAbandon = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (ABANDON_TOPIC: weak premise; attempt 6)" }] } as any;
-  const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6)" }] } as any;
+  const blockedAbandon = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (ABANDON_TOPIC: weak premise; attempt 3)" }] } as any;
+  const exhaustedRevision = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 3)" }] } as any;
   const infrastructure = { status: "blocked", waiting: [], failures: [{ node_id: "render", error: "renderer unavailable" }] } as any;
   const technicalQa = { status: "waiting", waiting: [{ node_id: "approve_publish" }], failures: [] } as any;
   const packageContract = { status: "blocked", waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (PACKAGE_CONTRACT): corrupt family lineage" }] } as any;
@@ -118,18 +118,18 @@ test("scheduled production ignores transient watchability blocks, then advances 
         return { status: "completed", waiting: [], failures: [], kind: "production", created_at: new Date().toISOString() };
       }
       firstReads++;
-      // Stay transiently blocked for more than the old two-poll stability
+      // Stay transiently blocked for more than the old poll-count stability
       // threshold. The scheduler must NOT mistake this for final exhaustion.
       if (firstReads <= 3) {
         return {
           status: "blocked", waiting: [],
-          failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 5): average=0.769" }],
+          failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 2): average=0.740" }],
         };
       }
       if (firstReads === 4) return { status: "running", waiting: [], failures: [] };
       return {
         status: "blocked", waiting: [],
-        failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 6): average=0.769" }],
+        failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 3): average=0.769" }],
       };
     },
     decide: async () => {},
@@ -143,7 +143,7 @@ test("scheduled production ignores transient watchability blocks, then advances 
     scheduler.stop();
   }
 
-  assert.deepEqual(started, [first.brief, second.brief], "candidate 2 starts exactly once, and only after candidate 1 reaches attempt 6");
+  assert.deepEqual(started, [first.brief, second.brief], "candidate 2 starts exactly once, and only after candidate 1 reaches the bounded final evaluation");
   assert.ok(firstReads >= 6, "the scheduler must observe the bounded final state rather than the earlier transient block");
   assert.equal(scheduler.status().find((j) => j.id === "produce")?.last_error, null);
 });
