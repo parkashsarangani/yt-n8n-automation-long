@@ -40,8 +40,8 @@ jobs:
           compose = Path("docker-compose.yml").read_text()
           deploy = Path(".github/workflows/deploy.yml").read_text()
           story_graph = Path("engine/graphs/illustrated_story.json").read_text()
-          manual_graph = Path("engine/graphs/manual.json").read_text()
-          benchmark_control = Path("engine/graphs/visual_benchmark_control.json").read_text()
+          discover_graph = Path("engine/graphs/discover.json").read_text()
+          measure_graph = Path("engine/graphs/measure.json").read_text()
 
           for required in (
               "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
@@ -64,18 +64,12 @@ jobs:
               r"(?m)^  llm-gateway:\s*$",
               r"(?m)^  freellmapi_data:\s*$",
               r"IMAGE_PROVIDER_MODE",
-              # The retired single-model FreeLLM image/vision selectors. The
-              # free-first media chain uses the plural list vars
-              # FREELLMAPI_IMAGE_MODELS / FREELLMAPI_VIDEO_MODELS, so the
-              # negative lookahead keeps those from tripping this guard.
               r"FREELLMAPI_IMAGE_MODEL(?![A-Z])",
               r"FREELLMAPI_HERO_IMAGE",
               r"FREELLMAPI_VISION_MODEL(?![A-Z])",
           ):
               assert not re.search(forbidden, compose), f"obsolete provider infrastructure remains in compose: {forbidden}"
 
-          # The free-first media generation chain (this is a deliberate revisit
-          # of the earlier "no FreeLLM image generation" stance, for cost).
           for required in (
               "FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}",
               "FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}",
@@ -101,10 +95,6 @@ jobs:
               "/v1/moderations",
               "FAL_KEY:",
               "FAL_MODEL:",
-              # Free-first media chain must be wired into the deploy env, and the
-              # image-stage guard must accept the free-first provider string.
-              # Assertion strings avoid the GitHub expression delimiter, which
-              # Actions pre-evaluates anywhere in a run block.
               "FREELLMAPI_IMAGE_MODELS:",
               "vars.FREELLMAPI_IMAGE_MODELS",
               "FREELLMAPI_VIDEO_MODELS:",
@@ -128,14 +118,31 @@ jobs:
           assert "grep -qiE '(^|,)[[:space:]]*auto" in deploy, "deploy must reject an auto model id"
           assert 'if [ "${VISUAL_QA_MODE}" = "real" ]' in deploy, "deploy must refuse real vision on production"
 
-          for graph_name, graph in (
-              ("illustrated_story", story_graph),
-              ("manual", manual_graph),
-              ("visual_benchmark_control", benchmark_control),
+          # Exactly one publish-capable graph remains. Manual narration is an
+          # input mode of illustrated_story, while discover/measure are
+          # non-publish operational loops.
+          assert '"transformation": "publish"' in story_graph
+          assert '"transformation": "tts_moderation"' in story_graph
+          assert '"transformation": "voice"' in story_graph
+          assert '"tts_moderation"' in story_graph
+          assert '"transformation": "visual_director"' in story_graph
+          assert '"transformation": "visual_beat_assets"' in story_graph
+          assert '"transformation": "visual_timeline"' in story_graph
+          assert '"transformation": "visual_beat_release"' in story_graph
+          assert '"transformation": "visual_timeline_render"' in story_graph
+          assert '"transformation": "publish"' not in discover_graph
+          assert '"transformation": "publish"' not in measure_graph
+
+          for retired in (
+              "engine/graphs/manual.json",
+              "engine/graphs/visual_benchmark.json",
+              "engine/graphs/visual_benchmark_control.json",
+              "engine/graphs/visual_live_media_smoke.json",
+              ".github/workflows/free-media-bakeoff.yml",
+              ".github/workflows/rfc0010-benchmark.yml",
+              ".github/workflows/rfc0010-live-media-smoke.yml",
           ):
-              assert '"transformation": "tts_moderation"' in graph, f"{graph_name} bypasses pre-TTS moderation"
-              assert '"transformation": "voice"' in graph, f"{graph_name} has no voice stage"
-              assert '"tts_moderation"' in graph, f"{graph_name} voice is not linked to moderation"
+              assert not Path(retired).exists(), f"retired alternate graph/workflow still exists: {retired}"
 
           for forbidden in (
               "IMAGE_PROVIDER_MODE:",
@@ -148,8 +155,6 @@ jobs:
           ):
               assert forbidden not in deploy, f"obsolete FreeLL media deployment contract remains: {forbidden}"
 
-          # The unified key is inference-only. Long must never impersonate a
-          # dashboard session or mutate the Shorts-owned FreeLL media registry.
           assert "fetch(base+'/api/media')" not in deploy
           assert "'/api/media/'" not in deploy
           assert "x-dashboard-token" not in deploy.lower()
@@ -159,7 +164,7 @@ jobs:
           assert "secrets." + "OPEN_AI_KEY" in deploy
           assert "secrets." + "FAL_KEY" in deploy
           assert "vars." + "FAL_MODEL" in deploy
-          print("RFC 0010 provider + pre-TTS moderation deployment contract OK")
+          print("single production graph + RFC 0010 provider contract OK")
           PY
 
   engine:
