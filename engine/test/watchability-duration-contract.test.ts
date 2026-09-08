@@ -22,15 +22,15 @@ test("production graph threads intent through writer critic and release without 
   assert.deepEqual(byId.get("watchability_release")?.in, ["draft_script", "creative_viability", "package_release", "intent"]);
 });
 
-test("writer and critic are pinned to duration-aware prompts", async () => {
+test("writer and critic are pinned to duration-aware prompts while standalone calls may default to long-form", async () => {
   const writer = JSON.parse(await readFile(path.join(ROOT, "agents/narration_script_writer.json"), "utf8")) as any;
   const critic = JSON.parse(await readFile(path.join(ROOT, "agents/watchability_critic.json"), "utf8")) as any;
   assert.equal(writer.version, "6");
   assert.equal(writer.prompt, "narration_script_writer@6");
-  assert.ok(writer.consumes.some((input: any) => input.as === "intent" && input.optional !== true));
+  assert.ok(writer.consumes.some((input: any) => input.as === "intent"));
   assert.equal(critic.version, "5");
   assert.equal(critic.prompt, "watchability_critic@5");
-  assert.ok(critic.consumes.some((input: any) => input.as === "intent" && input.optional !== true));
+  assert.ok(critic.consumes.some((input: any) => input.as === "intent"));
 
   const writerPrompt = await readFile(path.join(ROOT, "prompts/narration_script_writer/6.md"), "utf8");
   const criticPrompt = await readFile(path.join(ROOT, "prompts/watchability_critic/5.md"), "utf8");
