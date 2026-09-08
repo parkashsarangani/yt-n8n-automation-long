@@ -62,6 +62,35 @@ test("second external draft receives the exact prior script + matching critic as
   assert.ok(result!.payload.directives.some((d) => /neutral connective prose|change the situation/i.test(d)));
 });
 
+test("compact revision context uses compact floors and does not demand long-form suspense", async () => {
+  const compactReport = {
+    ...weakReport,
+    weakest_dimension: "suspense",
+    scores: {
+      ...weakReport.scores,
+      first_30_fidelity: 0.72,
+      suspense: 0.68,
+      watchability: 0.80,
+    },
+  };
+  const entries = new Map<string, any>([
+    [script1, artifact(script1, "script", priorScript)],
+    [report1, artifact(report1, "watchability_report", compactReport, [script1])],
+  ]);
+  const runLog = { all: async () => [
+    record("draft_script", script1),
+    record("watchability_report", report1, [script1]),
+  ] } as any;
+
+  const result = await buildScriptRevisionContext({
+    runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries), targetDurationSec: 60,
+  });
+  assert.ok(result);
+  assert.ok(!result!.payload.release_failures.some((f) => f.startsWith("first_30_fidelity=0.72")));
+  assert.ok(!result!.payload.release_failures.some((f) => f.startsWith("suspense=0.68")));
+  assert.ok(result!.payload.directives.some((d) => /compact <=90s episode/i.test(d)));
+});
+
 test("fourth draft escalates to structural rebuild rather than paraphrasing the same local fix", async () => {
   const entries = new Map<string, any>([
     [script1, artifact(script1, "script", priorScript)],
@@ -81,19 +110,10 @@ test("fourth draft escalates to structural rebuild rather than paraphrasing the 
   assert.match(result!.payload.directives[0]!, /structural rewrite/i);
 });
 
-// Content-addressed artifacts dedupe: two watchability_critic executions with
-// byte-identical output share one stored artifact, whose `parents` field
-// belongs permanently to whichever run wrote it FIRST. Matching by parents
-// (the pre-provenance-fix behavior) would follow that stale first-writer
-// lineage instead of the report this run's OWN script actually produced.
-// The run record's own `inputs` is the one place that still names the truth
-// per execution, regardless of dedup on the output side.
 test("a deduped report artifact is still matched to the current attempt via run-record inputs, not stale first-writer parents", async () => {
   const dedupedReport = id("d");
   const entries = new Map<string, any>([
     [script1, artifact(script1, "script", priorScript)],
-    // Written by an earlier, unrelated run's script (script2) -- parents is
-    // permanently stamped with that first writer, not this run's script1.
     [dedupedReport, artifact(dedupedReport, "watchability_report", weakReport, [script2])],
   ]);
   const runLog = { all: async () => [
