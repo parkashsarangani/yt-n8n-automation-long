@@ -79,6 +79,18 @@ export type GateDecision =
    */
   | { result: "abandon"; reason?: string };
 
+export interface ExecutorStartOptions {
+  runId?: string;
+  /**
+   * Exact, already-schema-valid artifacts to use as the output of existing
+   * transformation nodes when those nodes become ready. This is an input mode,
+   * not an alternate topology: the run record is written against the same node
+   * and its real current upstream inputs, so lineage/resume semantics remain
+   * identical. Used by operator-authored story/script runs.
+   */
+  presetOutputs?: Record<string, string>;
+}
+
 export interface ExecutorDeps {
   runner: Runner;
   runLog: RunLog;
@@ -107,7 +119,7 @@ export class GraphExecutor {
   async start(
     graph: GraphDoc,
     seeds: Record<string, string>,
-    opts: { runId?: string } = {},
+    opts: ExecutorStartOptions = {},
   ): Promise<GraphRunResult> {
     const runId = opts.runId ?? `run_${randomUUID()}`;
 
@@ -122,7 +134,8 @@ export class GraphExecutor {
       await this.recordNode(runId, graph, input.id, "input", artifactId, "ok");
     }
 
-    return this.drive(graph, runId, {});
+    const presetOutputs = await this.validatePresetOutputs(graph, opts.presetOutputs);
+    return this.drive(graph, runId, {}, presetOutputs);
   }
 
   /** Continue a parked run, supplying decisions for any waiting human gates. */
@@ -130,8 +143,29 @@ export class GraphExecutor {
     graph: GraphDoc,
     runId: string,
     decisions: Record<string, GateDecision> = {},
+    opts: Pick<ExecutorStartOptions, "presetOutputs"> = {},
   ): Promise<GraphRunResult> {
-    return this.drive(graph, runId, decisions);
+    const presetOutputs = await this.validatePresetOutputs(graph, opts.presetOutputs);
+    return this.drive(graph, runId, decisions, presetOutputs);
+  }
+
+  private async validatePresetOutputs(
+    graph: GraphDoc,
+    requested: Record<string, string> | undefined,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const [nodeId, artifactId] of Object.entries(requested ?? {})) {
+      const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node || nodeType(node) !== "transformation") {
+        throw new ExecutorError(`preset output target "${nodeId}" is not a transformation node in ${graphRef(graph)}`);
+      }
+      const tn = node as TransformationNode;
+      const def = this.deps.transformations.get(tn.transformation);
+      if (!def) throw new ExecutorError(`unknown transformation "${tn.transformation}" for preset node "${nodeId}"`);
+      await this.deps.store.require(artifactId, { schema_id: def.produces });
+      out.set(nodeId, artifactId);
+    }
+    return out;
   }
 
   /**
@@ -209,6 +243,7 @@ export class GraphExecutor {
     graph: GraphDoc,
     runId: string,
     decisions: Record<string, GateDecision>,
+    presetOutputs: Map<string, string> = new Map(),
   ): Promise<GraphRunResult> {
     const ref = graphRef(graph);
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -313,7 +348,7 @@ export class GraphExecutor {
             node_id: tn.id,
             transformation: tn.transformation,
           });
-          return this.runNode(graph, runId, tn, completed);
+          return this.runNode(graph, runId, tn, completed, presetOutputs);
         },
       );
 
@@ -395,12 +430,36 @@ export class GraphExecutor {
     runId: string,
     node: TransformationNode,
     completed: Map<string, string>,
+    presetOutputs: Map<string, string>,
   ): Promise<{ ok: true; artifactId: string } | { ok: false; error: string }> {
     const def = this.deps.transformations.get(node.transformation);
     if (!def) {
       return { ok: false, error: `unknown transformation "${node.transformation}"` };
     }
     const inputIds = inputsOf(node).map((up) => completed.get(up)!);
+
+    const presetArtifactId = presetOutputs.get(node.id);
+    if (presetArtifactId) {
+      try {
+        await this.deps.store.require(presetArtifactId, { schema_id: def.produces });
+        await this.recordNode(
+          runId,
+          graph,
+          node.id,
+          node.transformation,
+          presetArtifactId,
+          "ok",
+          null,
+          def.version ?? "1",
+          inputIds,
+        );
+        presetOutputs.delete(node.id);
+        this.deps.logger?.log(`[graph ${graphRef(graph)}] using pre-authored output for "${node.id}"`);
+        return { ok: true, artifactId: presetArtifactId };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
 
     // Cross-run reuse is opt-in (RFC 0005): agents are not cached by default,
     // because re-running is how variants happen.
