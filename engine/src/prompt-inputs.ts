@@ -1,3 +1,5 @@
+import { watchabilityPolicyForDuration } from "./watchability-policy.ts";
+
 type JsonObject = Record<string, unknown>;
 
 interface CompactLimits {
@@ -42,6 +44,10 @@ export function promptInputView(agentName: string, inputName: string, payload: u
       case "intent": return visualDirectorIntentView(payload);
       default: break;
     }
+  }
+
+  if ((agentName === "narration_script_writer" || agentName === "watchability_critic") && inputName === "intent") {
+    return watchabilityIntentView(payload);
   }
 
   switch (inputName) {
@@ -134,6 +140,28 @@ function visualDirectorIntentView(value: unknown): unknown {
     constraints: compactPayload(obj.constraints, { ...SHORT_LIMITS, maxArrayItems: 16, maxStringLength: 220 }),
     genre: obj.genre,
     image_style: obj.image_style,
+  });
+}
+
+/**
+ * The critic, writer revision prompt and deterministic release gate must see the
+ * same duration-aware release surface. This is derived prompt context only; the
+ * immutable intent artifact remains unchanged.
+ */
+function watchabilityIntentView(value: unknown): unknown {
+  const obj = asObject(value);
+  if (!obj) return compactPayload(value, SHORT_LIMITS);
+  const policy = watchabilityPolicyForDuration(obj.target_duration_sec);
+  return pruneEmpty({
+    brief: clip(obj.brief, 320),
+    target_duration_sec: obj.target_duration_sec,
+    genre: obj.genre,
+    constraints: compactPayload(obj.constraints, { ...SHORT_LIMITS, maxArrayItems: 16, maxStringLength: 220 }),
+    watchability_release_profile: {
+      profile: policy.profile,
+      thresholds: policy.thresholds,
+      average_threshold: policy.averageThreshold,
+    },
   });
 }
 
