@@ -127,7 +127,7 @@ test("text 4: all free models fail -> HARD failure, no paid call, when PAID_TEXT
     await assert.rejects(
       () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
       (err: unknown) => err instanceof ProviderError
-        && /all 2 configured free text model\(s\) unavailable/.test(err.message)
+        && /all 2 eligible free text model\(s\) unavailable/.test(err.message)
         && /paid text fallback is disabled/.test(err.message),
     );
     assert.ok(urls.every((u) => u.startsWith("http://free")), "no paid OpenAI request");
