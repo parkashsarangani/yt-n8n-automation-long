@@ -1,20 +1,19 @@
 /**
  * OpenAI-compatible reasoning provider (RFC 0004).
  *
- * Production is free-only: when LLM_ROUTER_MODE is not `direct`, requests walk
- * an explicit ordered chain of concrete free FreeLLMAPI models. A model that is
- * rate-limited / 5xx / times out / returns malformed content hands off to the
- * next id in the list. When every configured model is unavailable the request
- * FAILS — there is no automatic paid-OpenAI fallback. `direct` mode stays as a
- * manual operator rollback that calls paid OpenAI, but nothing selects it
- * automatically.
+ * Production text is free-first: when LLM_ROUTER_MODE is not `direct`,
+ * requests walk an explicit ordered chain of concrete FreeLLMAPI models that
+ * are eligible for the requested structured-output size. Removed models, 413
+ * incompatibility, transient failures, malformed JSON and schema-invalid JSON
+ * advance to the next free candidate. After all eligible free candidates are
+ * exhausted, paid OpenAI is used only when PAID_TEXT_FALLBACK is enabled.
  *
- * FreeLLMAPI's OpenAI-compatible response is deliberately non-streaming because
- * its router aggregates hosted provider responses. response_format stays at
- * `json_object`; the registry remains the strict authoritative schema
- * validator after generation.
+ * Free-gateway authentication failures (401/403), caller errors and policy
+ * refusals are terminal and never trigger paid escalation.
  */
 
+import RawAjv2020 from "ajv/dist/2020.js";
+import rawAddFormats from "ajv-formats";
 import {
   ProviderError,
   ProviderRefusal,
@@ -24,8 +23,19 @@ import {
   type ModelProvider,
   type ProviderCapabilities,
 } from "../provider.ts";
-import { llmRoutingConfig, type LlmRoutingConfig } from "../llm-routing.ts";
+import {
+  eligibleFreeTextModels,
+  llmRoutingConfig,
+  type LlmRoutingConfig,
+} from "../llm-routing.ts";
 import { fallbackPolicy } from "../fallback-policy.ts";
+
+const Ajv2020 = ((RawAjv2020 as unknown as { default?: unknown }).default ??
+  RawAjv2020) as typeof RawAjv2020;
+const addFormats = ((rawAddFormats as unknown as { default?: unknown }).default ??
+  rawAddFormats) as typeof rawAddFormats;
+const responseAjv = new Ajv2020({ allErrors: true, strict: false });
+addFormats(responseAjv);
 
 export const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -58,7 +68,7 @@ export interface OpenAIProviderOptions {
   maxOutputTokens?: number;
   effort?: CompletionRequest["effort"];
   fetchImpl?: typeof fetch;
-  /** Total FreeLLM attempts before paid fail-open. Default 2. */
+  /** Retained for constructor compatibility; the model chain itself is bounded. */
   freeAttempts?: number;
   freeRetryDelayMs?: number;
   sleepImpl?: (ms: number) => Promise<void>;
@@ -149,13 +159,33 @@ function parsedJson(providerRef: string, content: string): unknown {
   }
 }
 
+function assertExactStructuredOutput(
+  providerRef: string,
+  schema: Record<string, unknown>,
+  value: unknown,
+): void {
+  let validate: ReturnType<typeof responseAjv.compile>;
+  try {
+    validate = responseAjv.compile(schema);
+  } catch (err) {
+    throw new ProviderError(`${providerRef} could not compile requested output schema: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (validate(value)) return;
+  const detail = (validate.errors ?? [])
+    .slice(0, 8)
+    .map((error) => `${error.instancePath || "/"} ${error.message ?? "invalid"}`)
+    .join("; ");
+  throw new ProviderError(`${providerRef} returned schema-invalid structured output: ${detail || "unknown schema mismatch"}`);
+}
+
 function retryableFreeReasoningError(err: unknown): boolean {
   if (err instanceof ProviderRefusal) return false;
   const message = err instanceof Error ? err.message : String(err);
-  // Caller/policy errors will be identical on an immediate retry. Everything
-  // else gets one bounded free retry: network/timeout, 429/5xx, truncated/no
-  // content, or a model returning non-JSON despite json_object mode.
-  if (/request failed \((?:400|401|403|404|413)\)/.test(message)) return false;
+  // 400 is a caller/schema contract error. 401/403 are credential/permission
+  // failures and must never be converted into paid spend. A 404 means a stale
+  // model pin and a 413 means this model cannot serve this payload: both are
+  // candidate incompatibilities, so advance through the free chain.
+  if (/request failed \((?:400|401|403)\)/.test(message)) return false;
   return true;
 }
 
@@ -167,7 +197,6 @@ export class OpenAIProvider implements ModelProvider {
   private readonly defaultMaxTokens: number;
   private readonly defaultEffort: CompletionRequest["effort"];
   private readonly fetchImpl: typeof fetch;
-  private readonly freeAttempts: number;
   private readonly freeRetryDelayMs: number;
   private readonly sleepImpl: (ms: number) => Promise<void>;
 
@@ -178,7 +207,6 @@ export class OpenAIProvider implements ModelProvider {
     this.defaultMaxTokens = opts.maxOutputTokens ?? 8192;
     this.defaultEffort = opts.effort ?? "medium";
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.freeAttempts = Math.max(1, Math.min(3, opts.freeAttempts ?? 2));
     this.freeRetryDelayMs = Math.max(0, opts.freeRetryDelayMs ?? 350);
     this.sleepImpl = opts.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const routing = llmRoutingConfig();
@@ -191,19 +219,6 @@ export class OpenAIProvider implements ModelProvider {
     return { structuredOutput: "native", maxOutputTokens: 128_000 };
   }
 
-  /**
-   * Text completion.
-   *
-   * `direct` mode is an explicit manual operator rollback and calls paid
-   * OpenAI. The default `freellmapi` mode walks the ordered free-model chain
-   * first. Only AFTER every free model fails with a retryable/availability
-   * condition (429, 5xx, timeout, malformed, model removed) does it consider
-   * the paid OpenAI text model, and only when `PAID_TEXT_FALLBACK` is enabled
-   * (production default) and an OpenAI key is configured. Immediate failures —
-   * invalid request, malformed caller payload, policy refusal, bad credentials
-   * — are still thrown at once and never reach the paid model. When paid
-   * fallback is disabled, free-chain exhaustion FAILS LOUDLY with no paid call.
-   */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     const routing = llmRoutingConfig();
     if (routing.mode === "direct") return this.completeDirect(req);
@@ -219,21 +234,38 @@ export class OpenAIProvider implements ModelProvider {
       );
     }
 
+    const maxTokens = req.maxOutputTokens ?? this.defaultMaxTokens;
+    const eligibleModels = eligibleFreeTextModels(routing.textModels, maxTokens);
+    const skippedModels = routing.textModels.filter((model) => !eligibleModels.includes(model));
+    if (skippedModels.length > 0) {
+      console.warn(
+        `[llm-routing] skipping free text model(s) not admitted for ${maxTokens}-token structured output: ${skippedModels.join(", ")}`,
+      );
+    }
+    if (eligibleModels.length === 0) {
+      if (paidTextFallbackAllowed) {
+        console.warn(
+          `[llm-routing] no configured free model is eligible for ${maxTokens}-token structured output; using paid OpenAI text fallback`,
+        );
+        return this.completeDirect(req);
+      }
+      throw new ProviderError(
+        `no configured free text model is eligible for ${maxTokens}-token structured output and paid text fallback is disabled`,
+      );
+    }
+
     const attempted: string[] = [];
     let lastError: unknown;
-    for (const model of routing.textModels) {
+    for (const model of eligibleModels) {
       try {
         return await this.completeFree(req, routing, model);
       } catch (err) {
-        // A refusal or a caller/schema error is identical on every model AND on
-        // the paid model, so it is thrown immediately without any fallback.
         if (err instanceof ProviderRefusal) throw err;
         if (!retryableFreeReasoningError(err)) throw err;
         attempted.push(model);
         lastError = err;
-        // Cost/observability signal only; never log prompt or response bodies.
-        console.warn(`[llm-routing] free text model ${model} unavailable; trying next pinned model`);
-        if (this.freeRetryDelayMs > 0 && attempted.length < routing.textModels.length) {
+        console.warn(`[llm-routing] free text model ${model} unsuitable/unavailable; trying next eligible model`);
+        if (this.freeRetryDelayMs > 0 && attempted.length < eligibleModels.length) {
           await this.sleepImpl(this.freeRetryDelayMs);
         }
       }
@@ -242,12 +274,12 @@ export class OpenAIProvider implements ModelProvider {
     const detail = lastError instanceof Error ? lastError.message : String(lastError);
     if (paidTextFallbackAllowed) {
       console.warn(
-        `[llm-routing] all ${attempted.length} free text model(s) unavailable [${attempted.join(", ")}]; using paid OpenAI text fallback (PAID_TEXT_FALLBACK=true)`,
+        `[llm-routing] all ${attempted.length} eligible free text model(s) exhausted [${attempted.join(", ")}]; using paid OpenAI text fallback (PAID_TEXT_FALLBACK=true)`,
       );
       return this.completeDirect(req);
     }
     throw new ProviderError(
-      `all ${attempted.length} configured free text model(s) unavailable [${attempted.join(", ")}] and paid text fallback is disabled: ${detail}`,
+      `all ${attempted.length} eligible free text model(s) unavailable [${attempted.join(", ")}] and paid text fallback is disabled: ${detail}`,
     );
   }
 
@@ -295,9 +327,11 @@ export class OpenAIProvider implements ModelProvider {
     const content = choice?.message?.content;
     if (typeof content !== "string" || !content) throw new ProviderError(`${providerRef} returned no content`);
 
+    const value = parsedJson(providerRef, content);
+    assertExactStructuredOutput(providerRef, req.outputSchema, value);
     const actualModel = typeof data.model === "string" && data.model.trim() ? data.model.trim() : model;
     return {
-      value: parsedJson(providerRef, content),
+      value,
       usage: {
         input_tokens: data.usage?.prompt_tokens ?? 0,
         output_tokens: data.usage?.completion_tokens ?? 0,
