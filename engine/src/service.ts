@@ -124,10 +124,22 @@ interface RunState {
   completedOutputs: Map<string, string>;
   /** Pre-authored outputs still available if an early upstream failure is retried in-process. */
   presetOutputs?: Record<string, string>;
+  /**
+   * The full immutable set of operator-authored preset artifacts for a manual
+   * run. Unlike `presetOutputs` (consumed as nodes complete), this is never
+   * cleared, so an operator-requested one-shot re-grade can restore every
+   * preset — including the reused `voice` — before the retry cascade.
+   */
+  manualPresetOutputs?: Record<string, string>;
+  /** One-shot operator watchability re-grades used on this manual run (max 1). */
+  manualWatchabilityRescores?: number;
   last: GraphRunResult | null;
   finished: boolean;
   error: string | null;
 }
+
+/** Deterministic guard: an operator gets exactly one re-grade per manual run. */
+export const MAX_MANUAL_WATCHABILITY_RESCORES = 1;
 
 export interface ServiceOptions {
   root: string;
@@ -697,6 +709,8 @@ export class VidGenService {
       active: new Set(),
       completedOutputs: new Map(),
       presetOutputs: { ...presetOutputs },
+      manualPresetOutputs: { ...presetOutputs },
+      manualWatchabilityRescores: 0,
       last: null,
       finished: false,
       error: null,
@@ -737,6 +751,55 @@ export class VidGenService {
     console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
     const graph = this.resolveRunGraph(state.graph);
     void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }));
+  }
+
+  /**
+   * Operator-requested ONE-SHOT re-grade of a manual run that is blocked at
+   * watchability_release. The critic is stochastic; a single fresh measurement
+   * of the EXACT same immutable operator script is not a policy change (the
+   * script, voice, thresholds and watchability-policy.ts are all untouched)
+   * and is available exactly once per run. If the second independent read
+   * also fails, the run stays blocked -- we do not keep sampling.
+   *
+   * Never reachable from unattended automation: it is a manual API action, and
+   * driveUnattended() never calls it.
+   */
+  async rescoreManualWatchability(runId: string): Promise<void> {
+    const state = this.runs.get(runId);
+    if (!state) throw new Error(`unknown run ${runId}`);
+    if (!state.finished) throw new Error(`run ${runId} is still executing`);
+    const view = this.getRun(runId);
+    if (!view) throw new Error(`unknown run ${runId}`);
+    if (!(await this.isManualScriptRun(view))) {
+      throw new Error("watchability re-grade is only for operator-authored (manual) runs");
+    }
+    const blockedAtWatchability = (state.last?.failures ?? []).some((f) => f.node_id === "watchability_release");
+    if (!blockedAtWatchability) {
+      throw new Error("run is not currently blocked at watchability_release");
+    }
+    const used = state.manualWatchabilityRescores ?? 0;
+    if (used >= MAX_MANUAL_WATCHABILITY_RESCORES) {
+      throw new Error(`this run has already used its ${MAX_MANUAL_WATCHABILITY_RESCORES} operator watchability re-grade`);
+    }
+    state.manualWatchabilityRescores = used + 1;
+    // Restore every operator preset (incl. the reused voice) so the cascade
+    // below recomputes only the report and its dependents, not the immutable
+    // upstream artifacts.
+    state.presetOutputs = { ...(state.manualPresetOutputs ?? {}) };
+
+    const graph = this.resolveRunGraph(state.graph);
+    // Discard/recompute watchability_report only. The original artifact stays
+    // in the store (content-addressed, immutable); a "retry" record on the
+    // node is the auditable `operator_requested_rescore` marker, and
+    // pruneIncompleteDependencies cascades staleness to watchability_release
+    // and everything downstream.
+    await this.executor.regenerateNode(graph, runId, "watchability_report", "operator_requested_rescore");
+    state.finished = false;
+    state.error = null;
+    console.log(`[run ${runId.slice(4, 12)}] operator-requested one-shot watchability re-grade of the unchanged manual script`);
+    void this.drive(runId, () =>
+      this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }),
+    ).then(() => this.driveUnattended(runId));
   }
 
   /**
