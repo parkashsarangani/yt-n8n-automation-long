@@ -50,6 +50,8 @@ export interface AgentDef {
     max_output_tokens?: number;
     effort?: "low" | "medium" | "high" | "xhigh" | "max";
     thinking?: boolean;
+    /** Spend-authorizing judge/reviser: grade on the paid model when available. */
+    prefer_paid_reasoning?: boolean;
   };
   confidence_dimensions?: string[];
   retry?: { max_attempts?: number };
@@ -262,6 +264,7 @@ export class Runner {
           ...(def.model.max_output_tokens ? { maxOutputTokens: def.model.max_output_tokens } : {}),
           ...(def.model.effort ? { effort: def.model.effort } : {}),
           ...(def.model.thinking === false ? { thinking: false } : {}),
+          ...(def.model.prefer_paid_reasoning ? { preferPaidReasoning: true } : {}),
         });
         value = result.value;
         usage = result.usage;

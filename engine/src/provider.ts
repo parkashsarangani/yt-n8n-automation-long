@@ -29,6 +29,14 @@ export interface CompletionRequest {
    * budget rather than improving it.
    */
   thinking?: boolean;
+  /**
+   * This call is a spend-authorizing evaluation/revision whose quality bar is
+   * calibrated against the strong paid model. When paid text is available
+   * (PAID_TEXT_FALLBACK=true and an OpenAI key), grade/write it there directly
+   * instead of on a free model. When paid is not available it still runs on the
+   * free chain — the gate degrades, it never hard-fails on this alone.
+   */
+  preferPaidReasoning?: boolean;
 }
 
 export interface CompletionResult {

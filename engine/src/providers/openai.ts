@@ -224,6 +224,16 @@ export class OpenAIProvider implements ModelProvider {
     if (routing.mode === "direct") return this.completeDirect(req);
     const paidTextFallbackAllowed = fallbackPolicy().paidTextFallback && Boolean(this.apiKey);
 
+    // A spend-authorizing judge/reviser (e.g. watchability_critic and its
+    // paired script reviser) is calibrated against the strong paid model. When
+    // paid text is available, grade/write on it directly rather than on a free
+    // model whose scores cluster differently. If paid is not available this
+    // falls through to the ordinary free chain — never a hard failure.
+    if (req.preferPaidReasoning && paidTextFallbackAllowed) {
+      console.warn("[llm-routing] preferPaidReasoning: spend-authorizing evaluation graded on the paid model; free chain skipped");
+      return this.completeDirect(req);
+    }
+
     if (!routing.apiKey) {
       if (paidTextFallbackAllowed) {
         console.warn("[llm-routing] FREELLMAPI_API_KEY not set; using paid OpenAI text fallback (PAID_TEXT_FALLBACK=true)");

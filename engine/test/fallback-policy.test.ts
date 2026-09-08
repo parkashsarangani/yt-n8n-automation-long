@@ -134,6 +134,33 @@ test("text 4: all free models fail -> HARD failure, no paid call, when PAID_TEXT
   });
 });
 
+test("text: preferPaidReasoning grades on the paid model directly when paid text is available, no free host touched", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_TEXT_MODELS: CHAIN, OPENAI_API_KEY: "sk-paid", PAID_TEXT_FALLBACK: "true" }, async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({ apiKey: "sk-paid", ...noWait, fetchImpl: async (u) => {
+      urls.push(String(u));
+      return String(u).includes("free") ? freeJson('{"ok":false}', "free-should-not-run") : sseDirect();
+    } });
+    const r = await provider.complete({ prompt: "grade this", outputSchema: SCHEMA, preferPaidReasoning: true });
+    assert.equal(r.usage.provider, "openai");
+    assert.equal(urls.filter((u) => u.includes("free")).length, 0, "free chain must be skipped for a spend-authorizing judge");
+    assert.ok(urls.every((u) => u === "https://api.openai.com/v1/chat/completions"));
+  });
+});
+
+test("text: preferPaidReasoning still runs on the free chain when paid text is unavailable (degrade, never hard-fail)", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_BASE_URL: "http://free/v1", FREELLMAPI_TEXT_MODELS: CHAIN, OPENAI_API_KEY: "sk-paid", PAID_TEXT_FALLBACK: "false" }, async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({ apiKey: "sk-paid", ...noWait, fetchImpl: async (u) => {
+      urls.push(String(u));
+      return freeJson('{"ok":true}', "model-a");
+    } });
+    const r = await provider.complete({ prompt: "grade this", outputSchema: SCHEMA, preferPaidReasoning: true });
+    assert.equal(r.usage.model, "model-a");
+    assert.ok(urls.every((u) => u.startsWith("http://free")), "no paid OpenAI request when PAID_TEXT_FALLBACK=false");
+  });
+});
+
 test("text 5: an auto id anywhere in the pinned chain is rejected before any call, fallback or not", async () => {
   for (const list of ["auto:smart", "model-a,auto"]) {
     await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_TEXT_MODELS: list, OPENAI_API_KEY: "sk-paid", PAID_TEXT_FALLBACK: "true" }, async () => {

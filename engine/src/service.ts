@@ -315,10 +315,12 @@ export class VidGenService {
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
 
-    // reasoning_high runs on gpt-5.6-luna, not a bigger tier - a deliberate,
-    // revisitable cost decision (Luna: $0.20/$1.20 per M tokens vs. Terra's
-    // $2/$12). It's a capability, not a vendor/model (RFC 0004), so no
-    // agent config had to change to make this switch.
+    // Both reasoning tiers resolve to OpenAIProvider, which is free-first:
+    // requests walk the ordered free FreeLLMAPI chain and only fall through to
+    // paid OpenAI (gpt-5.6-luna) when the free chain is exhausted OR the agent
+    // sets model.prefer_paid_reasoning (a spend-authorizing judge/reviser whose
+    // quality bar is calibrated to the paid model). It's a capability, not a
+    // vendor/model (RFC 0004).
     const providers = new ProviderRouter({
       reasoning_high: new OpenAIProvider({ effort: "medium" }),
       reasoning_fast: new OpenAIProvider({ effort: "medium" }),
