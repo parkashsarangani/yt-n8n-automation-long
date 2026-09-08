@@ -29,7 +29,13 @@ export {
 export { validateGrowthPackageSelection } from "../growth-package-contract.ts";
 
 type Dimension = WatchabilityDimension;
-type WatchabilityReport = { verdict?: unknown; abandon_recommended?: unknown; abandon_reason?: unknown; scores?: Partial<Record<Dimension, unknown>> };
+type WatchabilityReport = {
+  target_duration_sec?: unknown;
+  verdict?: unknown;
+  abandon_recommended?: unknown;
+  abandon_reason?: unknown;
+  scores?: Partial<Record<Dimension, unknown>>;
+};
 type GrowthPackage = { next_video_bridge?: unknown };
 type IntentPayload = { target_duration_sec?: unknown };
 type ScriptScene = { scene_index?: unknown; point?: unknown; narration?: unknown; is_outro?: unknown; [key: string]: unknown };
@@ -74,7 +80,9 @@ export function enforceContinuationBridge(scriptPayload: unknown, packagePayload
  * `average` is the service's best-of-N selection score. Passing drafts retain
  * their real arithmetic mean. Failed drafts stay strictly below the active
  * duration-aware average floor and are ordered by distance from that release
- * surface. `rawAverage` remains the diagnostic arithmetic mean.
+ * surface. New 2.1 reports carry their evaluation duration so callers such as
+ * unattended best-of-N do not need to look the intent artifact up again. Old
+ * 2.0 reports without that field retain the historical long-form profile.
  */
 export function assessWatchability(payload: unknown, targetDurationSec?: number | null): {
   passed: boolean;
@@ -88,7 +96,11 @@ export function assessWatchability(payload: unknown, targetDurationSec?: number 
 } {
   const report = payload && typeof payload === "object" ? payload as WatchabilityReport : {};
   const scores = report.scores ?? {};
-  const profile = watchabilityProfile(targetDurationSec);
+  const reportedDuration = typeof report.target_duration_sec === "number" && Number.isFinite(report.target_duration_sec)
+    ? report.target_duration_sec
+    : null;
+  const effectiveDuration = targetDurationSec ?? reportedDuration;
+  const profile = watchabilityProfile(effectiveDuration);
   const failures: string[] = [];
   const values: number[] = [];
   let materiallyWeak = false;
