@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "status": "active",
   "description": "The assembled video. Bytes live in the blob store; the payload records what was rendered and how it went, including the external job id so a run can be traced back to the renderer's own logs.",
-  "produced_by": ["render", "cartoon_render", "visual_benchmark_render"],
+  "produced_by": ["render", "cartoon_render", "visual_benchmark_render", "visual_timeline_render"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "RenderedVideoArtifact",

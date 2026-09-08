@@ -2,8 +2,8 @@
   "schema_id": "visual_asset_release",
   "version": "1.0.0",
   "status": "active",
-  "description": "Deterministic pre-render release record for illustrated assets. Exists only when the manifest has no visual condition already guaranteed to fail final QA.",
-  "produced_by": ["visual_asset_release"],
+  "description": "Deterministic pre-render release record for illustrated assets. Exists only when the selected production visual representation has no condition already guaranteed to fail final QA.",
+  "produced_by": ["visual_asset_release", "visual_beat_release"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",

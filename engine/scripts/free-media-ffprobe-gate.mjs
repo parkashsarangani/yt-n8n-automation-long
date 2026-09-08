@@ -33,8 +33,6 @@ if (!existsSync(reportPath)) {
   process.exit(1);
 }
 const report = JSON.parse(readFileSync(reportPath, "utf8"));
-// The REPORT is authoritative: every video attempt the smoke recorded as
-// AVAILABLE + FREE + status=success must have a real, decodable artifact.
 const videoAttempts = (report.attempts ?? []).filter((a) => a.modality === "video");
 
 function probe(file) {
@@ -51,8 +49,6 @@ function probe(file) {
     const codec = String(v.codec_name ?? "");
     const container = String(j.format?.format_name ?? "");
     const problems = [];
-    // The gateway video contract is MP4 — a WebM/other container must not be
-    // promoted even if its stream is otherwise fine.
     if (!/(^|,)(mov|mp4|m4a|3gp|3g2|mj2)($|,)/.test(container)) problems.push(`non-MP4 container "${container || "?"}"`);
     if (!SUPPORTED_CODECS.has(codec)) problems.push(`unsupported codec ${codec || "?"}`);
     if (!(duration >= MIN_DURATION_SEC && duration <= MAX_DURATION_SEC)) problems.push(`duration ${duration}s out of [${MIN_DURATION_SEC}, ${MAX_DURATION_SEC}]`);

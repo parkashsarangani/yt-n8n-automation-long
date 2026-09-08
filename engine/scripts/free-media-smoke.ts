@@ -131,9 +131,6 @@ async function bakeImage(model: string, outDir: string): Promise<Attempt> {
     const ext = image.media_type.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
     const file = `image-${sanitize(model)}.${ext}`;
     writeFileSync(path.join(outDir, file), image.bytes);
-    // usage.model is "<provider>/<full model id>" and the model id itself may
-    // contain slashes (e.g. "nvidia/black-forest-labs/flux.2-klein-4b"), so
-    // split only at the FIRST slash.
     const slash = out.usage.model.indexOf("/");
     const routedProvider = slash >= 0 ? out.usage.model.slice(0, slash) : "freellmapi";
     const routedModel = slash >= 0 ? out.usage.model.slice(slash + 1) : out.usage.model;
@@ -183,9 +180,6 @@ async function bakeVideo(model: string, outDir: string): Promise<Attempt> {
       duration_sec: out.duration_sec ?? null,
       routed_provider: out.upstream_provider, routed_model: out.routed_model,
       availability: "AVAILABLE", cost: "FREE",
-      // quality stays UNKNOWN here — the workflow's ffprobe GATE decides
-      // PASS/FAIL (real video stream, supported codec, non-zero duration, sane
-      // dimensions) and rewrites this field before promotion.
       quality: "UNKNOWN", promotable: false, artifact: file,
     };
   } catch (err) {

@@ -23,6 +23,9 @@ type DirectionShot = { image_prompt?: unknown };
 type DirectionScene = { scene_index?: unknown; shots?: unknown };
 type DirectionPayload = { scenes?: unknown };
 type GrowthPayload = { next_video_bridge?: unknown };
+type VisualPlanBeat = { id?: unknown; scene_index?: unknown; beat_index?: unknown; narration?: unknown };
+type VisualPlanPayload = { beats?: unknown };
+type ScriptScene = { scene_index?: unknown; narration?: unknown };
 
 const TEXT_BEARING_SURFACE = /\b(document|paper|chart|form|letter|note|sign|poster|screen|monitor|phone|tablet|directory|contract|badge|name\s*tag|label|menu|receipt|ticket|book|newspaper|clipboard|whiteboard|blackboard|spreadsheet|list|certificate)\b/i;
 const READABLE_TEXT_SIGNAL = /\b(readable|legible|printed|written|labeled|labelled|names?|words?|text|writing|letters?|numbers?|dates?|signature|address|headline|title|caption|prices?|scores?|rows?|columns?)\b/i;
@@ -69,6 +72,56 @@ export function continuationBridgeErrors(payload: unknown): string[] {
   return errors;
 }
 
+/**
+ * Production RFC 0010 invariant: every approved script scene must be represented
+ * exactly, and concatenating the beat narration within a scene must reproduce
+ * the immutable script narration byte-for-byte. This is deliberately a HARD
+ * error so a truncated 90–120s-era plan can never be accepted on the final
+ * agent retry and rendered as though it covered a complete long-form episode.
+ */
+export function visualDirectorCoverageErrors(payload: unknown, scriptPayload: unknown): string[] {
+  const beats = payload && typeof payload === "object" && Array.isArray((payload as VisualPlanPayload).beats)
+    ? (payload as VisualPlanPayload).beats as VisualPlanBeat[]
+    : [];
+  const scenes = scriptPayload && typeof scriptPayload === "object" && Array.isArray((scriptPayload as { scenes?: unknown }).scenes)
+    ? (scriptPayload as { scenes: ScriptScene[] }).scenes
+    : [];
+  if (!scenes.length) return ["visual_director cannot prove coverage because the script has no scenes"];
+  const errors: string[] = [];
+  const scriptIndices = new Set<number>();
+  let expectedGlobalId = 1;
+
+  for (const scene of scenes) {
+    if (typeof scene.scene_index !== "number" || typeof scene.narration !== "string") continue;
+    const sceneIndex = scene.scene_index;
+    scriptIndices.add(sceneIndex);
+    const sceneBeats = beats
+      .filter((beat) => beat.scene_index === sceneIndex)
+      .sort((a, b) => Number(a.beat_index ?? 0) - Number(b.beat_index ?? 0));
+    if (!sceneBeats.length) {
+      errors.push(`scene ${sceneIndex}: visual plan has no beats`);
+      continue;
+    }
+    for (let i = 0; i < sceneBeats.length; i++) {
+      const beat = sceneBeats[i]!;
+      if (beat.beat_index !== i) errors.push(`scene ${sceneIndex}: beat_index must be contiguous from 0`);
+      const expectedId = `beat_${String(expectedGlobalId).padStart(3, "0")}`;
+      if (beat.id !== expectedId) errors.push(`scene ${sceneIndex}: expected global id ${expectedId}, got ${String(beat.id ?? "missing")}`);
+      expectedGlobalId += 1;
+    }
+    const reconstructed = sceneBeats.map((beat) => typeof beat.narration === "string" ? beat.narration : "").join("");
+    if (reconstructed !== scene.narration) {
+      errors.push(`scene ${sceneIndex}: concatenated beat narration does not exactly reproduce the approved script`);
+    }
+  }
+
+  const extraScenes = [...new Set(beats
+    .map((beat) => typeof beat.scene_index === "number" ? beat.scene_index : null)
+    .filter((value): value is number => value !== null && !scriptIndices.has(value)))];
+  if (extraScenes.length) errors.push(`visual plan contains scene(s) not present in the approved script: ${extraScenes.join(", ")}`);
+  return errors;
+}
+
 function hard(errors: string[]): string[] {
   return errors.map((error) => `${HARD_ERROR_PREFIX}${error}`);
 }
@@ -76,9 +129,12 @@ function hard(errors: string[]): string[] {
 export function agentSemanticValidationErrors(
   def: AgentDef,
   payload: unknown,
-  _inputs: Record<string, Artifact>,
+  inputs: Record<string, Artifact>,
 ): string[] {
   if (def.name === "episode_director") return hard(unsafeDirectionTextPrompts(payload));
+  if (def.name === "visual_director") {
+    return hard(visualDirectorCoverageErrors(payload, inputs["script"]?.payload));
+  }
   if (def.name === "growth_packager") {
     return hard([
       ...continuationBridgeErrors(payload),

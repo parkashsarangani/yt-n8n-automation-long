@@ -2,9 +2,10 @@
  * Turns an operator-written hook and narration into schema-valid `story` and
  * `script` artifacts, with no model call.
  *
- * This exists for the manual graph (engine/graphs/manual.json): when the
- * operator writes their own words, story_architect and script_writer never
- * run, but every downstream stage (visuals, voice, SEO, thumbnail, render,
+ * This backs the manual input mode of illustrated_story (its `story` and
+ * `draft_script` nodes get preset outputs): when the operator writes their own
+ * words, story_architect and script_writer never run, but every downstream
+ * stage (visuals, voice, SEO, thumbnail, render,
  * QA) still expects artifacts shaped exactly like the ones those agents would
  * have produced. Paragraph and sentence boundaries decide where scenes split;
  * word-count thirds decide where acts split. Every field is either typed by

@@ -20,9 +20,12 @@ async function deps() {
 }
 function graph(nodes: GraphDoc["nodes"]): GraphDoc { return { graph_id: "test", version: "1", nodes }; }
 
-test("shipped illustrated_story and manual graphs are statically valid", async () => {
+test("the single shipped production graph is statically valid", async () => {
+  // RFC 0010 convergence collapsed the production DAGs into one graph.
+  // Manual narration is now an input mode of illustrated_story (preset node
+  // outputs), not a second graph file.
   const d = await deps();
-  for (const name of ["illustrated_story.json", "manual.json"]) {
+  for (const name of ["illustrated_story.json"]) {
     const g = await loadGraph(path.join(ROOT, "graphs", name));
     assert.doesNotThrow(() => validateGraph(g, d), name);
   }

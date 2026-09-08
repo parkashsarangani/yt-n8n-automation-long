@@ -13,6 +13,9 @@ import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
 import { makeIllustratedSceneAssetsWorker, type IllustratedSceneAssetsWorkerOptions } from "./illustrated-scene-assets.ts";
 import { makeVisualBeatAssetsWorker, type VisualBeatAssetsWorkerOptions } from "./visual-beat-resolver.ts";
 import { makeVisualTimelineWorker } from "./visual-timeline.ts";
+import { makeVisualTimelineRenderWorker } from "./visual-timeline-render.ts";
+import { makeVisualTimelineManifestWorker } from "./visual-timeline-manifest.ts";
+import { makeVisualBeatReleaseWorker } from "./visual-beat-release.ts";
 import { makeVisualBenchmarkRenderWorker } from "./visual-benchmark-render.ts";
 import { makeVisualBenchmarkQaWorker } from "./visual-benchmark-qa.ts";
 import { makeVisualAssetReleaseWorker } from "./visual-asset-release.ts";
@@ -22,7 +25,9 @@ export {
   makePublishWorker, makeMeasureWorker, makeQaWorker,
   makeGrowthPackageReleaseWorker, makeWatchabilityReleaseWorker,
   makeIllustratedSceneAssetsWorker, makeVisualBeatAssetsWorker,
-  makeVisualTimelineWorker, makeVisualBenchmarkRenderWorker, makeVisualBenchmarkQaWorker,
+  makeVisualTimelineWorker, makeVisualTimelineRenderWorker, makeVisualTimelineManifestWorker,
+  makeVisualBeatReleaseWorker,
+  makeVisualBenchmarkRenderWorker, makeVisualBenchmarkQaWorker,
   makeVisualAssetReleaseWorker,
 };
 export { buildPrompt } from "./assets.ts";
@@ -50,11 +55,16 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     // without requireModeration when they are not making a real TTS call.
     makeVoiceWorker({ ...opts.voice, requireModeration: true }),
     makeAssetWorker(opts.assets ?? {}),
-    // RFC 0009 remains the untouched production control.
+    // Legacy/manual compatibility worker. The production illustrated_story
+    // graph now uses the RFC 0010 visual director/resolver/timeline stack.
     makeIllustratedSceneAssetsWorker(opts.illustratedAssets ?? {}),
-    // RFC 0010 is an isolated end-to-end benchmark path.
     makeVisualBeatAssetsWorker(opts.visualBeatAssets ?? {}),
     makeVisualTimelineWorker(),
+    makeVisualTimelineManifestWorker(),
+    makeVisualBeatReleaseWorker(),
+    makeVisualTimelineRenderWorker(),
+    // Benchmark-only helpers remain available for explicit comparison runs;
+    // they are not a second production visual implementation.
     makeVisualBenchmarkRenderWorker(),
     makeVisualBenchmarkQaWorker(),
     makeVisualAssetReleaseWorker(),

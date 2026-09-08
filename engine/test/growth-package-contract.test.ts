@@ -136,7 +136,7 @@ test("illustrated story graph routes every package consumer through package_rele
     nodes: Array<{ id: string; transformation?: string; in?: string[] }>;
   };
   const release = graph.nodes.find((node) => node.id === "package_release");
-  assert.equal(graph.version, "8");
+  assert.equal(graph.version, "9");
   assert.equal(release?.transformation, "growth_package_release");
   assert.deepEqual(release?.in, ["package"]);
 
@@ -145,7 +145,7 @@ test("illustrated story graph routes every package consumer through package_rele
     "draft_script",
     "watchability_report",
     "watchability_release",
-    "direction",
+    "visual_direction",
     "seo",
     "thumbnail_brief",
     "render",
