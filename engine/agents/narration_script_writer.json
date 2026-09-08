@@ -12,7 +12,8 @@
   "prompt": "narration_script_writer@6",
   "model": {
     "capability": "reasoning_high",
-    "max_output_tokens": 14000
+    "max_output_tokens": 14000,
+    "prefer_paid_on_revision": true
   },
   "confidence_dimensions": ["prose_quality", "pacing", "payoff_delivery", "first_30_fidelity"],
   "retry": { "max_attempts": 3 }
