@@ -9,7 +9,7 @@
     { "schema_id": "intent", "range": "^1", "as": "intent", "optional": true }
   ],
   "produces": "watchability_report",
-  "produces_version": "2.0.0",
+  "produces_version": "2.1.0",
   "prompt": "watchability_critic@5",
   "model": {"capability": "reasoning_high", "max_output_tokens": 18000, "effort": "high", "prefer_paid_reasoning": true},
   "confidence_dimensions": ["evaluation_reliability"],
