@@ -205,3 +205,31 @@ test("a genuine WATCHABILITY_BLOCKED score deficiency still regenerates the scri
   assert.equal(executorCalls.pinNodeOutput, 0, "only one failed attempt exists so far -- best-of-N restore must not fire yet");
   assert.ok(retried, "the node must actually be re-executed after regeneration");
 });
+
+test("startManualRun can reuse a stored voice artifact, and rejects a non-voice one", async () => {
+  const service = await makeService();
+  const store = (service as unknown as { store: { put: (a: unknown) => Promise<{ artifact: { artifact_id: string } }> } }).store;
+  const notVoice = await store.put({
+    schema_id: "intent",
+    payload: { brief: "A perfectly valid intent artifact that is not a voice artifact.", target_duration_sec: 180 },
+    produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
+  });
+  const manual = {
+    title: "The Dose That Was Never Signed For",
+    hook: "The hospital drug cabinet logged a dose for bed twelve. Bed twelve had been empty since Monday.",
+    narration: "Mara checks the cabinets every night.\n\nThat line was impossible.\n\nShe pulled the week of logs.",
+  };
+
+  const priorKey = process.env["OPENAI_API_KEY"];
+  process.env["OPENAI_API_KEY"] = "sk-test";
+  try {
+    await assert.rejects(
+      () => (service as unknown as { startManualRun: (i: unknown, d: number, o: unknown) => Promise<string> })
+        .startManualRun(manual, 180, { reuseVoiceArtifactId: notVoice.artifact.artifact_id }),
+      /is not a stored voice artifact/,
+    );
+  } finally {
+    if (priorKey === undefined) delete process.env["OPENAI_API_KEY"];
+    else process.env["OPENAI_API_KEY"] = priorKey;
+  }
+});
