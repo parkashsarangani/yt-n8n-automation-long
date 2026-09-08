@@ -127,7 +127,7 @@ test("a visual_asset_release block triggers targeted assets regeneration, not sc
 
   await (service as unknown as { driveUnattended: (id: string) => Promise<void> }).driveUnattended(runId);
 
-  assert.deepEqual(regenNodeIds, ["assets"], "must regenerate the assets node specifically, never draft_script");
+  assert.deepEqual(regenNodeIds, ["visual_assets"], "must regenerate the RFC 0010 beat resolver specifically, never draft_script");
   assert.equal(retried, 1, "must actually re-execute after regeneration, not just log and give up");
 });
 

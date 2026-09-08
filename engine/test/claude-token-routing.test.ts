@@ -125,14 +125,15 @@ test("run-start preflight checks gate on the credential that is actually require
   // no longer set at all -- startRun failed unconditionally even with Ollama
   // fully configured. Reasoning has since moved to OpenAI; keep the same
   // regression class covered against whatever credential is actually
-  // required now. RFC 0008 retired the separate startCartoonRun/
-  // startManualRun-adjacent startIllustratedStoryRun entry points; startRun
-  // is the one AI-driven run-start method left, and manual runs (which don't
-  // touch reasoning agents at all) never gate on this credential.
+  // required now. RFC 0010 convergence made manual narration an input mode of
+  // illustrated_story rather than a separate graph: a manual run still executes
+  // the full production DAG (package, watchability, RFC 0010 visuals, SEO,
+  // render, QA) minus story/script authoring, so startRun AND startManualRun
+  // both legitimately gate on the reasoning credential.
   const service = readFileSync(new URL("../src/service.ts", import.meta.url), "utf8");
 
   assert.doesNotMatch(service, /ANTHROPIC_API_KEY/);
   assert.doesNotMatch(service, /OLLAMA_BASE_URL/);
   const matches = service.match(/OPENAI_API_KEY.*is not set/g) ?? [];
-  assert.equal(matches.length, 1, "startRun should gate on OPENAI_API_KEY");
+  assert.equal(matches.length, 2, "startRun and startManualRun both gate on OPENAI_API_KEY");
 });
