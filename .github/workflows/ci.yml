@@ -87,7 +87,12 @@ jobs:
               "VISUAL_QA_MODE:",
               "vars.VISUAL_QA_MODE",
               "/v1/chat/completions",
-              "every configured free text model is unavailable",
+              "every serviceable configured free text model is unavailable",
+              # Deploy understands free-first -> paid-last-resort: a free-chain
+              # outage is deploy-safe only when paid fallback is enabled AND
+              # credentialed, never an unconditional hard failure.
+              "paid_text_ready()",
+              "no paid text fallback is available",
               "SPEECH_PROVIDER_MODE: elevenlabs",
               "OPENAI_API_KEY:",
               "OPENAI_MODERATION_MODEL:",

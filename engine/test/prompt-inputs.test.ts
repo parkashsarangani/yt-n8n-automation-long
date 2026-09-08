@@ -32,12 +32,58 @@ test("script prompt views keep scene essentials and drop unneeded bulky fields",
   assert.doesNotMatch(rendered, /timing_debug/);
 });
 
+test("visual director keeps exact full narration while removing irrelevant bulky inputs", () => {
+  const exactNarration = `Opening ${"n".repeat(700)} closing punctuation!`;
+  const scriptView = promptInputView("visual_director", "script", {
+    scenes: [{
+      scene_index: 0,
+      is_outro: false,
+      narration: exactNarration,
+      point: "why the scale matters",
+      visual_intent: "show the actual comparison",
+      dialogue: [{ speaker: "unused", text: "duplicate" }],
+      research_dump: "x".repeat(5000),
+    }],
+    timing_debug: "y".repeat(5000),
+  }) as { scenes?: Array<{ narration?: string }> };
+  assert.equal(scriptView.scenes?.[0]?.narration, exactNarration, "hard coverage requires byte-exact narration, never a 360-char clip");
+  assert.doesNotMatch(text(scriptView), /research_dump|timing_debug|dialogue/);
+
+  const voiceView = promptInputView("visual_director", "voice", {
+    total_duration_sec: 61.4,
+    clips: [{ scene_index: 0, duration_sec: 10.2, audio_uri: "blob://secret-audio", alignment_uri: "blob://huge-alignment", media_type: "audio/mpeg" }],
+  });
+  assert.deepEqual(voiceView, { total_duration_sec: 61.4, clips: [{ scene_index: 0, duration_sec: 10.2 }] });
+
+  const growthRendered = text(promptInputView("visual_director", "growth", {
+    premise: "One dollar each second",
+    curiosity_gap: "How different are million, billion and trillion?",
+    emotional_engine: "scale shock",
+    selected_title: "The Billion Problem",
+    selected_thumbnail_concept: "three clocks",
+    opening_visual: "a counter ticking",
+    first_30_seconds: { promise: "make scale intuitive", zero_to_five: "bulky duplicate" },
+    next_video_bridge: "next episode",
+    hero_motion_eligible: true,
+    variants: Array.from({ length: 20 }, () => ({ huge: "z".repeat(1000) })),
+    evidence: "q".repeat(5000),
+  }));
+  assert.match(growthRendered, /make scale intuitive/);
+  assert.doesNotMatch(growthRendered, /variants|evidence|bulky duplicate/);
+
+  const intentRendered = text(promptInputView("visual_director", "intent", {
+    brief: "illustrated scale story",
+    target_duration_sec: 60,
+    constraints: ["truthful"],
+    genre: "educational",
+    image_style: "documentary_sketch",
+    package_seed: { huge: "p".repeat(5000) },
+  }));
+  assert.match(intentRendered, /documentary_sketch/);
+  assert.doesNotMatch(intentRendered, /package_seed/);
+});
+
 test("script prompt views keep the payoff scene for a realistic-length long episode", () => {
-  // 19 scenes (indices 0-18) is the standard long-episode fixture size used
-  // throughout this project's compiler/gate tests. The final scene is
-  // typically the payoff/callback resolution — the one scene
-  // assertCreativeSceneCoverage most needs cartoon_creative_director and
-  // cartoon_visual_planner to have actually seen, not guessed at.
   const script = {
     scenes: Array.from({ length: 19 }, (_, i) => ({
       scene_index: i,
@@ -57,11 +103,6 @@ test("script prompt views keep the payoff scene for a realistic-length long epis
 });
 
 test("script prompt views keep every scene for a 38-scene episode, not just the first 24", () => {
-  // Real production episode: 38 scenes, payoff on scene 37. The old 24-scene
-  // cap silently blinded cartoon_visual_planner to scenes 24-37 -- it could
-  // not produce visual direction for them, so the compiler synthesized a
-  // naive repeated fallback for the uncovered tail and then rejected its own
-  // fallback as repetitive staging.
   const script = {
     scenes: Array.from({ length: 38 }, (_, i) => ({
       scene_index: i,
