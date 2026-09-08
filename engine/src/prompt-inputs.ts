@@ -20,13 +20,8 @@ const SHORT_LIMITS: CompactLimits = {
 
 /**
  * script/creativeDirection/visualPlan views must all cap scenes the same way
- * (see the comment on the "script" case below) -- this was 24, which a real
- * 38-scene long episode exceeded: cartoon_visual_planner never saw scenes
- * 24-37 in its prompt, so it couldn't produce visual direction for them, and
- * the compiler's naive fallback staging for the uncovered scenes then failed
- * its own anti-repetition gate. Raised with headroom above what's actually
- * been observed; token math has room (24 scenes was ~7k of a 26k output
- * budget), so this was never a real capacity limit, just an unexamined cap.
+ * for the legacy cartoon agents. visual_director is deliberately exempt: its
+ * hard coverage contract requires every approved scene and exact narration.
  */
 const MAX_LONG_EPISODE_SCENES = 48;
 
@@ -39,6 +34,16 @@ const MAX_LONG_EPISODE_SCENES = 48;
  * input-token cost.
  */
 export function promptInputView(agentName: string, inputName: string, payload: unknown): unknown {
+  if (agentName === "visual_director") {
+    switch (inputName) {
+      case "script": return visualDirectorScriptView(payload);
+      case "voice": return visualDirectorVoiceView(payload);
+      case "growth": return visualDirectorGrowthView(payload);
+      case "intent": return visualDirectorIntentView(payload);
+      default: break;
+    }
+  }
+
   switch (inputName) {
     case "intent":
       return compactPayload(payload, SHORT_LIMITS);
@@ -50,13 +55,6 @@ export function promptInputView(agentName: string, inputName: string, payload: u
     case "story":
       return storyView(payload);
     case "script":
-      // MAX_LONG_EPISODE_SCENES matches creativeDirectionView/visualPlanView's cap below: script scenes
-      // and creative_direction scenes are the same array, 1:1 by scene_index, and
-      // assertCreativeSceneCoverage requires creative_direction to cover every
-      // script scene regardless of what the model saw. A cap below the real scene
-      // count silently blinds the model to a scene it must still produce output
-      // for — usually the payoff, since it's last. 18 was below the standard
-      // 19-scene long-episode fixture used throughout this project's tests.
       return scriptView(payload, agentName === "seo_optimizer" ? 12 : MAX_LONG_EPISODE_SCENES);
     case "cast":
     case "cast_roster":
@@ -68,6 +66,75 @@ export function promptInputView(agentName: string, inputName: string, payload: u
     default:
       return compactPayload(payload, DEFAULT_LIMITS);
   }
+}
+
+/**
+ * visual_director must reproduce narration byte-for-byte, so narration is the
+ * one field that must never be clipped. Everything else is a compact visual
+ * decision aid rather than a second copy of upstream artifacts.
+ */
+function visualDirectorScriptView(value: unknown): unknown {
+  const obj = asObject(value);
+  if (!obj) return value;
+  return pruneEmpty({
+    scene_count: asArray(obj.scenes).length,
+    scenes: asArray(obj.scenes).map((scene) => {
+      const s = asObject(scene);
+      if (!s) return scene;
+      return pruneEmpty({
+        scene_index: s.scene_index,
+        is_outro: s.is_outro,
+        narration: s.narration,
+        point: clip(s.point, 180),
+        visual_intent: clip(s.visual_intent, 180),
+      });
+    }),
+  });
+}
+
+function visualDirectorVoiceView(value: unknown): unknown {
+  const obj = asObject(value);
+  if (!obj) return compactPayload(value, SHORT_LIMITS);
+  return pruneEmpty({
+    total_duration_sec: obj.total_duration_sec,
+    clips: asArray(obj.clips).map((clipValue) => {
+      const clipObj = asObject(clipValue);
+      if (!clipObj) return compactPayload(clipValue, SHORT_LIMITS);
+      return pruneEmpty({
+        scene_index: clipObj.scene_index,
+        duration_sec: clipObj.duration_sec,
+      });
+    }),
+  });
+}
+
+function visualDirectorGrowthView(value: unknown): unknown {
+  const obj = asObject(value);
+  if (!obj) return compactPayload(value, SHORT_LIMITS);
+  const firstThirty = asObject(obj.first_30_seconds);
+  return pruneEmpty({
+    premise: clip(obj.premise, 360),
+    curiosity_gap: clip(obj.curiosity_gap, 260),
+    emotional_engine: clip(obj.emotional_engine, 220),
+    selected_title: clip(obj.selected_title, 180),
+    selected_thumbnail_concept: clip(obj.selected_thumbnail_concept, 260),
+    opening_visual: clip(obj.opening_visual, 320),
+    opening_promise: firstThirty ? clip(firstThirty.promise, 280) : undefined,
+    next_video_bridge: clip(obj.next_video_bridge, 260),
+    hero_motion_eligible: obj.hero_motion_eligible,
+  });
+}
+
+function visualDirectorIntentView(value: unknown): unknown {
+  const obj = asObject(value);
+  if (!obj) return compactPayload(value, SHORT_LIMITS);
+  return pruneEmpty({
+    brief: clip(obj.brief, 320),
+    target_duration_sec: obj.target_duration_sec,
+    constraints: compactPayload(obj.constraints, { ...SHORT_LIMITS, maxArrayItems: 16, maxStringLength: 220 }),
+    genre: obj.genre,
+    image_style: obj.image_style,
+  });
 }
 
 function storyView(value: unknown): unknown {
