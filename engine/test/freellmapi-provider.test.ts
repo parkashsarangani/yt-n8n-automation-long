@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { OpenAIProvider } from "../src/providers/openai.ts";
 import { ProviderError, ProviderRefusal } from "../src/provider.ts";
+import { eligibleFreeTextModels, resolveTextModels } from "../src/llm-routing.ts";
 
 const SCHEMA = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
 const ENV_KEYS = [
@@ -101,6 +102,18 @@ test("auto routing anywhere in the pinned list is rejected before any provider c
   }
 });
 
+test("stale gpt-oss-120b is retired even when an old production variable still contains it", () => {
+  assert.deepEqual(resolveTextModels({
+    FREELLMAPI_TEXT_MODELS: "gpt-oss-120b,llama-3.3-70b-fp8-fast,gpt-oss-20b",
+  } as NodeJS.ProcessEnv), ["llama-3.3-70b-fp8-fast", "gpt-oss-20b"]);
+});
+
+test("large structured requests exclude the small model but ordinary requests may still use it", () => {
+  const models = ["llama-3.3-70b-fp8-fast", "nemotron-3-super-120b", "gpt-oss-20b"];
+  assert.deepEqual(eligibleFreeTextModels(models, 24_000), ["llama-3.3-70b-fp8-fast", "nemotron-3-super-120b"]);
+  assert.deepEqual(eligibleFreeTextModels(models, 8_192), models);
+});
+
 test("a legacy single FREELLMAPI_TEXT_MODEL is still accepted as a one-item chain", async () => {
   await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_TEXT_MODEL: "legacy-model" }, async () => {
     const calls: string[] = [];
@@ -136,6 +149,91 @@ test("a 429 on the primary model moves to the secondary pinned model, never to p
     assert.equal(result.usage.model, "model-b-served");
     assert.equal(result.usage.cost_usd, 0);
   });
+});
+
+test("404 and 413 are model incompatibility signals and advance the free chain", async () => {
+  for (const status of [404, 413]) {
+    await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_TEXT_MODELS: THREE }, async () => {
+      const models: string[] = [];
+      const provider = new OpenAIProvider({
+        ...noWait,
+        fetchImpl: async (_u, init) => {
+          const model = (JSON.parse(String(init?.body)) as { model: string }).model;
+          models.push(model);
+          return model === "model-a" ? new Response("incompatible", { status }) : freeJson('{"ok":true}', "model-b-served");
+        },
+      });
+      const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
+      assert.deepEqual(models, ["model-a", "model-b"]);
+      assert.equal(result.usage.model, "model-b-served");
+    });
+  }
+});
+
+test("schema-invalid JSON on one free model advances to the next instead of becoming a runner retry", async () => {
+  await withEnv({ FREELLMAPI_API_KEY: "k", FREELLMAPI_TEXT_MODELS: THREE }, async () => {
+    const models: string[] = [];
+    const provider = new OpenAIProvider({
+      ...noWait,
+      fetchImpl: async (_u, init) => {
+        const model = (JSON.parse(String(init?.body)) as { model: string }).model;
+        models.push(model);
+        return model === "model-a" ? freeJson('{"wrong":true}') : freeJson('{"ok":true}', "model-b-served");
+      },
+    });
+    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
+    assert.deepEqual(models, ["model-a", "model-b"]);
+    assert.equal(result.usage.model, "model-b-served");
+  });
+});
+
+test("all eligible free models returning 413 escalates to paid OpenAI when policy allows it", async () => {
+  await withEnv({
+    FREELLMAPI_API_KEY: "k",
+    FREELLMAPI_TEXT_MODELS: THREE,
+    OPENAI_API_KEY: "sk-paid",
+    PAID_TEXT_FALLBACK: "true",
+  }, async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "sk-paid",
+      ...noWait,
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        return String(url).startsWith("http://freellmapi:3001")
+          ? new Response("too large", { status: 413 })
+          : sseDirect();
+      },
+    });
+    const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA });
+    assert.equal(urls.filter((url) => url.startsWith("http://freellmapi:3001")).length, 3);
+    assert.equal(urls.at(-1), "https://api.openai.com/v1/chat/completions");
+    assert.equal(result.usage.provider, "openai");
+  });
+});
+
+test("401 and 403 from the free gateway are terminal and never trigger another free model or paid spend", async () => {
+  for (const status of [401, 403]) {
+    await withEnv({
+      FREELLMAPI_API_KEY: "bad-key",
+      FREELLMAPI_TEXT_MODELS: THREE,
+      OPENAI_API_KEY: "sk-paid",
+      PAID_TEXT_FALLBACK: "true",
+    }, async () => {
+      const urls: string[] = [];
+      const provider = new OpenAIProvider({
+        apiKey: "sk-paid",
+        ...noWait,
+        fetchImpl: async (url) => { urls.push(String(url)); return new Response("auth", { status }); },
+      });
+      await assert.rejects(
+        () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
+        (err: unknown) => err instanceof ProviderError && new RegExp(`request failed \\(${status}\\)`).test(err.message),
+      );
+      assert.equal(urls.length, 1);
+      assert.ok(urls[0]!.startsWith("http://freellmapi:3001"));
+    });
+  }
 });
 
 test("primary and secondary failing falls to the tertiary pinned model", async () => {
@@ -192,7 +290,7 @@ test("with paid text fallback disabled, every pinned model unavailable fails exp
     await assert.rejects(
       () => provider.complete({ prompt: "hi", outputSchema: SCHEMA }),
       (err: unknown) => err instanceof ProviderError
-        && /all 3 configured free text model\(s\) unavailable/.test(err.message)
+        && /all 3 eligible free text model\(s\) unavailable/.test(err.message)
         && /model-a, model-b, model-c/.test(err.message),
     );
     assert.equal(urls.length, 3, "exactly one attempt per pinned model");
