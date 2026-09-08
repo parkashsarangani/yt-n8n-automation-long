@@ -53,6 +53,13 @@ export interface AgentDef {
     thinking?: boolean;
     /** Spend-authorizing judge/reviser: grade on the paid model when available. */
     prefer_paid_reasoning?: boolean;
+    /**
+     * Write on the paid model only when this run is a watchability-triggered
+     * revision (revision context present). The first draft stays free-first;
+     * a revision exists only because the paid critic flagged a real deficiency,
+     * so spending paid tokens to actually repair it is justified last-resort.
+     */
+    prefer_paid_on_revision?: boolean;
   };
   confidence_dimensions?: string[];
   retry?: { max_attempts?: number };
@@ -274,7 +281,9 @@ export class Runner {
           ...(def.model.max_output_tokens ? { maxOutputTokens: def.model.max_output_tokens } : {}),
           ...(def.model.effort ? { effort: def.model.effort } : {}),
           ...(def.model.thinking === false ? { thinking: false } : {}),
-          ...(def.model.prefer_paid_reasoning ? { preferPaidReasoning: true } : {}),
+          ...(def.model.prefer_paid_reasoning || (def.model.prefer_paid_on_revision && revision !== null)
+            ? { preferPaidReasoning: true }
+            : {}),
         });
         value = result.value;
         usage = result.usage;

@@ -150,3 +150,99 @@ test("critic-guided identical output is an internal retry, not a cache-hit outer
   assert.equal(newRecords[0]!.output, null);
   assert.equal(newRecords[1]!.output, revisedId);
 });
+
+test("prefer_paid_on_revision routes the paid model only when a revision context is present", async () => {
+  const storyId = "sha256:" + "a".repeat(64);
+  const growthId = "sha256:" + "b".repeat(64);
+  const intentId = "sha256:" + "c".repeat(64);
+  const priorScriptId = "sha256:" + "d".repeat(64);
+  const reportId = "sha256:" + "e".repeat(64);
+
+  function makeStore(entries: Map<string, any>) {
+    let n = 0;
+    return {
+      require: async (id: string) => entries.get(id) ?? Promise.reject(new Error(`missing ${id}`)),
+      get: async (id: string) => entries.get(id) ?? null,
+      put: async (input: any) => {
+        const id = `sha256:${String(n++).padStart(64, "0")}`;
+        const value = artifact(id, input.schema_id, input.payload);
+        entries.set(id, value);
+        return { artifact: value, deduped: false };
+      },
+    } as any;
+  }
+
+  const def: AgentDef = {
+    name: "test_revision_writer",
+    kind: "agent",
+    version: "1",
+    revision_input: "watchability",
+    consumes: [
+      { schema_id: "story", as: "story" },
+      { schema_id: "growth_package", as: "growth" },
+      { schema_id: "intent", as: "intent" },
+    ],
+    produces: "script",
+    produces_version: "1.7.0",
+    prompt: "test@1",
+    model: { capability: "reasoning_high", prefer_paid_on_revision: true },
+    retry: { max_attempts: 1 },
+  };
+
+  function makeRunner(store: any, runLog: MemoryRunLog, provider: FakeProvider) {
+    return new Runner({
+      store,
+      registry: { resolveVersion: () => "1.7.0", jsonSchema: () => ({ type: "object" }), validate: () => undefined } as any,
+      prompts: { render: (_r: string, v: Record<string, string>) => `revision=${v["revision"]}` } as any,
+      providers: new ProviderRouter({ reasoning_high: provider }),
+      runLog,
+      logger: { log: () => {}, warn: () => {}, error: () => {} },
+    });
+  }
+
+  // First draft: no prior script/report -> no revision context -> free-first.
+  {
+    const entries = new Map<string, any>([
+      [storyId, artifact(storyId, "story", { topic: "t" })],
+      [growthId, artifact(growthId, "growth_package", { selected_title: "t" })],
+      [intentId, artifact(intentId, "intent", { brief: "b", target_duration_sec: 75 })],
+    ]);
+    const provider = new FakeProvider(() => ({ payload: revisedScript, confidence: { overall: 0.9 } }));
+    await makeRunner(makeStore(entries), new MemoryRunLog(), provider).run(
+      def, [storyId, growthId, intentId], { runId: "run_fresh", graphId: "illustrated_story@9", nodeId: "draft_script" },
+    );
+    assert.equal(provider.calls[0]!.preferPaidReasoning, undefined, "first draft stays free-first");
+  }
+
+  // Revision: prior draft + matching critic report exist -> revision context
+  // built -> paid model requested.
+  {
+    const entries = new Map<string, any>([
+      [storyId, artifact(storyId, "story", { topic: "t" })],
+      [growthId, artifact(growthId, "growth_package", { selected_title: "t" })],
+      [intentId, artifact(intentId, "intent", { brief: "b", target_duration_sec: 75 })],
+      [priorScriptId, artifact(priorScriptId, "script", priorScript)],
+      [reportId, artifact(reportId, "watchability_report", {
+        verdict: "revise", abandon_recommended: false, abandon_reason: "",
+        weakest_dimension: "payoff", summary: "The ending resolves nothing concrete.",
+        scores: { hook: 0.83, first_30_fidelity: 0.75, package_fidelity: 0.85, suspense: 0.7, watchability: 0.78, entertainment: 0.74, payoff: 0.6, youtube_fit: 0.77 },
+      })],
+    ]);
+    const runLog = new MemoryRunLog();
+    await runLog.record({
+      run_id: "run_rev", graph_id: "illustrated_story@9", node_id: "draft_script",
+      transformation: "test_revision_writer", transformation_version: "1", inputs: [storyId, growthId, intentId],
+      output: priorScriptId, status: "ok", attempt: 1, max_attempts: 3, started_at: new Date(0).toISOString(), duration_ms: 1,
+    });
+    await runLog.record({
+      run_id: "run_rev", graph_id: "illustrated_story@9", node_id: "watchability_report",
+      transformation: "watchability_critic", transformation_version: "5", inputs: [storyId, priorScriptId, growthId, intentId],
+      output: reportId, status: "ok", attempt: 1, max_attempts: 2, started_at: new Date(0).toISOString(), duration_ms: 1,
+    });
+    const provider = new FakeProvider(() => ({ payload: revisedScript, confidence: { overall: 0.9 } }));
+    await makeRunner(makeStore(entries), runLog, provider).run(
+      def, [storyId, growthId, intentId], { runId: "run_rev", graphId: "illustrated_story@9", nodeId: "draft_script" },
+    );
+    assert.equal(provider.calls[0]!.preferPaidReasoning, true, "a watchability revision writes on the paid model");
+  }
+});
