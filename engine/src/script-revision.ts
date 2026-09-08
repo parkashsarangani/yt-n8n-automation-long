@@ -1,8 +1,7 @@
 import type { ArtifactStore } from "./store.ts";
 import type { RunLog, RunRecord } from "./runlog.ts";
 import {
-  WATCHABILITY_AVERAGE_THRESHOLD,
-  WATCHABILITY_THRESHOLDS,
+  watchabilityPolicyForDuration,
   type WatchabilityDimension,
 } from "./watchability-policy.ts";
 
@@ -41,10 +40,14 @@ function successful(records: RunRecord[], nodeId: string): RunRecord[] {
   return records.filter((r) => r.node_id === nodeId && r.output && SUCCESS.has(r.status));
 }
 
-function failuresFor(scores: Partial<Record<WatchabilityDimension, unknown>>): string[] {
+function failuresFor(
+  scores: Partial<Record<WatchabilityDimension, unknown>>,
+  targetDurationSec?: unknown,
+): string[] {
+  const policy = watchabilityPolicyForDuration(targetDurationSec);
   const failures: string[] = [];
   const values: number[] = [];
-  for (const [dimension, threshold] of Object.entries(WATCHABILITY_THRESHOLDS) as Array<[WatchabilityDimension, number]>) {
+  for (const [dimension, threshold] of Object.entries(policy.thresholds) as Array<[WatchabilityDimension, number]>) {
     const score = scores[dimension];
     if (typeof score !== "number" || !Number.isFinite(score)) {
       failures.push(`${dimension}=missing (requires ${threshold.toFixed(2)})`);
@@ -53,20 +56,20 @@ function failuresFor(scores: Partial<Record<WatchabilityDimension, unknown>>): s
     values.push(score);
     if (score < threshold) failures.push(`${dimension}=${score.toFixed(2)} (requires ${threshold.toFixed(2)})`);
   }
-  const rawAverage = values.length === Object.keys(WATCHABILITY_THRESHOLDS).length
+  const rawAverage = values.length === Object.keys(policy.thresholds).length
     ? values.reduce((sum, score) => sum + score, 0) / values.length
     : 0;
-  if (rawAverage < WATCHABILITY_AVERAGE_THRESHOLD) {
-    failures.push(`average=${rawAverage.toFixed(3)} (requires ${WATCHABILITY_AVERAGE_THRESHOLD.toFixed(2)})`);
+  if (rawAverage < policy.averageThreshold) {
+    failures.push(`average=${rawAverage.toFixed(3)} (requires ${policy.averageThreshold.toFixed(2)})`);
   }
   return failures;
 }
 
 const DIMENSION_DIRECTIVES: Partial<Record<WatchabilityDimension, string>> = {
   hook: "Rebuild scene 0 around the sharpest concrete consequence or unanswered question. Remove setup before the conflict is visible.",
-  first_30_fidelity: "Rewrite the opening 30 seconds to deliver the package's 0-5s, 5-15s and 15-30s milestones in order; move background context later.",
+  first_30_fidelity: "Repair the opening window so it delivers the package promise and intensifies it at the pace appropriate to this episode's duration; move neutral background context later.",
   package_fidelity: "Remove premise drift. The title/thumbnail click promise must remain the central question and the payoff must answer that exact promise.",
-  suspense: "Strengthen causal escalation: each attempted solution should create a harder problem, opposition should gain leverage, and the low point must remove an easy escape.",
+  suspense: "Strengthen proportional causal escalation: make at least one meaningful choice/stake/consequence tighten before the turn; use multiple escalation loops only when the runtime supports them.",
   watchability: "Compress exposition and repetition. Every beat must change the situation, sharpen a question, reveal a consequence, or pay something off; cut neutral connective prose.",
   entertainment: "Add specific observable choices, reversals, surprise or character behavior instead of generic narration. Prefer memorable concrete moments over explanation.",
   payoff: "Make the ending a concrete consequence that resolves or reframes the opening question. Do not substitute a lesson for the promised event-level payoff.",
@@ -78,8 +81,10 @@ export function revisionDirectives(
   weakestDimension: string | null,
   summary: string,
   mode: ScriptRevisionContextPayload["mode"],
+  targetDurationSec?: unknown,
 ): string[] {
-  const failed = (Object.entries(WATCHABILITY_THRESHOLDS) as Array<[WatchabilityDimension, number]>)
+  const policy = watchabilityPolicyForDuration(targetDurationSec);
+  const failed = (Object.entries(policy.thresholds) as Array<[WatchabilityDimension, number]>)
     .filter(([dimension, threshold]) => {
       const score = scores[dimension];
       return typeof score !== "number" || !Number.isFinite(score) || score < threshold;
@@ -87,11 +92,15 @@ export function revisionDirectives(
     .map(([dimension]) => dimension);
 
   const ordered = [...new Set<WatchabilityDimension>([
-    ...(weakestDimension && weakestDimension in WATCHABILITY_THRESHOLDS ? [weakestDimension as WatchabilityDimension] : []),
+    ...(weakestDimension && weakestDimension in policy.thresholds ? [weakestDimension as WatchabilityDimension] : []),
     ...failed,
   ])];
   const directives = ordered.flatMap((dimension) => DIMENSION_DIRECTIVES[dimension] ? [DIMENSION_DIRECTIVES[dimension]!] : []);
   if (summary.trim()) directives.unshift(`Directly repair the critic's diagnosed loss point: ${summary.trim().slice(0, 420)}`);
+  directives.unshift(
+    `Use the ${policy.profile} release profile for target duration ${policy.targetDurationSec ?? "unspecified"}s; ` +
+    `active average floor ${policy.averageThreshold.toFixed(2)}.`,
+  );
   if (mode === "structural_rebuild") {
     directives.unshift(
       "Do a structural rewrite, not a paraphrase: preserve the selected package, required payoff and valid facts, but replace weak causal beats/opening order where necessary.",
@@ -114,6 +123,7 @@ export async function buildScriptRevisionContext(opts: {
   nodeId: string | null | undefined;
   runLog: RunLog;
   store: ArtifactStore;
+  targetDurationSec?: unknown;
 }): Promise<ScriptRevisionContextBuild | null> {
   if (!opts.nodeId) return null;
   const records = (await opts.runLog.all()).filter((r) => r.run_id === opts.runId);
@@ -157,8 +167,8 @@ export async function buildScriptRevisionContext(opts: {
         verdict: typeof report.verdict === "string" ? report.verdict : null,
         abandon_recommended: report.abandon_recommended === true,
       },
-      release_failures: failuresFor(scores),
-      directives: revisionDirectives(scores, weakest, summary, mode),
+      release_failures: failuresFor(scores, opts.targetDurationSec),
+      directives: revisionDirectives(scores, weakest, summary, mode, opts.targetDurationSec),
     },
     parents: [previousScript.artifact_id, reportArtifact.artifact_id],
   };
