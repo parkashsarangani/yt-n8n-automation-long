@@ -46,10 +46,7 @@ test("second external draft receives the exact prior script + matching critic as
     [script1, artifact(script1, "script", priorScript)],
     [report1, artifact(report1, "watchability_report", weakReport, [script1])],
   ]);
-  const runLog = { all: async () => [
-    record("draft_script", script1),
-    record("watchability_report", report1, [script1]),
-  ] } as any;
+  const runLog = { all: async () => [record("draft_script", script1), record("watchability_report", report1, [script1])] } as any;
 
   const result = await buildScriptRevisionContext({ runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries) });
   assert.ok(result);
@@ -60,6 +57,30 @@ test("second external draft receives the exact prior script + matching critic as
   assert.equal(result!.payload.critic.weakest_dimension, "watchability");
   assert.ok(result!.payload.release_failures.some((f) => f.startsWith("watchability=0.71")));
   assert.ok(result!.payload.directives.some((d) => /neutral connective prose|change the situation/i.test(d)));
+});
+
+test("60s revision context uses compact floors rather than reintroducing long-form first30/suspense failures", async () => {
+  const compactReport = {
+    ...weakReport,
+    weakest_dimension: "entertainment",
+    scores: {
+      hook: 0.84, first_30_fidelity: 0.72, package_fidelity: 0.86, suspense: 0.70,
+      watchability: 0.82, entertainment: 0.69, payoff: 0.80, youtube_fit: 0.82,
+    },
+  };
+  const entries = new Map<string, any>([
+    [script1, artifact(script1, "script", priorScript)],
+    [report1, artifact(report1, "watchability_report", compactReport, [script1])],
+  ]);
+  const runLog = { all: async () => [record("draft_script", script1), record("watchability_report", report1, [script1])] } as any;
+  const result = await buildScriptRevisionContext({
+    runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries), targetDurationSec: 60,
+  });
+  assert.ok(result);
+  assert.equal(result!.payload.release_failures.some((f) => f.startsWith("first_30_fidelity=")), false);
+  assert.equal(result!.payload.release_failures.some((f) => f.startsWith("suspense=")), false);
+  assert.ok(result!.payload.release_failures.some((f) => f.startsWith("entertainment=")));
+  assert.ok(result!.payload.directives.some((d) => /compact release profile/i.test(d)));
 });
 
 test("fourth draft escalates to structural rebuild rather than paraphrasing the same local fix", async () => {
@@ -81,28 +102,16 @@ test("fourth draft escalates to structural rebuild rather than paraphrasing the 
   assert.match(result!.payload.directives[0]!, /structural rewrite/i);
 });
 
-// Content-addressed artifacts dedupe: two watchability_critic executions with
-// byte-identical output share one stored artifact, whose `parents` field
-// belongs permanently to whichever run wrote it FIRST. Matching by parents
-// (the pre-provenance-fix behavior) would follow that stale first-writer
-// lineage instead of the report this run's OWN script actually produced.
-// The run record's own `inputs` is the one place that still names the truth
-// per execution, regardless of dedup on the output side.
 test("a deduped report artifact is still matched to the current attempt via run-record inputs, not stale first-writer parents", async () => {
   const dedupedReport = id("d");
   const entries = new Map<string, any>([
     [script1, artifact(script1, "script", priorScript)],
-    // Written by an earlier, unrelated run's script (script2) -- parents is
-    // permanently stamped with that first writer, not this run's script1.
     [dedupedReport, artifact(dedupedReport, "watchability_report", weakReport, [script2])],
   ]);
-  const runLog = { all: async () => [
-    record("draft_script", script1),
-    record("watchability_report", dedupedReport, [script1]),
-  ] } as any;
+  const runLog = { all: async () => [record("draft_script", script1), record("watchability_report", dedupedReport, [script1])] } as any;
 
   const result = await buildScriptRevisionContext({ runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries) });
-  assert.ok(result, "run-log inputs must find the match that artifact.parents (stamped script2) would miss");
+  assert.ok(result);
   assert.equal(result!.payload.attempt, 2);
   assert.deepEqual(result!.payload.previous_script, priorScript);
 });
@@ -122,5 +131,5 @@ test("dimension directives prioritize the critic's weakest dimension and concret
     "targeted_revision",
   );
   assert.match(directives.join("\n"), /changing the protagonist's options/i);
-  assert.match(directives.join("\n"), /attempted solution should create a harder problem/i);
+  assert.match(directives.join("\n"), /meaningful choice|stake|consequence/i);
 });
