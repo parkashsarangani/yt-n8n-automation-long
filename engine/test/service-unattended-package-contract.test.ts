@@ -233,3 +233,64 @@ test("startManualRun can reuse a stored voice artifact, and rejects a non-voice 
     else process.env["OPENAI_API_KEY"] = priorKey;
   }
 });
+
+test("operator one-shot watchability re-grade: regenerates only the report, once, manual-only, when blocked at watchability", async () => {
+  const service = await makeService();
+  const store = (service as unknown as { store: { put: (a: unknown) => Promise<{ artifact: { artifact_id: string } }> } }).store;
+  const humanScript = await store.put({
+    schema_id: "script",
+    payload: { scenes: [
+      { scene_index: 0, act_index: 0, point: "open", narration: "An operator wrote this exact line and it did not change." },
+      { scene_index: 1, act_index: 1, point: "turn", narration: "The re-grade must never touch it." },
+    ], word_count: 20 },
+    produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null },
+  });
+  const runId = "run_manual_rescore";
+  (service as unknown as { runs: Map<string, unknown> }).runs.set(runId, {
+    runId, brief: "manual", createdAt: new Date().toISOString(),
+    graph: "illustrated_story@9",
+    active: new Set(), completedOutputs: new Map(),
+    presetOutputs: {}, manualPresetOutputs: { draft_script: humanScript.artifact.artifact_id, voice: "sha256:" + "9".repeat(64) },
+    manualWatchabilityRescores: 0,
+    finished: true, error: null,
+    last: {
+      run_id: runId, graph: "illustrated_story@9", status: "blocked",
+      outputs: { draft_script: humanScript.artifact.artifact_id, watchability_report: "sha256:" + "7".repeat(64) },
+      waiting: [], failures: [{ node_id: "watchability_release", error: "watchability release blocked (REVISE_SCRIPT; attempt 1): payoff=0.72 (requires 0.75)" }], blocked: [],
+    },
+  });
+
+  const calls: Array<[string, string]> = [];
+  (service as unknown as { executor: unknown }).executor = {
+    regenerateNode: async (_g: unknown, _r: string, nodeId: string, reason: string) => { calls.push([nodeId, reason]); },
+    resume: async () => ({ status: "blocked", outputs: {}, waiting: [], failures: [], blocked: [] }),
+  };
+  (service as unknown as { drive: unknown }).drive = async (_id: string, fn: () => Promise<unknown>) => { await fn(); };
+  (service as unknown as { driveUnattended: unknown }).driveUnattended = async () => {};
+
+  await (service as unknown as { rescoreManualWatchability: (id: string) => Promise<void> }).rescoreManualWatchability(runId);
+  assert.deepEqual(calls, [["watchability_report", "operator_requested_rescore"]], "re-grade recomputes ONLY the report, with an auditable reason");
+
+  // restored presets (incl. the reused voice) so the cascade keeps them intact
+  const st = (service as unknown as { runs: Map<string, Record<string, unknown>> }).runs.get(runId)!;
+  assert.ok((st["presetOutputs"] as Record<string, string>)["voice"], "the reused voice preset is restored before the retry cascade");
+  st["finished"] = true;
+  st["last"] = { run_id: runId, graph: "illustrated_story@9", status: "blocked", outputs: { draft_script: humanScript.artifact.artifact_id }, waiting: [], failures: [{ node_id: "watchability_release", error: "still failing" }], blocked: [] };
+
+  // second re-grade is refused
+  await assert.rejects(
+    () => (service as unknown as { rescoreManualWatchability: (id: string) => Promise<void> }).rescoreManualWatchability(runId),
+    /already used its 1 operator watchability re-grade/,
+  );
+});
+
+test("watchability re-grade is refused for a non-manual run and when not blocked at watchability", async () => {
+  const service = await makeService();
+  const runId = "run_ai_rescore";
+  seedBlockedRun(service, runId, [{ node_id: "watchability_release", error: "blocked" }], { draft_script: "sha256:" + "1".repeat(64) });
+  (service as unknown as { runs: Map<string, { graph: string }> }).runs.get(runId)!.graph = "illustrated_story@9";
+  await assert.rejects(
+    () => (service as unknown as { rescoreManualWatchability: (id: string) => Promise<void> }).rescoreManualWatchability(runId),
+    /only for operator-authored/,
+  );
+});

@@ -183,6 +183,13 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    const rescoreMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)\/rescore-watchability$/.exec(url.pathname);
+    if (req.method === "POST" && rescoreMatch) {
+      await service.rescoreManualWatchability(rescoreMatch[1]!);
+      json(res, 202, { ok: true });
+      return;
+    }
+
     const artMatch = /^\/api\/artifacts\/(sha256:[0-9a-f]{64})$/.exec(
       decodeURIComponent(url.pathname),
     );
