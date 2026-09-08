@@ -1,7 +1,7 @@
 {
   "name": "visual_director",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
     { "schema_id": "script", "range": "^1", "as": "script" },
     { "schema_id": "voice", "range": "^1", "as": "voice" },
@@ -10,7 +10,7 @@
   ],
   "produces": "visual_beat_plan",
   "produces_version": "1.1.0",
-  "prompt": "visual_director@2",
+  "prompt": "visual_director@3",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 24000,
