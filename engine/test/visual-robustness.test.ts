@@ -150,7 +150,9 @@ test("illustrated graph requires a visual release before render while final QA s
 
   // Release gate runs on the RFC 0010 beat resolver output + measured timeline.
   assert.equal(release?.transformation, "visual_beat_release");
-  assert.deepEqual(release?.in, ["visual_assets", "visual_timeline"]);
+  // Also consumes voice so the release gate can enforce beat-density against
+  // the measured narration (RFC 0010 pacing, run_112aa43f).
+  assert.deepEqual(release?.in, ["visual_assets", "visual_timeline", "voice"]);
 
   // Render is the RFC 0010 timeline renderer, gated on the visual release, and
   // reads the beat-accurate timeline (not the flattened compat manifest).

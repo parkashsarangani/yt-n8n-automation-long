@@ -21,7 +21,7 @@
     { "id": "visual_assets", "transformation": "visual_beat_assets", "in": ["visual_direction", "voice"] },
     { "id": "visual_timeline", "transformation": "visual_timeline", "in": ["visual_direction", "visual_assets", "voice"] },
     { "id": "assets", "transformation": "visual_timeline_manifest", "in": ["visual_assets", "visual_timeline"] },
-    { "id": "visual_asset_release", "transformation": "visual_beat_release", "in": ["visual_assets", "visual_timeline"] },
+    { "id": "visual_asset_release", "transformation": "visual_beat_release", "in": ["visual_assets", "visual_timeline", "voice"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script", "package_release"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },

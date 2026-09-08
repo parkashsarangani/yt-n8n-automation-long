@@ -23,6 +23,7 @@ import {
   type QaImage,
   type VisualBeatQaResult,
 } from "../visual-beat-qa.ts";
+import { beatRequiresStructuredVisual, beatDurationStats, maxConsecutive } from "../visual-beat-quality.ts";
 import {
   candidateAccepted,
   chooseVisualCandidate,
@@ -83,6 +84,20 @@ interface ResolvedBeat {
   continuity?: number;
   generic_filler?: boolean;
   why_failure?: boolean;
+  /**
+   * The visual QA / verification route was unavailable (proxy or vision infra
+   * failure), so this asset was NOT pixel/semantically verified. This is NOT
+   * evidence the asset is wrong — it is an infrastructure gap. A verification
+   * failure must never trigger the declared alternate, and the release gate
+   * blocks when too many beats carry it.
+   */
+  verification_failed?: boolean;
+  /**
+   * The beat needed a structured explanatory visual (cause/effect/process/
+   * reveal/payoff/comparison) but every available representation degraded to a
+   * headline restating the narration. A hard release failure.
+   */
+  structured_visual_missing?: boolean;
   candidate_count?: number;
   /** 1-based provider-candidate rank at which the first candidate cleared the visual gate. */
   first_acceptable_candidate_index?: number;
@@ -90,6 +105,8 @@ interface ResolvedBeat {
   search_query_count?: number;
   /** Preferred route + at most one declared alternate. */
   mode_attempt_count?: number;
+  /** Carried from the plan so the release gate can protect hero/payoff beats. */
+  hero_role?: string;
   note?: string;
 }
 
@@ -484,13 +501,13 @@ async function generateImage(
 
   const best = chooseVisualCandidate(candidates.map((candidate) => scored(candidate, candidate.qa)));
   if (!best) {
-    // Every candidate generated but the vision model could not score any of
-    // them (route outage, not a quality signal). Ship the first generated
-    // image unverified rather than leaving the beat with no visual; the
-    // rendered-frame QA and the smoke/benchmark report classify this as a
-    // QA-availability (technical) issue, never as a bad visual.
+    // A verification-infrastructure failure is NOT a quality signal and must
+    // not cascade to the declared alternate (run_112aa43f: a proxy HTTP 400
+    // dropped eleven real generated images and shipped headline cards). If we
+    // have any generated image at all, keep it, mark it unverified, and let
+    // the release gate decide -- do not throw, which would trip the alternate.
     const salvage = unverified[0];
-    if (salvage && candidates.length === 0) {
+    if (salvage) {
       ctx.logger.warn(`[visual_beat_assets] ${beat.id}: vision QA unavailable for all ${concepts.length} generated-image candidate(s); shipping the first generated image unverified (QA_UNAVAILABLE)`);
       const ref = await ctx.blobs.put(salvage.bytes, { role: "image", media_type: salvage.media_type });
       return {
@@ -500,10 +517,13 @@ async function generateImage(
         preview: salvage,
         candidate_count: attemptedCandidates,
         semantic_verified: false,
+        verification_failed: true,
         source_provider: provider.id,
         note: "QA_UNAVAILABLE: vision QA unreachable; generated image shipped unverified",
       };
     }
+    // No image at all (generation itself failed). This CAN cascade to a
+    // genuine declared alternate.
     throw new Error(`no generated-image candidate cleared the visual gate: ${failures.slice(0, 4).join(" | ")}`);
   }
   const chosen = best.value;
@@ -669,6 +689,12 @@ export function resolveSemanticScene(
 
 function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): ModeResult {
   const { scene, representation, note } = resolveSemanticScene(beat, threaded);
+  // A beat that must EXPLAIN something (a cause, an effect, a process, a
+  // reveal, a payoff, a comparison, or a multi-entity action) cannot be
+  // satisfied by a headline. If the only thing this mode can draw is kinetic
+  // text, the beat is structurally unrepresentable in this mode — the release
+  // gate must see that and block, never ship the card.
+  const structuredMissing = representation === "kinetic_text" && beatRequiresStructuredVisual(beat as unknown as Parameters<typeof beatRequiresStructuredVisual>[0]);
   // The renderer runs a pixel gate on the composed scene (render-bridge's
   // reviewSemanticMotion). When a graphic fails it there, it must have
   // something honest to fall back to WITHOUT a second engine round trip, so
@@ -691,6 +717,7 @@ function motionGraphic(beat: VisualBeat, threaded: SemanticScene | undefined): M
     }),
     representation,
     semantic_verified: false,
+    ...(structuredMissing ? { structured_visual_missing: true } : {}),
     candidate_count: 1,
     first_acceptable_candidate_index: 1,
     ...(note ? { note } : {}),
@@ -1066,6 +1093,9 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
           ...(result?.continuity !== undefined ? { continuity: result.continuity } : {}),
           ...(result?.generic_filler !== undefined ? { generic_filler: result.generic_filler } : {}),
           ...(result?.why_failure !== undefined ? { why_failure: result.why_failure } : {}),
+          ...(result?.verification_failed ? { verification_failed: true } : {}),
+          ...(result?.structured_visual_missing ? { structured_visual_missing: true } : {}),
+          ...(typeof beat.hero_role === "string" && beat.hero_role.trim() ? { hero_role: beat.hero_role } : {}),
           ...(result?.candidate_count !== undefined ? { candidate_count: result.candidate_count } : {}),
           ...(result?.first_acceptable_candidate_index !== undefined
             ? { first_acceptable_candidate_index: result.first_acceptable_candidate_index }
@@ -1094,6 +1124,15 @@ export function makeVisualBeatAssetsWorker(opts: VisualBeatAssetsWorkerOptions =
         // counters alone cannot tell those apart.
         semantic_graphics: beats.filter((beat) => beat.representation === "semantic_graphic").length,
         kinetic_texts: beats.filter((beat) => beat.representation === "kinetic_text").length,
+        // Honest verification ledger (run_112aa43f shipped 11/14 unverified but
+        // reported pass-with-warnings). verification_failed is an infra gap,
+        // distinct from a genuine reject.
+        verified: beats.filter((beat) => beat.semantic_verified).length,
+        unverified: beats.filter((beat) => !beat.semantic_verified && beat.status !== "unavailable").length,
+        verification_failed: beats.filter((beat) => beat.verification_failed).length,
+        structured_visual_missing: beats.filter((beat) => beat.structured_visual_missing).length,
+        max_consecutive_kinetic_text: maxConsecutive(beats.map((beat) => beat.representation === "kinetic_text")),
+        beat_duration_stats: beatDurationStats(beats.map((beat) => beat.end_sec - beat.start_sec)),
       };
       return { payload: { beats, summary }, blobs };
     },

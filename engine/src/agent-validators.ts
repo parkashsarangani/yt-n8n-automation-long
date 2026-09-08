@@ -12,6 +12,8 @@
 import type { AgentDef } from "./runner.ts";
 import type { Artifact } from "./artifact.ts";
 import { validateGrowthPackageReleaseability } from "./growth-package-contract.ts";
+import { fallbackContractErrors, type QualityBeatLike } from "./visual-beat-quality.ts";
+import { validateSemanticScene, type SemanticScene } from "./semantic-scene.ts";
 
 export const HARD_ERROR_PREFIX = "HARD:";
 
@@ -122,6 +124,33 @@ export function visualDirectorCoverageErrors(payload: unknown, scriptPayload: un
   return errors;
 }
 
+/**
+ * Fallback-contract invariant (RFC 0010, hardened after `run_112aa43f`): every
+ * beat must declare a genuine alternate representation with a real brief, and
+ * an explanatory or hero/payoff beat may not be planned so that its only
+ * renderable option is a headline restating the narration. Deterministic so a
+ * bad routing contract costs a director retry instead of degrading silently
+ * into generic text cards downstream.
+ */
+export function visualDirectorFallbackErrors(payload: unknown): string[] {
+  const beats = payload && typeof payload === "object" && Array.isArray((payload as VisualPlanPayload).beats)
+    ? (payload as VisualPlanPayload).beats as QualityBeatLike[]
+    : [];
+  const errors: string[] = [];
+  for (const beat of beats) {
+    errors.push(...fallbackContractErrors(beat));
+    // A declared structured semantic_scene must actually be drawable now, not
+    // silently degrade to kinetic text in the resolver.
+    const scene = beat.asset_brief?.semantic_scene as SemanticScene | undefined;
+    const kind = scene && typeof scene === "object" ? String((scene as { kind?: unknown }).kind ?? "") : "";
+    if (scene && kind && kind !== "kinetic_phrase" && kind !== "none") {
+      const id = typeof beat.id === "string" ? beat.id : "beat";
+      errors.push(...validateSemanticScene(scene, id));
+    }
+  }
+  return errors;
+}
+
 function hard(errors: string[]): string[] {
   return errors.map((error) => `${HARD_ERROR_PREFIX}${error}`);
 }
@@ -133,7 +162,10 @@ export function agentSemanticValidationErrors(
 ): string[] {
   if (def.name === "episode_director") return hard(unsafeDirectionTextPrompts(payload));
   if (def.name === "visual_director") {
-    return hard(visualDirectorCoverageErrors(payload, inputs["script"]?.payload));
+    return hard([
+      ...visualDirectorCoverageErrors(payload, inputs["script"]?.payload),
+      ...visualDirectorFallbackErrors(payload),
+    ]);
   }
   if (def.name === "growth_packager") {
     return hard([

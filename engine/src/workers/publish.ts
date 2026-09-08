@@ -31,7 +31,13 @@ interface SeoMetadata {
 interface QaReport {
   verdict: "pass" | "fail";
   failed: number;
+  warned?: number;
   checks: Array<{ id: string; status: string; message: string }>;
+}
+
+/** A clean QA result: the verdict passed AND nothing was even flagged. */
+function qaIsClean(qa: QaReport): boolean {
+  return qa.verdict === "pass" && (qa.warned ?? qa.checks.filter((c) => c.status === "warn").length) === 0;
 }
 
 interface ThumbnailArtifact {
@@ -74,12 +80,13 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       // production evidence: a QA-failed episode (3/27 scenes missing their
       // asset) went straight to public with nobody reviewing it. This one
       // narrow exception reads the verdict for visibility only, never to
-      // block: a QA failure uploads private instead of the configured
-      // default, so a genuinely broken episode isn't live until an operator
-      // reviews it and flips it public in Studio. A passing QA still
-      // publishes at the configured privacy, unattended.
+      // block: ANY non-clean QA verdict (fail OR warn) uploads private instead
+      // of the configured default, so a genuinely broken or questionable
+      // episode isn't live until an operator reviews it and flips it public in
+      // Studio. Only a clean "pass" publishes at the configured privacy,
+      // unattended.
       const qa = inputs["qa"]!.payload as QaReport;
-      const privacy = qa.verdict === "fail" ? "private" : (opts.privacy ?? "private");
+      const privacy = qaIsClean(qa) ? (opts.privacy ?? "private") : "private";
 
       // Taken wholesale from the SEO artifact. This worker deliberately does no
       // fallback logic: it used to reach into the story and substitute the
@@ -93,9 +100,9 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         made_for_kids: opts.madeForKids ?? false,
       };
 
-      if (qa.verdict === "fail" && privacy !== (opts.privacy ?? "private")) {
+      if (!qaIsClean(qa) && privacy !== (opts.privacy ?? "private")) {
         ctx.logger.warn(
-          `[publish] qa_report verdict is fail (${qa.failed} failed check${qa.failed === 1 ? "" : "s"}) -- ` +
+          `[publish] qa_report is not clean (verdict=${qa.verdict}, ${qa.failed} failed, ${qa.warned ?? "?"} warned) -- ` +
             `publishing private instead of ${opts.privacy ?? "private"} so an operator reviews it before it goes public`,
         );
       }

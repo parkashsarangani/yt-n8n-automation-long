@@ -27,8 +27,25 @@
       },
       "warnings": {
         "type": "array",
-        "maxItems": 30,
+        "maxItems": 40,
         "items": { "type": "string", "maxLength": 1600 }
+      },
+      "verified_count": { "type": "integer", "minimum": 0 },
+      "semantic_alternate_count": { "type": "integer", "minimum": 0 },
+      "unverified_count": { "type": "integer", "minimum": 0 },
+      "verification_failed_count": { "type": "integer", "minimum": 0 },
+      "beat_duration_stats": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "count": { "type": "integer", "minimum": 0 },
+          "min_sec": { "type": "number", "minimum": 0 },
+          "median_sec": { "type": "number", "minimum": 0 },
+          "mean_sec": { "type": "number", "minimum": 0 },
+          "max_sec": { "type": "number", "minimum": 0 },
+          "over_10s": { "type": "integer", "minimum": 0 },
+          "over_15s": { "type": "integer", "minimum": 0 }
+        }
       }
     }
   }
