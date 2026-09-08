@@ -120,7 +120,8 @@ jobs:
 
           # Exactly one publish-capable graph remains. Manual narration is an
           # input mode of illustrated_story, while discover/measure are
-          # non-publish operational loops.
+          # non-publish operational loops. The free-media bake-off remains as
+          # the manual promotion gate for candidate free image/video models.
           assert '"transformation": "publish"' in story_graph
           assert '"transformation": "tts_moderation"' in story_graph
           assert '"transformation": "voice"' in story_graph
@@ -132,13 +133,13 @@ jobs:
           assert '"transformation": "visual_timeline_render"' in story_graph
           assert '"transformation": "publish"' not in discover_graph
           assert '"transformation": "publish"' not in measure_graph
+          assert Path(".github/workflows/free-media-bakeoff.yml").exists(), "production free-media bake-off workflow must remain"
 
           for retired in (
               "engine/graphs/manual.json",
               "engine/graphs/visual_benchmark.json",
               "engine/graphs/visual_benchmark_control.json",
               "engine/graphs/visual_live_media_smoke.json",
-              ".github/workflows/free-media-bakeoff.yml",
               ".github/workflows/rfc0010-benchmark.yml",
               ".github/workflows/rfc0010-live-media-smoke.yml",
           ):
