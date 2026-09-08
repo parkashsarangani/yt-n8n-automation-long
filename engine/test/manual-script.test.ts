@@ -79,10 +79,29 @@ test("the operator also owns the growth package: it validates and matches the op
   const pkg = episode.growth_package;
   assert.equal(pkg.selected_title, "Why Chile Is So Incredibly Long");
   assert.equal(pkg.selected_title_family, "curiosity");
-  assert.equal(pkg.opening_line, episode.script.scenes[0]!.narration.split(/(?<=[.!?])\s+/)[0]);
-  assert.equal(pkg.first_30_seconds.zero_to_five, episode.script.scenes[1]!.narration);
+  assert.ok(HOOK.startsWith(pkg.opening_line), "opening line comes from the operator's hook");
+  assert.ok(
+    episode.script.scenes[1]!.narration.startsWith(pkg.first_30_seconds.zero_to_five),
+    "the 0-5s milestone is the operator's own first opening beat",
+  );
   assert.equal(pkg.variants.length, 3);
   assert.deepEqual(pkg.variants.map((v) => v.family).sort(), ["conflict", "curiosity", "reversal"]);
+});
+
+test("a growth package from long dense scenes still stays within every schema maxLength", async () => {
+  const reg = await registry();
+  const long = Array.from({ length: 8 }, (_, i) =>
+    `Scene ${i} runs long and dense on purpose, packing several full clauses, a named ` +
+    `character, a concrete place, an escalating complication and a turn into one uninterrupted ` +
+    `paragraph so the derived milestone fields are pushed hard against their character ceilings.`,
+  ).join("\n\n");
+  const episode = buildManualEpisode({
+    title: "A Deliberately Long Title That Still Sits Comfortably Under The Hundred Character Schema Ceiling Ok",
+    hook: "This opening hook is itself unusually long, running two full sentences before it lands, precisely so the derived opening line and promise fields are stress-tested against their limits. That is the whole point of it.",
+    narration: long,
+  });
+  assert.doesNotThrow(() => reg.validate("growth_package", reg.resolveVersion("growth_package"), episode.growth_package));
+  assert.deepEqual(validateGrowthPackageSelection(episode.growth_package), []);
 });
 
 test("a single unbroken block of narration still splits into scenes and validates", async () => {

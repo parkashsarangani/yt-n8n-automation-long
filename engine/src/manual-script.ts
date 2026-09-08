@@ -258,14 +258,18 @@ export function buildManualGrowthPackage(
   topic?: string,
 ): ManualGrowthPackagePayload {
   const hookSentences = splitSentences(hook);
-  const openingLine = withMinLength(hookSentences[0] ?? hook, FAMILY_MIN);
+  const openingLine = truncate(withMinLength(hookSentences[0] ?? hook, FAMILY_MIN), 220);
   const body = sceneTexts.slice(1); // sceneTexts[0] is the hook itself
-  const scene = (i: number): string => body[i] ?? body[body.length - 1] ?? hook;
+  // First sentence of a scene keeps the milestone fields well under their caps.
+  const beat = (i: number): string => {
+    const source = body[i] ?? body[body.length - 1] ?? hook;
+    return withMinLength(splitSentences(source)[0] ?? source, FAMILY_MIN);
+  };
 
-  const selectedTitle = withMinLength(title, FAMILY_MIN);
+  const selectedTitle = truncate(withMinLength(title, FAMILY_MIN), 100);
   const selectedThumb = truncate(
     withMinLength(`A grounded, realistic depiction of the opening moment: ${openingLine}`, 12),
-    280,
+    260,
   );
 
   const variants: ManualGrowthVariant[] = [
@@ -290,26 +294,28 @@ export function buildManualGrowthPackage(
   ];
 
   return {
-    premise: truncate(withMinLength(`${scene(0)} ${scene(1)}`.trim(), 15), 600),
+    premise: truncate(withMinLength(`${beat(0)} ${beat(1)}`.trim(), 15), 400),
     target_audience: "Adults who follow grounded, true-to-life mystery, investigation and workplace stories.",
-    curiosity_gap: truncate(withMinLength(hookSentences.slice(-1)[0] ?? hook, FAMILY_MIN), 400),
+    curiosity_gap: truncate(withMinLength(hookSentences.slice(-1)[0] ?? hook, FAMILY_MIN), 240),
     emotional_engine: "curiosity to unease to a concrete, human resolution",
     selected_title: selectedTitle,
     selected_title_family: "curiosity",
     selected_thumbnail_concept: selectedThumb,
     selected_thumbnail_family: "curiosity",
-    opening_visual: truncate(withMinLength(`A grounded, realistic scene: ${openingLine}`, 12), 400),
-    opening_line: truncate(openingLine, 400),
+    opening_visual: truncate(withMinLength(`A grounded, realistic scene: ${openingLine}`, 12), 320),
+    opening_line: truncate(openingLine, 220),
     first_30_seconds: {
-      promise: truncate(withMinLength(`This episode follows the question in full: ${hook}`, 12), 600),
-      zero_to_five: truncate(withMinLength(scene(0), 12), 600),
-      five_to_fifteen: truncate(withMinLength(scene(1), 12), 600),
-      fifteen_to_thirty: truncate(withMinLength(scene(2), 12), 600),
+      promise: truncate(withMinLength(`The episode answers this in full: ${openingLine}`, 12), 220),
+      zero_to_five: truncate(beat(0), 260),
+      five_to_fifteen: truncate(beat(1), 260),
+      fifteen_to_thirty: truncate(beat(2), 260),
     },
     variants,
     scores: { clickability: 0.8, story_potential: 0.8, audience_size: 0.75 },
-    selection_rationale:
+    selection_rationale: truncate(
       "Operator-authored package: the curiosity framing states the concrete unanswered question the operator's narration answers, and the first-30 milestones are the operator's own opening scenes.",
+      500,
+    ),
     next_video_bridge: truncate(
       withMinLength(
         topic?.trim()
@@ -317,7 +323,7 @@ export function buildManualGrowthPackage(
           : "Next: another quiet worker who noticed the one detail everyone else was trained to ignore.",
         15,
       ),
-      400,
+      220,
     ),
   };
 }
