@@ -149,6 +149,12 @@ export async function metadataSemanticGate(
       outputSchema: GATE_SCHEMA as unknown as Record<string, unknown>,
       maxOutputTokens: 400,
       thinking: false,
+      // This gate authorizes rendering an asset (and, with the hardened
+      // release, whether the run ships at all). run_112aa43f showed the free
+      // chain landing on a 20B model that returned HTTP 400 for this
+      // structured request, dropping every generated image. Grade it on the
+      // paid model when one is available; degrade to the free chain otherwise.
+      preferPaidReasoning: true,
     });
     const parsed = value as Record<string, unknown>;
     const rawConcern = typeof parsed["concern"] === "string" ? parsed["concern"] : "none";

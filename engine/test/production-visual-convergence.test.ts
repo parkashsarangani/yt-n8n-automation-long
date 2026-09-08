@@ -27,18 +27,18 @@ test("production illustrated graph uses RFC0010 visual stack and not the legacy 
   assert.equal(tx.includes("illustrated_scene_assets"), false);
 });
 
-test("production visual director v3 is full-episode, illustration-first and keeps the visible payoff contract", async () => {
+test("production visual director v4 is full-episode, illustration-first and keeps the visible payoff + fallback contract", async () => {
   const agent = JSON.parse(await readFile(path.join(ROOT, "agents/visual_director.json"), "utf8")) as {
     version: string;
     prompt: string;
     consumes: Array<{ as: string }>;
     model: { max_output_tokens?: number };
   };
-  assert.equal(agent.version, "3");
-  assert.equal(agent.prompt, "visual_director@3");
+  assert.equal(agent.version, "4");
+  assert.equal(agent.prompt, "visual_director@4");
   assert.equal(agent.model.max_output_tokens, 24000, "do not hide payload incompatibility by truncating the production plan budget");
   assert.ok(agent.consumes.some((input) => input.as === "intent"));
-  const prompt = await readFile(path.join(ROOT, "prompts/visual_director/3.md"), "utf8");
+  const prompt = await readFile(path.join(ROOT, "prompts/visual_director/4.md"), "utf8");
   assert.match(prompt, /Cover EVERY narration scene/i);
   assert.match(prompt, /Never stop at a benchmark window or 90–120 seconds/i);
   assert.match(prompt, /ILLUSTRATED PRODUCTION GRAMMAR/i);
@@ -46,6 +46,10 @@ test("production visual director v3 is full-episode, illustration-first and keep
   assert.match(prompt, /first non-empty `continuity\.identity` is authoritative/i);
   assert.match(prompt, /timeline\/process\/cause-chain entity must be visibly labeled/i);
   assert.match(prompt, /meaningless boxes\/cards/i);
+  // v4: the fallback contract is now stated as hard-enforced.
+  assert.match(prompt, /HARD-ENFORCED FALLBACK CONTRACT/i);
+  assert.match(prompt, /preferred.*and.*fallback.*MUST be different visual modes/i);
+  assert.match(prompt, /headline restating the narration can NEVER be the plan/i);
 });
 
 test("visual director hard coverage validator rejects truncated or paraphrased production plans", () => {

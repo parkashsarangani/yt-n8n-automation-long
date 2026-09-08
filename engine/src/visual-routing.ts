@@ -1,4 +1,5 @@
 import type { SemanticScene } from "./semantic-scene.ts";
+import { fallbackContractErrors } from "./visual-beat-quality.ts";
 
 export type VisualMode = "stock_video" | "generated_image" | "motion_graphic" | "generated_video";
 
@@ -121,12 +122,12 @@ export function repairVisualBeatPlan(plan: VisualBeatPlan): { plan: VisualBeatPl
       fallback = "stock_video";
     }
 
-    // preferred and fallback must differ.
-    if (preferred === fallback) {
-      const alt: VisualMode = preferred === "motion_graphic" ? "generated_image" : "motion_graphic";
-      repairs.push(`${beat.id}: fallback equalled preferred (${preferred}) -> fallback ${alt}`);
-      fallback = alt;
-    }
+    // `preferred === fallback` is NOT repaired here. Inventing a fallback mode
+    // (RFC 0010, regression from run_112aa43f) is exactly how eleven beats
+    // became generic kinetic-text cards: the director never authored a brief
+    // for the invented mode, so the "alternate" was a headline. It is a HARD
+    // error in the director validator and a throwing invariant in
+    // validateVisualBeatPlan; the director must declare a real alternate.
 
     return preferred === beat.routing.preferred && fallback === beat.routing.fallback
       ? beat
@@ -155,6 +156,9 @@ export function validateVisualBeatPlan(plan: VisualBeatPlan): string[] {
     if (beat.routing.preferred === "generated_video" && !(beat.asset_brief.generated_video_prompt ?? beat.asset_brief.generation_prompt).trim()) errors.push(`${beat.id}: generated_video requires a generated_video_prompt`);
     if (beat.routing.preferred === "motion_graphic" && !beat.asset_brief.motion_graphic_brief.trim()) errors.push(`${beat.id}: motion_graphic requires motion_graphic_brief`);
     if (ABSTRACT_PURPOSES.has(beat.intent.purpose) && beat.routing.preferred === "stock_video") errors.push(`${beat.id}: abstract explanatory purpose ${beat.intent.purpose} may not prefer generic stock_video`);
+    // Fallback-contract backstop (run_112aa43f): a genuine alternate with a
+    // real brief, and no explanatory/hero beat whose only option is a headline.
+    errors.push(...fallbackContractErrors(beat));
     const scene = byScene.get(beat.scene_index) ?? []; scene.push(beat); byScene.set(beat.scene_index, scene);
   }
   for (const [sceneIndex, sceneBeats] of byScene) {

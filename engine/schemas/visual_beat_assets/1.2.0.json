@@ -53,6 +53,9 @@
             "continuity": {"type": "number", "minimum": 0, "maximum": 1},
             "generic_filler": {"type": "boolean"},
             "why_failure": {"type": "boolean"},
+            "verification_failed": {"type": "boolean"},
+            "structured_visual_missing": {"type": "boolean"},
+            "hero_role": {"type": "string", "maxLength": 40},
             "composition": {"type": "string", "maxLength": 80},
             "camera_treatment": {"type": "string", "maxLength": 80},
             "subject_placement": {"type": "string", "maxLength": 80},
@@ -95,7 +98,25 @@
           "generic_filler": {"type": "integer", "minimum": 0},
           "why_failures": {"type": "integer", "minimum": 0},
           "semantic_graphics": {"type": "integer", "minimum": 0},
-          "kinetic_texts": {"type": "integer", "minimum": 0}
+          "kinetic_texts": {"type": "integer", "minimum": 0},
+          "verified": {"type": "integer", "minimum": 0},
+          "unverified": {"type": "integer", "minimum": 0},
+          "verification_failed": {"type": "integer", "minimum": 0},
+          "structured_visual_missing": {"type": "integer", "minimum": 0},
+          "max_consecutive_kinetic_text": {"type": "integer", "minimum": 0},
+          "beat_duration_stats": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "count": {"type": "integer", "minimum": 0},
+              "min_sec": {"type": "number", "minimum": 0},
+              "median_sec": {"type": "number", "minimum": 0},
+              "mean_sec": {"type": "number", "minimum": 0},
+              "max_sec": {"type": "number", "minimum": 0},
+              "over_10s": {"type": "integer", "minimum": 0},
+              "over_15s": {"type": "integer", "minimum": 0}
+            }
+          }
         }
       }
     }

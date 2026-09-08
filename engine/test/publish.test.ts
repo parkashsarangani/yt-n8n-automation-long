@@ -241,6 +241,30 @@ test("a passing QA verdict publishes at the configured privacy, unchanged", asyn
   assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
 });
 
+test("a non-clean QA verdict (pass with warnings) publishes private, never public", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  // verdict passes (no hard failure) but a check warned -- not clean.
+  const qa = await h.seed("qa_report", {
+    verdict: "pass",
+    failed: 0,
+    warned: 1,
+    checks: [{ id: "thumbnail_image", status: "warn", message: "thumbnail background is gradient" }],
+  }, "qa");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "private");
+  assert.equal(h.target.published[0]!.metadata.privacy, "private");
+});
+
 test("publish uploads and records where the video went", async () => {
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");

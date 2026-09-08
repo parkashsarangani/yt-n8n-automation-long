@@ -51,7 +51,18 @@ function beat(overrides: Partial<VisualBeat> = {}): VisualBeat {
       ],
       generated_video_prompt: "Calendar pages accelerate as seasons visibly change",
       motion_graphic_brief: "Animate years accumulating while a seconds counter accelerates.",
-    },
+      // An explanatory motion_graphic beat must carry a structured diagram, not
+      // a bare kinetic phrase (RFC 0010 fallback-contract, run_112aa43f).
+      semantic_scene: {
+        kind: "scale_comparison",
+        caption: "one billion seconds is about 31.7 years",
+        axis: { label: "elapsed time", unit: "years", max: 40 },
+        markers: [
+          { id: "million", label: "1 million seconds", value: 0.03 },
+          { id: "billion", label: "1 billion seconds", value: 31.7 },
+        ],
+      },
+    } as VisualBeat["asset_brief"],
     ...overrides,
   };
 }
