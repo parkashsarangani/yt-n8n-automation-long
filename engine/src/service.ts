@@ -122,6 +122,8 @@ interface RunState {
   active: Set<string>;
   /** Incrementally tracks node completions from executor events. */
   completedOutputs: Map<string, string>;
+  /** Pre-authored outputs still available if an early upstream failure is retried in-process. */
+  presetOutputs?: Record<string, string>;
   last: GraphRunResult | null;
   finished: boolean;
   error: string | null;
@@ -175,7 +177,6 @@ export class VidGenService {
   private graph!: GraphDoc;
   private measureGraph!: GraphDoc;
   private discoverGraph!: GraphDoc;
-  private manualGraph!: GraphDoc;
   private scheduler: Scheduler | undefined;
   private store!: ArtifactStore;
   private blobs!: BlobStore;
@@ -211,13 +212,11 @@ export class VidGenService {
       hasSchema: (id) => svc.registry.has(id),
       hasPrompt: (ref) => svc.prompts.has(ref),
     });
-    // The default AI-driven graph (RFC 0008): single-narrator voice-over over
-    // illustrated stills. Replaced the two-host character/dialogue pipeline
-    // ("skeleton.json") outright — see docs/0008-illustrated-story-format.md.
+    // The single publish-capable graph. Manual story/script authoring is an
+    // input mode of this same graph, not a second production topology.
     svc.graph = await loadGraph(path.join(opts.root, "graphs", "illustrated_story.json"));
     svc.measureGraph = await loadGraph(path.join(opts.root, "graphs", "measure.json"));
     svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
-    svc.manualGraph = await loadGraph(path.join(opts.root, "graphs", "manual.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
 
@@ -315,7 +314,6 @@ export class VidGenService {
       }),
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
-    validateGraph(this.manualGraph, { registry: this.registry, transformations: this.transformations });
 
     // reasoning_high runs on gpt-5.6-luna, not a bigger tier - a deliberate,
     // revisitable cost decision (Luna: $0.20/$1.20 per M tokens vs. Terra's
@@ -414,20 +412,16 @@ export class VidGenService {
       }
 
       // Replaying against the CURRENT graph is wrong for any run that used a
-      // different one: measure@1 and older skeleton versions have different
-      // node sets, so every one of them looked permanently "waiting". The runs
-      // table already knows how each finished, so trust that and only fall back
-      // to counting nodes when there is no stored status.
+      // different one. Historical graph versions still retain their stored
+      // terminal status; node-level details are only reconstructed for the
+      // current illustrated production graph.
       const runGraph = stored?.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
-      const matchedGraph = [this.graph, this.manualGraph].find(
-        (g) => `${g.graph_id}@${g.version}` === runGraph,
-      );
+      const matchedGraph = `${this.graph.graph_id}@${this.graph.version}` === runGraph ? this.graph : null;
       const allDone = !!matchedGraph && completedOutputs.size === matchedGraph.nodes.length;
       const derived = allDone ? "completed" : hasFailure ? "blocked" : "waiting";
       // A row still marked "running" at reload time is stale by definition:
       // this is a fresh process, so whatever owned that run is gone. Reporting
-      // it as running would show phantom work in flight forever — which is
-      // exactly how the two orphaned measure runs looked.
+      // it as running would show phantom work in flight forever.
       const raw = stored?.status;
       const status: GraphRunResult["status"] =
         raw === "completed" || raw === "blocked" || raw === "waiting"
@@ -481,6 +475,7 @@ export class VidGenService {
     }
     if (e.type === "node_done") {
       state.completedOutputs.set(e.node_id, e.artifact_id);
+      if (state.presetOutputs?.[e.node_id] === e.artifact_id) delete state.presetOutputs[e.node_id];
       console.log(`${tag} ✓ ${e.node_id}${e.cached ? " (cached)" : ""}`);
     }
     if (e.type === "node_failed") {
@@ -606,25 +601,36 @@ export class VidGenService {
   }
 
   /**
-   * Start a run from an operator-written hook and narration. story_architect
-   * and script_writer never run — manual-script.ts builds their artifacts
-   * mechanically — but every stage after that (visuals, voice, SEO, thumbnail,
-   * render, QA, publish) runs exactly as it does for an AI-drafted episode.
+   * Manual narration is an INPUT MODE of illustrated_story, not a second graph.
+   * The operator's deterministic story/script artifacts are used as the exact
+   * outputs of the existing `story` and `draft_script` nodes. Everything else
+   * — strategy/package, watchability evaluation, moderation, TTS, RFC 0010
+   * visuals, SEO/thumbnail, render, QA and publish — is the same production DAG.
    */
-  async startManualRun(input: ManualScriptInput, durationSec = 540): Promise<string> {
+  async startManualRun(input: ManualScriptInput, durationSec = 540, opts: RunOptions = {}): Promise<string> {
     const episode = buildManualEpisode(input); // throws with a clear message on bad input
+    if (!process.env["OPENAI_API_KEY"]?.trim()) {
+      throw new Error("OPENAI_API_KEY is not set — the production reasoning agents cannot run");
+    }
 
     const runId = `run_${randomUUID()}`;
     const brief = episode.story.title;
-    console.log(`[run ${runId.slice(4, 12)}] starting (manual script): "${brief}" (${durationSec}s)`);
+    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
+    console.log(`[run ${runId.slice(4, 12)}] starting (manual-script input mode): "${brief}" (${durationSec}s)`);
 
     if (this.runLog instanceof PgRunLog) {
-      await this.runLog.createRun(runId, brief, `${this.manualGraph.graph_id}@${this.manualGraph.version}`);
+      await this.runLog.createRun(runId, brief, `${this.graph.graph_id}@${this.graph.version}`);
     }
 
     const intent = await this.store.put({
       schema_id: "intent",
-      payload: { brief, target_duration_sec: durationSec },
+      payload: {
+        brief,
+        target_duration_sec: durationSec,
+        ...(opts.genre ? { genre: opts.genre } : {}),
+        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
+        ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
+      },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
     const story = await this.store.put({
@@ -637,14 +643,25 @@ export class VidGenService {
       payload: episode.script,
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
+    const window = await buildPerformanceWindow(this.store);
+    const performance = await this.store.put({
+      schema_id: "performance_window",
+      payload: window,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
 
+    const presetOutputs = {
+      story: story.artifact.artifact_id,
+      draft_script: script.artifact.artifact_id,
+    };
     this.runs.set(runId, {
       runId,
       brief,
       createdAt: new Date().toISOString(),
-      graph: `${this.manualGraph.graph_id}@${this.manualGraph.version}`,
+      graph: `${this.graph.graph_id}@${this.graph.version}`,
       active: new Set(),
       completedOutputs: new Map(),
+      presetOutputs: { ...presetOutputs },
       last: null,
       finished: false,
       error: null,
@@ -652,25 +669,17 @@ export class VidGenService {
 
     void this.drive(runId, () =>
       this.executor.start(
-        this.manualGraph,
-        {
-          intent: intent.artifact.artifact_id,
-          story: story.artifact.artifact_id,
-          script: script.artifact.artifact_id,
-        },
-        { runId },
+        this.graph,
+        { intent: intent.artifact.artifact_id, performance: performance.artifact.artifact_id },
+        { runId, presetOutputs },
       ),
-    );
+    ).then(() => this.driveUnattended(runId));
     return runId;
   }
 
-  /** Resolves which loaded graph a run used, falling back to the AI-driven one. */
-  private resolveRunGraph(ref: string | undefined): GraphDoc {
-    return (
-      [this.graph, this.manualGraph].find(
-        (g) => `${g.graph_id}@${g.version}` === ref,
-      ) ?? this.graph
-    );
+  /** There is only one publish-capable production graph. */
+  private resolveRunGraph(_ref: string | undefined): GraphDoc {
+    return this.graph;
   }
 
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {
@@ -680,7 +689,7 @@ export class VidGenService {
     state.finished = false;
     state.error = null;
     const graph = this.resolveRunGraph(state.graph);
-    void this.drive(runId, () => this.executor.resume(graph, runId, { [nodeId]: decision }));
+    void this.drive(runId, () => this.executor.resume(graph, runId, { [nodeId]: decision }, { presetOutputs: state.presetOutputs }));
   }
 
   /** Retry a failed run from where it stopped — completed nodes are preserved. */
@@ -692,77 +701,20 @@ export class VidGenService {
     state.error = null;
     console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
     const graph = this.resolveRunGraph(state.graph);
-    void this.drive(runId, () => this.executor.resume(graph, runId, {}));
+    void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }));
   }
 
   /**
    * Drive a run all the way to a terminal state without a human clicking
    * "Resume" -- for scheduled/unattended production, and also used by
    * startRun() generally so a manually-started episode gets the same
-   * self-healing rather than parking with an avoidable defect. Handles two
-   * distinct recoverable situations, both of which intentionally park a run
-   * rather than looping themselves, so a human CAN inspect before retrying
-   * when one is actually watching (see retry() above and the Studio UI's
-   * "Resume blocked run" / "Review required" banners):
-   *
-   * 1. A worker failure (e.g. watchability_release's own
-   *    MAX_ATTEMPTS_BEFORE_ACCEPTING escape hatch) -- status "blocked".
-   * 2. approve_publish's auto-pass predicate (payload.verdict == "pass",
-   *    illustrated_story.json) held the run at "waiting" because qa_report
-   *    verdict is "fail". Real production case: qa reported 3/27 scenes as
-   *    bare blank placeholders and the episode still published (before
-   *    approve_publish's predicate existed) with nobody watching. When the
-   *    specific cause is blank/placeholder scenes -- the one failure mode
-   *    illustrated_scene_assets can actually self-heal (see its
-   *    ctx.priorArtifact reuse) -- force just that node to regenerate and
-   *    resume; render/qa/approve_publish/publish all re-run automatically
-   *    against the fixed manifest (GraphExecutor.pruneIncompleteDependencies).
-   *    Any OTHER qa failure (bad metadata, a real render bug) has no
-   *    automated remedy here, so it's left "waiting" for an operator exactly
-   *    as before -- regenerating assets would not fix it and would just
-   *    spend money in a loop.
-   *
-   * 3. visual_asset_release blocks pre-render on the already-generated
-   *    asset_manifest (fallback ratio, flagged hero shots, episode-level
-   *    review scores). Regenerating illustrated_scene_assets is safe here
-   *    for the same reason as case 2: its own prior-artifact reuse only
-   *    trusts a scene marked "primary", so every "fallback"/flagged scene
-   *    gets a fresh, independent attempt while every already-successful
-   *    scene is reused for free. Bounded by maxVisualReleaseRegens.
-   *
-   * illustrated_scene_assets (image generation) used to run at most once per
-   * run, ever, with the blank-scene repair in case 2 as the sole exception --
-   * written when image generation meant paid Fal calls. Cases 2 and 3 are
-   * now the two explicitly-scoped exceptions to that: image generation on the
-   * free path is cheap and non-deterministic, so a targeted regeneration is
-   * real additional value, not wasted spend. Best-of-N script selection
-   * (below) still MUST resolve before the graph ever reaches direction/assets,
-   * not after -- that constraint is about sequencing, not cost, and is
-   * untouched here: once watchability_release accepts a script (on the bar or
-   * via the escape hatch), the executor cascades everything downstream --
-   * including image generation -- inside that SAME resume() call, with no
-   * pause point to intervene at. Cases 2 and 3 only ever regenerate a node
-   * that is already strictly downstream of a settled script decision.
+   * self-healing rather than parking with an avoidable defect.
    */
   private async driveUnattended(runId: string, maxRetries = 5, maxAssetRegens = 2, maxVisualReleaseRegens = 3): Promise<void> {
     let assetRegens = 0;
     let visualReleaseRegens = 0;
-    // Best-of-N for watchability_release's regenerated scripts (operator
-    // decision: "the strongest attempt should be counted, not the last").
-    // Real production case: attempt 1 scored 0.723, attempt 2 scored 0.757
-    // (the best of the three), attempt 3 scored 0.693 and became final only
-    // because it happened to run last. One entry per FAILED attempt --
-    // scripts that never got a chance to run (because a better one was
-    // pinned in ahead of the accepting attempt) are never generated at all.
     const scriptAttempts: Array<{ scriptId: string; reportId: string; avg: number }> = [];
     for (let round = 0; ; round++) {
-      // Real production case: a 5-minute/27-scene episode's assets+render
-      // stage alone ran past 30 minutes (54 possible image provider calls at
-      // up to 2 attempts each, plus vision QA, plus the render itself) --
-      // this loop gave up watching before the run ever reached qa, so the
-      // one attempt that mattered (catching a blank-scene qa fail) never
-      // happened. 90 minutes gives real headroom for a long, high-scene
-      // episode while still being a finite bound, not an infinite wait.
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
         if (waitedMs >= 90 * 60_000) {
           console.log(`[run ${runId.slice(4, 12)}] unattended: still executing after 90min, giving up waiting`);
@@ -794,17 +746,7 @@ export class VidGenService {
 
       if (view.status !== "blocked" || (view.failures?.length ?? 0) === 0) return;
 
-      // A package-contract defect (growth_package_release's own boundary, or
-      // watchability_release's exact-membership check as defense in depth) is
-      // a structural bug, not a creative shortfall. Regenerating the script
-      // cannot repair it -- both are pure functions over already-materialized
-      // artifacts, so a bare retry() would reproduce the identical failure
-      // every time. Give up immediately, on the very first occurrence, so a
-      // package defect can never consume the script/watchability retry
-      // budget the way it did in production (run fcb88a7e: three separate
-      // PACKAGE_CONTRACT blocks each spent a script-regeneration attempt,
-      // including the final one, which wastefully "restored the best of 5"
-      // for a defect no script content could have fixed).
+      // Structural package defects are not repaired by rerolling a script.
       if (view.failures.some((f) => isPackageContractFailureMessage(f.error))) {
         console.log(
           `[run ${runId.slice(4, 12)}] unattended: a structural package-contract defect cannot be repaired by ` +
@@ -813,33 +755,21 @@ export class VidGenService {
         return;
       }
 
-      // visual_asset_release itself is a pure deterministic check (fallback
-      // ratio, flagged hero shots, episode-level review scores) over the
-      // already-materialized asset_manifest -- a BARE retry() re-checks
-      // byte-identical inputs and must reproduce the identical verdict every
-      // time (real production case, run af319994: "1/7 scenes fallback
-      // (14%)" repeated across all 5 auto-retries with nothing changing).
-      // But unlike a genuine structural defect, this one IS repairable: image
-      // generation is cheap and non-deterministic on the free path now (the
-      // old "runs at most once per run, ever" constraint below was written
-      // for paid Fal calls), and illustrated-scene-assets.ts's own prior-
-      // artifact reuse only trusts a scene marked "primary" -- every
-      // "fallback"/flagged scene is a fresh, independent attempt on
-      // regeneration, while every already-successful scene is still reused
-      // for free. Give this a bounded number of targeted regeneration passes
-      // before finally giving up, so the run gets real additional chances at
-      // a publishable episode instead of failing on the first miss.
+      // The RFC 0010 production visual release is deterministic over current
+      // resolved assets/timeline. Regenerate the resolver node, not the
+      // compatibility manifest, so retries actually obtain new media while
+      // keeping already-valid resolver reuse/cache semantics.
       if (view.failures.some((f) => f.node_id === "visual_asset_release")) {
         const reason = view.failures.find((f) => f.node_id === "visual_asset_release")!.error;
         if (visualReleaseRegens < maxVisualReleaseRegens) {
           visualReleaseRegens++;
           console.log(
-            `[run ${runId.slice(4, 12)}] unattended: visual_asset_release blocked -- regenerating flagged/fallback ` +
-              `scenes only (attempt ${visualReleaseRegens}/${maxVisualReleaseRegens}): ${reason}`,
+            `[run ${runId.slice(4, 12)}] unattended: visual_asset_release blocked -- regenerating resolved visual beats ` +
+              `(attempt ${visualReleaseRegens}/${maxVisualReleaseRegens}): ${reason}`,
           );
           const state = this.runs.get(runId)!;
           const graph = this.resolveRunGraph(state.graph);
-          await this.executor.regenerateNode(graph, runId, "assets", `visual_asset_release blocked: ${reason}`);
+          await this.executor.regenerateNode(graph, runId, "visual_assets", `visual_asset_release blocked: ${reason}`);
           await this.retry(runId);
           continue;
         }
@@ -858,36 +788,22 @@ export class VidGenService {
         return;
       }
 
-      // watchability_release's own MAX_ATTEMPTS_BEFORE_ACCEPTING escape hatch
-      // (watchability-release.ts) exists so a run never blocks forever on a
-      // bar the writer keeps landing under -- but a bare retry() re-executes
-      // ONLY watchability_release itself against the SAME already-generated
-      // draft_script and watchability_report (retry() invalidates nothing
-      // upstream, just re-attempts the node that failed). Real production
-      // case: two consecutive retries produced byte-identical scores, because
-      // nothing about the script or its critique ever changed between them --
-      // the "3 attempts" were three checks of one draft, not three drafts.
       if (view.failures.some((f) => f.node_id === "watchability_release")) {
-        // Capture this attempt's script/report before discarding them -- this
-        // is the only chance to remember what it scored for the best-of-N
-        // pick below.
+        // Manual mode means the operator owns the words. We still evaluate
+        // watchability, but never silently rewrite their script to clear a bar.
+        if (await this.isManualScriptRun(view)) {
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: operator-authored script failed watchability -- ` +
+              `leaving it blocked for review instead of rewriting the operator's words`,
+          );
+          return;
+        }
+
         const rejected = await this.currentScriptAttempt(view);
         if (rejected && !scriptAttempts.some((a) => a.reportId === rejected.reportId)) scriptAttempts.push(rejected);
         const state = this.runs.get(runId)!;
         const graph = this.resolveRunGraph(state.graph);
 
-        // scriptAttempts.length counts real failures so far. Once that hits
-        // MAX_ATTEMPTS_BEFORE_ACCEPTING - 1, the NEXT watchability_release
-        // evaluation is the one that accepts unconditionally -- and once it
-        // accepts, direction/assets (image generation) cascade immediately
-        // in the same resume() call, with no way back without a second,
-        // forbidden image-generation pass. So if there's more than one real
-        // candidate already, decide the winner NOW: pin the best-scoring one
-        // back in as what the accepting attempt will evaluate, instead of
-        // drafting a brand new (and possibly worse) one just because it's
-        // the script's "turn". This also means only ever generating up to
-        // MAX_ATTEMPTS_BEFORE_ACCEPTING - 1 real script drafts, never a full
-        // 3rd -- fewer LLM calls, not more.
         const nextAttemptAccepts = scriptAttempts.length >= MAX_ATTEMPTS_BEFORE_ACCEPTING - 1;
         if (nextAttemptAccepts && scriptAttempts.length > 1) {
           const best = scriptAttempts.reduce((a, b) => (b.avg > a.avg ? b : a));
@@ -909,6 +825,14 @@ export class VidGenService {
     }
   }
 
+  /** Whether the current draft_script artifact was authored deterministically by the operator. */
+  private async isManualScriptRun(view: RunView): Promise<boolean> {
+    const scriptId = view.nodes.find((n) => n.node_id === "draft_script")?.artifact_id;
+    if (!scriptId) return false;
+    const script = await this.store.get(scriptId);
+    return script?.produced_by?.transformation === "human";
+  }
+
   /**
    * Poll until a run reaches a terminal status (completed/blocked/waiting),
    * without retrying anything itself -- for a caller (the scheduler) that
@@ -924,11 +848,6 @@ export class VidGenService {
       if (view.status === "running") {
         stableTicks = 0;
       } else {
-        // driveUnattended() can briefly report "finished" between one retry
-        // round ending and its own decision to start another (an await point
-        // inside qaBlankSceneCount) -- require two consecutive non-running
-        // reads before trusting it, rather than a single poll that can land
-        // exactly in that gap.
         stableTicks++;
         if (stableTicks >= 2) return;
       }
@@ -1015,7 +934,6 @@ export class VidGenService {
 
   private static kindOf(graph: string): RunKind {
     if (graph.startsWith("illustrated_story")) return "production";
-    if (graph.startsWith("manual")) return "production";
     if (graph.startsWith("measure")) return "measure";
     if (graph.startsWith("discover")) return "discover";
     return "other";
@@ -1028,13 +946,7 @@ export class VidGenService {
     const blocked = new Set(s.last?.blocked ?? []);
 
     const runGraph = s.graph ?? `${this.graph.graph_id}@${this.graph.version}`;
-    // Node-level detail is only meaningful when the run used a graph we are
-    // currently holding, at the exact version we hold it. For anything else —
-    // a measure run, or a skeleton/manual version since superseded — report
-    // the run without pretending to know its steps.
-    const matchedGraph = [this.graph, this.manualGraph].find(
-      (g) => `${g.graph_id}@${g.version}` === runGraph,
-    );
+    const matchedGraph = `${this.graph.graph_id}@${this.graph.version}` === runGraph ? this.graph : null;
 
     const nodes: NodeView[] = !matchedGraph ? [] : matchedGraph.nodes.map((n) => {
       const kind = nodeType(n);
@@ -1097,15 +1009,7 @@ export class VidGenService {
     return node ? (inputsOf(node)[0] ?? null) : null;
   }
 
-  /**
-   * Close out a run row.
-   *
-   * Only the production drive() path did this, so measurement and discovery
-   * runs sat at "running" forever — visible on the server as measure@1 rows
-   * that never finish. Harmless to the artifacts, but it makes the runs table
-   * lie about what is in flight, which is exactly the thing an operator checks
-   * when something seems stuck.
-   */
+  /** Close out a non-production run row. */
   private async closeRun(runId: string, status: string, error?: string | null): Promise<void> {
     if (!(this.runLog instanceof PgRunLog)) return;
     await this.runLog.updateRunStatus(runId, status, error ?? null);
@@ -1113,16 +1017,7 @@ export class VidGenService {
     await this.runLog.updateRunCost(runId, cost);
   }
 
-  /**
-   * Measure every published episode.
-   *
-   * Detached from production on purpose: a video measured an hour after upload
-   * tells you nothing, so this is triggered separately (by you, or later by the
-   * scheduler) rather than tacked onto the end of a run.
-   *
-   * One episode failing does not stop the rest — a single deleted or private
-   * video must not block the whole feedback loop.
-   */
+  /** Measure every published episode. */
   async measureAll(): Promise<{
     measured: Array<{ external_id: string; views: number }>;
     skipped: Array<{ external_id: string; visibility: string }>;
@@ -1137,7 +1032,6 @@ export class VidGenService {
     const failed: Array<{ external_id: string; error: string }> = [];
     const seen = new Set<string>();
 
-    // Collect candidates first so visibility can be checked in one batch.
     const candidates: Array<{ artifactId: string; externalId: string }> = [];
     for (const row of rows) {
       const episode = await this.store.get(row.artifact_id);
@@ -1148,27 +1042,16 @@ export class VidGenService {
       candidates.push({ artifactId: row.artifact_id, externalId });
     }
 
-    // PUBLIC CONTENT ONLY.
-    //
-    // Episodes are uploaded private and made public by hand, so the privacy
-    // recorded on the artifact is stale the moment that happens — visibility is
-    // read live instead. A private or unlisted video accrues no impressions and
-    // barely any views, so measuring it would feed the strategist zeros that
-    // look like failure and drag every median down.
     const analytics = this.analyticsProvider;
     let visibility: Record<string, string> = {};
     if (analytics && candidates.length > 0) {
       try {
         visibility = await analytics.fetchVisibility(candidates.map((c) => c.externalId));
       } catch {
-        // Leave empty; each candidate then reads as "unknown" and is skipped
-        // rather than measured on a guess.
         visibility = {};
       }
     }
 
-    // Operator exclusions come first: a test upload should not cost an API call
-    // or leave an artifact, regardless of how public it is.
     const excluded = excludedIds();
 
     for (const { artifactId: rowId, externalId } of candidates) {
@@ -1183,15 +1066,8 @@ export class VidGenService {
       }
       const row = { artifact_id: rowId };
 
-      // Declared outside the try so the catch can close the run out too.
       const runId = `run_${randomUUID()}`;
       try {
-        // The measure graph is a real run and writes run records, so the run
-        // row has to exist first — run_records.run_id has a foreign key onto
-        // runs(run_id). startRun() does this for production runs; measurement
-        // went straight to the executor and violated the constraint the moment
-        // it met Postgres. Invisible on the filesystem run log, which has no
-        // referential integrity to violate.
         if (this.runLog instanceof PgRunLog) {
           await this.runLog.createRun(
             runId,
@@ -1220,14 +1096,7 @@ export class VidGenService {
     return { measured, skipped, failed };
   }
 
-  /**
-   * Propose topics for the next episode.
-   *
-   * A separate flow that stops at candidates. Choosing the subject is the
-   * cheapest decision in the pipeline and the one that most decides whether the
-   * result is worth making, so it stays with the operator rather than being
-   * auto-selected into a run.
-   */
+  /** Propose topics for the next episode. */
   async discoverTopics(): Promise<{
     candidates: unknown;
     history_count: number;
@@ -1277,10 +1146,7 @@ export class VidGenService {
     };
   }
 
-  /**
-   * Wire up recurring jobs. Called explicitly by the entry point rather than in
-   * create(), so importing the service in a test never starts timers.
-   */
+  /** Wire up recurring jobs. */
   startScheduler(opts: { tickMs?: number } = {}): Scheduler {
     const num = (key: string): number | null => {
       const raw = process.env[key]?.trim();
@@ -1295,14 +1161,6 @@ export class VidGenService {
       return Number.isInteger(n) && n >= 0 && n <= 23 ? n : fallback;
     };
 
-    // A restart must not make "produce" immediately due again -- production
-    // deploys several times a day now that it defaults to enabled, and each
-    // deploy restarts this process. Derive its real last-run time from
-    // persisted run history (reloadRuns() already populated this.runs by the
-    // time the entry point calls startScheduler()) rather than starting from
-    // null every time. Any production run counts, not just scheduler-started
-    // ones -- an operator-started episode today should also count as "today
-    // is covered".
     const lastProduceAt = Math.max(
       -Infinity,
       ...this.listRuns()
@@ -1315,7 +1173,6 @@ export class VidGenService {
       {
         id: "measure",
         description: "Measure published episodes and feed the strategist",
-        // Read-only, so it defaults on. 0 or a non-number disables it.
         everyHours: num("SCHEDULE_MEASURE_HOURS") ?? 24,
         enabled:
           process.env["SCHEDULE_MEASURE_HOURS"]?.trim() !== "0" &&
@@ -1331,23 +1188,8 @@ export class VidGenService {
         id: "produce",
         description: `Pick the top discovery candidate, produce it and publish it — one episode a day, timed for a US audience (~${hour("SCHEDULE_PRODUCE_HOUR_UTC", 19)}:00 UTC)`,
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
-        // Pinned to a daily US-afternoon slot (default 19:00 UTC = ~3pm ET /
-        // ~noon PT -- live before the evening viewing surge across US time
-        // zones) rather than "every 24h since it last finished", which drifts
-        // with render time and carries no notion of when in the day is good
-        // to publish. Override with SCHEDULE_PRODUCE_HOUR_UTC (0-23); unset
-        // SCHEDULE_PRODUCE_HOURS still controls the fallback cadence for a
-        // manual runNow() and for jobs that don't set targetHourUtc.
         targetHourUtc: hour("SCHEDULE_PRODUCE_HOUR_UTC", 19),
         ...(Number.isFinite(lastProduceAt) ? { seedLastRun: lastProduceAt } : {}),
-        // ON by default (once a day): every human_gate in illustrated_story.json
-        // auto-passes except approve_publish, which gates on the qa verdict --
-        // a started run drives itself unattended either to a public publish or
-        // to a self-healing retry (see driveUnattended), with no other human
-        // step left to skip. Set SCHEDULE_PRODUCE_HOURS=0 to turn this off;
-        // the operator can still use the UI's "Create episode" to start
-        // additional episodes any time — this job only decides the topic and
-        // timing for the *scheduled* one.
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {
           const found = await this.discoverTopics();
@@ -1356,8 +1198,6 @@ export class VidGenService {
             console.log("[scheduler] discovery returned no candidate; not starting a run");
             return;
           }
-          // RFC 0009 decision 1: the winner reaches the packager as typed data
-          // on intent, never as prose the packager has to parse back out.
           const seed = packageSeedOf(top);
           if (!seed) {
             console.log("[scheduler] winning candidate is missing package fields; running it as a plain brief");
@@ -1367,13 +1207,6 @@ export class VidGenService {
             ...(seed ? { packageSeed: seed } : {}),
           });
           console.log(`[scheduler] started ${runId} for: ${top.brief} -- driving unattended through to publish`);
-          // startRun() already chains driveUnattended() itself now (every run
-          // self-heals, not only scheduled ones) -- this job's run() still has
-          // to await the whole thing rather than return the instant the run
-          // started, or the Scheduler would consider "produce" done (and mark
-          // its next_run) long before the episode actually finished. Poll for
-          // a terminal status rather than calling driveUnattended() again,
-          // which would just race the one startRun() already kicked off.
           await this.waitForTerminal(runId);
           const finalStatus = this.getRun(runId)?.status;
           console.log(`[scheduler] ${runId} finished: ${finalStatus}`);
