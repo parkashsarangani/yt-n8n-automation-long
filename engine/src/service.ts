@@ -645,6 +645,11 @@ export class VidGenService {
       payload: episode.script,
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
+    const growthPackage = await this.store.put({
+      schema_id: "growth_package",
+      payload: episode.growth_package,
+      produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
+    });
     const window = await buildPerformanceWindow(this.store);
     const performance = await this.store.put({
       schema_id: "performance_window",
@@ -653,6 +658,7 @@ export class VidGenService {
     });
 
     const presetOutputs = {
+      package: growthPackage.artifact.artifact_id,
       story: story.artifact.artifact_id,
       draft_script: script.artifact.artifact_id,
     };

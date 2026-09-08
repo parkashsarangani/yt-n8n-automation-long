@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { SchemaRegistry } from "../src/registry.ts";
 import { buildManualEpisode } from "../src/manual-script.ts";
+import { validateGrowthPackageSelection, validateGrowthPackageReleaseability } from "../src/growth-package-contract.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -57,6 +58,31 @@ test("a paragraphed narration produces a story and script that both validate", a
   assert.equal(episode.script.scenes.length, 4);
   assert.equal(episode.script.scenes[0]!.narration, HOOK);
   assert.equal(episode.story.acts.length, 3);
+});
+
+test("the operator also owns the growth package: it validates and matches the operator's own words", async () => {
+  const reg = await registry();
+  const episode = buildManualEpisode({
+    title: "Why Chile Is So Incredibly Long",
+    hook: HOOK,
+    narration: PARAGRAPHED_NARRATION,
+    topic: "geography",
+  });
+
+  // Schema + relational contract both hold, so growth_package_release passes it through.
+  assert.doesNotThrow(() => reg.validate("growth_package", reg.resolveVersion("growth_package"), episode.growth_package));
+  assert.deepEqual(validateGrowthPackageSelection(episode.growth_package), []);
+  assert.deepEqual(validateGrowthPackageReleaseability(episode.growth_package), []);
+
+  // The click promise is the operator's, not an invention: selected title is
+  // the operator's title, and the first-30 milestones are the opening scenes.
+  const pkg = episode.growth_package;
+  assert.equal(pkg.selected_title, "Why Chile Is So Incredibly Long");
+  assert.equal(pkg.selected_title_family, "curiosity");
+  assert.equal(pkg.opening_line, episode.script.scenes[0]!.narration.split(/(?<=[.!?])\s+/)[0]);
+  assert.equal(pkg.first_30_seconds.zero_to_five, episode.script.scenes[1]!.narration);
+  assert.equal(pkg.variants.length, 3);
+  assert.deepEqual(pkg.variants.map((v) => v.family).sort(), ["conflict", "curiosity", "reversal"]);
 });
 
 test("a single unbroken block of narration still splits into scenes and validates", async () => {
