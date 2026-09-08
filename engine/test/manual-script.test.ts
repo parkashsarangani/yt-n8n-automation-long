@@ -70,7 +70,10 @@ test("the operator also owns the growth package: it validates and matches the op
   });
 
   // Schema + relational contract both hold, so growth_package_release passes it through.
+  // The `package` node emits 1.2.0, which must accept a human (operator) producer.
+  assert.doesNotThrow(() => reg.validate("growth_package", "1.2.0", episode.growth_package));
   assert.doesNotThrow(() => reg.validate("growth_package", reg.resolveVersion("growth_package"), episode.growth_package));
+  assert.doesNotThrow(() => reg.assertProducer("growth_package", "1.2.0", "human"), "manual mode needs a human producer for the preset package");
   assert.deepEqual(validateGrowthPackageSelection(episode.growth_package), []);
   assert.deepEqual(validateGrowthPackageReleaseability(episode.growth_package), []);
 

@@ -3,7 +3,7 @@
   "version": "1.2.0",
   "status": "active",
   "description": "RFC 0009 production contract. Keeps explicit package families and makes the session-continuation bridge mandatory so every produced episode has an authoritative next-video outro before TTS/render.",
-  "produced_by": ["growth_packager"],
+  "produced_by": ["growth_packager", "human"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "GrowthPackageArtifact",
