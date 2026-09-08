@@ -2,16 +2,18 @@
  * Turns an operator-written hook and narration into schema-valid `story` and
  * `script` artifacts, with no model call.
  *
- * This backs the manual input mode of illustrated_story (its `story` and
- * `draft_script` nodes get preset outputs): when the operator writes their own
- * words, story_architect and script_writer never run, but every downstream
- * stage (visuals, voice, SEO, thumbnail, render,
+ * This backs the manual input mode of illustrated_story (its `package`, `story`
+ * and `draft_script` nodes get preset outputs): when the operator writes their
+ * own words, growth_packager, story_architect and script_writer never run, but
+ * every downstream stage (watchability, visuals, voice, SEO, thumbnail, render,
  * QA) still expects artifacts shaped exactly like the ones those agents would
  * have produced. Paragraph and sentence boundaries decide where scenes split;
- * word-count thirds decide where acts split. Every field is either typed by
- * the operator or extracted verbatim from what they typed — nothing is
- * invented, matching how `buildPerformanceWindow` assembles a graph input
- * deterministically rather than asking a model to do it.
+ * word-count thirds decide where acts split. The story/script are the
+ * operator's verbatim words; the growth_package's scored fields (premise,
+ * curiosity gap, first-30 milestones, opening line, selected title/thumbnail)
+ * are also taken from the operator's hook and opening scenes, with only the
+ * two non-selected variant slots filled by structural placeholders so the
+ * exact-membership contract holds. No model is in the loop.
  */
 
 export interface ManualScriptInput {
@@ -34,9 +36,48 @@ export interface ManualScriptPayload {
   scenes: Array<{ scene_index: number; act_index: number; point: string; narration: string }>;
 }
 
+export interface ManualGrowthVariant {
+  family: "curiosity" | "conflict" | "reversal";
+  title: string;
+  thumbnail_concept: string;
+  click_reason: string;
+}
+
+export interface ManualGrowthPackagePayload {
+  premise: string;
+  target_audience: string;
+  curiosity_gap: string;
+  emotional_engine: string;
+  selected_title: string;
+  selected_title_family: "curiosity";
+  selected_thumbnail_concept: string;
+  selected_thumbnail_family: "curiosity";
+  opening_visual: string;
+  opening_line: string;
+  first_30_seconds: {
+    promise: string;
+    zero_to_five: string;
+    five_to_fifteen: string;
+    fifteen_to_thirty: string;
+  };
+  variants: ManualGrowthVariant[];
+  scores: { clickability: number; story_potential: number; audience_size: number };
+  selection_rationale: string;
+  next_video_bridge: string;
+}
+
 export interface ManualEpisode {
   story: ManualStoryPayload;
   script: ManualScriptPayload;
+  /**
+   * The operator owns the click proposition too, not just the words. Without
+   * this, growth_packager invents a package from the bare title and
+   * watchability then (correctly) scores the operator's fixed script against a
+   * promise it never made — package_fidelity / first_30_fidelity collapse. The
+   * package is derived from the operator's own hook + opening narration so the
+   * script and the promise describe the same episode.
+   */
+  growth_package: ManualGrowthPackagePayload;
 }
 
 const SCENE_WORDS_MAX = 40;
@@ -193,5 +234,90 @@ export function buildManualEpisode(input: ManualScriptInput): ManualEpisode {
       outro_line: OUTRO_LINE,
     },
     script: { scenes },
+    growth_package: buildManualGrowthPackage(title, hook, sceneTexts, payoff, input.topic),
+  };
+}
+
+const FAMILY_MIN = 8;
+
+/**
+ * Derive a schema- and contract-valid growth_package from the operator's own
+ * words. The operator's title/thumbnail are the authoritative curiosity
+ * variant (selected); the conflict/reversal variants are structural
+ * placeholders — valid, distinct, never selected — so the exact-membership
+ * contract in growth-package-contract.ts holds. Every promise the critic
+ * scores against (premise, curiosity_gap, first_30 milestones, opening line)
+ * is taken from the operator's hook and opening scenes, so the fixed script
+ * and the package describe the same episode.
+ */
+export function buildManualGrowthPackage(
+  title: string,
+  hook: string,
+  sceneTexts: string[],
+  payoff: string,
+  topic?: string,
+): ManualGrowthPackagePayload {
+  const hookSentences = splitSentences(hook);
+  const openingLine = withMinLength(hookSentences[0] ?? hook, FAMILY_MIN);
+  const body = sceneTexts.slice(1); // sceneTexts[0] is the hook itself
+  const scene = (i: number): string => body[i] ?? body[body.length - 1] ?? hook;
+
+  const selectedTitle = withMinLength(title, FAMILY_MIN);
+  const selectedThumb = truncate(
+    withMinLength(`A grounded, realistic depiction of the opening moment: ${openingLine}`, 12),
+    280,
+  );
+
+  const variants: ManualGrowthVariant[] = [
+    {
+      family: "curiosity",
+      title: selectedTitle,
+      thumbnail_concept: selectedThumb,
+      click_reason: "The title poses the concrete unanswered question the narration goes on to answer.",
+    },
+    {
+      family: "conflict",
+      title: withMinLength(`Nobody Believed What ${truncate(title, 48)} Uncovered`, FAMILY_MIN),
+      thumbnail_concept: "The operator-authored script is fixed; this framing is a structural alternate and is not used.",
+      click_reason: "Structural alternate framing for the required variant set; not the selected proposition.",
+    },
+    {
+      family: "reversal",
+      title: withMinLength(`${truncate(title, 52)} Was Not What It Looked Like`, FAMILY_MIN),
+      thumbnail_concept: "The operator-authored script is fixed; this framing is a structural alternate and is not used.",
+      click_reason: "Structural alternate framing for the required variant set; not the selected proposition.",
+    },
+  ];
+
+  return {
+    premise: truncate(withMinLength(`${scene(0)} ${scene(1)}`.trim(), 15), 600),
+    target_audience: "Adults who follow grounded, true-to-life mystery, investigation and workplace stories.",
+    curiosity_gap: truncate(withMinLength(hookSentences.slice(-1)[0] ?? hook, FAMILY_MIN), 400),
+    emotional_engine: "curiosity to unease to a concrete, human resolution",
+    selected_title: selectedTitle,
+    selected_title_family: "curiosity",
+    selected_thumbnail_concept: selectedThumb,
+    selected_thumbnail_family: "curiosity",
+    opening_visual: truncate(withMinLength(`A grounded, realistic scene: ${openingLine}`, 12), 400),
+    opening_line: truncate(openingLine, 400),
+    first_30_seconds: {
+      promise: truncate(withMinLength(`This episode follows the question in full: ${hook}`, 12), 600),
+      zero_to_five: truncate(withMinLength(scene(0), 12), 600),
+      five_to_fifteen: truncate(withMinLength(scene(1), 12), 600),
+      fifteen_to_thirty: truncate(withMinLength(scene(2), 12), 600),
+    },
+    variants,
+    scores: { clickability: 0.8, story_potential: 0.8, audience_size: 0.75 },
+    selection_rationale:
+      "Operator-authored package: the curiosity framing states the concrete unanswered question the operator's narration answers, and the first-30 milestones are the operator's own opening scenes.",
+    next_video_bridge: truncate(
+      withMinLength(
+        topic?.trim()
+          ? `Next: another case that began the same quiet way — ${topic.trim()}`
+          : "Next: another quiet worker who noticed the one detail everyone else was trained to ignore.",
+        15,
+      ),
+      400,
+    ),
   };
 }
