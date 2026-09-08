@@ -8,6 +8,7 @@ interface AgentDef {
     capability: string;
     max_output_tokens?: number;
     effort?: string;
+    prefer_paid_reasoning?: boolean;
   };
 }
 
@@ -48,6 +49,18 @@ test("core creative agents do not request low-effort routing", () => {
     const def = agent(file);
     assert.notEqual(def.model.effort, "low", `${def.name} should stay on the main reasoning tier`);
   }
+});
+
+test("the watchability gate is the only agent that grades on the paid model", () => {
+  // watchability_release thresholds (hook 0.82, avg 0.79, ...) are calibrated
+  // against the strong paid critic. A free 70B model scores the same scripts
+  // lower and clusters near the bar, so the unattended revision loop could
+  // never converge. This gate authorizes all downstream image/render spend,
+  // so it grades on the paid model when one is available and degrades to the
+  // free chain otherwise. Creative generation stays free-first.
+  const shipped = readdirSync(new URL("../agents/", import.meta.url)).filter((f) => f.endsWith(".json"));
+  const paidGraders = shipped.filter((f) => agent(f).model.prefer_paid_reasoning === true).map((f) => agent(f).name);
+  assert.deepEqual(paidGraders, ["watchability_critic"]);
 });
 
 test("agent output budgets stay bounded", () => {

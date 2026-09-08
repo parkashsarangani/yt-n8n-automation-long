@@ -10,7 +10,7 @@
   "produces": "watchability_report",
   "produces_version": "2.0.0",
   "prompt": "watchability_critic@4",
-  "model": {"capability": "reasoning_high", "max_output_tokens": 18000, "effort": "high"},
+  "model": {"capability": "reasoning_high", "max_output_tokens": 18000, "effort": "high", "prefer_paid_reasoning": true},
   "confidence_dimensions": ["evaluation_reliability"],
   "retry": {"max_attempts": 2}
 }
