@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { assessWatchability, WATCHABILITY_THRESHOLDS, WATCHABILITY_AVERAGE_THRESHOLD } from "../src/workers/watchability-release.ts";
+import { watchabilityProfile } from "../src/watchability-policy.ts";
 
 function passingScores() {
   const out: Record<string, number> = {};
@@ -13,6 +14,48 @@ test("passes when every growth dimension and the average clear the bar", () => {
   assert.equal(result.passed, true); assert.equal(result.abandonRecommended, false); assert.deepEqual(result.failures, []);
   assert.ok(result.average >= WATCHABILITY_AVERAGE_THRESHOLD);
   assert.equal(result.average, result.rawAverage);
+  assert.equal(result.profile.mode, "long_form");
+});
+
+test("compact profile changes only first-30, suspense and aggregate floors", () => {
+  const compact = watchabilityProfile(60);
+  const long = watchabilityProfile(600);
+  assert.equal(compact.mode, "compact");
+  assert.equal(compact.thresholds.first_30_fidelity, 0.70);
+  assert.equal(compact.thresholds.suspense, 0.65);
+  assert.equal(compact.averageThreshold, 0.77);
+  assert.equal(long.thresholds.first_30_fidelity, 0.80);
+  assert.equal(long.thresholds.suspense, 0.75);
+  assert.equal(long.averageThreshold, 0.79);
+  for (const dimension of ["hook", "package_fidelity", "watchability", "entertainment", "payoff", "youtube_fit"] as const) {
+    assert.equal(compact.thresholds[dimension], long.thresholds[dimension], `${dimension} must not be weakened for a 60s probe`);
+  }
+});
+
+test("a 60s draft can pass compact semantics while the same scores still fail long-form", () => {
+  const scores = passingScores();
+  scores["hook"] = 0.84;
+  scores["first_30_fidelity"] = 0.72;
+  scores["suspense"] = 0.68;
+  scores["package_fidelity"] = 0.86;
+  scores["watchability"] = 0.80;
+  scores["entertainment"] = 0.76;
+  scores["payoff"] = 0.80;
+  scores["youtube_fit"] = 0.80;
+  const compact = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores }, 60);
+  const long = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores }, 600);
+  assert.equal(compact.passed, true);
+  assert.equal(long.passed, false);
+  assert.ok(long.failures.some((f) => f.startsWith("first_30_fidelity=0.72")));
+  assert.ok(long.failures.some((f) => f.startsWith("suspense=0.68")));
+});
+
+test("90-180s smoothly interpolates rather than switching to a second graph/profile", () => {
+  const mid = watchabilityProfile(135);
+  assert.equal(mid.mode, "transition");
+  assert.equal(mid.thresholds.first_30_fidelity, 0.75);
+  assert.equal(mid.thresholds.suspense, 0.70);
+  assert.equal(mid.averageThreshold, 0.78);
 });
 
 test("an execution-level weakness blocks for revision without abandoning the topic", () => {
@@ -25,7 +68,7 @@ test("an execution-level weakness blocks for revision without abandoning the top
 test("a rejected high-average draft can never outrank a genuinely passing draft", () => {
   const rejectedScores = passingScores();
   for (const key of Object.keys(rejectedScores)) rejectedScores[key] = 0.99;
-  rejectedScores["payoff"] = 0.74; // fails its 0.75 dimension despite a huge raw mean
+  rejectedScores["payoff"] = 0.74;
   const rejected = assessWatchability({ verdict: "revise", abandon_recommended: false, abandon_reason: "", scores: rejectedScores });
 
   const passing = passingScores();
