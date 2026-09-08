@@ -50,6 +50,37 @@ test("a 60s draft can pass compact semantics while the same scores still fail lo
   assert.ok(long.failures.some((f) => f.startsWith("suspense=0.68")));
 });
 
+test("report-carried duration keeps unattended best-of-N on the same compact release surface", () => {
+  const scores = passingScores();
+  scores["hook"] = 0.84;
+  scores["first_30_fidelity"] = 0.72;
+  scores["suspense"] = 0.68;
+  scores["package_fidelity"] = 0.86;
+  scores["watchability"] = 0.80;
+  scores["entertainment"] = 0.76;
+  scores["payoff"] = 0.80;
+  scores["youtube_fit"] = 0.80;
+  const fromReport = assessWatchability({
+    target_duration_sec: 60,
+    verdict: "pass",
+    abandon_recommended: false,
+    abandon_reason: "",
+    scores,
+  });
+  assert.equal(fromReport.profile.mode, "compact");
+  assert.equal(fromReport.profile.targetDurationSec, 60);
+  assert.equal(fromReport.passed, true);
+});
+
+test("legacy reports without duration remain long-form compatible", () => {
+  const scores = passingScores();
+  scores["first_30_fidelity"] = 0.72;
+  scores["suspense"] = 0.68;
+  const legacy = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores });
+  assert.equal(legacy.profile.mode, "long_form");
+  assert.equal(legacy.passed, false);
+});
+
 test("90-180s smoothly interpolates rather than switching to a second graph/profile", () => {
   const mid = watchabilityProfile(135);
   assert.equal(mid.mode, "transition");
