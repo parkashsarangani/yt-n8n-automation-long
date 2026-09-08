@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessWatchability, WATCHABILITY_THRESHOLDS, WATCHABILITY_AVERAGE_THRESHOLD } from "../src/workers/watchability-release.ts";
+import {
+  assessWatchability,
+  WATCHABILITY_THRESHOLDS,
+  WATCHABILITY_AVERAGE_THRESHOLD,
+} from "../src/workers/watchability-release.ts";
+import {
+  COMPACT_WATCHABILITY_AVERAGE_THRESHOLD,
+  COMPACT_WATCHABILITY_THRESHOLDS,
+  watchabilityPolicyForDuration,
+} from "../src/watchability-policy.ts";
 
 function passingScores() {
   const out: Record<string, number> = {};
@@ -22,10 +31,62 @@ test("an execution-level weakness blocks for revision without abandoning the top
   assert.ok(result.failures.some((f) => f.startsWith("suspense=0.60")));
 });
 
+test("long-form thresholds stay exactly unchanged when duration is absent or >=180s", () => {
+  for (const duration of [undefined, 180, 600]) {
+    const policy = watchabilityPolicyForDuration(duration);
+    assert.equal(policy.profile, "long_form");
+    assert.deepEqual(policy.thresholds, WATCHABILITY_THRESHOLDS);
+    assert.equal(policy.averageThreshold, WATCHABILITY_AVERAGE_THRESHOLD);
+  }
+});
+
+test("60s compact profile only relaxes duration-sensitive first30/suspense/average floors", () => {
+  const policy = watchabilityPolicyForDuration(60);
+  assert.equal(policy.profile, "compact");
+  assert.equal(policy.thresholds.first_30_fidelity, COMPACT_WATCHABILITY_THRESHOLDS.first_30_fidelity);
+  assert.equal(policy.thresholds.suspense, COMPACT_WATCHABILITY_THRESHOLDS.suspense);
+  assert.equal(policy.averageThreshold, COMPACT_WATCHABILITY_AVERAGE_THRESHOLD);
+  for (const dimension of ["hook", "package_fidelity", "watchability", "entertainment", "payoff", "youtube_fit"] as const) {
+    assert.equal(policy.thresholds[dimension], WATCHABILITY_THRESHOLDS[dimension], `${dimension} must not become easier for compact probes`);
+  }
+});
+
+test("90-180s transition interpolates monotonically back to the established long-form contract", () => {
+  const compact = watchabilityPolicyForDuration(90);
+  const middle = watchabilityPolicyForDuration(135);
+  const long = watchabilityPolicyForDuration(180);
+  assert.equal(middle.profile, "transition");
+  assert.ok(middle.thresholds.first_30_fidelity > compact.thresholds.first_30_fidelity);
+  assert.ok(middle.thresholds.first_30_fidelity < long.thresholds.first_30_fidelity);
+  assert.ok(middle.thresholds.suspense > compact.thresholds.suspense);
+  assert.ok(middle.thresholds.suspense < long.thresholds.suspense);
+  assert.ok(middle.averageThreshold > compact.averageThreshold);
+  assert.ok(middle.averageThreshold < long.averageThreshold);
+});
+
+test("a compact-probe draft can clear proportionate duration floors while the same scores still fail long-form", () => {
+  const scores = {
+    hook: 0.84,
+    first_30_fidelity: 0.72,
+    package_fidelity: 0.86,
+    suspense: 0.70,
+    watchability: 0.82,
+    entertainment: 0.78,
+    payoff: 0.80,
+    youtube_fit: 0.82,
+  };
+  const compact = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores }, 60);
+  const long = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores }, 600);
+  assert.equal(compact.passed, true);
+  assert.equal(long.passed, false);
+  assert.ok(long.failures.some((f) => f.startsWith("first_30_fidelity=")));
+  assert.ok(long.failures.some((f) => f.startsWith("suspense=")));
+});
+
 test("a rejected high-average draft can never outrank a genuinely passing draft", () => {
   const rejectedScores = passingScores();
   for (const key of Object.keys(rejectedScores)) rejectedScores[key] = 0.99;
-  rejectedScores["payoff"] = 0.74; // fails its 0.75 dimension despite a huge raw mean
+  rejectedScores["payoff"] = 0.74;
   const rejected = assessWatchability({ verdict: "revise", abandon_recommended: false, abandon_reason: "", scores: rejectedScores });
 
   const passing = passingScores();
@@ -33,9 +94,9 @@ test("a rejected high-average draft can never outrank a genuinely passing draft"
   const accepted = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores: passing });
 
   assert.equal(rejected.passed, false);
-  assert.ok(rejected.rawAverage > accepted.rawAverage, "fixture must prove the rejected draft has the higher arithmetic mean");
-  assert.ok(rejected.average < WATCHABILITY_AVERAGE_THRESHOLD, "selection score for any rejected draft is capped below release");
-  assert.ok(accepted.average > rejected.average, "the service must never restore a rejected draft after a later pass");
+  assert.ok(rejected.rawAverage > accepted.rawAverage);
+  assert.ok(rejected.average < WATCHABILITY_AVERAGE_THRESHOLD);
+  assert.ok(accepted.average > rejected.average);
 });
 
 test("material package weakness becomes an abandonment outcome", () => {
