@@ -609,7 +609,20 @@ export class VidGenService {
    * — strategy/package, watchability evaluation, moderation, TTS, RFC 0010
    * visuals, SEO/thumbnail, render, QA and publish — is the same production DAG.
    */
-  async startManualRun(input: ManualScriptInput, durationSec = 540, opts: RunOptions = {}): Promise<string> {
+  async startManualRun(
+    input: ManualScriptInput,
+    durationSec = 540,
+    opts: RunOptions & {
+      /**
+       * Reuse an existing `voice` artifact instead of re-synthesizing TTS.
+       * ONLY valid when the operator narration produces a byte-identical
+       * `script` artifact to the run that generated this voice (the executor
+       * still records real upstream lineage). Operator escape hatch for a
+       * spent TTS quota during a diagnostic rerun of an unchanged script.
+       */
+      reuseVoiceArtifactId?: string;
+    } = {},
+  ): Promise<string> {
     const episode = buildManualEpisode(input); // throws with a clear message on bad input
     if (!process.env["OPENAI_API_KEY"]?.trim()) {
       throw new Error("OPENAI_API_KEY is not set — the production reasoning agents cannot run");
@@ -660,10 +673,21 @@ export class VidGenService {
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
 
+    let reusedVoiceId: string | undefined;
+    if (opts.reuseVoiceArtifactId) {
+      const voiceArtifact = await this.store.get(opts.reuseVoiceArtifactId);
+      if (!voiceArtifact || voiceArtifact.schema_id !== "voice") {
+        throw new Error(`reuseVoiceArtifactId ${opts.reuseVoiceArtifactId} is not a stored voice artifact`);
+      }
+      reusedVoiceId = opts.reuseVoiceArtifactId;
+      console.log(`[run ${runId.slice(4, 12)}] reusing voice artifact ${reusedVoiceId.slice(0, 20)}… (operator-confirmed identical script)`);
+    }
+
     const presetOutputs = {
       package: growthPackage.artifact.artifact_id,
       story: story.artifact.artifact_id,
       draft_script: script.artifact.artifact_id,
+      ...(reusedVoiceId ? { voice: reusedVoiceId } : {}),
     };
     this.runs.set(runId, {
       runId,

@@ -132,6 +132,7 @@ export function createUiServer(opts: ServerOptions) {
         narration?: string;
         topic?: string;
         duration_sec?: number;
+        reuse_voice_artifact_id?: string;
       };
       const runId = await service.startManualRun(
         {
@@ -141,6 +142,7 @@ export function createUiServer(opts: ServerOptions) {
           topic: body.topic,
         },
         body.duration_sec ?? 540,
+        body.reuse_voice_artifact_id ? { reuseVoiceArtifactId: String(body.reuse_voice_artifact_id) } : {},
       );
       json(res, 201, { run_id: runId });
       return;
