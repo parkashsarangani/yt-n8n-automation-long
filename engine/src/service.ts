@@ -647,6 +647,9 @@ export class VidGenService {
     });
     const growthPackage = await this.store.put({
       schema_id: "growth_package",
+      // The `package` node (growth_packager) emits 1.2.0; package_release
+      // re-emits the released 1.3.0 that every consumer reads.
+      schema_version: "1.2.0",
       payload: episode.growth_package,
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
     });
