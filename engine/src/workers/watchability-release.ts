@@ -120,7 +120,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "4",
+    version: "5",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
@@ -138,7 +138,17 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       if (packageErrors.length > 0) {
         throw new Error(`watchability release blocked (${PACKAGE_CONTRACT_MARKER}): ${packageErrors.join("; ")}`);
       }
-      return { payload: enforceContinuationBridge(inputs["script"]!.payload, inputs["package"]?.payload) };
+
+      // Manual-script mode is a promise to use the operator's exact words.
+      // Evaluate the script against the same production watchability/package
+      // gates, but never inject/replace an outro behind the operator's back.
+      const script = inputs["script"]!;
+      const isOperatorAuthored = script.produced_by?.transformation === "human";
+      return {
+        payload: isOperatorAuthored
+          ? script.payload
+          : enforceContinuationBridge(script.payload, inputs["package"]?.payload),
+      };
     },
   };
 }
