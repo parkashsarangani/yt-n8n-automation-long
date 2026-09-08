@@ -732,11 +732,11 @@ export class VidGenService {
           assetRegens++;
           console.log(
             `[run ${runId.slice(4, 12)}] unattended: qa reported ${blankScenes} blank scene(s) -- ` +
-              `regenerating just those and re-rendering (attempt ${assetRegens}/${maxAssetRegens})`,
+              `regenerating resolved visual beats and re-rendering (attempt ${assetRegens}/${maxAssetRegens})`,
           );
           const state = this.runs.get(runId)!;
           const graph = this.resolveRunGraph(state.graph);
-          await this.executor.regenerateNode(graph, runId, "assets", `qa reported ${blankScenes} blank/placeholder scene(s)`);
+          await this.executor.regenerateNode(graph, runId, "visual_assets", `qa reported ${blankScenes} blank/placeholder scene(s)`);
           await this.retry(runId);
           continue;
         }
