@@ -4,7 +4,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { visualDirectorCoverageErrors } from "../src/agent-validators.ts";
+import {
+  visualDirectorCoverageErrors,
+  repairVisualDirectorNarration,
+  splitApprovedNarration,
+} from "../src/agent-validators.ts";
 import { sliceCharacterAlignment } from "../src/workers/visual-timeline-render.ts";
 import { buildVisualTimelineManifest } from "../src/workers/visual-timeline-manifest.ts";
 import { assessVisualBeatRelease } from "../src/workers/visual-beat-release.ts";
@@ -27,51 +31,105 @@ test("production illustrated graph uses RFC0010 visual stack and not the legacy 
   assert.equal(tx.includes("illustrated_scene_assets"), false);
 });
 
-test("production visual director v4 is full-episode, illustration-first and keeps the visible payoff + fallback contract", async () => {
+test("production visual director v5 is full-episode, illustration-first and keeps its representation + payoff + fallback contracts", async () => {
   const agent = JSON.parse(await readFile(path.join(ROOT, "agents/visual_director.json"), "utf8")) as {
     version: string;
     prompt: string;
+    produces_version?: string;
     consumes: Array<{ as: string }>;
     model: { max_output_tokens?: number };
   };
-  assert.equal(agent.version, "4");
-  assert.equal(agent.prompt, "visual_director@4");
+  assert.equal(agent.version, "5");
+  assert.equal(agent.prompt, "visual_director@5");
+  assert.equal(agent.produces_version, "1.2.0", "the expressive semantic-scene schema must be the produced version");
   assert.equal(agent.model.max_output_tokens, 24000, "do not hide payload incompatibility by truncating the production plan budget");
   assert.ok(agent.consumes.some((input) => input.as === "intent"));
-  const prompt = await readFile(path.join(ROOT, "prompts/visual_director/4.md"), "utf8");
-  assert.match(prompt, /Cover EVERY narration scene/i);
-  assert.match(prompt, /Never stop at a benchmark window or 90–120 seconds/i);
-  assert.match(prompt, /ILLUSTRATED PRODUCTION GRAMMAR/i);
-  assert.match(prompt, /Final takeaway.*visible transformation/is);
-  assert.match(prompt, /first non-empty `continuity\.identity` is authoritative/i);
-  assert.match(prompt, /timeline\/process\/cause-chain entity must be visibly labeled/i);
-  assert.match(prompt, /meaningless boxes\/cards/i);
-  // v4: the fallback contract is now stated as hard-enforced.
-  assert.match(prompt, /HARD-ENFORCED FALLBACK CONTRACT/i);
-  assert.match(prompt, /preferred.*and.*fallback.*MUST be different visual modes/i);
-  assert.match(prompt, /headline restating the narration can NEVER be the plan/i);
+
+  const prompt = await readFile(path.join(ROOT, "prompts/visual_director/5.md"), "utf8");
+  // Full-episode coverage + measured-voice beat density.
+  assert.match(prompt, /Cover EVERY script scene in order/i);
+  assert.match(prompt, /ceil\(scene_voice_seconds\s*\/\s*10\)/i);
+  // Engine owns the exact narration bytes; the model owns beat count/semantics.
+  assert.match(prompt, /engine canonically derives the exact beat narration bytes/i);
+  // Genuine alternate representations.
+  assert.match(prompt, /`routing\.preferred` and `routing\.fallback` MUST differ/i);
+  assert.match(prompt, /Never declare an alternate you cannot actually render/i);
+  // Representation is chosen by information structure, and the expressive kinds exist.
+  assert.match(prompt, /REPRESENTATION SELECTION/i);
+  assert.match(prompt, /`cause_chain`:/i);
+  assert.match(prompt, /`branching`:/i);
+  assert.match(prompt, /one source node MUST have >=2 outgoing edges/i);
+  assert.match(prompt, /DOUBLE-DOSE STYLE REGRESSION RULE/i);
+  // No generic filler; payoff must resolve, not summarise.
+  assert.match(prompt, /decorative boxes, or narration-restating card is failure/i);
+  assert.match(prompt, /final payoff must visibly RESOLVE the story/i);
+  assert.match(prompt, /Do not finish with another summary node chain/i);
+  // Continuity first-identity-wins and no generated pseudo-text.
+  assert.match(prompt, /First non-empty `continuity\.identity` wins/i);
+  assert.match(prompt, /no pseudo-writing\/readable gibberish/i);
 });
 
-test("visual director hard coverage validator rejects truncated or paraphrased production plans", () => {
+test("splitApprovedNarration slices immutable script text into contiguous phrase-aligned chunks", () => {
+  const text = "She checked the log. The line was impossible; bed twelve was empty. Nobody had signed.";
+  for (const count of [1, 2, 3, 4]) {
+    const chunks = splitApprovedNarration(text, count);
+    assert.equal(chunks.length, count);
+    assert.equal(chunks.join(""), text, "concatenation must reproduce the source byte-for-byte");
+    assert.ok(chunks.every((chunk) => chunk.length > 0), "no empty chunk");
+  }
+  // Splits land at phrase boundaries, not mid-word.
+  const two = splitApprovedNarration(text, 2);
+  assert.ok(/\S$/.test(two[0]!) && /^\s|^\S/.test(two[1]!));
+  assert.match(two[0]!.trimEnd(), /[.!?;:,]$/);
+});
+
+test("visual director coverage: the engine owns the exact bytes, the model owns beat count/semantics", () => {
   const script = { scenes: [
-    { scene_index: 0, narration: "Exact opening." },
-    { scene_index: 1, narration: "Exact closing." },
+    { scene_index: 0, narration: "She checked the overnight log. One line did not add up." },
+    { scene_index: 1, narration: "Bed twelve was empty. Nobody had signed for the dose." },
   ] };
-  assert.deepEqual(visualDirectorCoverageErrors({ beats: [
-    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Exact opening." },
-    { id: "beat_002", scene_index: 1, beat_index: 0, narration: "Exact closing." },
-  ] }, script), []);
 
-  const truncated = visualDirectorCoverageErrors({ beats: [
-    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Exact opening." },
-  ] }, script);
-  assert.ok(truncated.some((error) => /scene 1: visual plan has no beats/.test(error)));
+  // A plan whose beat narration is PARAPHRASED is repaired to byte-exact text
+  // from the approved script (the model no longer has to retype punctuation).
+  const paraphrased: { beats: Array<{ id: string; scene_index: number; beat_index: number; narration: string }> } = { beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "she checked the log" },
+    { id: "beat_002", scene_index: 0, beat_index: 1, narration: "a line didn't add up" },
+    { id: "beat_003", scene_index: 1, beat_index: 0, narration: "bed 12 empty, no signature" },
+  ] };
+  const repairs = repairVisualDirectorNarration(paraphrased, script);
+  assert.ok(repairs.length >= 2, "each drifted beat is repaired");
+  assert.equal(
+    paraphrased.beats.filter((b) => b.scene_index === 0).map((b) => b.narration).join(""),
+    script.scenes[0]!.narration,
+    "scene 0 beats now concatenate to the approved narration exactly",
+  );
+  assert.equal(
+    paraphrased.beats.filter((b) => b.scene_index === 1).map((b) => b.narration).join(""),
+    script.scenes[1]!.narration,
+  );
+  assert.deepEqual(visualDirectorCoverageErrors(paraphrased, script), [], "after repair, coverage is clean");
 
-  const paraphrased = visualDirectorCoverageErrors({ beats: [
-    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "Opening paraphrase." },
-    { id: "beat_002", scene_index: 1, beat_index: 0, narration: "Exact closing." },
+  // Structural defects the engine CANNOT silently repair still hard-fail:
+  // a missing scene, non-contiguous beat_index, and non-sequential global ids.
+  const missingScene = visualDirectorCoverageErrors(
+    { beats: [{ id: "beat_001", scene_index: 0, beat_index: 0, narration: "x" }] },
+    script,
+  );
+  assert.ok(missingScene.some((e) => /scene 1: visual plan has no beats/.test(e)));
+
+  const misnumbered = visualDirectorCoverageErrors({ beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "a" },
+    { id: "beat_003", scene_index: 1, beat_index: 1, narration: "b" },
   ] }, script);
-  assert.ok(paraphrased.some((error) => /does not exactly reproduce/.test(error)));
+  assert.ok(misnumbered.some((e) => /beat_index must be contiguous from 0/.test(e)));
+  assert.ok(misnumbered.some((e) => /expected global id beat_002/.test(e)));
+
+  const extraScene = visualDirectorCoverageErrors({ beats: [
+    { id: "beat_001", scene_index: 0, beat_index: 0, narration: "a" },
+    { id: "beat_002", scene_index: 1, beat_index: 0, narration: "b" },
+    { id: "beat_003", scene_index: 9, beat_index: 0, narration: "c" },
+  ] }, script);
+  assert.ok(extraScene.some((e) => /scene\(s\) not present in the approved script: 9/.test(e)));
 });
 
 test("beat audio alignment is sliced and rebased for phrase-aware production captions", () => {

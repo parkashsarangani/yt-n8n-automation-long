@@ -1,32 +1,19 @@
 /**
- * RFC 0010 semantic scenes — the structured "WHAT must be visible" for a
- * deterministic explanatory graphic.
- *
- * The previous motion-graphic path handed the renderer a prose brief plus a
- * bag of `{kind:"concept"}` entities, and the renderer answered with the same
- * abstract rectangles for every beat: a rendered benchmark scored those beats
- * 0.05-0.28 semantic match and 0.60 generic filler, because "two boxes and a
- * caption" genuinely is reusable for any sentence. Prose brief -> generic
- * geometry is not a representation; it is decoration that happens to be
- * timed to narration.
- *
- * A SemanticScene is instead a small set of *named quantities and relations*
- * that a renderer must draw literally: an axis with a unit and a maximum,
- * markers carrying their own value/rate/elapsed labels, an equation, ordered
- * timeline nodes, process steps. If a beat cannot be described this way it is
- * not a semantic graphic and must fall back to kinetic text (`kinetic_phrase`)
- * rather than being smeared into a diagram-shaped placeholder.
- *
- * This module is pure: types, validation, sequence-state threading and phrase
- * extraction. It performs no rendering and no I/O, so every rule here is
- * covered by fast deterministic tests rather than by a 30-minute live render.
+ * RFC 0010 semantic scenes — structured WHAT-must-be-visible data for
+ * deterministic explanatory graphics. Rendering code owns geometry; the
+ * Visual Director owns named entities, relationships and concise labels.
  */
 
 export type SemanticSceneKind =
   | "scale_comparison"
   | "timeline"
   | "process"
+  | "cause_chain"
+  | "branching"
+  | "comparison"
   | "before_after"
+  | "relationship_graph"
+  | "sequence"
   | "quantity"
   | "kinetic_phrase";
 
@@ -34,33 +21,28 @@ export const SEMANTIC_SCENE_KINDS: readonly SemanticSceneKind[] = Object.freeze(
   "scale_comparison",
   "timeline",
   "process",
+  "cause_chain",
+  "branching",
+  "comparison",
   "before_after",
+  "relationship_graph",
+  "sequence",
   "quantity",
   "kinetic_phrase",
 ]);
 
-/** A single labelled thing the viewer must actually see on the graphic. */
 export interface SemanticMarker {
-  /** Stable within a sequence, so a later beat can retain/extend this marker. */
   id: string;
-  /** Short display name, e.g. "Walking". Not a sentence. */
   label: string;
-  /** Position on the scene's axis, in the axis unit. */
   value: number;
-  /** e.g. "5 km/h" — the rate that produced `value`, drawn beside the marker. */
   rate_label?: string;
-  /** e.g. "4 hours" — elapsed time at `value`, drawn at the marker's endpoint. */
   time_label?: string;
-  /** Established by an earlier beat of the same sequence; drawn already-complete. */
   retained?: boolean;
 }
 
 export interface SemanticAxis {
-  /** e.g. "distance". */
   label: string;
-  /** e.g. "km". */
   unit: string;
-  /** Axis maximum in `unit`; the origin is always 0. */
   max: number;
 }
 
@@ -71,36 +53,33 @@ export interface SemanticNode {
   retained?: boolean;
 }
 
+export interface SemanticEdge {
+  from: string;
+  to: string;
+  label?: string;
+  retained?: boolean;
+}
+
 export interface SemanticPhraseLine {
   text: string;
-  /** Exactly one line in a kinetic phrase is the emphasised value/keyword. */
   emphasis: boolean;
 }
 
 /**
- * Flat rather than a discriminated union on purpose: the Visual Director
- * authors this as JSON against a draft-2020-12 schema, and per-`kind` `oneOf`
- * branches with `additionalProperties:false` are exactly the shape LLMs fail
- * to satisfy most often. `kind` selects which fields are required; the
- * unrelated ones are simply absent. `validateSemanticScene` is the real
- * contract.
+ * Flat authoring shape on purpose. Per-kind invariants live in
+ * validateSemanticScene so structured-output models do not have to satisfy a
+ * deeply nested oneOf union while still being held to a hard semantic contract.
  */
 export interface SemanticScene {
   kind: SemanticSceneKind;
-  /**
-   * Beats sharing a sequence id render as ONE evolving composition rather than
-   * three independent resets. Threading is done by `threadSemanticSequence`.
-   */
   sequence_id?: string;
-  /** True when this beat continues an already-established sequence scene. */
   continuation?: boolean;
-  /** Short on-screen phrase. Never the full viewer_takeaway sentence. */
   caption: string;
   axis?: SemanticAxis;
   markers?: SemanticMarker[];
-  /** e.g. "5 × 4 = 20 km" — drawn large and legible when present. */
   equation?: string;
   nodes?: SemanticNode[];
+  edges?: SemanticEdge[];
   steps?: SemanticNode[];
   before?: SemanticNode;
   after?: SemanticNode;
@@ -108,13 +87,11 @@ export interface SemanticScene {
   lines?: SemanticPhraseLine[];
 }
 
-/** Hard cap so a caption can never become the paragraph-length overflow the
- * rendered benchmark showed clipping off both frame edges. */
 export const MAX_CAPTION_CHARS = 64;
-/** Kinetic text is read at a glance; a line longer than this cannot be set at
- * an emphatic size inside the 1920px safe area. */
 export const MAX_PHRASE_LINE_CHARS = 28;
 export const MAX_PHRASE_LINES = 3;
+export const MAX_SEMANTIC_NODES = 7;
+export const MAX_SEMANTIC_EDGES = 9;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -124,20 +101,58 @@ function trimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/**
- * Structural validation. Returns human-readable errors; an empty array means
- * the scene can be drawn literally.
- *
- * The point of every rule here is the same: refuse a scene that would render
- * as anonymous geometry. A `scale_comparison` without an axis unit, or with
- * markers that carry no value, is precisely the "abstract boxes" failure —
- * so it is rejected at the contract, not discovered in the rendered pixels.
- */
+function validateNodes(scene: SemanticScene, beatId: string, min = 2): string[] {
+  const errors: string[] = [];
+  const nodes = scene.nodes;
+  if (!Array.isArray(nodes) || nodes.length < min) {
+    return [`${beatId}: ${scene.kind} requires at least ${min} labelled nodes`];
+  }
+  if (nodes.length > MAX_SEMANTIC_NODES) {
+    errors.push(`${beatId}: ${scene.kind} has ${nodes.length} nodes > ${MAX_SEMANTIC_NODES}`);
+  }
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    const id = trimmed(node?.id);
+    if (!id) errors.push(`${beatId}: every node needs a stable id`);
+    else if (seen.has(id)) errors.push(`${beatId}: duplicate node id '${id}'`);
+    else seen.add(id);
+    if (!trimmed(node?.label)) errors.push(`${beatId}: node '${id}' has no label`);
+  }
+  return errors;
+}
+
+function validateEdges(scene: SemanticScene, beatId: string, min = 1): string[] {
+  const errors: string[] = [];
+  const edges = scene.edges;
+  if (!Array.isArray(edges) || edges.length < min) {
+    return [`${beatId}: ${scene.kind} requires at least ${min} explicit relationship edge(s)`];
+  }
+  if (edges.length > MAX_SEMANTIC_EDGES) {
+    errors.push(`${beatId}: ${scene.kind} has ${edges.length} edges > ${MAX_SEMANTIC_EDGES}`);
+  }
+  const ids = new Set((scene.nodes ?? []).map((node) => trimmed(node.id)).filter(Boolean));
+  const pairs = new Set<string>();
+  for (const edge of edges) {
+    const from = trimmed(edge?.from);
+    const to = trimmed(edge?.to);
+    if (!from || !to) {
+      errors.push(`${beatId}: every edge needs non-empty from/to ids`);
+      continue;
+    }
+    if (from === to) errors.push(`${beatId}: edge '${from}->${to}' is a self-loop`);
+    if (!ids.has(from)) errors.push(`${beatId}: edge source '${from}' is not a declared node`);
+    if (!ids.has(to)) errors.push(`${beatId}: edge target '${to}' is not a declared node`);
+    const pair = `${from}->${to}`;
+    if (pairs.has(pair)) errors.push(`${beatId}: duplicate edge '${pair}'`);
+    pairs.add(pair);
+  }
+  return errors;
+}
+
 export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): string[] {
   const errors: string[] = [];
   if (!SEMANTIC_SCENE_KINDS.includes(scene.kind)) {
-    errors.push(`${beatId}: unknown semantic scene kind '${String(scene.kind)}'`);
-    return errors;
+    return [`${beatId}: unknown semantic scene kind '${String(scene.kind)}'`];
   }
   const caption = trimmed(scene.caption);
   if (!caption) errors.push(`${beatId}: semantic scene caption is empty`);
@@ -157,14 +172,12 @@ export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): s
       else if (seen.has(id)) errors.push(`${beatId}: duplicate ${field} id '${id}'`);
       else seen.add(id);
       if (!trimmed(marker?.label)) errors.push(`${beatId}: ${field} '${id}' has no label`);
-      if (requireValue && !isFiniteNumber(marker?.value)) {
-        errors.push(`${beatId}: ${field} '${id}' has no numeric value; an unvalued marker draws as an anonymous shape`);
-      }
+      if (requireValue && !isFiniteNumber(marker?.value)) errors.push(`${beatId}: ${field} '${id}' has no numeric value`);
     }
     return list;
   };
 
-  const nodeErrors = (list: SemanticNode[] | undefined, field: string): void => {
+  const stepErrors = (list: SemanticNode[] | undefined, field: string): void => {
     if (!Array.isArray(list) || list.length < 2) {
       errors.push(`${beatId}: ${scene.kind} requires at least 2 ${field}`);
       return;
@@ -182,11 +195,10 @@ export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): s
   switch (scene.kind) {
     case "scale_comparison": {
       const axis = scene.axis;
-      if (!axis) {
-        errors.push(`${beatId}: scale_comparison requires an axis`);
-      } else {
+      if (!axis) errors.push(`${beatId}: scale_comparison requires an axis`);
+      else {
         if (!trimmed(axis.label)) errors.push(`${beatId}: axis has no label`);
-        if (!trimmed(axis.unit)) errors.push(`${beatId}: axis has no unit; an unlabelled scale is not a scale`);
+        if (!trimmed(axis.unit)) errors.push(`${beatId}: axis has no unit`);
         if (!isFiniteNumber(axis.max) || axis.max <= 0) errors.push(`${beatId}: axis.max must be a positive number`);
       }
       const markers = markerErrors(scene.markers, "markers", true);
@@ -200,10 +212,30 @@ export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): s
       break;
     }
     case "timeline":
-      nodeErrors(scene.nodes, "nodes");
+    case "sequence":
+    case "comparison":
+      errors.push(...validateNodes(scene, beatId, 2));
+      if (scene.kind === "comparison" && (scene.nodes?.length ?? 0) > 3) {
+        errors.push(`${beatId}: comparison supports at most 3 compared sides`);
+      }
       break;
     case "process":
-      nodeErrors(scene.steps, "steps");
+      stepErrors(scene.steps, "steps");
+      break;
+    case "cause_chain":
+      errors.push(...validateNodes(scene, beatId, 2), ...validateEdges(scene, beatId, 1));
+      break;
+    case "branching": {
+      errors.push(...validateNodes(scene, beatId, 3), ...validateEdges(scene, beatId, 2));
+      const counts = new Map<string, number>();
+      for (const edge of scene.edges ?? []) counts.set(edge.from, (counts.get(edge.from) ?? 0) + 1);
+      if (![...counts.values()].some((count) => count >= 2)) {
+        errors.push(`${beatId}: branching requires one source node with at least two outgoing outcomes`);
+      }
+      break;
+    }
+    case "relationship_graph":
+      errors.push(...validateNodes(scene, beatId, 2), ...validateEdges(scene, beatId, 1));
       break;
     case "before_after":
       if (!trimmed(scene.before?.label)) errors.push(`${beatId}: before_after requires a labelled 'before'`);
@@ -218,19 +250,13 @@ export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): s
         errors.push(`${beatId}: kinetic_phrase requires at least one line`);
         break;
       }
-      if (lines.length > MAX_PHRASE_LINES) {
-        errors.push(`${beatId}: kinetic_phrase has ${lines.length} lines > ${MAX_PHRASE_LINES}`);
-      }
+      if (lines.length > MAX_PHRASE_LINES) errors.push(`${beatId}: kinetic_phrase has ${lines.length} lines > ${MAX_PHRASE_LINES}`);
       for (const line of lines) {
         const text = trimmed(line?.text);
         if (!text) errors.push(`${beatId}: kinetic_phrase has an empty line`);
-        if (text.length > MAX_PHRASE_LINE_CHARS) {
-          errors.push(`${beatId}: kinetic_phrase line '${text.slice(0, 24)}…' is ${text.length} chars > ${MAX_PHRASE_LINE_CHARS}`);
-        }
+        if (text.length > MAX_PHRASE_LINE_CHARS) errors.push(`${beatId}: kinetic_phrase line is ${text.length} chars > ${MAX_PHRASE_LINE_CHARS}`);
       }
-      if (lines.filter((line) => line?.emphasis === true).length !== 1) {
-        errors.push(`${beatId}: kinetic_phrase needs exactly one emphasis line`);
-      }
+      if (lines.filter((line) => line?.emphasis === true).length !== 1) errors.push(`${beatId}: kinetic_phrase needs exactly one emphasis line`);
       break;
     }
   }
@@ -238,15 +264,8 @@ export function validateSemanticScene(scene: SemanticScene, beatId = "scene"): s
 }
 
 const FILLER_WORDS = new Set([
-  "the","a","an","is","are","was","were","be","been","being","to","of","in","on","at","by","for",
-  "with","and","or","but","that","this","those","these","it","its","as","from","than","then","so",
-  "can","could","will","would","has","have","had","does","do","did","just","very","really","about",
+  "the","a","an","is","are","was","were","be","been","being","to","of","in","on","at","by","for","with","and","or","but","that","this","those","these","it","its","as","from","than","then","so","can","could","will","would","has","have","had","does","do","did","just","very","really","about",
 ]);
-
-/** Title-case-ish emphasis for a short keyword line without shouting acronyms. */
-function emphasise(text: string): string {
-  return text.toUpperCase();
-}
 
 function squeeze(text: string, limit: number): string {
   const clean = text.replace(/\s+/g, " ").trim().replace(/[.,;:]+$/, "");
@@ -258,97 +277,39 @@ function squeeze(text: string, limit: number): string {
     if (candidate.length > limit) break;
     kept.push(word);
   }
-  if (kept.length === 0) return clean.slice(0, limit).trim();
-  return kept.join(" ");
+  return kept.length ? kept.join(" ") : clean.slice(0, limit).trim();
 }
 
-/**
- * Numbers with their units, in narration order: "5 km/h", "20 kilometers",
- * "four hours". These are what a viewer actually needs to see, and the
- * rendered benchmark showed the old renderer dropping every one of them.
- */
-const VALUE_PATTERN =
-  /\b(\d[\d,.]*\s*(?:km\/h|kmph|mph|km|kilometers?|kilometres?|miles?|metres?|meters?|m|seconds?|s|minutes?|min|hours?|h|days?|years?|%|percent)|\d[\d,.]*)\b/gi;
+const VALUE_PATTERN = /\b(\d[\d,.]*\s*(?:km\/h|kmph|mph|km|kilometers?|kilometres?|miles?|metres?|meters?|m|seconds?|s|minutes?|min|hours?|h|days?|years?|%|percent)|\d[\d,.]*)\b/gi;
+const WORD_NUMBER_PATTERN = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million|billion)\s+(kilometers?|kilometres?|km|miles?|hours?|minutes?|seconds?|days?|years?)\b/gi;
 
-const WORD_NUMBER_PATTERN =
-  /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million|billion)\s+(kilometers?|kilometres?|km|miles?|hours?|minutes?|seconds?|days?|years?)\b/gi;
-
-/**
- * Derive a short, emphatic kinetic phrase from a narration/takeaway sentence.
- *
- * The rendered benchmark put "Walking at five kilometers an hour covers twenty
- * kilometers in four hours." on screen as one non-wrapping line and clipped it
- * off both frame edges. A kinetic-text fallback has to *choose* what to show:
- * a short setup line, one emphasised value, and at most one closing line.
- *
- * This is deliberately deterministic (no model call): it is a fallback path
- * that must work when everything else is failing.
- */
 export function extractKineticPhrase(source: string): SemanticPhraseLine[] {
   const clean = source.replace(/\s+/g, " ").trim();
   if (!clean) return [{ text: "…", emphasis: true }];
-
   const values: string[] = [];
   for (const match of clean.matchAll(WORD_NUMBER_PATTERN)) values.push(match[0]!);
   for (const match of clean.matchAll(VALUE_PATTERN)) values.push(match[0]!);
-
   const headline = values.length
     ? squeeze(values[values.length - 1]!, MAX_PHRASE_LINE_CHARS)
-    : squeeze(
-      clean
-        .split(" ")
-        .filter((word) => !FILLER_WORDS.has(word.toLowerCase().replace(/[^a-z]/g, "")))
-        .slice(0, 3)
-        .join(" "),
-      MAX_PHRASE_LINE_CHARS,
-    );
-
-  // The setup line is the words leading up to the emphasised value, trimmed to
-  // something readable at a glance rather than the whole clause.
+    : squeeze(clean.split(" ").filter((word) => !FILLER_WORDS.has(word.toLowerCase().replace(/[^a-z]/g, ""))).slice(0, 3).join(" "), MAX_PHRASE_LINE_CHARS);
   const headIndex = clean.toLowerCase().indexOf(headline.toLowerCase());
   const lead = headIndex > 0 ? clean.slice(0, headIndex) : clean;
-  const setup = squeeze(
-    lead
-      .split(" ")
-      .filter((word) => !FILLER_WORDS.has(word.toLowerCase().replace(/[^a-z]/g, "")))
-      .join(" "),
-    MAX_PHRASE_LINE_CHARS,
-  );
-
+  const setup = squeeze(lead.split(" ").filter((word) => !FILLER_WORDS.has(word.toLowerCase().replace(/[^a-z]/g, ""))).join(" "), MAX_PHRASE_LINE_CHARS);
   const lines: SemanticPhraseLine[] = [];
-  if (setup && setup.toLowerCase() !== headline.toLowerCase()) {
-    lines.push({ text: setup, emphasis: false });
-  }
-  lines.push({ text: emphasise(headline), emphasis: true });
+  if (setup && setup.toLowerCase() !== headline.toLowerCase()) lines.push({ text: setup, emphasis: false });
+  lines.push({ text: headline.toUpperCase(), emphasis: true });
   return lines.slice(0, MAX_PHRASE_LINES);
 }
 
-/** A kinetic-phrase scene built from whatever copy the beat actually has. */
 export function kineticPhraseScene(source: string, sequenceId?: string): SemanticScene {
   const lines = extractKineticPhrase(source);
-  const emphasisLine = lines.find((line) => line.emphasis)?.text ?? lines[0]!.text;
-  return {
-    kind: "kinetic_phrase",
-    caption: squeeze(emphasisLine, MAX_CAPTION_CHARS),
-    lines,
-    ...(sequenceId ? { sequence_id: sequenceId } : {}),
-  };
+  const emphasis = lines.find((line) => line.emphasis)?.text ?? lines[0]!.text;
+  return { kind: "kinetic_phrase", caption: squeeze(emphasis, MAX_CAPTION_CHARS), lines, ...(sequenceId ? { sequence_id: sequenceId } : {}) };
 }
 
-/**
- * The concrete things a viewer must be able to READ off the rendered scene.
- *
- * This is what turns the pixel gate from "does it look busy enough" into a
- * checkable claim. The rendered benchmark's judge failed beat 7 with "no
- * labelled 5 km/h route, walking marker, 20-kilometre distance, or four-hour
- * endpoint" — every one of those is derivable from the scene data, so the
- * gate can ask for exactly them instead of guessing what the beat wanted.
- */
 export function semanticSceneRequirements(scene: SemanticScene): string[] {
   const out: string[] = [];
-  if (scene.axis) {
-    out.push(`a labelled ${scene.axis.label} scale from 0 to ${scene.axis.max} ${scene.axis.unit}`);
-  }
+  if (scene.axis) out.push(`a labelled ${scene.axis.label} scale from 0 to ${scene.axis.max} ${scene.axis.unit}`);
   for (const marker of scene.markers ?? []) {
     const parts = [`a marker labelled "${marker.label}" at ${marker.value}${scene.axis ? ` ${scene.axis.unit}` : ""}`];
     if (marker.rate_label) parts.push(`showing "${marker.rate_label}"`);
@@ -356,101 +317,57 @@ export function semanticSceneRequirements(scene: SemanticScene): string[] {
     out.push(parts.join(", "));
   }
   if (scene.equation) out.push(`the equation "${scene.equation}" written legibly`);
-  for (const node of scene.nodes ?? []) out.push(`a timeline stop labelled "${node.label}"`);
+  for (const node of scene.nodes ?? []) out.push(`a ${scene.kind} node labelled "${node.label}"`);
+  for (const edge of scene.edges ?? []) out.push(`a visible directed relationship from "${edge.from}" to "${edge.to}"${edge.label ? ` labelled "${edge.label}"` : ""}`);
   for (const step of scene.steps ?? []) out.push(`a process step labelled "${step.label}"`);
-  if (scene.before) out.push(`a "before" state labelled "${scene.before.label}"`);
-  if (scene.after) out.push(`an "after" state labelled "${scene.after.label}"`);
+  if (scene.before) out.push(`a before state labelled "${scene.before.label}"`);
+  if (scene.after) out.push(`an after state labelled "${scene.after.label}"`);
   for (const item of scene.items ?? []) out.push(`a bar labelled "${item.label}" sized for ${item.value}`);
   for (const line of scene.lines ?? []) out.push(`the text "${line.text}"`);
   return out;
 }
 
-/**
- * Carry an explanatory sequence's established state into its continuation
- * beats.
- *
- * Beats 6-8 of the rendered benchmark ("put the speeds on one scale" ->
- * "walking covers 20 km in four hours" -> "a message covers it in a fraction
- * of a second") are one cumulative explanation, and rendering them as three
- * independent scenes is both why they looked identical to each other and why
- * the message never visibly crossed the *same* scale the walker did.
- *
- * Given the scenes in timeline order, a continuation scene inherits the axis
- * and every marker/node established earlier in its sequence. Inherited entries
- * are flagged `retained:true` so the renderer draws them already-complete
- * instead of re-animating them from zero, and the beat's own entries stay
- * un-retained so its new information is what moves.
- */
+/** Carry established semantic state across an explicitly shared sequence. */
 export function threadSemanticSequence(scenes: SemanticScene[]): SemanticScene[] {
   interface SequenceState {
     axis?: SemanticAxis;
     markers: Map<string, SemanticMarker>;
     nodes: Map<string, SemanticNode>;
     steps: Map<string, SemanticNode>;
+    edges: Map<string, SemanticEdge>;
   }
   const states = new Map<string, SequenceState>();
-
   return scenes.map((scene) => {
     const sequenceId = trimmed(scene.sequence_id);
     if (!sequenceId) return scene;
     let state = states.get(sequenceId);
     if (!state) {
-      state = { markers: new Map(), nodes: new Map(), steps: new Map() };
+      state = { markers: new Map(), nodes: new Map(), steps: new Map(), edges: new Map() };
       states.set(sequenceId, state);
     }
-
     const inheritedMarkers = [...state.markers.values()];
     const inheritedNodes = [...state.nodes.values()];
     const inheritedSteps = [...state.steps.values()];
-    // A beat that declares `continuation` inherits; the first beat of a
-    // sequence establishes. A beat that forgot the flag but arrives after the
-    // sequence already has state is treated as a continuation anyway -- losing
-    // the shared scale is a worse failure than an over-eager retain.
-    const continues = scene.continuation === true || inheritedMarkers.length > 0 || inheritedNodes.length > 0 || inheritedSteps.length > 0;
-
-    const ownMarkerIds = new Set((scene.markers ?? []).map((marker) => trimmed(marker.id)));
-    const ownNodeIds = new Set((scene.nodes ?? []).map((node) => trimmed(node.id)));
-    const ownStepIds = new Set((scene.steps ?? []).map((step) => trimmed(step.id)));
-
+    const inheritedEdges = [...state.edges.values()];
+    const continues = scene.continuation === true || inheritedMarkers.length > 0 || inheritedNodes.length > 0 || inheritedSteps.length > 0 || inheritedEdges.length > 0;
+    const ownMarkerIds = new Set((scene.markers ?? []).map((item) => trimmed(item.id)));
+    const ownNodeIds = new Set((scene.nodes ?? []).map((item) => trimmed(item.id)));
+    const ownStepIds = new Set((scene.steps ?? []).map((item) => trimmed(item.id)));
+    const ownEdgeIds = new Set((scene.edges ?? []).map((edge) => `${trimmed(edge.from)}->${trimmed(edge.to)}`));
     const merged: SemanticScene = {
       ...scene,
       ...(continues ? { continuation: true } : {}),
       ...(scene.axis ?? state.axis ? { axis: scene.axis ?? state.axis! } : {}),
-      ...(scene.markers || inheritedMarkers.length
-        ? {
-          markers: [
-            ...inheritedMarkers
-              .filter((marker) => !ownMarkerIds.has(marker.id))
-              .map((marker) => ({ ...marker, retained: true })),
-            ...(scene.markers ?? []),
-          ],
-        }
-        : {}),
-      ...(scene.nodes || inheritedNodes.length
-        ? {
-          nodes: [
-            ...inheritedNodes.filter((node) => !ownNodeIds.has(node.id)).map((node) => ({ ...node, retained: true })),
-            ...(scene.nodes ?? []),
-          ],
-        }
-        : {}),
-      ...(scene.steps || inheritedSteps.length
-        ? {
-          steps: [
-            ...inheritedSteps.filter((step) => !ownStepIds.has(step.id)).map((step) => ({ ...step, retained: true })),
-            ...(scene.steps ?? []),
-          ],
-        }
-        : {}),
+      ...(scene.markers || inheritedMarkers.length ? { markers: [...inheritedMarkers.filter((item) => !ownMarkerIds.has(item.id)).map((item) => ({ ...item, retained: true })), ...(scene.markers ?? [])] } : {}),
+      ...(scene.nodes || inheritedNodes.length ? { nodes: [...inheritedNodes.filter((item) => !ownNodeIds.has(item.id)).map((item) => ({ ...item, retained: true })), ...(scene.nodes ?? [])] } : {}),
+      ...(scene.steps || inheritedSteps.length ? { steps: [...inheritedSteps.filter((item) => !ownStepIds.has(item.id)).map((item) => ({ ...item, retained: true })), ...(scene.steps ?? [])] } : {}),
+      ...(scene.edges || inheritedEdges.length ? { edges: [...inheritedEdges.filter((edge) => !ownEdgeIds.has(`${edge.from}->${edge.to}`)).map((edge) => ({ ...edge, retained: true })), ...(scene.edges ?? [])] } : {}),
     };
-
-    // Persist this beat's contribution for the next beat of the sequence. The
-    // axis is sticky: a continuation that omits it keeps drawing the same one.
     if (merged.axis) state.axis = merged.axis;
     for (const marker of merged.markers ?? []) state.markers.set(marker.id, { ...marker, retained: true });
     for (const node of merged.nodes ?? []) state.nodes.set(node.id, { ...node, retained: true });
     for (const step of merged.steps ?? []) state.steps.set(step.id, { ...step, retained: true });
-
+    for (const edge of merged.edges ?? []) state.edges.set(`${edge.from}->${edge.to}`, { ...edge, retained: true });
     return merged;
   });
 }
