@@ -26,6 +26,15 @@ export const WATCHABILITY_THRESHOLDS = {
 // 0.79). The aggregate stays a genuine gate — below the mean of the individual
 // floors — but no longer demands a near-exceptional overall score.
 export const WATCHABILITY_AVERAGE_THRESHOLD = 0.75;
+
+/**
+ * Bump this on ANY change to the numeric release surface above (per-dimension
+ * floors, aggregate, material-weakness floor, or the duration-profile shape).
+ * It is one component of the watchability evaluation fingerprint, so a policy
+ * change correctly invalidates every cached canonical decision — an old
+ * approval must not carry forward under new floors.
+ */
+export const WATCHABILITY_POLICY_VERSION = "2026-09-08-floors-v2";
 // Operator-set 2026-09-08 (from 0.55): a dimension this low still flips the
 // verdict to ABANDON_TOPIC rather than REVISE_SCRIPT.
 export const MATERIAL_WEAKNESS_FLOOR = 0.50;

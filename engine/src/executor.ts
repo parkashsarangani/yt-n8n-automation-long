@@ -102,6 +102,14 @@ export interface ExecutorDeps {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Progress sink. Must never throw — a broken listener cannot fail a run. */
   onEvent?: (event: ExecutorEvent) => void;
+  /**
+   * Optional per-node canonical-output resolver, consulted AFTER preset
+   * outputs and BEFORE the node runs. Returns an existing artifact id when the
+   * node's output is a derived function of immutable inputs that has already
+   * been adjudicated for this exact fingerprint (watchability), so an
+   * identical evaluation is reused rather than re-rolled. Must never throw.
+   */
+  canonicalOutputFor?: (node: TransformationNode, inputIds: string[]) => Promise<string | null>;
 }
 
 export class GraphExecutor {
@@ -458,6 +466,27 @@ export class GraphExecutor {
         return { ok: true, artifactId: presetArtifactId };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    // Canonical, fingerprint-addressed reuse (watchability): a derived decision
+    // over immutable inputs is not re-rolled once adjudicated.
+    if (this.deps.canonicalOutputFor) {
+      let canonicalId: string | null = null;
+      try {
+        canonicalId = await this.deps.canonicalOutputFor(node, inputIds);
+      } catch (err) {
+        this.deps.logger?.warn(`[graph ${graphRef(graph)}] canonical-output resolver for "${node.id}" threw: ${String(err)}`);
+      }
+      if (canonicalId) {
+        try {
+          await this.deps.store.require(canonicalId, { schema_id: def.produces });
+          await this.recordNode(runId, graph, node.id, node.transformation, canonicalId, "ok", null, def.version ?? "1", inputIds);
+          this.deps.logger?.log(`[graph ${graphRef(graph)}] reusing canonical adjudicated output for "${node.id}" (${canonicalId})`);
+          return { ok: true, artifactId: canonicalId };
+        } catch (err) {
+          this.deps.logger?.warn(`[graph ${graphRef(graph)}] canonical output ${canonicalId} for "${node.id}" is unusable, re-running: ${String(err)}`);
+        }
       }
     }
 
