@@ -190,6 +190,15 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    const adoptMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)\/adopt-watchability$/.exec(url.pathname);
+    if (req.method === "POST" && adoptMatch) {
+      const body = (await readJson(req)) as { from_run_id?: string };
+      if (!body.from_run_id) return json(res, 400, { error: "from_run_id is required" });
+      await service.adoptCanonicalWatchability(adoptMatch[1]!, String(body.from_run_id));
+      json(res, 202, { ok: true });
+      return;
+    }
+
     const artMatch = /^\/api\/artifacts\/(sha256:[0-9a-f]{64})$/.exec(
       decodeURIComponent(url.pathname),
     );

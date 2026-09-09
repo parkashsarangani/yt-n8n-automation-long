@@ -46,6 +46,14 @@ import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
 import { allTransformations, defaultWorkers } from "./workers/index.ts";
 import { assessWatchability, MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
+import { watchabilityProfile } from "./watchability-policy.ts";
+import {
+  WatchabilityLedger,
+  watchabilityEvaluator,
+  watchabilityFingerprint,
+  type WatchabilityFingerprintInput,
+} from "./watchability-ledger.ts";
+import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
@@ -202,6 +210,7 @@ export class VidGenService {
   readonly envFile: string;
   private readonly dataDir: string;
   private allowPublish: boolean;
+  private ledger!: WatchabilityLedger;
 
   private constructor(private readonly root: string, opts: ServiceOptions) {
     this.dataDir = opts.dataDir ?? path.join(root, ".vidgen-data");
@@ -231,6 +240,7 @@ export class VidGenService {
     svc.discoverGraph = await loadGraph(path.join(opts.root, "graphs", "discover.json"));
     svc.store = await FsArtifactStore.open(svc.dataDir, svc.registry);
     svc.blobs = await FsBlobStore.open(svc.dataDir);
+    svc.ledger = await WatchabilityLedger.open(svc.dataDir);
 
     // Use Postgres when DATABASE_URL is set, filesystem otherwise.
     if (hasDatabase()) {
@@ -356,7 +366,75 @@ export class VidGenService {
       registry: this.registry,
       transformations: this.transformations,
       onEvent: (e) => this.onExecutorEvent(e),
+      canonicalOutputFor: (node, inputIds) => this.resolveCanonicalWatchability(node, inputIds),
     });
+  }
+
+  /** Critic evaluator fingerprint from the current watchability_critic agent. */
+  private watchabilityEvaluatorFingerprint(): ReturnType<typeof watchabilityEvaluator> {
+    const critic = this.agents.get("watchability_critic") as
+      | { prompt: string; model: { capability: string; effort?: string; prefer_paid_reasoning?: boolean } }
+      | undefined;
+    return watchabilityEvaluator(critic ?? { prompt: "watchability_critic@?", model: { capability: "reasoning_high" } });
+  }
+
+  /**
+   * Build the watchability fingerprint for a run from its immutable script +
+   * intent artifacts. Returns null when either is missing.
+   */
+  private async watchabilityFingerprintInput(scriptArtifactId?: string, intentArtifactId?: string): Promise<WatchabilityFingerprintInput | null> {
+    if (!scriptArtifactId || !intentArtifactId) return null;
+    const intent = await this.store.get<{ target_duration_sec?: unknown }>(intentArtifactId).catch(() => null);
+    const dur = typeof intent?.payload?.target_duration_sec === "number" ? intent.payload.target_duration_sec : null;
+    const profile = watchabilityProfile(dur);
+    return {
+      script_artifact_id: scriptArtifactId,
+      evaluator: this.watchabilityEvaluatorFingerprint(),
+      // Mode plus the exact numeric grading surface: two runs share a
+      // fingerprint only when the deterministic gate would grade them identically.
+      duration_profile: `${profile.mode}:${dur ?? "none"}:avg${profile.averageThreshold}:f30${profile.thresholds.first_30_fidelity}:susp${profile.thresholds.suspense}`,
+    };
+  }
+
+  private async resolveCanonicalWatchability(node: TransformationNode, inputIds: string[]): Promise<string | null> {
+    if (node.transformation !== "watchability_critic") return null;
+    // watchability_report consumes [approve_story, draft_script, package_release, intent].
+    let scriptId: string | undefined;
+    let intentId: string | undefined;
+    for (const id of inputIds) {
+      const art = await this.store.get(id).catch(() => null);
+      if (art?.schema_id === "script") scriptId = id;
+      else if (art?.schema_id === "intent") intentId = id;
+    }
+    const fpInput = await this.watchabilityFingerprintInput(scriptId, intentId);
+    if (!fpInput) return null;
+    const entry = await this.ledger.get(watchabilityFingerprint(fpInput));
+    return entry?.canonical_report_id || null;
+  }
+
+  /**
+   * Once a run's watchability_release has PASSED, the report that cleared it is
+   * the canonical adjudicated decision for its (script + evaluator + profile)
+   * fingerprint. First writer wins and it is immutable, so a later run of the
+   * identical content reuses it instead of re-rolling the stochastic critic.
+   */
+  private async recordCanonicalWatchability(runId: string): Promise<void> {
+    try {
+      const state = this.runs.get(runId);
+      if (!state) return;
+      const reportId = state.completedOutputs.get("watchability_report");
+      const scriptId = state.completedOutputs.get("draft_script");
+      const intentId = state.completedOutputs.get("intent");
+      if (!reportId) return;
+      const fpInput = await this.watchabilityFingerprintInput(scriptId, intentId);
+      if (!fpInput) return;
+      const entry = await this.ledger.setCanonical(fpInput, reportId, "single");
+      if (entry.canonical_report_id === reportId) {
+        console.log(`[run ${runId.slice(4, 12)}] watchability decision canonicalised: ${entry.fingerprint} -> ${reportId}`);
+      }
+    } catch (err) {
+      console.warn(`[watchability-ledger] failed to canonicalise for ${runId}: ${String(err)}`);
+    }
   }
 
   /** Reload runs from the run log so they survive container restarts. */
@@ -491,6 +569,7 @@ export class VidGenService {
       state.completedOutputs.set(e.node_id, e.artifact_id);
       if (state.presetOutputs?.[e.node_id] === e.artifact_id) delete state.presetOutputs[e.node_id];
       console.log(`${tag} ✓ ${e.node_id}${e.cached ? " (cached)" : ""}`);
+      if (e.node_id === "watchability_release") void this.recordCanonicalWatchability(e.run_id);
     }
     if (e.type === "node_failed") {
       console.error(`${tag} ✗ ${e.node_id} — ${e.error}`);
@@ -797,6 +876,61 @@ export class VidGenService {
     state.finished = false;
     state.error = null;
     console.log(`[run ${runId.slice(4, 12)}] operator-requested one-shot watchability re-grade of the unchanged manual script`);
+    void this.drive(runId, () =>
+      this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }),
+    ).then(() => this.driveUnattended(runId));
+  }
+
+  /**
+   * Adopt the canonical watchability decision from an EARLIER run whose script
+   * and evaluator fingerprint are byte/config identical to this blocked manual
+   * run. This is not another critic sample — it recognises that a watchability
+   * decision is a derived artifact of immutable inputs and reuses the one that
+   * was already adjudicated, exactly as a reused voice artifact is not
+   * re-synthesised. It also seeds the ledger so future identical runs auto-reuse.
+   */
+  async adoptCanonicalWatchability(runId: string, fromRunId: string): Promise<void> {
+    const state = this.runs.get(runId);
+    if (!state) throw new Error(`unknown run ${runId}`);
+    if (!state.finished) throw new Error(`run ${runId} is still executing`);
+    const view = this.getRun(runId);
+    if (!view || !(await this.isManualScriptRun(view))) {
+      throw new Error("adopting a watchability decision is only for operator-authored (manual) runs");
+    }
+    if (!(state.last?.failures ?? []).some((f) => f.node_id === "watchability_release")) {
+      throw new Error("run is not currently blocked at watchability_release");
+    }
+
+    const targetScript = state.completedOutputs.get("draft_script") ?? state.manualPresetOutputs?.["draft_script"];
+    const targetIntent = state.completedOutputs.get("intent");
+    const targetFp = await this.watchabilityFingerprintInput(targetScript, targetIntent);
+    if (!targetFp) throw new Error("cannot fingerprint this run's watchability inputs");
+
+    const src = await this.runRecords(fromRunId);
+    const ok = new Set(["ok", "cache_hit", "accepted_below_quality_bar"]);
+    const srcLast = (nid: string) => src.filter((r) => r.node_id === nid && r.output && ok.has(r.status)).at(-1);
+    const srcScript = srcLast("draft_script")?.output ?? undefined;
+    const srcIntent = srcLast("intent")?.output ?? undefined;
+    const srcReport = srcLast("watchability_report")?.output ?? undefined;
+    const srcReleasePassed = src.some((r) => r.node_id === "watchability_release" && r.output && ok.has(r.status));
+    if (!srcReport || !srcReleasePassed) {
+      throw new Error(`source run ${fromRunId} has no watchability_report that cleared its release gate`);
+    }
+    if (srcScript !== targetScript) {
+      throw new Error(`source script ${String(srcScript)} != this run's script ${String(targetScript)}; not byte-identical`);
+    }
+    const srcFp = await this.watchabilityFingerprintInput(srcScript, srcIntent);
+    if (!srcFp || watchabilityFingerprint(srcFp) !== watchabilityFingerprint(targetFp)) {
+      throw new Error("source and target watchability evaluator fingerprints differ (critic prompt/model/config or duration profile changed)");
+    }
+
+    await this.ledger.setCanonical(targetFp, srcReport, "adopted", `adopted from ${fromRunId}`);
+    const graph = this.resolveRunGraph(state.graph);
+    state.presetOutputs = { ...(state.manualPresetOutputs ?? {}) };
+    await this.executor.pinNodeOutput(graph, runId, "watchability_report", srcReport, `adopted canonical watchability decision from ${fromRunId} (identical script + evaluator fingerprint)`);
+    state.finished = false;
+    state.error = null;
+    console.log(`[run ${runId.slice(4, 12)}] adopted canonical watchability decision ${srcReport} from ${fromRunId}`);
     void this.drive(runId, () =>
       this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }),
     ).then(() => this.driveUnattended(runId));
