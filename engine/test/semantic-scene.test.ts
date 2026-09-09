@@ -78,7 +78,7 @@ test("a timeline needs at least two labelled nodes", () => {
     [],
   );
   const errors = validateSemanticScene({ kind: "timeline", caption: "One node", nodes: [{ id: "a", label: "A" }] });
-  assert.ok(errors.some((error) => error.includes("at least 2 nodes")), errors.join(" | "));
+  assert.ok(errors.some((error) => error.includes("at least 2 labelled nodes")), errors.join(" | "));
 });
 
 test("a kinetic phrase needs exactly one emphasis line and short lines", () => {

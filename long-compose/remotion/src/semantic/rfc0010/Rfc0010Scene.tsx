@@ -19,6 +19,10 @@ const VIOLET = "#B79CFF";
 const RED = "#FF8C8C";
 const SERIES = [BLUE, GREEN, ACCENT, VIOLET, TEAL, RED];
 
+const ENTRANCE_START = 0.1;
+const ENTRANCE_DURATION = 0.3;
+const ENTRANCE_SETTLED = 0.9;
+
 function progress(): number {
   const frame = useCurrentFrame();
   const {durationInFrames} = useVideoConfig();
@@ -26,10 +30,32 @@ function progress(): number {
 }
 function ease(t: number): number { return t < .5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
 function color(i: number): string { return SERIES[i % SERIES.length]!; }
-function entrance(r: number, retained: boolean | undefined, i: number, n: number): number {
+
+/**
+ * Deterministic entrance staging for one marker / node / edge of a semantic
+ * scene.
+ *
+ * Pure: a function only of the scene's normalised progress `r` in [0,1],
+ * whether this element was already established by an earlier cumulative beat
+ * (`retained`), and its `index` of `count`. No RNG, no wall clock — every
+ * render of a given beat frame produces the same geometry.
+ *
+ *  - `retained` elements are drawn already-complete and never re-animate.
+ *  - elements arrive staggered (earlier index leads); the stagger compresses as
+ *    `count` grows so every element is fully settled by `ENTRANCE_SETTLED`,
+ *    i.e. nothing is still moving — or missing — at the cut.
+ *
+ * Self-contained (the easing is inlined, not a call to `ease`) and exported so
+ * the long-compose contract suite can slice this function out and exercise the
+ * real arithmetic without a full Remotion render.
+ */
+export function entrance(r: number, retained: boolean | undefined, index: number, count: number): number {
   if (retained) return 1;
-  const start=.08 + (n > 1 ? Math.min(.12, .48/(n-1))*i : 0);
-  return ease(Math.max(0, Math.min(1,(r-start)/.28)));
+  const last = ENTRANCE_SETTLED - ENTRANCE_DURATION;
+  const stagger = count > 1 ? Math.min(0.18, (last - ENTRANCE_START) / (count - 1)) : 0;
+  const start = ENTRANCE_START + index * stagger;
+  const t = Math.max(0, Math.min(1, (r - start) / ENTRANCE_DURATION));
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
 function FittedText({text,x,y,maxWidth,fontSize,maxLines=2,fill=PAPER,weight=800,anchor="middle",opacity=1}:{text:string;x:number;y:number;maxWidth:number;fontSize:number;maxLines?:number;fill?:string;weight?:number;anchor?:"start"|"middle"|"end";opacity?:number}) {
