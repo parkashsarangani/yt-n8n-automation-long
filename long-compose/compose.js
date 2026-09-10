@@ -5,10 +5,11 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const ffmpeg = require("fluent-ffmpeg");
-const ffmpegPath = require("ffmpeg-static");
+const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 
+const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
 const execFileAsync = promisify(execFile);
 const app = express();
@@ -92,7 +93,7 @@ async function buildAudioFirstVideo(data, outputPath) {
       seen.add(scene.scene_index);
       const b64 = scene.audio && scene.audio.audio_base64;
       if (!b64) throw new Error(`scene ${scene.scene_index} is missing audio_base64`);
-      const input = path.join(dir, `scene-${i}${audioExtension(scene.audio.media_type)}`);
+      const input = path.join(dir, `scene-${i}-input${audioExtension(scene.audio.media_type)}`);
       const wav = path.join(dir, `scene-${i}.wav`);
       await fsp.writeFile(input, Buffer.from(b64, "base64"));
       await execFileAsync(ffmpegPath, ["-y", "-i", input, "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", wav]);

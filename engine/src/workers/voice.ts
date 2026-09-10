@@ -57,9 +57,6 @@ export function assertTtsApproved(scriptArtifactId: string, report: TtsModeratio
 }
 
 function effectiveVoiceId(speech: SpeechProvider, configuredVoiceId: string): string {
-  if (speech.id.startsWith("freellmapi-speech/")) {
-    return process.env["FREELLMAPI_SPEECH_VOICE"]?.trim() || "onyx";
-  }
   return configuredVoiceId;
 }
 
@@ -69,7 +66,7 @@ async function trimProductionSpeech(
   ctx: WorkerContext,
 ): Promise<SpeechResult> {
   // Fake providers intentionally emit tiny non-media fixtures. Only normalize
-  // the real ElevenLabs MP3 path; FreeLLM experimental TTS has no alignment.
+  // the real ElevenLabs MP3 path.
   if (!speech.id.startsWith("elevenlabs/") || result.media_type !== "audio/mpeg" || result.alignment === undefined) {
     return result;
   }

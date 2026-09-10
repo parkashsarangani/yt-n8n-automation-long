@@ -1,16 +1,8 @@
 /**
- * Config-selectable speech provider facade.
- *
- * SPEECH_PROVIDER_MODE selects:
- *   - freellmapi: shared FreeLLMAPI /audio/speech (production experiment)
- *   - elevenlabs: existing ElevenLabs with timestamps/prosody context
- *
- * Unset mode stays on ElevenLabs for backward-compatible local/test behavior.
- * Production explicitly sets freellmapi in Compose/deploy.
+ * ElevenLabs timestamped narration provider.
  */
 
 import { ProviderError, type SpeechProvider, type Usage } from "../provider.ts";
-import { FreeLLMSpeechProvider } from "./freellmapi-media.ts";
 
 export interface ElevenLabsOptions {
   apiKey?: string;
@@ -28,7 +20,7 @@ interface TimestampsResponse {
   normalized_alignment?: unknown;
 }
 
-class DirectElevenLabsProvider implements SpeechProvider {
+export class ElevenLabsProvider implements SpeechProvider {
   readonly id: string;
   private readonly apiKey: string;
   private readonly modelId: string;
@@ -112,28 +104,6 @@ class DirectElevenLabsProvider implements SpeechProvider {
         : {}),
       usage,
     };
-  }
-}
-
-function speechProviderMode(): "freellmapi" | "elevenlabs" {
-  return process.env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi"
-    ? "freellmapi"
-    : "elevenlabs";
-}
-
-export class ElevenLabsProvider implements SpeechProvider {
-  readonly id: string;
-  private readonly delegate: SpeechProvider;
-
-  constructor(opts: ElevenLabsOptions = {}) {
-    this.delegate = speechProviderMode() === "freellmapi"
-      ? new FreeLLMSpeechProvider({ ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) })
-      : new DirectElevenLabsProvider(opts);
-    this.id = this.delegate.id;
-  }
-
-  synthesize(req: { text: string; voice: string; context?: { prev?: string; next?: string } }) {
-    return this.delegate.synthesize(req);
   }
 }
 

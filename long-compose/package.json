@@ -9,7 +9,6 @@
     "check": "node --check compose.js"
   },
   "dependencies": {
-    "axios": "^1.7.0",
     "express": "^4.19.0",
     "ffmpeg-static": "^5.2.0",
     "fluent-ffmpeg": "^2.1.3"

@@ -12,6 +12,6 @@ COPY package*.json ./
 RUN npm install --production
 COPY . .
 
-RUN mkdir -p /outputs
+RUN mkdir -p /app/outputs /app/data
 EXPOSE 4000
 CMD ["node", "compose.js"]

@@ -20,7 +20,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
-      { schema_id: "seo", range: "^1", as: "seo" },
+      { schema_id: "seo_metadata", range: "^1", as: "seo" },
     ],
     produces: "qa_report",
     async execute(inputs, ctx): Promise<WorkerOutput> {

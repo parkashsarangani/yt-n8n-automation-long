@@ -84,80 +84,31 @@ export type Aspect = "9:16" | "16:9" | "1:1";
  * requirement it was produced for, and a future semantic-reuse layer has
  * something to match on. Real generation providers ignore it.
  */
-export interface ImageBankContext {
-  graph?: string;
-  scene_index?: number;
-  /** RFC 0010 beat id, or "scene:shot" for the illustrated pipeline. */
-  beat_id?: string;
-  mode?: string;
-  /** The spoken narration line the image plays under. */
-  narration?: string;
-  /** What must be visible — the visual contract / prompt subject. */
-  requirement?: string;
-  /** Which of the 3-5 authored candidate concepts this is. */
-  concept_index?: number;
-}
-
 export interface ImageProvider {
   readonly id: string;
   generate(req: {
     prompt: string;
     aspect: Aspect;
     count?: number;
-    /**
-     * Optional hint for providers that reserve a separate, more expensive or
-     * quota-limited model for a small number of difficult/important shots
-     * (RFC 0009 hero shots). Providers without such a route ignore it.
-     */
-    tier?: "hero" | "standard";
-    /** Optional provenance for the image bank; ignored by generation providers. */
-    context?: ImageBankContext;
   }): Promise<{
     images: Array<{ bytes: Uint8Array; media_type: string }>;
     usage: Usage;
   }>;
-  /**
-   * Optional: a provider that can also supply real stock video b-roll for the
-   * same search terms. Returns null (not a rejected promise) when the source
-   * has no video for this query, so the asset collector can fall through to
-   * a still image the same way it already falls through primary -> fallback.
-   */
-  generateVideo?(req: {
-    prompt: string;
-    aspect: Aspect;
-  }): Promise<{
-    video: { bytes: Uint8Array; media_type: string };
-    usage: Usage;
-  } | null>;
 }
 
-/** One scene as the renderer needs it: audio, optional image, timing data. */
+/** One scene as the audio-first renderer needs it. */
 export interface RenderScene {
   scene_index: number;
   audio: Uint8Array;
   audio_media_type: string;
-  /** Absent for a degraded scene; the renderer substitutes a house placeholder. */
-  image?: Uint8Array;
-  image_media_type?: string;
-  /** Real stock footage for this scene, mutually exclusive with `image`. */
-  video?: Uint8Array;
-  video_media_type?: string;
   /** Word/character timings, for burned-in captions. */
   alignment?: unknown;
   is_outro?: boolean;
-  /** If set, the renderer uses a motion graphics template for this scene. */
-  template_category?: string;
-  template_data?: Record<string, unknown>;
-  /** Active speaker's cast name/color, for caption speaker attribution. Cartoon runs only. */
-  speaker_name?: string;
-  speaker_color?: string;
 }
 
 export interface RenderRequest {
   scenes: RenderScene[];
   caption_style?: string;
-  comment_hook?: string;
-  thumbnail?: { image?: Uint8Array; text?: string; accent?: string };
 }
 
 export interface RenderResult {

@@ -124,11 +124,8 @@ export class FakeSpeechProvider implements SpeechProvider {
 export class FakeImageProvider implements ImageProvider {
   readonly id = "fake/image";
   readonly prompts: string[] = [];
-  readonly videoPrompts: string[] = [];
   constructor(
     private readonly failOn: (prompt: string) => boolean = () => false,
-    /** Which prompts this fake source "has" video for — mirrors a real stock source having no clip for some queries. */
-    private readonly hasVideoFor: (prompt: string) => boolean = () => false,
   ) {}
 
   async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
@@ -151,21 +148,6 @@ export class FakeImageProvider implements ImageProvider {
     };
   }
 
-  async generateVideo(req: { prompt: string; aspect: Aspect }) {
-    this.videoPrompts.push(req.prompt);
-    if (!this.hasVideoFor(req.prompt)) return null;
-    return {
-      video: { bytes: fakeBytes(`video:${req.aspect}:${req.prompt}`, 256), media_type: "video/mp4" },
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        units: 1,
-        cost_usd: 0,
-        provider: "fake",
-        model: this.id,
-      },
-    };
-  }
 }
 
 export class FakeRenderer implements MediaRenderer {
@@ -213,12 +195,9 @@ export class FakeRenderer implements MediaRenderer {
     return {
       video: fakeBytes(`video:${seed}`, 256),
       media_type: "video/mp4",
-      thumbnail: req.thumbnail
-        ? { bytes: fakeBytes(`thumb:${seed}`, 96), media_type: "image/png" }
-        : undefined,
       duration_sec: req.scenes.length * 12,
       render_time_sec: 42,
-      degraded_scenes: req.scenes.filter((s) => !s.image).length,
+      degraded_scenes: 0,
       usage: {
         input_tokens: 0,
         output_tokens: 0,

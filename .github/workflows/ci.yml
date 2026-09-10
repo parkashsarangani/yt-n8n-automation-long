@@ -56,9 +56,38 @@ jobs:
             'engine/src/workers/visual-asset-release.ts',
             'engine/src/workers/visual-benchmark-render.ts',
             'engine/src/workers/visual-benchmark-qa.ts',
+            'engine/src/visual-routing.ts',
+            'engine/src/visual-beat-qa.ts',
+            'engine/src/visual-benchmark-judge.ts',
+            'engine/src/image-qa.ts',
+            'engine/src/providers/fal-video.ts',
+            'engine/src/providers/freellm-image.ts',
+            'engine/src/providers/freellm-video.ts',
+            'engine/src/providers/pexels-video.ts',
+            'engine/scripts/free-media-smoke.ts',
+            'engine/schemas/asset_manifest',
+            'engine/schemas/visual_plan',
+            'engine/schemas/visual_beat_plan',
+            'engine/schemas/visual_beat_assets',
+            'engine/schemas/visual_timeline',
+            'n8n',
           ]
           present = [p for p in retired_paths if Path(p).exists()]
           assert not present, f'retired visual paths remain: {present}'
+
+          operational = '\n'.join(
+            Path(p).read_text()
+            for p in ['docker-compose.yml', '.github/workflows/deploy.yml']
+          )
+          stale = [
+            'VISUAL_QA_MODE', 'OPENAI_IMAGE_QA_MODEL', 'PAID_VISION_FALLBACK',
+            'PAID_IMAGE_FALLBACK', 'PAID_VIDEO_FALLBACK',
+            'FREELLMAPI_IMAGE_MODELS', 'FREELLMAPI_VIDEO_MODELS',
+            'FAL_EDIT_MODEL', 'FAL_VIDEO_MODEL', 'FAL_TEXT_TO_VIDEO_MODEL',
+            'PEXELS_API_KEY', 'UNSPLASH_ACCESS_KEY', 'PIXABAY_API_KEY',
+          ]
+          found = [name for name in stale if name in operational]
+          assert not found, f'stale visual provider/deploy configuration remains: {found}'
           print('audio-first architecture contract OK')
           PY
 

@@ -42,8 +42,6 @@ test("core creative agents do not request low-effort routing", () => {
   const protectedAgents = [
     "narrative_story_architect.json",
     "narration_script_writer.json",
-    "episode_director.json",
-    "visual_planner.json",
   ];
 
   for (const file of protectedAgents) {
@@ -93,17 +91,7 @@ test("agent output budgets stay bounded", () => {
     // 14000: narration now has to realize the package's three-beat first-30
     // contract, not just tell the story.
     "narration_script_writer.json": 14000,
-    // 16000: direction emits 1-3 shots per narration beat (decision 3), so
-    // its output scales with shots, not scenes.
-    "episode_director.json": 16000,
     "watchability_critic.json": 18000,
-    "visual_planner.json": 10000,
-    // 24000: RFC 0010's Visual Director emits a full VisualBeat plan for a
-    // whole episode -- one beat every 2-6s, each carrying mode routing,
-    // 3-5 candidate briefs, novelty/continuity metadata and rationale.
-    // Output scales with beat count, not difficulty; reasoning tier is
-    // unchanged (effort "medium").
-    "visual_director.json": 24000,
     // growth_packager is new in RFC 0009 and must be bounded like the rest --
     // an unlisted agent would silently escape this test entirely.
     "growth_packager.json": 5000,

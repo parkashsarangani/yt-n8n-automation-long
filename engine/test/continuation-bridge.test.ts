@@ -100,16 +100,11 @@ test("growth_package.next_video_bridge reaches the episode render request", asyn
     voice_id: "v1",
     clips: [{ scene_index: 0, audio_uri: audio.uri, duration_sec: 3 }],
   }, "voice");
-  const assets = await put("asset_manifest", {
-    scenes: [{ scene_index: 0, source: "placeholder", prompt: "mechanic points at a frayed belt" }],
-    degraded_count: 1,
-  }, "illustrated_scene_assets");
   const growthPackage = await put("growth_package", PACKAGE, "growth_package_release");
 
   await runner.run(makeRenderWorker(), [
     script.artifact_id,
     voice.artifact_id,
-    assets.artifact_id,
     growthPackage.artifact_id,
   ]);
 
