@@ -98,6 +98,8 @@ export interface ImageProvider {
 
 /** One scene as the audio-first renderer needs it. */
 export interface RenderScene {
+  narration?: string;
+  point?: string;
   scene_index: number;
   audio: Uint8Array;
   audio_media_type: string;

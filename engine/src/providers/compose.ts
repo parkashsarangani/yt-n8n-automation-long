@@ -105,6 +105,8 @@ export class ComposeRenderer implements MediaRenderer {
       ...(continuation.outro_line?.trim() ? { outro_line: continuation.outro_line.trim() } : {}),
       data: req.scenes.map((scene) => ({
         scene_index: scene.scene_index,
+        ...(scene.narration ? { narration: scene.narration } : {}),
+        ...(scene.point ? { point: scene.point } : {}),
         audio: {
           audio_base64: toBase64(scene.audio),
           media_type: scene.audio_media_type,
