@@ -1,7 +1,7 @@
 {
   "graph_id": "illustrated_story",
-  "version": "9",
-  "description": "Single production illustrated-story graph. Keeps the RFC 0008/0009 growth, story, watchability, moderation, thumbnail, SEO, QA and publish lifecycle, while using the RFC 0010 visual director -> visual beat resolver -> measured visual timeline as the sole production visual stack. The visual timeline renders beat-accurately with caption alignment preserved; a compatibility manifest feeds the mature scene-level technical QA. Free-first image generation, declared semantic alternates, continuity identity, deterministic explanatory graphics and the paid-video hard guard all apply in production.",
+  "version": "10",
+  "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. The retired illustrated/RFC0010 visual-generation stack is intentionally absent; render produces a minimal YouTube-compatible video shell around approved narration audio.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -17,16 +17,11 @@
     { "id": "approve_script", "type": "human_gate", "in": ["watchability_release"], "policy": { "auto_pass_if": "always" } },
     { "id": "tts_moderation", "transformation": "tts_moderation", "in": ["approve_script"] },
     { "id": "voice", "transformation": "voice", "in": ["approve_script", "tts_moderation"] },
-    { "id": "visual_direction", "transformation": "visual_director", "in": ["approve_script", "voice", "package_release", "intent"] },
-    { "id": "visual_assets", "transformation": "visual_beat_assets", "in": ["visual_direction", "voice"] },
-    { "id": "visual_timeline", "transformation": "visual_timeline", "in": ["visual_direction", "visual_assets", "voice"] },
-    { "id": "assets", "transformation": "visual_timeline_manifest", "in": ["visual_assets", "visual_timeline"] },
-    { "id": "visual_asset_release", "transformation": "visual_beat_release", "in": ["visual_assets", "visual_timeline", "voice"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script", "package_release"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
-    { "id": "render", "transformation": "visual_timeline_render", "in": ["approve_script", "voice", "visual_timeline", "package_release", "visual_asset_release"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "assets", "voice", "render", "thumbnail", "seo"] },
+    { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "package_release"] },
+    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
     { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
   ]
