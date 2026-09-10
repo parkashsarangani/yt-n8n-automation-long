@@ -70,10 +70,30 @@ jobs:
             'engine/schemas/visual_beat_plan',
             'engine/schemas/visual_beat_assets',
             'engine/schemas/visual_timeline',
+            'engine/src/audio/slice.ts',
+            'engine/src/media/exec-bounded.ts',
+            'long-compose/remotion',
             'n8n',
           ]
           present = [p for p in retired_paths if Path(p).exists()]
           assert not present, f'retired visual paths remain: {present}'
+
+          # The illustrated stack was image_style's only consumer. Nothing may
+          # offer the operator an art-direction knob no worker reads.
+          intent = json.loads(Path('engine/schemas/intent/2.0.0.json').read_text())
+          assert intent['status'] == 'active'
+          assert 'image_style' not in intent['json_schema']['properties']
+          # Live plumbing only: deprecated intent 1.x files still describe the
+          # field (that is their job), and ui-studio.test.ts names it to assert
+          # its absence.
+          art_direction = []
+          for root in ['engine/src', 'engine/ui', 'engine/agents', 'engine/prompts']:
+            for p in Path(root).rglob('*'):
+              if not p.is_file() or 'node_modules' in p.parts:
+                continue
+              if 'image_style' in p.read_text(encoding='utf-8', errors='ignore'):
+                art_direction.append(str(p))
+          assert not art_direction, f'retired image_style plumbing remains: {art_direction}'
 
           operational = '\n'.join(
             Path(p).read_text()

@@ -146,7 +146,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
       { schema_id: "growth_package", range: "^1", as: "package", optional: true },
-      { schema_id: "intent", range: "^1", as: "intent", optional: true },
+      { schema_id: "intent", range: "^2", as: "intent", optional: true },
     ],
     produces: "script",
     produces_version: "1.7.0",

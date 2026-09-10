@@ -15,7 +15,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
     kind: "worker",
     version: opts.version ?? "5",
     consumes: [
-      { schema_id: "intent", range: "^1", as: "intent" },
+      { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },

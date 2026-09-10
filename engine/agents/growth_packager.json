@@ -3,7 +3,7 @@
   "kind": "agent",
   "version": "2",
   "consumes": [
-    { "schema_id": "intent", "range": "^1", "as": "intent" },
+    { "schema_id": "intent", "range": "^2", "as": "intent" },
     { "schema_id": "channel_insights", "range": "^2", "as": "insights" }
   ],
   "produces": "growth_package",

@@ -50,7 +50,6 @@ export interface CreativeContext {
     audience_size: number;
   };
   genre?: Genre;
-  image_style?: string;
   story_hook?: string;
   act_titles?: string[];
   retention_beats?: Array<{ at_fraction: number; device: string }>;
@@ -384,7 +383,6 @@ async function describeAncestors(
   if (intent) {
     const payload = intent.payload as Record<string, unknown>;
     if (!creative.genre && isGenre(payload["genre"])) creative.genre = payload["genre"];
-    const style = text(payload["image_style"]); if (style) creative.image_style = style;
   }
 
   if (Object.keys(creative).length > 0) out.creative = creative;

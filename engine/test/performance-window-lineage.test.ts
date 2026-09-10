@@ -30,7 +30,6 @@ test("performance window keeps measured outcomes attached to the creative decisi
     brief: "An ignored mechanic sees a dangerous failure coming and becomes the only person able to stop the disaster.",
     target_duration_sec: 180,
     genre: "drama",
-    image_style: "flat_comic_expressive",
   }, "human");
 
   const growth = await put("growth_package", {
@@ -140,7 +139,6 @@ test("performance window keeps measured outcomes attached to the creative decisi
   assert.match(row.creative?.first_30_seconds?.promise ?? "", /ignored warning/i);
   assert.match(row.creative?.story_hook ?? "", /frayed belt/i);
   assert.deepEqual(row.creative?.act_titles, ["The Warning", "The Breakdown", "The Reversal"]);
-  assert.equal(row.creative?.image_style, "flat_comic_expressive");
   assert.equal(row.metrics.impressions, 22000);
   assert.equal(row.metrics.average_view_duration_sec, 210);
   assert.equal(row.metrics.shares, 11);

@@ -674,10 +674,9 @@ function renderRetryBlock(errors: string[]): string {
   );
 }
 
-function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_contract" | "visual_explanation" | "other_semantic" {
+function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_contract" | "other_semantic" {
   const text = errors.join(" ").toLowerCase();
   if (/natural dialogue|robotic|duplicate dialogue|short lines|human moment|definition\/explainer/.test(text)) return "natural_dialogue";
   if (/contract violated|payoff|resolution|midpoint|engagement beat|function order|teach-back/.test(text)) return "story_contract";
-  if (/visual|prop|doorway|crossing|foreground_action|physical demonstration/.test(text)) return "visual_explanation";
   return "other_semantic";
 }

@@ -156,12 +156,10 @@ export interface ServiceOptions {
 }
 
 type Genre = "moral_story" | "drama" | "true_story" | "short_story";
-type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
 
-/** The two operator-selectable knobs from intent@1.2.0 (schemas/intent). */
+/** The operator-selectable knobs from intent@2.0.0 (schemas/intent). */
 export interface RunOptions {
   genre?: Genre;
-  imageStyle?: ImageStyle;
   /**
    * The discovery-tournament winner, passed as typed data on intent rather
    * than smuggled into the brief text. RFC 0009 decision 1 requires production
@@ -171,22 +169,6 @@ export interface RunOptions {
    */
   packageSeed?: PackageSeed;
 }
-
-/**
- * When the operator leaves image_style on "Auto" (no explicit pick), the
- * style still shouldn't be genre-blind -- flat_comic_expressive reads wrong
- * on a moral_story, ink_wash_stickman under-serves a true_story's need for
- * a specific human likeness. This is only a default: an explicit opts.imageStyle
- * always wins (see startRun below), so the operator can still override per
- * episode. noir_charcoal has no genre default -- it's suspense/thriller
- * content within a genre, not a genre of its own, so it stays a manual pick.
- */
-const GENRE_DEFAULT_STYLE: Record<Genre, ImageStyle> = {
-  moral_story: "ink_wash_stickman",
-  drama: "flat_comic_expressive",
-  true_story: "documentary_sketch",
-  short_story: "watercolor_storybook",
-};
 
 export class VidGenService {
   private registry!: SchemaRegistry;
@@ -620,10 +602,7 @@ export class VidGenService {
     }
 
     const runId = `run_${randomUUID()}`;
-    // Explicit operator pick always wins; otherwise derive a genre-appropriate
-    // default rather than always falling back to ink_wash_stickman.
-    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
-    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}${resolvedImageStyle ? `, image_style=${resolvedImageStyle}${opts.imageStyle ? "" : " (auto)"}` : ""}`);
+    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}`);
 
     // Persist run in Postgres if available
     if (this.runLog instanceof PgRunLog) {
@@ -636,7 +615,6 @@ export class VidGenService {
         brief: trimmed,
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
-        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
@@ -686,8 +664,8 @@ export class VidGenService {
    * Manual narration is an INPUT MODE of illustrated_story, not a second graph.
    * The operator's deterministic story/script artifacts are used as the exact
    * outputs of the existing `story` and `draft_script` nodes. Everything else
-   * — strategy/package, watchability evaluation, moderation, TTS, RFC 0010
-   * packaging, narration, SEO/thumbnail, render, QA and publish — is the same production DAG.
+   * — strategy/package, watchability evaluation, moderation, TTS, narration,
+   * SEO/thumbnail, render, QA and publish — is the same production DAG.
    */
   async startManualRun(
     input: ManualScriptInput,
@@ -710,7 +688,6 @@ export class VidGenService {
 
     const runId = `run_${randomUUID()}`;
     const brief = episode.story.title;
-    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
     console.log(`[run ${runId.slice(4, 12)}] starting (manual-script input mode): "${brief}" (${durationSec}s)`);
 
     if (this.runLog instanceof PgRunLog) {
@@ -723,7 +700,6 @@ export class VidGenService {
         brief,
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
-        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
