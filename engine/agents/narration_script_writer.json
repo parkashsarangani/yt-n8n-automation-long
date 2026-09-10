@@ -1,20 +1,41 @@
 {
   "name": "narration_script_writer",
   "kind": "agent",
-  "version": "6",
+  "version": "8",
   "revision_input": "watchability",
   "consumes": [
-    { "schema_id": "story", "range": "^1", "as": "story" },
-    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true },
-    { "schema_id": "intent", "range": "^2", "as": "intent", "optional": true }
+    {
+      "schema_id": "story",
+      "range": "^1",
+      "as": "story"
+    },
+    {
+      "schema_id": "growth_package",
+      "range": "^1",
+      "as": "growth",
+      "optional": true
+    },
+    {
+      "schema_id": "intent",
+      "range": "^2",
+      "as": "intent",
+      "optional": true
+    }
   ],
   "produces": "script",
-  "prompt": "narration_script_writer@6",
+  "prompt": "narration_script_writer@8",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 14000,
     "prefer_paid_on_revision": true
   },
-  "confidence_dimensions": ["prose_quality", "pacing", "payoff_delivery", "first_30_fidelity"],
-  "retry": { "max_attempts": 3 }
+  "confidence_dimensions": [
+    "prose_quality",
+    "pacing",
+    "payoff_delivery",
+    "first_30_fidelity"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
 }

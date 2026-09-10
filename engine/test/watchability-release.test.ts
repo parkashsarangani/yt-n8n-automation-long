@@ -43,6 +43,16 @@ function passingScores() {
   return out;
 }
 
+test("high numeric scores cannot override revise, missing verdict or abandonment", () => {
+  for (const verdict of ["revise", "abandon", undefined]) {
+    const result = assessWatchability({verdict, scores: passingScores()});
+    assert.equal(result.passed, false);
+    assert.ok(result.average < WATCHABILITY_AVERAGE_THRESHOLD);
+    assert.match(result.failures.join(" "), /critic verdict/);
+  }
+  assert.equal(assessWatchability({verdict:"pass", abandon_recommended:true, scores:passingScores()}).passed, false);
+});
+
 test("passes when every growth dimension and the average clear the bar", () => {
   const result = assessWatchability({ verdict: "pass", abandon_recommended: false, abandon_reason: "", scores: passingScores() });
   assert.equal(result.passed, true); assert.equal(result.abandonRecommended, false); assert.deepEqual(result.failures, []);

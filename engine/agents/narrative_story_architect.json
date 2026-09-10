@@ -1,15 +1,38 @@
 {
   "name": "narrative_story_architect",
   "kind": "agent",
-  "version": "4",
+  "version": "6",
   "consumes": [
-    { "schema_id": "intent", "range": "^2", "as": "intent" },
-    { "schema_id": "channel_insights", "range": "^2", "as": "insights" },
-    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true }
+    {
+      "schema_id": "intent",
+      "range": "^2",
+      "as": "intent"
+    },
+    {
+      "schema_id": "channel_insights",
+      "range": "^2",
+      "as": "insights"
+    },
+    {
+      "schema_id": "growth_package",
+      "range": "^1",
+      "as": "growth",
+      "optional": true
+    }
   ],
   "produces": "story",
-  "prompt": "narrative_story_architect@4",
-  "model": {"capability": "reasoning_high", "max_output_tokens": 6500},
-  "confidence_dimensions": ["hook_strength", "escalation_strength", "payoff_strength", "package_fidelity"],
-  "retry": {"max_attempts": 3}
+  "prompt": "narrative_story_architect@6",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 6500
+  },
+  "confidence_dimensions": [
+    "hook_strength",
+    "escalation_strength",
+    "payoff_strength",
+    "package_fidelity"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
 }

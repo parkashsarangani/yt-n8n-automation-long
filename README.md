@@ -26,6 +26,14 @@ docker compose up --build
 
 Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, stock-media, visual-director, Remotion, and legacy n8n production paths are intentionally absent.
 
+## Quiet Confidence — Season 1
+
+The first editorial series is an eight-episode audio-first course in practical social intelligence. Each episode is self-contained but builds a reusable skill: entering unfamiliar rooms, starting and sustaining conversations, expressing interest without pressure, handling interruptions, setting boundaries, accepting rejection, and having difficult conversations. Fictional scenarios are labelled as examples; scripts must explain limitations and end with a concrete exercise.
+
+Use the Studio's **Quiet Confidence — Season 1** selector, or start an episode through `POST /api/series/quiet-confidence-v1/episodes` with `{ "episode": 1 }` through `{ "episode": 8 }`. Series runs carry typed episode context in `intent@2.1.0` to keep the selected objective available to the writer and critic. Topic fidelity is editorially reviewed; the schema alone cannot prove it.
+
+The [retention review](docs/quiet-confidence-retention-review.md) describes the reusable packaging, opening, story, critique and revision workflow, its checks and its measurement limits. A critic's revision verdict blocks release even when its numeric scores are high. Existing publishing configuration applies to series runs.
+
 ## Verification
 
 ```bash

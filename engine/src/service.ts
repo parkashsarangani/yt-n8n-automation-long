@@ -10,6 +10,7 @@
  */
 
 import path from "node:path";
+import { socialSeriesEpisode } from "./social-series.ts";
 import { randomUUID } from "node:crypto";
 import { SchemaRegistry } from "./registry.ts";
 import { PromptStore } from "./prompts.ts";
@@ -157,8 +158,9 @@ export interface ServiceOptions {
 
 type Genre = "moral_story" | "drama" | "true_story" | "short_story";
 
-/** The operator-selectable knobs from intent@2.0.0 (schemas/intent). */
+/** The operator-selectable knobs from the active intent@2.x schema. */
 export interface RunOptions {
+  seriesEpisode?: number;
   genre?: Genre;
   /**
    * The discovery-tournament winner, passed as typed data on intent rather
@@ -595,6 +597,9 @@ export class VidGenService {
   // -- runs ---------------------------------------------------------------
 
   async startRun(brief: string, durationSec = 540, opts: RunOptions = {}): Promise<string> {
+    const series = opts.seriesEpisode !== undefined ? socialSeriesEpisode(opts.seriesEpisode) : undefined;
+    if (series && (opts.genre || opts.packageSeed)) throw new Error("series episodes cannot override genre or package seed");
+    if (series) brief = `${series.series_title}: ${series.title}. ${series.learning_objective}. Use the structured series context; do not substitute another topic.`;
     const trimmed = brief.trim();
     if (trimmed.length < 8) throw new Error("brief is too short");
     if (!process.env["OPENAI_API_KEY"]?.trim()) {
@@ -614,6 +619,7 @@ export class VidGenService {
       payload: {
         brief: trimmed,
         target_duration_sec: durationSec,
+        ...(series ? { series, niche: "practical-social-intelligence" } : {}),
         ...(opts.genre ? { genre: opts.genre } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
