@@ -1,17 +1,44 @@
 {
   "name": "watchability_critic",
   "kind": "agent",
-  "version": "5",
+  "version": "6",
   "consumes": [
-    { "schema_id": "story", "range": "^1", "as": "story" },
-    { "schema_id": "script", "range": "^1", "as": "script" },
-    { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true },
-    { "schema_id": "intent", "range": "^2", "as": "intent", "optional": true }
+    {
+      "schema_id": "story",
+      "range": "^1",
+      "as": "story"
+    },
+    {
+      "schema_id": "script",
+      "range": "^1",
+      "as": "script"
+    },
+    {
+      "schema_id": "growth_package",
+      "range": "^1",
+      "as": "growth",
+      "optional": true
+    },
+    {
+      "schema_id": "intent",
+      "range": "^2",
+      "as": "intent",
+      "optional": true
+    }
   ],
   "produces": "watchability_report",
   "produces_version": "2.1.0",
-  "prompt": "watchability_critic@5",
-  "model": {"capability": "reasoning_high", "max_output_tokens": 18000, "effort": "high", "prefer_paid_reasoning": true},
-  "confidence_dimensions": ["evaluation_reliability"],
-  "retry": {"max_attempts": 2}
+  "prompt": "watchability_critic@6",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 18000,
+    "effort": "high",
+    "prefer_paid_reasoning": true
+  },
+  "confidence_dimensions": [
+    "evaluation_reliability"
+  ],
+  "retry": {
+    "max_attempts": 2
+  }
 }

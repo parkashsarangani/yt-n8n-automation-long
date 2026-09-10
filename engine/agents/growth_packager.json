@@ -1,15 +1,32 @@
 {
   "name": "growth_packager",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
-    { "schema_id": "intent", "range": "^2", "as": "intent" },
-    { "schema_id": "channel_insights", "range": "^2", "as": "insights" }
+    {
+      "schema_id": "intent",
+      "range": "^2",
+      "as": "intent"
+    },
+    {
+      "schema_id": "channel_insights",
+      "range": "^2",
+      "as": "insights"
+    }
   ],
   "produces": "growth_package",
   "produces_version": "1.2.0",
-  "prompt": "growth_packager@2",
-  "model": {"capability": "reasoning_high", "max_output_tokens": 5000},
-  "confidence_dimensions": ["clickability", "story_potential", "audience_size"],
-  "retry": {"max_attempts": 3}
+  "prompt": "growth_packager@3",
+  "model": {
+    "capability": "reasoning_high",
+    "max_output_tokens": 5000
+  },
+  "confidence_dimensions": [
+    "clickability",
+    "story_potential",
+    "audience_size"
+  ],
+  "retry": {
+    "max_attempts": 3
+  }
 }

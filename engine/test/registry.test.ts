@@ -53,6 +53,7 @@ test("loads the real project schemas", async () => {
   // Active versions remain compatible with stored audio-first artifacts.
   assert.equal(reg.resolveVersion("story"), "1.4.0");
   assert.equal(reg.resolveVersion("script"), "1.7.0");
+  assert.equal(reg.resolveVersion("intent"), "2.1.0");
 });
 
 test("a valid story payload passes and an invalid one reports usable errors", async () => {
