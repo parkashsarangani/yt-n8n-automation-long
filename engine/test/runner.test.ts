@@ -46,7 +46,7 @@ async function harness(handler: FakeHandler) {
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-run-")), registry);
   const runLog = new MemoryRunLog();
   const provider = new FakeProvider(handler);
-  const providers = new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider });
+  const providers = new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider, reasoning_script: provider });
   const runner = new Runner({ store, registry, prompts, providers, runLog, logger: silent(), blobs: new MemoryBlobStore() });
   const agents = await loadAgentDefs(path.join(ROOT, "agents"));
   return { registry, prompts, store, runLog, provider, runner, agents };

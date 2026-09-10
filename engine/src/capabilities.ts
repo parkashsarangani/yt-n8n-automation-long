@@ -6,6 +6,8 @@
  */
 
 import { resolveTextModels } from "./llm-routing.ts";
+import { scriptAuthoringModel } from "./providers/openai.ts";
+import { fallbackPolicy } from "./fallback-policy.ts";
 
 export interface StageSpec {
   id: string;
@@ -29,6 +31,7 @@ export const STAGES: StageSpec[] = [
       "FREELLMAPI_BASE_URL",
       "FREELLMAPI_TEXT_MODELS",
       "OPENAI_MODEL",
+      "SCRIPT_MODEL",
       "PAID_TEXT_FALLBACK",
     ],
     real: "freellmapi ordered free-model chain",
@@ -147,9 +150,14 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
     chain = ["<invalid FREELLMAPI_TEXT_MODELS>"];
   }
   const head = chain.slice(0, 3).join(", ") + (chain.length > 3 ? `, +${chain.length - 3}` : "");
+  // The script writer authors on the paid model directly when paid text is
+  // available; note it so the startup report shows where script spend goes.
+  const scriptNote = fallbackPolicy(env).paidTextFallback && isSet(env, "OPENAI_API_KEY")
+    ? `; script author: ${scriptAuthoringModel(env)}`
+    : "";
   return isSet(env, "FREELLMAPI_API_KEY")
-    ? `freellmapi free chain [${head}]`
-    : `freellmapi free chain [${head}] (FREELLMAPI_API_KEY unset - reasoning unavailable)`;
+    ? `freellmapi free chain [${head}]${scriptNote}`
+    : `freellmapi free chain [${head}] (FREELLMAPI_API_KEY unset - reasoning unavailable)${scriptNote}`;
 }
 
 function speechProvider(env: NodeJS.ProcessEnv): string {

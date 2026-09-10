@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 process.env["LLM_ROUTER_MODE"] = "direct";
 delete process.env["FREELLMAPI_API_KEY"];
 
-import { OpenAIProvider, defaultOpenAIBaseUrl, defaultOpenAIModel, estimateOpenAICost } from "../src/providers/openai.ts";
+import { OpenAIProvider, defaultOpenAIBaseUrl, defaultOpenAIModel, estimateOpenAICost, scriptAuthoringModel } from "../src/providers/openai.ts";
 import { ProviderError, ProviderRefusal } from "../src/provider.ts";
 
 const SCHEMA = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] };
@@ -140,6 +140,25 @@ test("streaming assembles content spread across many delta chunks", async () => 
   assert.equal(result.usage.output_tokens, 5);
 });
 
+test("the script-authoring model is Astra by default and SCRIPT_MODEL overrides it", () => {
+  assert.equal(scriptAuthoringModel({}), "gpt-6-astra");
+  assert.equal(scriptAuthoringModel({ SCRIPT_MODEL: "gpt-5.6-sol" }), "gpt-5.6-sol");
+});
+
+test("a reasoning_script OpenAIProvider bills its pinned model on the direct path", async () => {
+  const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  const provider = new OpenAIProvider({ apiKey: "sk-test", model: "gpt-6-astra", effort: "high", fetchImpl: okFetch(calls) });
+
+  const result = await provider.complete({ prompt: "hi", outputSchema: SCHEMA, maxOutputTokens: 14000 });
+
+  assert.equal(calls[0]!.body["model"], "gpt-6-astra");
+  assert.equal(calls[0]!.body["reasoning_effort"], "high");
+  assert.equal(result.usage.model, "gpt-6-astra");
+  assert.equal(result.providerRef, "openai/gpt-6-astra");
+  // Astra standard tier: $10 input / $50 output per 1M tokens.
+  assert.equal(result.usage.cost_usd, (11 * 10 + 7 * 50) / 1_000_000);
+});
+
 test("defaults resolve from environment", () => {
   assert.equal(defaultOpenAIModel({}), "gpt-5.6-luna");
   assert.equal(defaultOpenAIModel({ OPENAI_MODEL: "gpt-5.6-terra" }), "gpt-5.6-terra");
@@ -149,5 +168,6 @@ test("defaults resolve from environment", () => {
 test("cost estimate matches the published per-tier pricing", () => {
   // Luna: $0.20 input / $1.20 output per 1M tokens.
   assert.equal(estimateOpenAICost("gpt-5.6-luna", 1_000_000, 1_000_000), 0.2 + 1.2);
+  assert.equal(estimateOpenAICost("gpt-6-astra", 1_000_000, 1_000_000), 10 + 50);
   assert.equal(estimateOpenAICost("unknown-model", 1_000_000, 1_000_000), 0);
 });

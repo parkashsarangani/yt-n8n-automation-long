@@ -50,24 +50,27 @@ test("core creative agents do not request low-effort routing", () => {
   }
 });
 
-test("only the watchability evaluate/revise loop reaches for the paid model", () => {
+test("only the script author and the watchability critic reach for the paid model", () => {
   // watchability_release thresholds (hook 0.82, avg 0.79, ...) are calibrated
   // against the strong paid critic. The free 70B chain scores the same scripts
-  // lower and the free writer plateaus one dimension short over five revisions,
+  // lower and a free writer plateaus one dimension short over five revisions,
   // so the unattended loop cannot converge on its own.
   //
   //  - watchability_critic ALWAYS grades on the paid model when one is
   //    available (it authorizes all downstream image/render spend).
-  //  - narration_script_writer's FIRST draft stays free-first; only a
-  //    watchability-triggered revision writes on the paid model, because a
-  //    revision exists only because the paid critic found a real deficiency.
+  //  - narration_script_writer ALWAYS authors on the paid model: on an
+  //    audio-first channel the script IS the episode, so it runs on the
+  //    dedicated `reasoning_script` capability (GPT-6 Astra) rather than the
+  //    free chain. prefer_paid_on_revision is retained as the floor if
+  //    prefer_paid_reasoning is ever turned off.
   //
-  // Every other agent, and the first script draft, stays free-first.
+  // Every other agent stays free-first.
   const shipped = readdirSync(new URL("../agents/", import.meta.url)).filter((f) => f.endsWith(".json"));
-  const alwaysPaid = shipped.filter((f) => agent(f).model.prefer_paid_reasoning === true).map((f) => agent(f).name);
+  const alwaysPaid = shipped.filter((f) => agent(f).model.prefer_paid_reasoning === true).map((f) => agent(f).name).sort();
   const paidOnRevision = shipped.filter((f) => agent(f).model.prefer_paid_on_revision === true).map((f) => agent(f).name);
-  assert.deepEqual(alwaysPaid, ["watchability_critic"]);
+  assert.deepEqual(alwaysPaid, ["narration_script_writer", "watchability_critic"]);
   assert.deepEqual(paidOnRevision, ["narration_script_writer"]);
+  assert.equal(agent("narration_script_writer.json").model.capability, "reasoning_script");
 });
 
 test("agent output budgets stay bounded", () => {

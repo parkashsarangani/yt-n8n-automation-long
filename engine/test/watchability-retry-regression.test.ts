@@ -130,7 +130,7 @@ test("critic-guided identical output is an internal retry, not a cache-hit outer
     prompts: {
       render: (_ref: string, vars: Record<string, string>) => `revision=${vars["revision"]}\nintent=${vars["intent"]}`,
     } as any,
-    providers: new ProviderRouter({ reasoning_high: provider }),
+    providers: new ProviderRouter({ reasoning_high: provider, reasoning_script: provider }),
     runLog,
     logger: { log: () => {}, warn: () => {}, error: () => {} },
   });
@@ -194,7 +194,7 @@ test("prefer_paid_on_revision routes the paid model only when a revision context
       store,
       registry: { resolveVersion: () => "1.7.0", jsonSchema: () => ({ type: "object" }), validate: () => undefined } as any,
       prompts: { render: (_r: string, v: Record<string, string>) => `revision=${v["revision"]}` } as any,
-      providers: new ProviderRouter({ reasoning_high: provider }),
+      providers: new ProviderRouter({ reasoning_high: provider, reasoning_script: provider }),
       runLog,
       logger: { log: () => {}, warn: () => {}, error: () => {} },
     });
