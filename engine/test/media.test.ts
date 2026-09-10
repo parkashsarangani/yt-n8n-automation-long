@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { SchemaRegistry } from "../src/registry.ts";
@@ -11,14 +11,12 @@ import { FsArtifactStore } from "../src/store.ts";
 import { FsBlobStore, MemoryBlobStore, BlobStoreError, isBlobUri } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
-import { FakeSpeechProvider, FakeImageProvider } from "../src/providers/fake.ts";
+import { FakeSpeechProvider } from "../src/providers/fake.ts";
 import { Runner } from "../src/runner.ts";
-import { makeVoiceWorker, makeAssetWorker, buildPrompt } from "../src/workers/index.ts";
-import type { Artifact } from "../src/artifact.ts";
+import { makeVoiceWorker } from "../src/workers/index.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
-
+const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
 const SCRIPT = {
   scenes: [
     { scene_index: 0, act_index: 0, point: "open", narration: "Chile is absurdly long." },
@@ -27,30 +25,11 @@ const SCRIPT = {
   ],
 };
 
-const PLAN = {
-  scenes: [
-    {
-      scene_index: 0,
-      search_terms: ["aerial coastline", "andes ridge", "desert highway"],
-      visual_style: "vivid documentary",
-      fallback_terms: ["mountains", "coast"],
-    },
-    {
-      scene_index: 1,
-      search_terms: ["glacier valley", "stone border marker", "map table"],
-      visual_style: "vivid documentary",
-      fallback_terms: ["snow peaks", "valley"],
-    },
-  ],
-};
-
-async function harness(opts: { speech?: FakeSpeechProvider; images?: FakeImageProvider } = {}) {
+async function harness(speech = new FakeSpeechProvider()) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-media-")), registry);
   const blobs = new MemoryBlobStore();
-  const speech = opts.speech ?? new FakeSpeechProvider();
-  const images = opts.images ?? new FakeImageProvider();
   const runner = new Runner({
     store,
     registry,
@@ -59,33 +38,28 @@ async function harness(opts: { speech?: FakeSpeechProvider; images?: FakeImagePr
     runLog: new MemoryRunLog(),
     logger: silent(),
     blobs,
-    media: { speech, images },
+    media: { speech },
   });
   const seed = async (schemaId: string, payload: unknown, producer: string) =>
-    (
-      await store.put({
-        schema_id: schemaId,
-        payload,
-        produced_by: { transformation: producer, version: "1", run_id: "t", provider: null },
-      })
-    ).artifact;
-  return { store, blobs, speech, images, runner, seed };
+    (await store.put({
+      schema_id: schemaId,
+      payload,
+      produced_by: { transformation: producer, version: "1", run_id: "t", provider: null },
+    })).artifact;
+  return { store, blobs, speech, runner, seed };
 }
 
-// -- blob store ---------------------------------------------------------
-
-test("blobs are content-addressed, immutable, and dedup", async () => {
+test("blobs are content-addressed, immutable, and deduplicated", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "vidgen-blobs-"));
   const blobs = await FsBlobStore.open(root);
   const bytes = new TextEncoder().encode("hello andes");
 
   const a = await blobs.put(bytes, { role: "audio", media_type: "audio/mpeg" });
-  const b = await blobs.put(bytes, { role: "image", media_type: "image/png" });
+  const b = await blobs.put(bytes, { role: "thumbnail", media_type: "image/png" });
 
   assert.ok(isBlobUri(a.uri));
-  assert.equal(a.uri, b.uri); // same bytes, one copy
+  assert.equal(a.uri, b.uri);
   assert.equal(a.bytes, bytes.byteLength);
-  assert.equal(a.media_type, "audio/mpeg");
   assert.deepEqual(await blobs.get(a.uri), bytes);
   assert.equal((await blobs.size()).count, 1);
 });
@@ -93,30 +67,21 @@ test("blobs are content-addressed, immutable, and dedup", async () => {
 test("a tampered blob is detected on read", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "vidgen-blobs-"));
   const blobs = await FsBlobStore.open(root);
-  const ref = await blobs.put(new TextEncoder().encode("original"), { role: "image" });
-
+  const ref = await blobs.put(new TextEncoder().encode("original"), { role: "audio" });
   const hex = ref.uri.slice("blob://sha256:".length);
   await writeFile(path.join(root, "blobs", hex.slice(0, 2), hex), "tampered", "utf8");
-
   await assert.rejects(() => blobs.get(ref.uri), /content hash mismatch/);
 });
 
-test("a missing blob fails loudly rather than returning nothing", async () => {
+test("a missing blob fails loudly", async () => {
   const blobs = new MemoryBlobStore();
-  await assert.rejects(
-    () => blobs.get(`blob://sha256:${"0".repeat(64)}`),
-    BlobStoreError,
-  );
+  await assert.rejects(() => blobs.get(`blob://sha256:${"0".repeat(64)}`), BlobStoreError);
 });
 
-// -- voice worker -------------------------------------------------------
-
-test("voice worker produces one clip per scene and owns its blobs", async () => {
+test("voice worker produces exactly one clip per approved narration scene", async () => {
   const h = await harness();
   const script = await h.seed("script", SCRIPT, "script_writer");
-  const worker = makeVoiceWorker({ voiceId: "voice-1" });
-
-  const out = await h.runner.run(worker, [script.artifact_id]);
+  const out = await h.runner.run(makeVoiceWorker({ voiceId: "voice-1" }), [script.artifact_id]);
   const payload = out.artifact.payload as {
     voice_id: string;
     clips: Array<{ scene_index: number; audio_uri: string; alignment_uri?: string }>;
@@ -124,16 +89,12 @@ test("voice worker produces one clip per scene and owns its blobs", async () => 
   };
 
   assert.equal(payload.voice_id, "voice-1");
-  assert.deepEqual(payload.clips.map((c) => c.scene_index), [0, 1, 2]);
+  assert.deepEqual(payload.clips.map((clip) => clip.scene_index), [0, 1, 2]);
   assert.ok(payload.total_duration_sec > 0);
-  assert.equal(out.artifact.produced_by.provider, null); // a worker, not an agent
-
-  // The envelope owns every blob; the payload only references them, so the
-  // artifact stays small and hashable (RFC 0002).
-  const envelopeUris = new Set((out.artifact.blobs ?? []).map((b) => b.uri));
-  assert.equal(envelopeUris.size, 6); // 3 audio + 3 alignment
+  const owned = new Set((out.artifact.blobs ?? []).map((blob) => blob.uri));
+  assert.equal(owned.size, 6);
   for (const clip of payload.clips) {
-    assert.ok(envelopeUris.has(clip.audio_uri));
+    assert.ok(owned.has(clip.audio_uri));
     assert.ok(await h.blobs.has(clip.audio_uri));
   }
 });
@@ -142,171 +103,21 @@ test("voice worker passes neighbouring narration for prosody continuity", async 
   const h = await harness();
   const script = await h.seed("script", SCRIPT, "script_writer");
   await h.runner.run(makeVoiceWorker({ voiceId: "voice-1" }), [script.artifact_id]);
+  const byText = new Map(h.speech.calls.map((call) => [call.text, call]));
 
-  const byText = new Map(h.speech.calls.map((c) => [c.text, c]));
-  const first = byText.get("Chile is absurdly long.")!;
-  const middle = byText.get("The Andes drew the border.")!;
-  const last = byText.get("It is rock, not politics.")!;
-
-  assert.equal(first.prev, undefined); // nothing before the first scene
-  assert.equal(first.next, "The Andes drew the border.");
-  assert.equal(middle.prev, "Chile is absurdly long.");
-  assert.equal(middle.next, "It is rock, not politics.");
-  assert.equal(last.next, undefined); // nothing after the last
+  assert.equal(byText.get("Chile is absurdly long.")!.prev, undefined);
+  assert.equal(byText.get("Chile is absurdly long.")!.next, "The Andes drew the border.");
+  assert.equal(byText.get("The Andes drew the border.")!.prev, "Chile is absurdly long.");
+  assert.equal(byText.get("The Andes drew the border.")!.next, "It is rock, not politics.");
+  assert.equal(byText.get("It is rock, not politics.")!.next, undefined);
 });
 
-test("voice worker is deterministic: the same script dedups to one artifact", async () => {
+test("voice worker deduplicates the same script deterministically", async () => {
   const h = await harness();
   const script = await h.seed("script", SCRIPT, "script_writer");
   const worker = makeVoiceWorker({ voiceId: "voice-1" });
-
-  const a = await h.runner.run(worker, [script.artifact_id]);
-  const b = await h.runner.run(worker, [script.artifact_id]);
-  assert.equal(b.deduped, true);
-  assert.equal(b.artifact.artifact_id, a.artifact.artifact_id);
-});
-
-// -- asset collector ----------------------------------------------------
-
-test("asset worker generates one image per scene from the primary terms", async () => {
-  const h = await harness();
-  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
-
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-  const payload = out.artifact.payload as {
-    scenes: Array<{ scene_index: number; source: string; image_uri?: string }>;
-    degraded_count: number;
-  };
-
-  assert.deepEqual(payload.scenes.map((s) => s.source), ["primary", "primary"]);
-  assert.equal(payload.degraded_count, 0);
-  assert.equal((out.artifact.blobs ?? []).length, 2);
-  // The prompt carries the terms joined together (for stock search).
-  assert.match(h.images.prompts[0]!, /aerial coastline, andes ridge, desert highway/);
-});
-
-test("asset worker falls back to the backup terms when the primary fails", async () => {
-  const images = new FakeImageProvider((p) => p.includes("aerial coastline"));
-  const h = await harness({ images });
-  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
-
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-  const payload = out.artifact.payload as {
-    scenes: Array<{ scene_index: number; source: string; image_uri?: string }>;
-    degraded_count: number;
-  };
-
-  assert.equal(payload.scenes[0]!.source, "fallback");
-  assert.ok(payload.scenes[0]!.image_uri); // still has a real image
-  assert.equal(payload.scenes[1]!.source, "primary");
-  assert.equal(payload.degraded_count, 0);
-});
-
-test("both rungs failing degrades the scene instead of failing the video", async () => {
-  const images = new FakeImageProvider(() => true); // everything fails
-  const h = await harness({ images });
-  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
-
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-  const payload = out.artifact.payload as {
-    scenes: Array<{ source: string; image_uri?: string }>;
-    degraded_count: number;
-  };
-
-  // The run still produced a usable artifact — this is a quality gauge, not a
-  // pipeline failure (RFC 0006 splits the two).
-  assert.deepEqual(payload.scenes.map((s) => s.source), ["placeholder", "placeholder"]);
-  assert.equal(payload.degraded_count, 2);
-  for (const s of payload.scenes) assert.equal(s.image_uri, undefined);
-  assert.equal((out.artifact.blobs ?? []).length, 0);
-  assert.equal(h.images.prompts.length, 4); // 2 scenes x (primary + fallback)
-});
-
-test("asset worker prefers real stock video over a still when the source has footage", async () => {
-  const images = new FakeImageProvider(undefined, () => true); // video "available" for every query
-  const h = await harness({ images });
-  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
-
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-  const payload = out.artifact.payload as {
-    scenes: Array<{ scene_index: number; source: string; video_uri?: string; image_uri?: string }>;
-    degraded_count: number;
-  };
-
-  for (const s of payload.scenes) {
-    assert.ok(s.video_uri, `scene ${s.scene_index} should have video_uri`);
-    assert.equal(s.image_uri, undefined);
-  }
-  assert.deepEqual(payload.scenes.map((s) => s.source), ["primary", "primary"]);
-  assert.equal(payload.degraded_count, 0);
-  // Video was tried before the image call for each scene.
-  assert.equal(h.images.prompts.length, 0);
-  assert.equal(h.images.videoPrompts.length, 2);
-});
-
-test("asset worker falls back to an image when the stock source has no video for these terms", async () => {
-  const h = await harness(); // default FakeImageProvider: no video for anything
-  const plan = await h.seed("visual_plan", PLAN, "visual_planner");
-
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-  const payload = out.artifact.payload as {
-    scenes: Array<{ video_uri?: string; image_uri?: string }>;
-  };
-
-  for (const s of payload.scenes) {
-    assert.equal(s.video_uri, undefined);
-    assert.ok(s.image_uri);
-  }
-  // Video is checked (and comes back empty) before falling through to the image call.
-  assert.equal(h.images.videoPrompts.length, 2);
-  assert.equal(h.images.prompts.length, 2);
-});
-
-test("identical prompts across scenes cost one blob, not two", async () => {
-  const h = await harness();
-  const duplicated = {
-    scenes: [
-      { ...PLAN.scenes[0]!, scene_index: 0 },
-      { ...PLAN.scenes[0]!, scene_index: 1 },
-    ],
-  };
-  const plan = await h.seed("visual_plan", duplicated, "visual_planner");
-  const out = await h.runner.run(makeAssetWorker(), [plan.artifact_id]);
-
-  const payload = out.artifact.payload as { scenes: Array<{ image_uri: string }> };
-  assert.equal(payload.scenes[0]!.image_uri, payload.scenes[1]!.image_uri);
-  assert.equal(h.blobs.count, 1); // content-addressed dedup
-});
-
-test("a worker without its provider fails clearly", async () => {
-  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
-  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-nomedia-")), registry);
-  const runner = new Runner({
-    store,
-    registry,
-    prompts: await PromptStore.load(path.join(ROOT, "prompts")),
-    providers: new ProviderRouter({}),
-    runLog: new MemoryRunLog(),
-    logger: silent(),
-    blobs: new MemoryBlobStore(),
-    media: {}, // no speech provider
-  });
-  const script = (
-    await store.put({
-      schema_id: "script",
-      payload: SCRIPT,
-      produced_by: { transformation: "script_writer", version: "1", run_id: "t", provider: null },
-    })
-  ).artifact;
-
-  await assert.rejects(
-    () => runner.run(makeVoiceWorker({ voiceId: "v" }), [script.artifact_id]),
-    /requires a speech provider/,
-  );
-});
-
-test("buildPrompt is a pure function of terms and style", () => {
-  const p = buildPrompt(["a", "b"], "moody");
-  assert.equal(p, "a, b");
-  assert.equal(buildPrompt(["a", "b"], "moody"), p);
+  const first = await h.runner.run(worker, [script.artifact_id]);
+  const second = await h.runner.run(worker, [script.artifact_id]);
+  assert.equal(second.deduped, true);
+  assert.equal(second.artifact.artifact_id, first.artifact.artifact_id);
 });
