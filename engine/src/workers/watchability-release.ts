@@ -128,7 +128,9 @@ export function assessWatchability(payload: unknown, targetDurationSec?: number 
   const abandonReason = typeof report.abandon_reason === "string" && report.abandon_reason.trim()
     ? report.abandon_reason.trim()
     : abandonRecommended ? "package/first-30/youtube-fit is materially below the viable floor" : "";
-  const passed = failures.length === 0 && report.verdict !== "abandon";
+  if (report.verdict !== "pass") failures.push(`critic verdict=${String(report.verdict ?? "missing")} (requires pass)`);
+  if (report.abandon_recommended === true) failures.push("critic recommends abandoning this premise");
+  const passed = failures.length === 0;
   const releaseDeficit = watchabilityReleaseDeficit(scores, rawAverage, profile);
   const failedCeiling = profile.averageThreshold - 0.001;
   const average = passed
@@ -141,7 +143,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "6",
+    version: "7",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },

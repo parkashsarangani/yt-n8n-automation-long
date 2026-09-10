@@ -69,10 +69,10 @@ const DIMENSION_DIRECTIVES: Partial<Record<WatchabilityDimension, string>> = {
   hook: "Rebuild scene 0 around the sharpest concrete consequence or unanswered question. Remove setup before the conflict is visible.",
   first_30_fidelity: "Rewrite the opening 30 seconds to deliver the package's 0-5s, 5-15s and 15-30s milestones in order; move background context later.",
   package_fidelity: "Remove premise drift. The title/thumbnail click promise must remain the central question and the payoff must answer that exact promise.",
-  suspense: "Strengthen causal escalation: each attempted solution should create a harder problem, opposition should gain leverage, and the low point must remove an easy escape.",
+  suspense: "Strengthen causal progression: each attempt or example must change the available choices or reveal a useful complication. In a practical lesson, test the advice in a harder situation; never invent peril or opposition to manufacture drama.",
   watchability: "Compress exposition and repetition. Every beat must change the situation, sharpen a question, reveal a consequence, or pay something off; cut neutral connective prose.",
   entertainment: "Add specific observable choices, reversals, surprise or character behavior instead of generic narration. Prefer memorable concrete moments over explanation.",
-  payoff: "Make the ending a concrete consequence that resolves or reframes the opening question. Do not substitute a lesson for the promised event-level payoff.",
+  payoff: "Resolve the exact opening promise through a concrete consequence or demonstrated response. In a practical lesson, replay the opening situation with the new skill and show its limits; generic encouragement is not a payoff.",
   youtube_fit: "Simplify the story so a cold viewer can understand the conflict immediately and can describe the memorable turn in one sentence afterward.",
 };
 

@@ -1,7 +1,7 @@
 {
   "name": "growth_packager",
   "kind": "agent",
-  "version": "3",
+  "version": "4",
   "consumes": [
     {
       "schema_id": "intent",
@@ -16,7 +16,7 @@
   ],
   "produces": "growth_package",
   "produces_version": "1.2.0",
-  "prompt": "growth_packager@3",
+  "prompt": "growth_packager@4",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 5000

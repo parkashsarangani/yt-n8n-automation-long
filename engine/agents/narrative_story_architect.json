@@ -1,7 +1,7 @@
 {
   "name": "narrative_story_architect",
   "kind": "agent",
-  "version": "5",
+  "version": "6",
   "consumes": [
     {
       "schema_id": "intent",
@@ -21,7 +21,7 @@
     }
   ],
   "produces": "story",
-  "prompt": "narrative_story_architect@5",
+  "prompt": "narrative_story_architect@6",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 6500

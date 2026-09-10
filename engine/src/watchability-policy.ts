@@ -34,7 +34,7 @@ export const WATCHABILITY_AVERAGE_THRESHOLD = 0.75;
  * change correctly invalidates every cached canonical decision — an old
  * approval must not carry forward under new floors.
  */
-export const WATCHABILITY_POLICY_VERSION = "2026-09-08-floors-v2";
+export const WATCHABILITY_POLICY_VERSION = "2026-09-10-binding-verdict-v3";
 // Operator-set 2026-09-08 (from 0.55): a dimension this low still flips the
 // verdict to ABANDON_TOPIC rather than REVISE_SCRIPT.
 export const MATERIAL_WEAKNESS_FLOOR = 0.50;

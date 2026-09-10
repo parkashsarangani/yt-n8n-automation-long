@@ -39,10 +39,30 @@ export function socialSeriesCatalog() {
 
 /** Mechanical structure only; the critic must assess actual quality and usefulness. */
 export function socialSeriesScriptErrors(payload: unknown): string[] {
-  const scenes = (payload as { scenes?: { point?: string }[] } | null)?.scenes;
+  const scenes = (payload as { scenes?: { point?: string; narration?: string; is_outro?: boolean }[] } | null)?.scenes;
   if (!Array.isArray(scenes)) return ["series script requires scenes"];
-  const points = scenes.map(s => String(s.point ?? "").toLowerCase());
-  return ["scenario", "response_a", "response_b", "explanation", "limitations", "exercise", "payoff"]
+  const points = scenes.map(s => String(s?.point ?? "").toLowerCase());
+  const errors = ["scenario", "response_a", "response_b", "explanation", "limitations", "exercise", "payoff"]
     .filter(tag => !points.some(p => p.startsWith(`[${tag}]`)))
     .map(tag => `series script requires a [${tag}] scene point`);
+  if (!scenes.length) return errors;
+  const spoken = scenes.map(s => String(s?.narration ?? "").trim());
+  if (!points[0]?.startsWith("[scenario]")) errors.push("series script must open inside the scenario");
+  if (spoken.some(s => !s)) errors.push("series scene labels require spoken content");
+  if (spoken.some(s => /\[(scenario|response_a|response_b|explanation|limitations|exercise|payoff)\]/i.test(s))) {
+    errors.push("planning labels must not leak into narration");
+  }
+  if (/^(?:hello everyone|hey (?:everyone|guys)|welcome (?:back|to)|in (?:this|today's) (?:video|episode))\b/i.test(spoken[0]!)) {
+    errors.push("opening starts with a generic introduction instead of the scenario");
+  }
+  const firstResponse = points.findIndex(p => /^\[response_[ab]\]/.test(p));
+  const leadWords = spoken.slice(0, firstResponse).join(" ").trim().split(/\s+/).filter(Boolean).length;
+  if (firstResponse > 0 && leadWords > 90) errors.push("first concrete response starts after 90 words; move useful progress earlier");
+  const payoff = points.findIndex(p => p.startsWith("[payoff]"));
+  const outro = scenes.findIndex(s => s?.is_outro === true);
+  if (outro < 0 || outro !== scenes.length - 1 || scenes.filter(s => s?.is_outro).length !== 1) {
+    errors.push("series requires exactly one separate final outro");
+  }
+  if (payoff >= 0 && outro >= 0 && payoff >= outro) errors.push("payoff must precede outro so release cannot overwrite it");
+  return errors;
 }

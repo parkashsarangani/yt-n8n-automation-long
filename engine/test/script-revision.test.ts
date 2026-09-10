@@ -142,5 +142,6 @@ test("dimension directives prioritize the critic's weakest dimension and concret
     "targeted_revision",
   );
   assert.match(directives.join("\n"), /changing the protagonist's options/i);
-  assert.match(directives.join("\n"), /attempted solution should create a harder problem/i);
+  assert.match(directives.join("\n"), /change the available choices or reveal a useful complication/i);
+  assert.match(directives.join("\n"), /never invent peril/i);
 });
