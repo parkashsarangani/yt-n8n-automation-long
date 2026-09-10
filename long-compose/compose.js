@@ -8,6 +8,7 @@ const ffmpeg = require("fluent-ffmpeg");
 const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
+const { buildStage } = require("./conversation-stage");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -87,6 +88,7 @@ async function buildAudioFirstVideo(data, outputPath) {
   const dir = tmpDir();
   try {
     const wavs = [];
+    const durations = [];
     for (let i = 0; i < ordered.length; i += 1) {
       const scene = ordered[i];
       if (!Number.isInteger(scene.scene_index) || seen.has(scene.scene_index)) throw new Error("scene_index values must be unique integers");
@@ -98,6 +100,7 @@ async function buildAudioFirstVideo(data, outputPath) {
       await fsp.writeFile(input, Buffer.from(b64, "base64"));
       await execFileAsync(ffmpegPath, ["-y", "-i", input, "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", wav]);
       wavs.push(wav);
+      durations.push(await probeDuration(wav));
     }
 
     const list = path.join(dir, "audio-concat.txt");
@@ -107,11 +110,16 @@ async function buildAudioFirstVideo(data, outputPath) {
     const duration = await probeDuration(programme);
     if (!(duration > 0)) throw new Error("concatenated narration has zero duration");
 
+    const hasStage = ordered.some(scene => scene.narration?.trim());
+    const stageFile = path.join(dir, "stage.ass");
+    if (hasStage) await fsp.writeFile(stageFile, buildStage(ordered, durations));
+
     await execFileAsync(ffmpegPath, [
       "-y",
       "-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30",
       "-i", programme,
       "-map", "0:v:0", "-map", "1:a:0",
+      ...(hasStage ? ["-vf", `drawbox=x=160:y=300:w=1600:h=460:color=0x1f2532:t=fill,drawbox=x=160:y=300:w=8:h=460:color=0x7ac5ce:t=fill,ass='${escapeFilterPath(stageFile)}'`] : []),
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",

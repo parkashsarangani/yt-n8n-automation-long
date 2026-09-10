@@ -36,6 +36,8 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 ## Verification
 
+The conversation stage displays approved narration in bounded phrase cards on a dark 1080p canvas. Scene-role headings distinguish situations, responses, explanations, context, exercises and takeaways. Text is paginated without dropping words, with subtle fades and scene progress. Scene boundaries use measured audio duration; within-scene page timing is proportional to text length, not word-synchronised captions. No additional image provider or visual-generation agent is required. Legacy requests without narration retain the plain background.
+
 ```bash
 cd engine && npm ci && npm run typecheck && npm test
 cd ../long-compose && npm ci && npm run check && npm test

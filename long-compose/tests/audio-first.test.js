@@ -64,6 +64,16 @@ test("audio-first render rejects an empty programme", async () => {
   await assert.rejects(() => buildAudioFirstVideo([], "/tmp/unused.mp4"), /at least one audio scene/);
 });
 
+test("conversation cards render through FFmpeg with literal untrusted text", async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "conversation-test-"));
+  try {
+    const output=path.join(dir,"stage.mp4");
+    const duration=await buildAudioFirstVideo([{...scene(0,1),point:"[response_b] example",narration:"Let me finish this thought, then I would like to hear yours. {literal} \\pos(0,0)"}],output);
+    assert.ok(duration >= 1);
+    assert.ok((await fsp.stat(output)).size > 5000);
+  } finally { await fsp.rm(dir,{recursive:true,force:true}); }
+});
+
 test("audio-first render rejects invalid scene identity before encoding", async () => {
   await assert.rejects(
     () => buildAudioFirstVideo([{ ...scene(0), scene_index: 0.5 }], "/tmp/unused.mp4"),

@@ -10,6 +10,7 @@ export interface RenderWorkerOptions {
 }
 
 interface ScriptScene {
+  point?: string;
   scene_index: number;
   narration: string;
   is_outro?: boolean;
@@ -56,6 +57,8 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
 
     scenes.push({
       scene_index: scene.scene_index,
+      narration: scene.narration,
+      ...(scene.point ? { point: scene.point } : {}),
       audio,
       audio_media_type: clip.media_type?.trim() || "audio/mpeg",
       ...(alignment !== undefined ? { alignment } : {}),
@@ -69,7 +72,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "9",
+    version: opts.version ?? "10",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
