@@ -6,9 +6,6 @@
  */
 
 import { resolveTextModels } from "./llm-routing.ts";
-import { freeImageChainReady, resolveFreeImageModels } from "./freellm-media-models.ts";
-import { policyFlag } from "./fallback-policy.ts";
-import { realVisionQaEnabled } from "./visual-qa-mode.ts";
 
 export interface StageSpec {
   id: string;
@@ -24,7 +21,7 @@ export interface StageSpec {
 export const STAGES: StageSpec[] = [
   {
     id: "reasoning",
-    label: "Story, dialogue, visual direction and thumbnail planning",
+    label: "Story, narration and thumbnail planning",
     requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
     optional: [
       "LLM_ROUTER_MODE",
@@ -39,53 +36,28 @@ export const STAGES: StageSpec[] = [
     consequence: "runs fail at the first reasoning node — the free-model chain is the only text path, there is no paid fallback",
   },
   {
-    id: "visual_qa",
-    label: "Visual QA (text metadata proxy by default; real vision is opt-in)",
-    requires: [["FREELLMAPI_API_KEY"], ["OPENAI_API_KEY"]],
-    optional: ["VISUAL_QA_MODE", "OPENAI_IMAGE_QA_MODEL", "OPENAI_MODEL", "PAID_VISION_FALLBACK", "FREE_VISION_MODELS"],
-    real: "free text semantic proxy (no paid vision) unless VISUAL_QA_MODE=real",
-    fallback: "unavailable",
-    consequence: "candidate sourcing intent cannot be screened; a real pixel-level benchmark still needs VISUAL_QA_MODE=real + OPENAI_API_KEY",
-  },
-  {
     id: "speech",
     label: "Narrator voice",
-    requires: [["FREELLMAPI_API_KEY"], ["ELEVENLABS_API_KEY"]],
-    optional: [
-      "SPEECH_PROVIDER_MODE",
-      "FREELLMAPI_BASE_URL",
-      "FREELLMAPI_SPEECH_MODEL",
-      "FREELLMAPI_SPEECH_VOICE",
-      "FREELLMAPI_SPEECH_FORMAT",
-      "FREELLMAPI_MEDIA_TIMEOUT_MS",
-      "ELEVENLABS_VOICE_ID",
-    ],
+    requires: [["ELEVENLABS_API_KEY"]],
+    optional: ["ELEVENLABS_VOICE_ID"],
     real: "elevenlabs",
     fallback: "fake",
     consequence: "silent placeholder audio when no live speech provider is configured",
   },
   {
     id: "images",
-    label: "Generated visual beats, illustrated stills and thumbnail artwork",
-    // Either a fal credential OR a configured free FreeLLMAPI image chain
-    // satisfies this stage. With only the free chain, generation is entirely
-    // free and there is no paid last resort.
-    requires: [["FAL_KEY"], ["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"]],
-    optional: [
-      "FAL_MODEL", "FAL_EDIT_MODEL", "FAL_PRICE_PER_IMAGE",
-      "PAID_IMAGE_FALLBACK", "PAID_VIDEO_FALLBACK",
-      "FREELLMAPI_IMAGE_MODELS", "FREELLMAPI_IMAGE_PROMPT_MAX",
-      "FREELLMAPI_VIDEO_MODELS", "FREELLMAPI_VIDEO_DURATION_SEC",
-    ],
-    real: "freellmapi media gateway (free-first) then fal/${FAL_MODEL:-fal-ai/flux-2} when PAID_IMAGE_FALLBACK",
-    fallback: "unavailable",
-    consequence: "generated-image visual beats cannot be produced (no free FreeLLMAPI image chain and no fal credential)",
+    label: "Thumbnail artwork",
+    requires: [["FAL_KEY"]],
+    optional: ["FAL_MODEL", "FAL_PRICE_PER_IMAGE"],
+    real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
+    fallback: "generated gradient",
+    consequence: "thumbnail text is composited over a generated gradient instead of custom artwork",
   },
   {
     id: "renderer",
-    label: "Hybrid video assembly",
+    label: "Audio-first video assembly",
     requires: [["COMPOSE_URL"]],
-    real: "long-compose/remotion+ffmpeg",
+    real: "long-compose/ffmpeg",
     fallback: "fake",
     consequence: "a few placeholder bytes instead of an actual .mp4",
   },
@@ -134,10 +106,6 @@ function routerMode(env: NodeJS.ProcessEnv): "freellmapi" | "direct" {
   return env["LLM_ROUTER_MODE"]?.trim().toLowerCase() === "direct" ? "direct" : "freellmapi";
 }
 
-function speechMode(env: NodeJS.ProcessEnv): "freellmapi" | "elevenlabs" {
-  return env["SPEECH_PROVIDER_MODE"]?.trim().toLowerCase() === "freellmapi" ? "freellmapi" : "elevenlabs";
-}
-
 function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
   // `direct` is the explicit manual paid rollback. Default `freellmapi` mode
   // has no paid fallback, so it needs the free key and nothing else.
@@ -147,30 +115,12 @@ function reasoningSatisfied(env: NodeJS.ProcessEnv): boolean {
 }
 
 function speechSatisfied(env: NodeJS.ProcessEnv): boolean {
-  return speechMode(env) === "elevenlabs"
-    ? isSet(env, "ELEVENLABS_API_KEY")
-    : isSet(env, "FREELLMAPI_API_KEY");
-}
-
-/**
- * Generated images are available when EITHER a real free FreeLLMAPI image chain
- * exists (unified key + at least one concrete model id — same rule as the
- * resolver's `freeImageChainReady`) OR a fal credential exists AND
- * `PAID_IMAGE_FALLBACK` permits paid generation. A configured `FAL_KEY` with
- * `PAID_IMAGE_FALLBACK=false` and no free chain is NOT a usable image path.
- */
-export function imagesStageSatisfied(env: NodeJS.ProcessEnv = process.env): boolean {
-  return freeImageChainReady(env)
-    || (isSet(env, "FAL_KEY") && policyFlag(env["PAID_IMAGE_FALLBACK"], true));
+  return isSet(env, "ELEVENLABS_API_KEY");
 }
 
 export function credentialsSatisfied(spec: StageSpec, env: NodeJS.ProcessEnv = process.env): boolean {
   if (spec.id === "reasoning") return reasoningSatisfied(env);
   if (spec.id === "speech") return speechSatisfied(env);
-  if (spec.id === "visual_qa") {
-    return realVisionQaEnabled(env) ? isSet(env, "OPENAI_API_KEY") : isSet(env, "FREELLMAPI_API_KEY");
-  }
-  if (spec.id === "images") return imagesStageSatisfied(env);
   return spec.requires.some((group) => group.every((k) => isSet(env, k)));
 }
 
@@ -180,19 +130,7 @@ function nearestMissing(spec: StageSpec, env: NodeJS.ProcessEnv): string[] {
     if (!isSet(env, "FREELLMAPI_API_KEY")) return ["FREELLMAPI_API_KEY"];
   }
   if (spec.id === "speech") {
-    const key = speechMode(env) === "elevenlabs" ? "ELEVENLABS_API_KEY" : "FREELLMAPI_API_KEY";
-    return isSet(env, key) ? [] : [key];
-  }
-  if (spec.id === "visual_qa") {
-    const key = realVisionQaEnabled(env) ? "OPENAI_API_KEY" : "FREELLMAPI_API_KEY";
-    return isSet(env, key) ? [] : [key];
-  }
-  if (spec.id === "images") {
-    if (imagesStageSatisfied(env)) return [];
-    // Prefer whichever path is closer to ready.
-    if (isSet(env, "FREELLMAPI_API_KEY")) return ["FREELLMAPI_IMAGE_MODELS"];
-    if (isSet(env, "FAL_KEY")) return policyFlag(env["PAID_IMAGE_FALLBACK"], true) ? ["FAL_KEY"] : ["FREELLMAPI_API_KEY", "FREELLMAPI_IMAGE_MODELS"];
-    return ["FAL_KEY"];
+    return isSet(env, "ELEVENLABS_API_KEY") ? [] : ["ELEVENLABS_API_KEY"];
   }
   return spec.requires
     .map((group) => group.filter((k) => !isSet(env, k)))
@@ -214,37 +152,13 @@ function reasoningProvider(env: NodeJS.ProcessEnv): string {
     : `freellmapi free chain [${head}] (FREELLMAPI_API_KEY unset - reasoning unavailable)`;
 }
 
-function visualQaProvider(env: NodeJS.ProcessEnv): string {
-  if (realVisionQaEnabled(env)) {
-    const model = env["OPENAI_IMAGE_QA_MODEL"]?.trim() || env["OPENAI_MODEL"]?.trim() || "gpt-5.6-luna";
-    return `openai/${model} (real vision, opt-in)`;
-  }
-  return "free text semantic proxy (no paid vision)";
-}
-
 function speechProvider(env: NodeJS.ProcessEnv): string {
-  if (speechMode(env) === "elevenlabs") return "elevenlabs";
-  return `freellmapi/${env["FREELLMAPI_SPEECH_MODEL"]?.trim() || "auto"}`;
+  return "elevenlabs";
 }
 
 function imageProvider(env: NodeJS.ProcessEnv): string {
   const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
-  const editModel = env["FAL_EDIT_MODEL"]?.trim() || `${model}/edit`;
-  const hasFal = isSet(env, "FAL_KEY");
-  const paidImage = policyFlag(env["PAID_IMAGE_FALLBACK"], true);
-  // Free chain counts only when the unified key is also present (same rule as
-  // the images capability stage and the resolver).
-  if (freeImageChainReady(env)) {
-    const freeChain = resolveFreeImageModels(env);
-    const head = freeChain.slice(0, 3).join(", ") + (freeChain.length > 3 ? ", +" + (freeChain.length - 3) : "");
-    return hasFal && paidImage
-      ? `freellmapi media [${head}] (free-first) -> fal/${model} + ${editModel} (paid last resort)`
-      : `freellmapi media [${head}] (free only, no paid fallback)`;
-  }
-  // No free chain: fal is the provider only when PAID_IMAGE_FALLBACK permits it.
-  return hasFal && paidImage
-    ? `fal/${model} + ${editModel}`
-    : "unavailable (no free FreeLLMAPI image chain; paid fal generation is off or unconfigured)";
+  return `fal/${model}`;
 }
 
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
@@ -256,7 +170,6 @@ export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.Pro
     let provider: string;
     if (!real) provider = spec.fallback;
     else if (spec.id === "reasoning") provider = reasoningProvider(env);
-    else if (spec.id === "visual_qa") provider = visualQaProvider(env);
     else if (spec.id === "speech") provider = speechProvider(env);
     else if (spec.id === "images") provider = imageProvider(env);
     else provider = spec.real;

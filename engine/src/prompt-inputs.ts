@@ -18,11 +18,6 @@ const SHORT_LIMITS: CompactLimits = {
   maxStringLength: 420,
 };
 
-/**
- * script/creativeDirection/visualPlan views must all cap scenes the same way
- * for the legacy cartoon agents. visual_director is deliberately exempt: its
- * hard coverage contract requires every approved scene and exact narration.
- */
 const MAX_LONG_EPISODE_SCENES = 48;
 
 /**
@@ -34,16 +29,6 @@ const MAX_LONG_EPISODE_SCENES = 48;
  * input-token cost.
  */
 export function promptInputView(agentName: string, inputName: string, payload: unknown): unknown {
-  if (agentName === "visual_director") {
-    switch (inputName) {
-      case "script": return visualDirectorScriptView(payload);
-      case "voice": return visualDirectorVoiceView(payload);
-      case "growth": return visualDirectorGrowthView(payload);
-      case "intent": return visualDirectorIntentView(payload);
-      default: break;
-    }
-  }
-
   switch (inputName) {
     case "intent":
       return compactPayload(payload, SHORT_LIMITS);
@@ -56,85 +41,9 @@ export function promptInputView(agentName: string, inputName: string, payload: u
       return storyView(payload);
     case "script":
       return scriptView(payload, agentName === "seo_optimizer" ? 12 : MAX_LONG_EPISODE_SCENES);
-    case "cast":
-    case "cast_roster":
-      return castView(payload);
-    case "creative_direction":
-      return creativeDirectionView(payload);
-    case "visual_plan":
-      return visualPlanView(payload);
     default:
       return compactPayload(payload, DEFAULT_LIMITS);
   }
-}
-
-/**
- * visual_director must reproduce narration byte-for-byte, so narration is the
- * one field that must never be clipped. Everything else is a compact visual
- * decision aid rather than a second copy of upstream artifacts.
- */
-function visualDirectorScriptView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return value;
-  return pruneEmpty({
-    scene_count: asArray(obj.scenes).length,
-    scenes: asArray(obj.scenes).map((scene) => {
-      const s = asObject(scene);
-      if (!s) return scene;
-      return pruneEmpty({
-        scene_index: s.scene_index,
-        is_outro: s.is_outro,
-        narration: s.narration,
-        point: clip(s.point, 180),
-        visual_intent: clip(s.visual_intent, 180),
-      });
-    }),
-  });
-}
-
-function visualDirectorVoiceView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, SHORT_LIMITS);
-  return pruneEmpty({
-    total_duration_sec: obj.total_duration_sec,
-    clips: asArray(obj.clips).map((clipValue) => {
-      const clipObj = asObject(clipValue);
-      if (!clipObj) return compactPayload(clipValue, SHORT_LIMITS);
-      return pruneEmpty({
-        scene_index: clipObj.scene_index,
-        duration_sec: clipObj.duration_sec,
-      });
-    }),
-  });
-}
-
-function visualDirectorGrowthView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, SHORT_LIMITS);
-  const firstThirty = asObject(obj.first_30_seconds);
-  return pruneEmpty({
-    premise: clip(obj.premise, 360),
-    curiosity_gap: clip(obj.curiosity_gap, 260),
-    emotional_engine: clip(obj.emotional_engine, 220),
-    selected_title: clip(obj.selected_title, 180),
-    selected_thumbnail_concept: clip(obj.selected_thumbnail_concept, 260),
-    opening_visual: clip(obj.opening_visual, 320),
-    opening_promise: firstThirty ? clip(firstThirty.promise, 280) : undefined,
-    next_video_bridge: clip(obj.next_video_bridge, 260),
-    hero_motion_eligible: obj.hero_motion_eligible,
-  });
-}
-
-function visualDirectorIntentView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, SHORT_LIMITS);
-  return pruneEmpty({
-    brief: clip(obj.brief, 320),
-    target_duration_sec: obj.target_duration_sec,
-    constraints: compactPayload(obj.constraints, { ...SHORT_LIMITS, maxArrayItems: 16, maxStringLength: 220 }),
-    genre: obj.genre,
-    image_style: obj.image_style,
-  });
 }
 
 function storyView(value: unknown): unknown {
@@ -186,83 +95,6 @@ function sceneView(scene: unknown): unknown {
     narration: clip(obj.narration, 360),
     dialogue: compactPayload(obj.dialogue, { ...SHORT_LIMITS, maxArrayItems: 8 }),
     visual_intent: clip(obj.visual_intent, 260),
-  });
-}
-
-function castView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, SHORT_LIMITS);
-  return pruneEmpty({
-    cast_id: obj.cast_id,
-    style: obj.style,
-    characters: asArray(obj.characters).slice(0, 8).map((character) =>
-      pickObject(character, [
-        "character_id",
-        "name",
-        "role",
-        "comic_role",
-        "visual_role",
-        "voice_markers",
-        "reaction_pattern",
-        "personality",
-        "worldview",
-        "comic_style",
-        "speech_rhythm",
-        "strength",
-        "blind_spot",
-        "scene_drive",
-        "relationship_dynamic",
-        "color",
-        "avatar",
-      ], SHORT_LIMITS),
-    ),
-  });
-}
-
-function creativeDirectionView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, DEFAULT_LIMITS);
-  return pruneEmpty({
-    character_roles: asArray(obj.character_roles).slice(0, 8).map((role) =>
-      pickObject(role, ["character_id", "comic_role", "voice_markers", "reaction_pattern"], SHORT_LIMITS),
-    ),
-    callback: compactPayload(obj.callback, SHORT_LIMITS),
-    scenes: asArray(obj.scenes).slice(0, MAX_LONG_EPISODE_SCENES).map((scene) => {
-      const s = asObject(scene);
-      if (!s) return compactPayload(scene, SHORT_LIMITS);
-      return pruneEmpty({
-        scene_index: s.scene_index,
-        scene_function: s.scene_function,
-        energy_beat: s.energy_beat,
-        foreground_prop: compactPayload(s.foreground_prop, SHORT_LIMITS),
-        blocking: compactPayload(s.blocking, SHORT_LIMITS),
-        metaphor: compactPayload(s.metaphor, SHORT_LIMITS),
-        callback_role: s.callback_role,
-        performance_note: clip(s.performance_note, 260),
-      });
-    }),
-  });
-}
-
-function visualPlanView(value: unknown): unknown {
-  const obj = asObject(value);
-  if (!obj) return compactPayload(value, DEFAULT_LIMITS);
-  return pruneEmpty({
-    scenes: asArray(obj.scenes).slice(0, MAX_LONG_EPISODE_SCENES).map((scene) => {
-      const s = asObject(scene);
-      if (!s) return compactPayload(scene, SHORT_LIMITS);
-      return pickObject(s, [
-        "scene_index",
-        "background_location",
-        "background_variant",
-        "camera",
-        "characters",
-        "foreground_prop",
-        "visual_event",
-        "shotType",
-        "visualStyle",
-      ], SHORT_LIMITS);
-    }),
   });
 }
 

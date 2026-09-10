@@ -1,15 +1,20 @@
 {
   "schema_id": "intent",
   "version": "1.0.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "The source input to a production: what the human asked for.",
-  "produced_by": ["human", "discovery"],
+  "produced_by": [
+    "human",
+    "discovery"
+  ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "IntentArtifact",
     "type": "object",
     "additionalProperties": false,
-    "required": ["brief"],
+    "required": [
+      "brief"
+    ],
     "properties": {
       "brief": {
         "type": "string",
@@ -30,7 +35,10 @@
       "constraints": {
         "type": "array",
         "maxItems": 20,
-        "items": { "type": "string", "maxLength": 300 },
+        "items": {
+          "type": "string",
+          "maxLength": 300
+        },
         "description": "Hard requirements or exclusions stated by the human."
       }
     }

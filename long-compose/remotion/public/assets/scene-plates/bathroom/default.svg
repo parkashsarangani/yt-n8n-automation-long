@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon bathroom scene plate">
-  <defs><pattern id="tile" width="120" height="120" patternUnits="userSpaceOnUse"><rect width="120" height="120" fill="#E0F2FE"/><path d="M0 0 H120 M0 0 V120" stroke="#BAE6FD" stroke-width="6"/></pattern><linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#CBD5E1"/><stop offset="1" stop-color="#94A3B8"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#0F172A" flood-opacity=".14"/></filter></defs>
-  <rect width="1920" height="1080" fill="url(#tile)"/>
-  <path d="M0 700 C520 670 1320 670 1920 710 L1920 1080 L0 1080 Z" fill="url(#floor)"/>
-  <g filter="url(#shadow)"><rect x="132" y="168" width="340" height="280" rx="34" fill="#BAE6FD" stroke="#FFFFFF" stroke-width="18"/><circle cx="302" cy="308" r="92" fill="#E0F2FE" stroke="#FFFFFF" stroke-width="14"/></g>
-  <g filter="url(#shadow)"><rect x="1080" y="560" width="460" height="94" rx="42" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="12"/><rect x="1138" y="650" width="344" height="150" rx="52" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="12"/><path d="M1210 556 C1210 500 1290 500 1290 556" stroke="#94A3B8" stroke-width="18" fill="none"/></g>
-  <g filter="url(#shadow)"><rect x="678" y="254" width="280" height="432" rx="30" fill="#FFFFFF" stroke="#38BDF8" stroke-width="12"/><path d="M730 330 H906 M730 408 H906 M730 486 H906" stroke="#7DD3FC" stroke-width="18" stroke-linecap="round"/></g>
-  <ellipse cx="960" cy="916" rx="690" ry="66" fill="#0F172A" opacity=".10"/>
-</svg>

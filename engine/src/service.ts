@@ -29,9 +29,7 @@ import {
 } from "./provider.ts";
 import { OpenAIProvider } from "./providers/openai.ts";
 import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
-import { StockImageProvider } from "./providers/stock.ts";
-import { FreeMediaImageProvider } from "./providers/free-media-image.ts";
-import { policyFlag } from "./fallback-policy.ts";
+import { FalImageProvider } from "./providers/fal.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
@@ -158,12 +156,10 @@ export interface ServiceOptions {
 }
 
 type Genre = "moral_story" | "drama" | "true_story" | "short_story";
-type ImageStyle = "ink_wash_stickman" | "flat_comic_expressive" | "documentary_sketch" | "watercolor_storybook" | "noir_charcoal";
 
-/** The two operator-selectable knobs from intent@1.2.0 (schemas/intent). */
+/** The operator-selectable knobs from intent@2.0.0 (schemas/intent). */
 export interface RunOptions {
   genre?: Genre;
-  imageStyle?: ImageStyle;
   /**
    * The discovery-tournament winner, passed as typed data on intent rather
    * than smuggled into the brief text. RFC 0009 decision 1 requires production
@@ -173,22 +169,6 @@ export interface RunOptions {
    */
   packageSeed?: PackageSeed;
 }
-
-/**
- * When the operator leaves image_style on "Auto" (no explicit pick), the
- * style still shouldn't be genre-blind -- flat_comic_expressive reads wrong
- * on a moral_story, ink_wash_stickman under-serves a true_story's need for
- * a specific human likeness. This is only a default: an explicit opts.imageStyle
- * always wins (see startRun below), so the operator can still override per
- * episode. noir_charcoal has no genre default -- it's suspense/thriller
- * content within a genre, not a genre of its own, so it stays a manual pick.
- */
-const GENRE_DEFAULT_STYLE: Record<Genre, ImageStyle> = {
-  moral_story: "ink_wash_stickman",
-  drama: "flat_comic_expressive",
-  true_story: "documentary_sketch",
-  short_story: "watercolor_storybook",
-};
 
 export class VidGenService {
   private registry!: SchemaRegistry;
@@ -275,22 +255,13 @@ export class VidGenService {
     const speech: SpeechProvider = can("speech")
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
-    // Defense in depth (mirrors capabilities.imagesStageSatisfied):
-    //   fal key + PAID_IMAGE_FALLBACK on  -> fal-backed provider; the resolver
-    //                                        still tries the free chain first.
-    //   otherwise (incl. fal key present but paid OFF) -> free-only provider,
-    //                                        so fal is never even constructed.
-    //   stage not satisfied at all -> fake.
-    const paidImageOn = policyFlag(process.env["PAID_IMAGE_FALLBACK"], true);
-    const images: ImageProvider = !can("images")
-      ? new FakeImageProvider()
-      : env("FAL_KEY") && paidImageOn
-        ? new StockImageProvider({
-          ...(env("FAL_MODEL") ? { model: env("FAL_MODEL") } : {}),
-          ...(env("FAL_EDIT_MODEL") ? { editModel: env("FAL_EDIT_MODEL") } : {}),
-          ...(env("FAL_PRICE_PER_IMAGE") ? { pricePerImage: Number(env("FAL_PRICE_PER_IMAGE")) } : {}),
-        })
-        : new FreeMediaImageProvider();
+    const images: ImageProvider = can("images")
+      ? new FalImageProvider({
+        apiKey: env("FAL_KEY")!,
+        ...(env("FAL_MODEL") ? { model: env("FAL_MODEL") } : {}),
+        ...(env("FAL_PRICE_PER_IMAGE") ? { pricePerImage: Number(env("FAL_PRICE_PER_IMAGE")) } : {}),
+      })
+      : new FakeImageProvider();
     const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
@@ -631,10 +602,7 @@ export class VidGenService {
     }
 
     const runId = `run_${randomUUID()}`;
-    // Explicit operator pick always wins; otherwise derive a genre-appropriate
-    // default rather than always falling back to ink_wash_stickman.
-    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
-    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}${resolvedImageStyle ? `, image_style=${resolvedImageStyle}${opts.imageStyle ? "" : " (auto)"}` : ""}`);
+    console.log(`[run ${runId.slice(4, 12)}] starting: "${trimmed}" (${durationSec}s)${opts.genre ? `, genre=${opts.genre}` : ""}`);
 
     // Persist run in Postgres if available
     if (this.runLog instanceof PgRunLog) {
@@ -647,7 +615,6 @@ export class VidGenService {
         brief: trimmed,
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
-        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
@@ -697,8 +664,8 @@ export class VidGenService {
    * Manual narration is an INPUT MODE of illustrated_story, not a second graph.
    * The operator's deterministic story/script artifacts are used as the exact
    * outputs of the existing `story` and `draft_script` nodes. Everything else
-   * — strategy/package, watchability evaluation, moderation, TTS, RFC 0010
-   * visuals, SEO/thumbnail, render, QA and publish — is the same production DAG.
+   * — strategy/package, watchability evaluation, moderation, TTS, narration,
+   * SEO/thumbnail, render, QA and publish — is the same production DAG.
    */
   async startManualRun(
     input: ManualScriptInput,
@@ -721,7 +688,6 @@ export class VidGenService {
 
     const runId = `run_${randomUUID()}`;
     const brief = episode.story.title;
-    const resolvedImageStyle = opts.imageStyle ?? (opts.genre ? GENRE_DEFAULT_STYLE[opts.genre] : undefined);
     console.log(`[run ${runId.slice(4, 12)}] starting (manual-script input mode): "${brief}" (${durationSec}s)`);
 
     if (this.runLog instanceof PgRunLog) {
@@ -734,7 +700,6 @@ export class VidGenService {
         brief,
         target_duration_sec: durationSec,
         ...(opts.genre ? { genre: opts.genre } : {}),
-        ...(resolvedImageStyle ? { image_style: resolvedImageStyle } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
       produced_by: { transformation: "human", version: "1", run_id: runId, provider: null },
@@ -947,11 +912,7 @@ export class VidGenService {
     // One less than MAX_ATTEMPTS_BEFORE_ACCEPTING: the final round pins the best
     // of the earlier drafts for a terminal evaluation rather than drafting again.
     maxRetries = MAX_ATTEMPTS_BEFORE_ACCEPTING - 1,
-    maxAssetRegens = 2,
-    maxVisualReleaseRegens = 3,
   ): Promise<void> {
-    let assetRegens = 0;
-    let visualReleaseRegens = 0;
     const scriptAttempts: Array<{ scriptId: string; reportId: string; avg: number }> = [];
     for (let round = 0; ; round++) {
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
@@ -965,20 +926,6 @@ export class VidGenService {
       if (!view) return;
 
       if (view.status === "waiting") {
-        const parkedAtPublish = view.waiting.some((w) => w.node_id === "approve_publish");
-        const blankScenes = parkedAtPublish && assetRegens < maxAssetRegens ? await this.qaBlankSceneCount(view) : 0;
-        if (blankScenes > 0) {
-          assetRegens++;
-          console.log(
-            `[run ${runId.slice(4, 12)}] unattended: qa reported ${blankScenes} blank scene(s) -- ` +
-              `regenerating resolved visual beats and re-rendering (attempt ${assetRegens}/${maxAssetRegens})`,
-          );
-          const state = this.runs.get(runId)!;
-          const graph = this.resolveRunGraph(state.graph);
-          await this.executor.regenerateNode(graph, runId, "visual_assets", `qa reported ${blankScenes} blank/placeholder scene(s)`);
-          await this.retry(runId);
-          continue;
-        }
         console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate that did not auto-pass -- needs an operator`);
         return;
       }
@@ -994,30 +941,6 @@ export class VidGenService {
         return;
       }
 
-      // The RFC 0010 production visual release is deterministic over current
-      // resolved assets/timeline. Regenerate the resolver node, not the
-      // compatibility manifest, so retries actually obtain new media while
-      // keeping already-valid resolver reuse/cache semantics.
-      if (view.failures.some((f) => f.node_id === "visual_asset_release")) {
-        const reason = view.failures.find((f) => f.node_id === "visual_asset_release")!.error;
-        if (visualReleaseRegens < maxVisualReleaseRegens) {
-          visualReleaseRegens++;
-          console.log(
-            `[run ${runId.slice(4, 12)}] unattended: visual_asset_release blocked -- regenerating resolved visual beats ` +
-              `(attempt ${visualReleaseRegens}/${maxVisualReleaseRegens}): ${reason}`,
-          );
-          const state = this.runs.get(runId)!;
-          const graph = this.resolveRunGraph(state.graph);
-          await this.executor.regenerateNode(graph, runId, "visual_assets", `visual_asset_release blocked: ${reason}`);
-          await this.retry(runId);
-          continue;
-        }
-        console.log(
-          `[run ${runId.slice(4, 12)}] unattended: visual_asset_release still blocked after ${maxVisualReleaseRegens} ` +
-            `targeted regenerations -- needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
-        );
-        return;
-      }
 
       if (round >= maxRetries) {
         console.log(
@@ -1107,15 +1030,6 @@ export class VidGenService {
     if (!report) return null;
     const { average } = assessWatchability(report.payload);
     return { scriptId, reportId, avg: average };
-  }
-
-  /** How many scenes in this run's qa_report came back as a true blank placeholder, not just a repeated fallback shot. */
-  private async qaBlankSceneCount(view: RunView): Promise<number> {
-    const qaArtifactId = view.nodes.find((n) => n.node_id === "qa")?.artifact_id;
-    if (!qaArtifactId) return 0;
-    const qa = await this.store.get<{ checks?: Array<{ id: string; status: string; measured?: number | null }> }>(qaArtifactId);
-    const check = qa?.payload.checks?.find((c) => c.id === "blank_scenes");
-    return check?.status === "fail" && typeof check.measured === "number" ? check.measured : 0;
   }
 
   private async drive(runId: string, fn: () => Promise<GraphRunResult>): Promise<void> {

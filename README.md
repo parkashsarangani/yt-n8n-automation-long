@@ -1,233 +1,35 @@
-# VidGen — Autonomous Media Operating System
+# VidGen Long
 
-A compiler from ideas into publishable media. You give it a topic; it researches
-nothing yet, writes a story, writes the narration, plans the visuals, generates
-images and voice, renders a video, and publishes it — pausing for your approval
-at the points that matter.
+Audio-first long-form YouTube production pipeline. The engine selects and packages a story, writes and moderates narration, synthesizes timestamped speech, assembles a minimal 1080p MP4, designs a thumbnail, validates technical output, publishes, and feeds YouTube performance back into future selections.
 
-YouTube is one output target, not the system.
-
-## Run it
+## Run locally
 
 ```bash
 docker compose up --build
 ```
 
-Then open **http://localhost:4321** and set your Anthropic key in the UI.
+- Studio/API: http://localhost:4321
+- Compositor: http://localhost:4001
 
-That is the whole setup. Everything else is optional: any provider without a
-credential falls back to a deterministic fake, so the pipeline runs end to end
-from the first minute and gets more real as you add keys.
+## Production configuration
 
-| Credential | Powers | Without it |
+| Variable | Purpose | Without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | story, script, visual plan | **required** — runs fail at the first node |
-| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | voiceover | silent placeholder audio |
-| `PEXELS_API_KEY` **or** `UNSPLASH_ACCESS_KEY` | scene images (free stock) | placeholder images |
-| `PIXABAY_API_KEY` | third image fallback | search stops after the first two |
-| `YOUTUBE_CLIENT_ID` + `_SECRET` + `_REFRESH_TOKEN` | publishing **and** measurement | dry-run target, no feedback loop |
+| `FREELLMAPI_API_KEY` | Free-first text reasoning | Use explicit direct rollback only |
+| `OPENAI_API_KEY` | Paid text fallback and pre-TTS moderation | Moderated production cannot proceed |
+| `ELEVENLABS_API_KEY` | Narration | Fake speech in non-production runs |
+| `ELEVENLABS_VOICE_ID` | Narrator voice | Test-only placeholder voice |
+| `FAL_KEY` | Optional thumbnail artwork | Gradient thumbnail background |
+| `COMPOSE_URL` | FFmpeg compositor | Fake renderer in non-production runs |
+| YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
+| `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
 
-Keys entered in the UI persist in the `vidgen_data` volume. You can also seed them
-from a `.env` beside `docker-compose.yml` — see [`.env.example`](.env.example).
+Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, stock-media, visual-director, Remotion, and legacy n8n production paths are intentionally absent.
 
-**Check what will actually run.** The settings panel and the startup log both
-list every stage as ✓ or ✗, with the exact key that would fix it. A stage
-without its credential does not fail — it silently substitutes a stand-in and
-the run still reports success, which is the expensive way to find out.
-
-**Measuring needs a re-authorization.** The feedback loop reads YouTube
-Analytics, which needs the `yt-analytics.readonly` scope. A refresh token minted
-before this existed authenticates fine and then returns 403 — Google will not
-widen an existing grant.
-
-Check what your current token has (this also refreshes the access token):
+## Verification
 
 ```bash
-cd engine && npm run youtube-token
+cd engine && npm ci && npm run typecheck && npm test
+cd ../long-compose && npm ci && npm run check && npm test
+docker compose config
 ```
-
-If it reports the analytics scope missing, re-authorize once:
-
-```bash
-cd engine && npm run youtube-auth
-```
-
-(A separate script rather than `youtube-token -- --auth`: PowerShell eats the
-`--` separator, so npm parses `--auth` as its own config and silently runs the
-refresh path instead.)
-
-It prints a URL, waits on `http://localhost:8976` for the redirect, and writes a
-new refresh token.
-
-Whether you need a console change first depends on your OAuth client type:
-
-- **Desktop app** — nothing to do. Google accepts loopback redirects on any
-  port for installed apps without registering them.
-- **Web application** — add `http://localhost:8976` to the client's authorized
-  redirect URIs, or the consent screen rejects the request before issuing a
-  code.
-
-> Run it from `engine/`, not the repo root — `tsx` is a dependency of that
-> package, so `node --import tsx` cannot resolve from the root.
-
-**Publishing never happens by accident.** A YouTube token alone does nothing;
-you must also start with `AMOS_ALLOW_PUBLISH=1`, and uploads are always private.
-
-## What you get in the UI
-
-- A topic box and a target length.
-- **Live step status** — which node is running right now, which are done,
-  waiting, failed, or blocked.
-- **Two review gates.** The story premise (auto-passes on high confidence), and
-  the **narration script**, which always asks. The script gate sits *before* any
-  image or voice generation, so rejecting a script costs one model call rather
-  than eighty images.
-- Per-run cost.
-
-## Services
-
-```
-engine         the system: agents, execution graph, artifact store, control UI
-long-compose   video assembly (FFmpeg + Remotion)
-n8n            legacy — the pre-VidGen pipeline, see below
-```
-
-Both published ports bind to `127.0.0.1` deliberately: the UI holds API keys and
-is unauthenticated by design. Do not expose it.
-
-## Running on the HP server
-
-VidGen shares the box with the Shorts stack. Ports are offset so the two never
-collide:
-
-| | Shorts | VidGen |
-|---|---|---|
-| renderer | `4000` | **`4001`** (`long-compose`) |
-| n8n | `5678` | **`5679`** (legacy, not started) |
-| control UI | — | **`4321`** (`engine`) |
-
-Deploy by pushing to `main` — the self-hosted runner builds both images, starts
-them, and health-checks each one. Or by hand on the box:
-
-```bash
-docker compose up -d --build
-```
-
-`restart: unless-stopped` brings both services back after a reboot.
-
-### One-time migration
-
-The compose project was renamed `yt-longform` → `vidgen`. Volumes are
-project-prefixed, so without this step the new stack starts with **empty**
-volumes and the old containers keep holding port 4001. The deploy runs it
-automatically; to do it manually:
-
-```bash
-bash scripts/migrate-from-yt-longform.sh
-```
-
-It stops the old project and copies each volume across. Non-destructive — the
-old volumes are left in place for you to delete once you are satisfied.
-
-### Reaching the UI from your laptop
-
-The UI binds to loopback on the server, so `http://server:4321` will not answer
-and is not meant to. Forward the port over SSH instead:
-
-```bash
-ssh -N -L 4321:127.0.0.1:4321 you@hp-server
-```
-
-Leave that running and open **http://localhost:4321** on your laptop. The
-browser sends `Host: localhost`, which is what the server's Host-header check
-requires, so this works with no configuration change.
-
-> **Do not put this behind a Cloudflare Tunnel or a reverse proxy.** Unlike n8n,
-> the UI has no login: anyone who reaches it can read your masked credentials,
-> overwrite your keys, and spend your API budget. Loopback plus SSH *is* the
-> auth. If you ever need real remote access, the UI needs an auth layer first.
-
-### Memory
-
-`long-compose` is capped at 6G because Remotion renders in headless Chromium.
-The Shorts renderer has its own budget on the same machine — if both render at
-once on a 16G box you are at the edge. Lower `COMPOSE_CONCURRENCY` (default 3)
-before raising the cap.
-
-### The legacy n8n pipeline
-
-The original n8n A/B pipeline still exists but has no role in VidGen — the engine
-owns the execution graph and the UI owns human approval. It is parked behind a
-profile so it does not start by default:
-
-```bash
-docker compose --profile legacy up
-```
-
-Its workflow and build spec remain in [`n8n/`](n8n).
-
-## How it works
-
-Read [`docs/`](docs) — eight RFCs covering the irreversible decisions. The short
-version, five rules everything else derives from:
-
-1. Workers never think.
-2. Agents never touch files.
-3. Artifacts are immutable.
-4. Everything is observable.
-5. Every transformation is reproducible.
-
-## Developing
-
-```bash
-cd engine
-npm install
-npm test          # 148 tests, no network, no API keys
-npm run typecheck
-npm run ui        # the UI without Docker, on the host
-```
-
-See [`engine/README.md`](engine/README.md) for the module map, the invariants under
-test, and what implementation revealed about the RFCs.
-
-## Status
-
-The pipeline runs end to end for real: intent → published episode. Every adapter
-has made live calls, and the scars are in the log — Remotion argv limits, payload
-caps, render timeouts, connection-pool exhaustion.
-
-Being built now, in dependency order:
-
-| | Status |
-|---|---|
-| Credentials + capability check | **done** |
-| Thumbnail | **done** |
-| SEO (title, description, tags) | **done** |
-| Feedback loop (YouTube Analytics → strategy) | **done** |
-| Discovery (topic selection, informed by feedback) | next |
-| Scheduler | |
-
-**Unattended by design, private by default.** With `SCHEDULE_PRODUCE_HOURS` set,
-the pipeline picks a topic, makes the video and uploads it — **as a private
-video**. That upload is the review: you watch it and decide whether to make it
-public or throw it away and let the next run try again. Both gates auto-pass
-(`auto_pass_if: "always"`), because a gate that parks a run leaves nothing to
-review, which is worse than a weak draft you can watch and delete.
-
-Before publishing, **objective QA checks** run and a third gate passes only on a
-clean verdict. Placeholder images, missing narration, dropped scenes, a video
-far off its target length, or metadata YouTube would reject all stop the
-publish; a gradient thumbnail or a slightly short script are recorded as
-warnings and ship. That gate *does* park on failure, deliberately — a broken
-episode is the one case where producing nothing beats producing something.
-
-Nothing ever becomes public on its own. To put a human back before render, set
-either of the first two gates' policy to a threshold like
-`confidence.overall >= 0.9`.
-
-Deliberately still out: Research, Fact Checking, and the knowledge graph.
-
-## Licensing
-
-See [`LICENSES.md`](LICENSES.md). Inter is SIL OFL. The icon set is CC-BY 4.0 and
-**requires attribution to useanimations.com** — a carried-over open item.

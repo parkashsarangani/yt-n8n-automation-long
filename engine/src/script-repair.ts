@@ -13,7 +13,7 @@ export interface OutroFlagRepair {
 // tail of a long generation). The content is never wrong; only the flag is
 // missing. Spending a full regeneration on a one-field, unambiguously
 // detectable omission is exactly the class of mistake runner.ts's other
-// repair functions (repairEnumValues, repairMotionCompatibility,
+// repair functions (repairEnumValues,
 // repairOverlongLabels) already exist to fix deterministically instead of
 // retrying.
 //

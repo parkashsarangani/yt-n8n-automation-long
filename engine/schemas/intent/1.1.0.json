@@ -1,15 +1,20 @@
 {
   "schema_id": "intent",
   "version": "1.1.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "Adds optional genre and image_style, the two operator-selectable knobs the illustrated-story UI exposes (RFC 0008 follow-up: content-type and art-style selection). Both are additive and optional -- an absent value means \"let the agents/workers use their existing default\" -- so every 1.0.0 artifact stays valid and no migrator is needed. MINOR bump per RFC 0007.",
-  "produced_by": ["human", "discovery"],
+  "produced_by": [
+    "human",
+    "discovery"
+  ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "IntentArtifact",
     "type": "object",
     "additionalProperties": false,
-    "required": ["brief"],
+    "required": [
+      "brief"
+    ],
     "properties": {
       "brief": {
         "type": "string",
@@ -30,17 +35,28 @@
       "constraints": {
         "type": "array",
         "maxItems": 20,
-        "items": { "type": "string", "maxLength": 300 },
+        "items": {
+          "type": "string",
+          "maxLength": 300
+        },
         "description": "Hard requirements or exclusions stated by the human."
       },
       "genre": {
         "type": "string",
-        "enum": ["moral_story", "drama", "true_story", "short_story"],
+        "enum": [
+          "moral_story",
+          "drama",
+          "true_story",
+          "short_story"
+        ],
         "description": "The narrative shape narrative_story_architect and narration_script_writer should write to. moral_story (default when absent): a parable -- cold open, escalation, a low point, a turn, a payoff that reframes the opening. drama: conflict from the first line, heightened stakes, ends on an explicitly stated lesson (Dhar Mann-style). true_story: framed as a specific real incident, restrained/matter-of-fact voice, can end on an unresolved moral question rather than a tidy lesson. short_story: literary craft, twist or ironic ending, no moralizing."
       },
       "image_style": {
         "type": "string",
-        "enum": ["ink_wash_stickman", "flat_comic_expressive"],
+        "enum": [
+          "ink_wash_stickman",
+          "flat_comic_expressive"
+        ],
         "description": "The locked visual identity illustrated_scene_assets conditions every generated still on. ink_wash_stickman (default when absent): hand-drawn pen-and-ink, muted near-monochrome wash, faceless stick-figure humans, detailed environments/objects/animals -- the RFC 0008 house style. flat_comic_expressive: flat vector illustration, bold black outlines, a bright but limited flat palette, simplified geometric figures with expressive minimal faces (visible emotion, unlike the faceless default) -- suited to drama/true_story genres where a reaction shot needs to read as an emotion, not just a pose."
       }
     }

@@ -1,5 +1,5 @@
 /**
- * Pre-flight probe for the reasoning route used by the RFC 0010 live benchmark.
+ * Pre-flight probe for the free reasoning route the production agents use.
  *
  * Production text is free-only with an ordered fallback chain and no paid
  * fallback (see engine/src/llm-routing.ts). This probe mirrors that exactly:

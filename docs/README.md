@@ -30,9 +30,6 @@ design against.
 | [0005](0005-execution-graph.md) | Execution Graph | Accepted | Topology as versioned data; the engine executes, n8n conducts |
 | [0006](0006-observability-and-qa.md) | Observability & QA | Accepted | Per-transformation run records; QA as six narrow checks with PASS/FAIL/WARN |
 | [0007](0007-schema-registry.md) | Artifact Schema Registry | Accepted | One schema per artifact type, versioned; validate on write and read; migrators |
-| [0008](0008-illustrated-story-format.md) | Illustrated Story Format | Accepted | Voice-over over hand-drawn illustrated story beats, no characters; one script-level watchability gate replaces the semantic diagram/character/QA stack |
-| [0009](0009-growth-optimization-system.md) | Growth Optimization System | Accepted | Package-first growth loop, hero beats, watchability, visual release QA, and analytics feedback |
-| [0010](0010-visual-director-and-multimodal-asset-routing.md) | Visual Director and Multimodal Asset Routing | Implementing | Beat-level semantic visual contracts, representation routing, novelty control, fal-only image generation, pinned Gemini text routing, and a comparison kill gate |
 
 ## Deliberately deferred
 
@@ -49,11 +46,7 @@ Not omissions — decisions to make on evidence rather than assumption. Each is 
 
 ## Current implementation focus
 
-RFC 0010 deliberately isolates the visual-quality problem before any further renderer work. The production `illustrated_story` graph remains the control while `visual_benchmark` runs the same approved script through the new Visual Director and beat-level resolver. Only after the comparison gate passes should the production graph be migrated.
-
-## Relationship to the existing pipeline
-
-The long-form pipeline in this repo (`n8n/long-workflow.json`, `long-compose/`) is working
-software and becomes the **Production and Distribution tail**: `long-compose` is a worker, the
-YouTube nodes are the first publish target, and its prompts seed the first agents.
-Nothing is discarded without an evidence-backed replacement.
+The production graph is audio-first: editorial selection, narration, moderation,
+voice, minimal FFmpeg composition, thumbnail/SEO, technical QA, publishing, and
+analytics feedback. The former scene-visual generation and n8n production
+implementations are retired.

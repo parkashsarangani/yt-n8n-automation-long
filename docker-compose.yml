@@ -40,58 +40,27 @@ services:
       LLM_ROUTER_TIMEOUT_MS: ${LLM_ROUTER_TIMEOUT_MS:-120000}
       FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
-      # Ordered chain of concrete free models; empty = engine default. No paid fallback.
+      # Ordered chain of concrete free models; empty = engine default.
       FREELLMAPI_TEXT_MODELS: ${FREELLMAPI_TEXT_MODELS:-}
-      # proxy (default): free text-only visual QA, no paid vision.
-      VISUAL_QA_MODE: ${VISUAL_QA_MODE:-proxy}
-
-      # Capability-specific free-first fallback policy. Free providers are always
-      # tried first; these flags gate the paid last resort per capability.
-      # Text / vision / image default ON; paid VIDEO generation is HARD-OFF.
       PAID_TEXT_FALLBACK: ${PAID_TEXT_FALLBACK:-true}
-      PAID_VISION_FALLBACK: ${PAID_VISION_FALLBACK:-true}
-      FREE_VISION_MODELS: ${FREE_VISION_MODELS:-}
-      PAID_IMAGE_FALLBACK: ${PAID_IMAGE_FALLBACK:-true}
-      PAID_VIDEO_FALLBACK: ${PAID_VIDEO_FALLBACK:-false}
-      # Free-first media generation via the shared FreeLLMAPI media gateway.
-      # Ordered concrete model ids; empty = no free route. FREELLMAPI_VIDEO_MODELS
-      # is a FREE-VIDEO ALLOWLIST — only models proven zero-cost belong there,
-      # and empty (the default) keeps paid video generation impossible.
-      FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}
-      FREELLMAPI_IMAGE_PROMPT_MAX: ${FREELLMAPI_IMAGE_PROMPT_MAX:-}
-      FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}
-      FREELLMAPI_VIDEO_DURATION_SEC: ${FREELLMAPI_VIDEO_DURATION_SEC:-}
 
       # Narration remains on the established ElevenLabs production path.
-      SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
 
-      # OpenAI is used for LLM fail-open/direct rollback, authoritative RFC 0010
-      # visual QA, and the pre-TTS moderation boundary.
+      # OpenAI is used for text fallback/direct rollback and pre-TTS moderation.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
-      OPENAI_IMAGE_QA_MODEL: ${OPENAI_IMAGE_QA_MODEL:-}
       OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}
       TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
 
-      # RFC 0010 generation: fal.ai only. FAL_TEXT_TO_VIDEO_MODEL is isolated
-      # from long-compose's older image-to-video FAL_VIDEO_MODEL contract.
+      # Optional custom thumbnail artwork. Rendering falls back to a gradient.
       FAL_KEY: ${FAL_KEY:-}
       FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}
-      FAL_EDIT_MODEL: ${FAL_EDIT_MODEL:-}
-      FAL_TEXT_TO_VIDEO_MODEL: ${FAL_TEXT_TO_VIDEO_MODEL:-fal-ai/kling-video/v2.5-turbo/pro/text-to-video}
       FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
-
-      # RFC 0010 stock-video candidates are frame-verified before admission.
-      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
-
-      # Legacy image-search credentials retained for old/manual artifacts only.
-      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
-      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
 
       YOUTUBE_ACCESS_TOKEN: ${YOUTUBE_ACCESS_TOKEN:-}
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
@@ -107,8 +76,7 @@ services:
       long-compose:
         condition: service_healthy
 
-  # Video assembly: FFmpeg + Remotion. Its legacy image-to-video path remains
-  # unchanged while RFC 0010 runs as an isolated benchmark.
+  # Audio-first video assembly with FFmpeg.
   long-compose:
     build: ./long-compose
     restart: unless-stopped
@@ -117,17 +85,12 @@ services:
     environment:
       OUTPUT_DIR: /app/outputs
       TOPIC_HISTORY_PATH: /app/data/topic_history.json
-      NODE_OPTIONS: --max-old-space-size=4096
       COMPOSE_CONCURRENCY: ${COMPOSE_CONCURRENCY:-3}
-      KENBURNS_UPSCALE: ${KENBURNS_UPSCALE:-3500}
-      FAL_KEY: ${FAL_KEY:-}
-      FAL_VIDEO_ENABLED: ${FAL_VIDEO_ENABLED:-}
-      FAL_VIDEO_MODEL: ${FAL_VIDEO_MODEL:-fal-ai/ltx-video/image-to-video}
     volumes:
       - long_outputs:/app/outputs
       - long_data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:4000/topic-history"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 20s
       timeout: 10s
       retries: 3
@@ -139,27 +102,8 @@ services:
         reservations:
           memory: 2G
 
-  # Legacy n8n flow: retained only behind an explicit profile.
-  n8n:
-    profiles: ["legacy"]
-    image: docker.n8n.io/n8nio/n8n
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:5679:5678"
-    environment:
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      N8N_RUNNERS_ENABLED: "true"
-      N8N_SECURE_COOKIE: "false"
-      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5679/}
-      NODE_ENV: production
-      GENERIC_TIMEZONE: ${TZ:-Europe/Berlin}
-      TZ: ${TZ:-Europe/Berlin}
-    volumes:
-      - long_n8n_data:/home/node/.n8n
-
 volumes:
   pg_data:
   vidgen_data:
   long_outputs:
   long_data:
-  long_n8n_data:

@@ -4,7 +4,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const ffmpegPath = require("ffmpeg-static");
+const bundledFfmpegPath = require("ffmpeg-static");
+const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 
 function wavBytes(sampleRate = 24000, samples = 2400) {
   const dataBytes = samples * 2;
@@ -25,10 +26,10 @@ function wavBytes(sampleRate = 24000, samples = 2400) {
   return b;
 }
 
-describe("FreeLLM WAV voice input", () => {
-  it("is decoded by the exact FFmpeg used by long-compose even when the legacy temp filename ends in .mp3", () => {
+describe("WAV voice input", () => {
+  it("is decoded by the same FFmpeg fallback used by long-compose", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wav-voice-"));
-    const input = path.join(dir, "voice_0.mp3");
+    const input = path.join(dir, "voice_0.wav");
     try {
       fs.writeFileSync(input, wavBytes());
       assert.doesNotThrow(() => {

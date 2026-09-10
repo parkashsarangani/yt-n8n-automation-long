@@ -1,15 +1,20 @@
 {
   "schema_id": "intent",
   "version": "1.2.0",
-  "status": "active",
+  "status": "deprecated",
   "description": "Widens image_style from 2 to 5 options (RFC 0008 follow-up: flat_comic_expressive doesn't suit every genre/content). Purely an enum widening -- every 1.1.0/1.0.0 artifact stays valid, no migrator needed. MINOR bump per RFC 0007.",
-  "produced_by": ["human", "discovery"],
+  "produced_by": [
+    "human",
+    "discovery"
+  ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "IntentArtifact",
     "type": "object",
     "additionalProperties": false,
-    "required": ["brief"],
+    "required": [
+      "brief"
+    ],
     "properties": {
       "brief": {
         "type": "string",
@@ -30,17 +35,31 @@
       "constraints": {
         "type": "array",
         "maxItems": 20,
-        "items": { "type": "string", "maxLength": 300 },
+        "items": {
+          "type": "string",
+          "maxLength": 300
+        },
         "description": "Hard requirements or exclusions stated by the human."
       },
       "genre": {
         "type": "string",
-        "enum": ["moral_story", "drama", "true_story", "short_story"],
+        "enum": [
+          "moral_story",
+          "drama",
+          "true_story",
+          "short_story"
+        ],
         "description": "The narrative shape narrative_story_architect and narration_script_writer should write to. moral_story (default when absent): a parable -- cold open, escalation, a low point, a turn, a payoff that reframes the opening. drama: conflict from the first line, heightened stakes, ends on an explicitly stated lesson (Dhar Mann-style). true_story: framed as a specific real incident, restrained/matter-of-fact voice, can end on an unresolved moral question rather than a tidy lesson. short_story: literary craft, twist or ironic ending, no moralizing."
       },
       "image_style": {
         "type": "string",
-        "enum": ["ink_wash_stickman", "flat_comic_expressive", "documentary_sketch", "watercolor_storybook", "noir_charcoal"],
+        "enum": [
+          "ink_wash_stickman",
+          "flat_comic_expressive",
+          "documentary_sketch",
+          "watercolor_storybook",
+          "noir_charcoal"
+        ],
         "description": "The locked visual identity illustrated_scene_assets conditions every generated still on. When absent, the engine picks a genre-appropriate default (see service.ts GENRE_DEFAULT_STYLE) rather than always falling back to ink_wash_stickman. ink_wash_stickman: hand-drawn pen-and-ink, muted near-monochrome wash, faceless stick-figure humans, detailed environments/objects/animals -- the RFC 0008 house style, default for moral_story. flat_comic_expressive: flat vector illustration, bold black outlines, bright limited palette, simplified figures with expressive minimal faces -- default for drama. documentary_sketch: restrained charcoal/pencil reportage style, real human likeness rendered as sketch rather than photoreal, muted grays -- default for true_story. watercolor_storybook: soft painterly watercolor, warm pastel palette, gentle whimsical linework -- default for short_story. noir_charcoal: high-contrast dramatic charcoal/ink, heavy chiaroscuro shadow -- not a genre default, an explicit operator pick for suspense/thriller-leaning content."
       }
     }

@@ -45,17 +45,12 @@ function entry(over: Partial<SchemaEntry> = {}): SchemaEntry {
 
 test("loads the real project schemas", async () => {
   const reg = await SchemaRegistry.load(SCHEMA_DIR);
-  for (const id of ["intent", "story", "script", "visual_plan", "voice", "asset_manifest", "rendered_video", "published_episode"]) {
+  for (const id of ["intent", "story", "script", "voice", "rendered_video", "thumbnail", "seo_metadata", "qa_report", "published_episode"]) {
     assert.ok(reg.has(id), `expected schema "${id}"`);
   }
   // story and script each carry an additive minor bump (RFC 0007) that widens
   // produced_by to allow "human", for the manual-script flow. script's later
-  // 1.2.0 adds optional speaker/emotion for cartoon-mode dialogue; 1.5.0
-  // widens emotion's enum from 6 values to the 12 visual_plan already uses;
-  // 1.6.0 raises point's maxLength from 300 to 420. story@1.3.0 and
-  // script@1.7.0 (RFC 0008) each add the illustrated-story pipeline's new
-  // producers to the same allowlist, again with no payload change. story@1.4.0
-  // adds the optional genre field the operator-selectable story-type UI sets.
+  // Active versions remain compatible with stored audio-first artifacts.
   assert.equal(reg.resolveVersion("story"), "1.4.0");
   assert.equal(reg.resolveVersion("script"), "1.7.0");
 });

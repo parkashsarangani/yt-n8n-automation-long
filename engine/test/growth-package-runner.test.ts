@@ -89,7 +89,6 @@ test("real runner preserves raw package and releases canonical child without ano
       brief: "A hotel guest investigates a repeating fire alarm with no visible fire.",
       target_duration_sec: 180,
       genre: "drama",
-      image_style: "flat_comic_expressive",
     },
     produced_by: { transformation: "human", version: "1", run_id: "run_seed", provider: null },
   });

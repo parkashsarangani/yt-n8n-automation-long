@@ -36,7 +36,7 @@ const transformations = new Map<string, TransformationDef>([
       kind: "worker",
       version: "13",
       consumes: [{ schema_id: "script", as: "script" }],
-      produces: "asset_manifest",
+      produces: "rendered_video",
       execute: async () => ({ payload: {} }),
     },
   ],

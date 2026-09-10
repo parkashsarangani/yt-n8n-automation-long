@@ -6,7 +6,7 @@
   "consumes": [
     { "schema_id": "story", "range": "^1", "as": "story" },
     { "schema_id": "growth_package", "range": "^1", "as": "growth", "optional": true },
-    { "schema_id": "intent", "range": "^1", "as": "intent", "optional": true }
+    { "schema_id": "intent", "range": "^2", "as": "intent", "optional": true }
   ],
   "produces": "script",
   "prompt": "narration_script_writer@6",

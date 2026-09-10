@@ -9,168 +9,106 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  contracts:
-    name: Contracts and compose config
+  architecture:
+    name: Audio-first architecture contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Motion compatibility contract is synchronized
-        run: cmp contracts/motion-compatibility.json long-compose/remotion/src/motion-compatibility.json
-
-      - name: Motion visual identity contract is synchronized
-        run: npx --yes tsx --test contracts/motion-visual-identity.test.ts
-
-      - name: Compose file is valid and starts the right services
+      - name: Compose topology is valid
         run: |
-          set -e
           services=$(docker compose config --services | sort | tr '\n' ' ')
-          echo "default services: $services"
-          [ "$services" = "engine long-compose postgres " ] || {
-            echo "ERROR: expected exactly 'engine long-compose postgres' by default"
-            exit 1
-          }
-
-      - name: RFC 0010 provider deployment contract
+          echo "services: $services"
+          [ "$services" = "engine long-compose postgres " ]
+      - name: Retired visual stack is absent
         run: |
           python3 - <<'PY'
+          import json
           from pathlib import Path
-          import re
 
-          compose = Path("docker-compose.yml").read_text()
-          deploy = Path(".github/workflows/deploy.yml").read_text()
-          story_graph = Path("engine/graphs/illustrated_story.json").read_text()
-          discover_graph = Path("engine/graphs/discover.json").read_text()
-          measure_graph = Path("engine/graphs/measure.json").read_text()
+          graph = json.loads(Path('engine/graphs/illustrated_story.json').read_text())
+          assert graph['version'] == '10'
+          transforms = {n.get('transformation') for n in graph['nodes'] if n.get('transformation')}
+          required = {'channel_strategist','growth_packager','growth_package_release','narrative_story_architect','narration_script_writer','watchability_critic','watchability_release','tts_moderation','voice','seo_optimizer','thumbnail_designer','thumbnail','render','qa','publish'}
+          assert required <= transforms, sorted(required - transforms)
+          forbidden = {'visual_director','visual_planner','visual_beat_assets','visual_timeline','visual_timeline_manifest','visual_beat_release','visual_asset_release','visual_timeline_render','assets'}
+          assert not (transforms & forbidden), sorted(transforms & forbidden)
 
-          for required in (
-              "FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}",
-              "FREELLMAPI_API_KEY:",
-              "FREELLMAPI_TEXT_MODELS: ${FREELLMAPI_TEXT_MODELS:-}",
-              "VISUAL_QA_MODE: ${VISUAL_QA_MODE:-proxy}",
-              "FAL_KEY:",
-              "FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}",
-              "FAL_EDIT_MODEL:",
-              "SPEECH_PROVIDER_MODE: ${SPEECH_PROVIDER_MODE:-elevenlabs}",
-              "OPENAI_API_KEY:",
-              "OPENAI_IMAGE_QA_MODEL:",
-              "OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}",
-              "TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}",
-          ):
-              assert required in compose, f"missing RFC 0010 provider contract: {required}"
+          retired_paths = [
+            'contracts',
+            'long-compose/remotion',
+            'long-compose/motion-assets',
+            'docs/0008-illustrated-story-format.md',
+            'docs/0010-visual-director-and-multimodal-asset-routing.md',
+            'docs/creative-quality-acceptance.md',
+            'docs/semantic-visual-representation.md',
+            '.github/workflows/free-media-bakeoff.yml',
+            'engine/agents/visual_director.json',
+            'engine/agents/visual_planner.json',
+            'engine/prompts/visual_director',
+            'engine/prompts/visual_planner',
+            'engine/src/workers/assets.ts',
+            'engine/src/workers/illustrated-scene-assets.ts',
+            'engine/src/workers/visual-beat-resolver.ts',
+            'engine/src/workers/visual-timeline.ts',
+            'engine/src/workers/visual-timeline-render.ts',
+            'engine/src/workers/visual-timeline-manifest.ts',
+            'engine/src/workers/visual-beat-release.ts',
+            'engine/src/workers/visual-asset-release.ts',
+            'engine/src/workers/visual-benchmark-render.ts',
+            'engine/src/workers/visual-benchmark-qa.ts',
+            'engine/src/visual-routing.ts',
+            'engine/src/visual-beat-qa.ts',
+            'engine/src/visual-benchmark-judge.ts',
+            'engine/src/image-qa.ts',
+            'engine/src/providers/fal-video.ts',
+            'engine/src/providers/freellm-image.ts',
+            'engine/src/providers/freellm-video.ts',
+            'engine/src/providers/pexels-video.ts',
+            'engine/scripts/free-media-smoke.ts',
+            'engine/schemas/asset_manifest',
+            'engine/schemas/visual_plan',
+            'engine/schemas/visual_beat_plan',
+            'engine/schemas/visual_beat_assets',
+            'engine/schemas/visual_timeline',
+            'engine/src/audio/slice.ts',
+            'engine/src/media/exec-bounded.ts',
+            'long-compose/remotion',
+            'n8n',
+          ]
+          present = [p for p in retired_paths if Path(p).exists()]
+          assert not present, f'retired visual paths remain: {present}'
 
-          for forbidden in (
-              r"(?m)^  freellmapi:\s*$",
-              r"(?m)^  llm-gateway:\s*$",
-              r"(?m)^  freellmapi_data:\s*$",
-              r"IMAGE_PROVIDER_MODE",
-              r"FREELLMAPI_IMAGE_MODEL(?![A-Z])",
-              r"FREELLMAPI_HERO_IMAGE",
-              r"FREELLMAPI_VISION_MODEL(?![A-Z])",
-          ):
-              assert not re.search(forbidden, compose), f"obsolete provider infrastructure remains in compose: {forbidden}"
+          # The illustrated stack was image_style's only consumer. Nothing may
+          # offer the operator an art-direction knob no worker reads.
+          intent = json.loads(Path('engine/schemas/intent/2.0.0.json').read_text())
+          assert intent['status'] == 'active'
+          assert 'image_style' not in intent['json_schema']['properties']
+          # Live plumbing only: deprecated intent 1.x files still describe the
+          # field (that is their job), and ui-studio.test.ts names it to assert
+          # its absence.
+          art_direction = []
+          for root in ['engine/src', 'engine/ui', 'engine/agents', 'engine/prompts']:
+            for p in Path(root).rglob('*'):
+              if not p.is_file() or 'node_modules' in p.parts:
+                continue
+              if 'image_style' in p.read_text(encoding='utf-8', errors='ignore'):
+                art_direction.append(str(p))
+          assert not art_direction, f'retired image_style plumbing remains: {art_direction}'
 
-          for required in (
-              "FREELLMAPI_IMAGE_MODELS: ${FREELLMAPI_IMAGE_MODELS:-}",
-              "FREELLMAPI_VIDEO_MODELS: ${FREELLMAPI_VIDEO_MODELS:-}",
-          ):
-              assert required in compose, f"missing free media chain contract: {required}"
-
-          for required in (
-              "yt-n8n-automation-shorts_default",
-              'docker network connect "$SHARED_LLM_NETWORK" "$ENGINE_CID"',
-              "http://freellmapi:3001/api/ping",
-              "FREELLMAPI_API_KEY:",
-              "LLM_ROUTER_MODE:",
-              "FREELLMAPI_TEXT_MODELS:",
-              "vars.FREELLMAPI_TEXT_MODELS",
-              "VISUAL_QA_MODE:",
-              "vars.VISUAL_QA_MODE",
-              "/v1/chat/completions",
-              "every serviceable configured free text model is unavailable",
-              # Deploy understands free-first -> paid-last-resort: a free-chain
-              # outage is deploy-safe only when paid fallback is enabled AND
-              # credentialed, never an unconditional hard failure.
-              "paid_text_ready()",
-              "no paid text fallback is available",
-              "SPEECH_PROVIDER_MODE: elevenlabs",
-              "OPENAI_API_KEY:",
-              "OPENAI_MODERATION_MODEL:",
-              "TTS_MODERATION_TIMEOUT_MS:",
-              "/v1/moderations",
-              "FAL_KEY:",
-              "FAL_MODEL:",
-              "FREELLMAPI_IMAGE_MODELS:",
-              "vars.FREELLMAPI_IMAGE_MODELS",
-              "FREELLMAPI_VIDEO_MODELS:",
-              "vars.FREELLMAPI_VIDEO_MODELS",
-              "PAID_VIDEO_FALLBACK:",
-              "vars.PAID_VIDEO_FALLBACK",
-              "free-first image generation",
-              'test("fal/|freellmapi media")',
-          ):
-              assert required in deploy, f"missing production RFC 0010 contract: {required}"
-
-          for forbidden in (
-              "LLM_ROUTER_FAIL_OPEN_TO_DIRECT",
-              "direct OpenAI fail-open",
-              "gemini-3.5-flash",
-              "process.exit(3)",
-              "VISUAL_QA_MODE: real",
-          ):
-              assert forbidden not in deploy, f"obsolete paid-fallback contract remains in deploy: {forbidden}"
-
-          assert "grep -qiE '(^|,)[[:space:]]*auto" in deploy, "deploy must reject an auto model id"
-          assert 'if [ "${VISUAL_QA_MODE}" = "real" ]' in deploy, "deploy must refuse real vision on production"
-
-          # Exactly one publish-capable graph remains. Manual narration is an
-          # input mode of illustrated_story, while discover/measure are
-          # non-publish operational loops. The free-media bake-off remains as
-          # the manual promotion gate for candidate free image/video models.
-          assert '"transformation": "publish"' in story_graph
-          assert '"transformation": "tts_moderation"' in story_graph
-          assert '"transformation": "voice"' in story_graph
-          assert '"tts_moderation"' in story_graph
-          assert '"transformation": "visual_director"' in story_graph
-          assert '"transformation": "visual_beat_assets"' in story_graph
-          assert '"transformation": "visual_timeline"' in story_graph
-          assert '"transformation": "visual_beat_release"' in story_graph
-          assert '"transformation": "visual_timeline_render"' in story_graph
-          assert '"transformation": "publish"' not in discover_graph
-          assert '"transformation": "publish"' not in measure_graph
-          assert Path(".github/workflows/free-media-bakeoff.yml").exists(), "production free-media bake-off workflow must remain"
-
-          for retired in (
-              "engine/graphs/manual.json",
-              "engine/graphs/visual_benchmark.json",
-              "engine/graphs/visual_benchmark_control.json",
-              "engine/graphs/visual_live_media_smoke.json",
-              ".github/workflows/rfc0010-benchmark.yml",
-              ".github/workflows/rfc0010-live-media-smoke.yml",
-          ):
-              assert not Path(retired).exists(), f"retired alternate graph/workflow still exists: {retired}"
-
-          for forbidden in (
-              "IMAGE_PROVIDER_MODE:",
-              "FREELLMAPI_IMAGE_MODEL:",
-              "FREELLMAPI_HERO_IMAGE_MODEL:",
-              "FREELLMAPI_VISION_MODEL:",
-              "/v1/images/generations",
-              "Models -> Image",
-              "standard image row",
-          ):
-              assert forbidden not in deploy, f"obsolete FreeLL media deployment contract remains: {forbidden}"
-
-          assert "fetch(base+'/api/media')" not in deploy
-          assert "'/api/media/'" not in deploy
-          assert "x-dashboard-token" not in deploy.lower()
-
-          assert "secrets." + "FREELLMAPI_API_KEY" in deploy
-          assert "vars." + "LLM_ROUTER_MODE" in deploy
-          assert "secrets." + "OPEN_AI_KEY" in deploy
-          assert "secrets." + "FAL_KEY" in deploy
-          assert "vars." + "FAL_MODEL" in deploy
-          print("single production graph + RFC 0010 provider contract OK")
+          operational = '\n'.join(
+            Path(p).read_text()
+            for p in ['docker-compose.yml', '.github/workflows/deploy.yml']
+          )
+          stale = [
+            'VISUAL_QA_MODE', 'OPENAI_IMAGE_QA_MODEL', 'PAID_VISION_FALLBACK',
+            'PAID_IMAGE_FALLBACK', 'PAID_VIDEO_FALLBACK',
+            'FREELLMAPI_IMAGE_MODELS', 'FREELLMAPI_VIDEO_MODELS',
+            'FAL_EDIT_MODEL', 'FAL_VIDEO_MODEL', 'FAL_TEXT_TO_VIDEO_MODEL',
+            'PEXELS_API_KEY', 'UNSPLASH_ACCESS_KEY', 'PIXABAY_API_KEY',
+          ]
+          found = [name for name in stale if name in operational]
+          assert not found, f'stale visual provider/deploy configuration remains: {found}'
+          print('audio-first architecture contract OK')
           PY
 
   engine:
@@ -185,27 +123,14 @@ jobs:
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
 
-  long-compose-motion:
-    name: Long-compose contracts and motion render
+  long-compose:
+    name: Audio-first compositor
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build long-compose image (no push)
+      - name: Build compositor image
         run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
-      - name: Typecheck Remotion
-        run: |
-          docker run --rm --entrypoint sh long-compose:pr-${{ github.event.pull_request.number }} -lc 'cd /app/remotion && npx tsc --noEmit'
-      - name: Source contracts
-        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:contracts
-      - name: Motion render regression
-        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:render:motion
-
-  long-compose-output:
-    name: Long-compose output quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build long-compose image (no push)
-        run: docker build -t long-compose:pr-${{ github.event.pull_request.number }} ./long-compose
-      - name: Output quality
-        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run test:render:output
+      - name: Syntax check
+        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} run check
+      - name: Unit tests
+        run: docker run --rm --entrypoint npm long-compose:pr-${{ github.event.pull_request.number }} test

@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Curated cartoon shop scene plate">
-  <defs><linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF7ED"/><stop offset="1" stop-color="#FDE68A"/></linearGradient><linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D6D3D1"/><stop offset="1" stop-color="#A8A29E"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#292524" flood-opacity=".15"/></filter></defs>
-  <rect width="1920" height="1080" fill="url(#wall)"/>
-  <path d="M0 690 C520 650 1320 650 1920 700 L1920 1080 L0 1080 Z" fill="url(#floor)"/>
-  <g filter="url(#shadow)"><rect x="128" y="184" width="436" height="470" rx="30" fill="#FFFFFF" stroke="#F97316" stroke-width="14"/><rect x="174" y="260" width="344" height="58" rx="18" fill="#FDBA74"/><rect x="174" y="374" width="344" height="58" rx="18" fill="#FCD34D"/><rect x="174" y="488" width="344" height="58" rx="18" fill="#86EFAC"/></g>
-  <g filter="url(#shadow)"><rect x="1302" y="164" width="438" height="502" rx="30" fill="#FFFFFF" stroke="#38BDF8" stroke-width="14"/><rect x="1348" y="260" width="344" height="58" rx="18" fill="#BAE6FD"/><rect x="1348" y="374" width="344" height="58" rx="18" fill="#C4B5FD"/><rect x="1348" y="488" width="344" height="58" rx="18" fill="#F0ABFC"/></g>
-  <g filter="url(#shadow)"><rect x="690" y="606" width="540" height="116" rx="34" fill="#92400E"/><rect x="742" y="528" width="120" height="94" rx="20" fill="#FDE68A"/><rect x="914" y="518" width="120" height="104" rx="20" fill="#A7F3D0"/><rect x="1084" y="540" width="110" height="82" rx="18" fill="#BFDBFE"/></g>
-  <ellipse cx="960" cy="916" rx="760" ry="72" fill="#292524" opacity=".10"/>
-</svg>

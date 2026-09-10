@@ -1,157 +1,107 @@
-/** Deterministic technical QA for illustrated episodes. RFC 0009 adds sequence-review visibility while retaining v1 manifest compatibility. */
-import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
-export interface QaWorkerOptions { maxPlaceholderRatio?: number; maxDurationDrift?: number; maxScriptDrift?: number; wordsPerMinute?: number; version?: string; name?: string }
-type Status = "pass" | "warn" | "fail";
-interface Check { id: string; status: Status; message: string; measured?: number | null; threshold?: number | null }
-interface Intent { target_duration_sec?: number }
-interface Script { scenes?: Array<{ scene_index: number; narration?: string }>; word_count?: number }
-interface VisualReview { status?: string; reviewed_shots?: number; remaining_flagged_shots?: string[]; reason?: string; scores?: Record<string, number> }
-interface Assets { scenes?: Array<{ scene_index?: number; source?: string; hero_shot_ids?: string[] }>; degraded_count?: number; visual_review?: VisualReview }
-interface Voice { clips?: Array<{ scene_index?: number; duration_sec?: number }>; total_duration_sec?: number }
-interface Rendered { duration_sec?: number; scene_count?: number; degraded_scenes?: number }
-interface Thumb { background?: string; text?: string }
-interface Seo { title?: string; description?: string; tags?: string[] }
-const pct = (n: number) => `${Math.round(n * 100)}%`;
-const VISUAL_REVIEW_WARN_FLOOR = 0.68;
-const VISUAL_REVIEW_FAIL_FLOOR = 0.55;
-const CRITICAL_VISUAL_SCORES = ["opening_visual_strength", "payoff_visual_strength", "continuity", "ai_artifacts"] as const;
+/** Deterministic pre-publish QA for the audio-first production graph. */
+import { readMp4Geometry } from "../media/mp4.ts";
+import type { WorkerDef, WorkerOutput } from "../runner.ts";
+
+export interface QaWorkerOptions { version?: string }
+
+type CheckStatus = "pass" | "warn" | "fail";
+interface Check { id: string; status: CheckStatus; message: string; measured?: number | null; threshold?: number | null }
+interface ScriptScene { scene_index: number; narration: string }
+interface VoiceClip { scene_index: number; audio_uri: string; duration_sec: number }
 
 export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
-  const maxPlaceholderRatio = opts.maxPlaceholderRatio ?? 0.1;
-  const maxDurationDrift = opts.maxDurationDrift ?? 0.25;
-  const maxScriptDrift = opts.maxScriptDrift ?? 0.3;
-  const wpm = opts.wordsPerMinute ?? 150;
   return {
-    name: opts.name ?? "qa", kind: "worker", version: opts.version ?? "3",
+    name: "qa",
+    kind: "worker",
+    version: opts.version ?? "5",
     consumes: [
-      { schema_id: "intent", range: "^1", as: "intent" },
+      { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
-      { schema_id: "asset_manifest", range: ">=1 <3", as: "assets" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
     ],
     produces: "qa_report",
-    async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
-      const intent = inputs["intent"]!.payload as Intent;
-      const script = inputs["script"]!.payload as Script;
-      const assets = inputs["assets"]!.payload as Assets;
-      const voice = inputs["voice"]!.payload as Voice;
-      const render = inputs["render"]!.payload as Rendered;
-      const thumb = inputs["thumbnail"]!.payload as Thumb;
-      const seo = inputs["seo"]!.payload as Seo;
+    async execute(inputs, ctx): Promise<WorkerOutput> {
       const checks: Check[] = [];
-      const sceneCount = script.scenes?.length ?? 0;
-      const targetSec = intent.target_duration_sec ?? 0;
-      const visualScenes = [...(assets.scenes ?? [])].sort((a, b) => (a.scene_index ?? 0) - (b.scene_index ?? 0));
+      const add = (id: string, status: CheckStatus, message: string, measured?: number, threshold?: number) => {
+        checks.push({ id, status, message, ...(measured !== undefined ? { measured } : {}), ...(threshold !== undefined ? { threshold } : {}) });
+      };
 
-      const blankScenes = visualScenes.filter((s) => s.source === "placeholder").length;
-      checks.push(blankScenes === 0
-        ? { id: "blank_scenes", status: "pass", message: "every scene has a real rendered image" }
-        : { id: "blank_scenes", status: "fail", message: `${blankScenes} of ${sceneCount} scene(s) are blank placeholders`, measured: blankScenes, threshold: 0 });
+      const script = inputs["script"]!.payload as { scenes?: ScriptScene[] };
+      const voice = inputs["voice"]!.payload as { clips?: VoiceClip[]; duration_sec?: number };
+      const render = inputs["render"]!.payload as { video_uri?: string; media_type?: string; scene_count?: number; duration_sec?: number; degraded_scenes?: number };
+      const thumbnail = inputs["thumbnail"]!.payload as { thumbnail_uri?: string; media_type?: string; width?: number; height?: number; bytes?: number };
+      const seo = inputs["seo"]!.payload as { title?: string; description?: string; tags?: string[] };
+      const intent = inputs["intent"]!.payload as { target_duration_sec?: number };
 
-      const fallbackScenes = Math.max(0, (assets.degraded_count ?? blankScenes) - blankScenes);
-      const fallbackRatio = sceneCount > 0 ? fallbackScenes / sceneCount : 0;
-      checks.push(fallbackScenes === 0
-        ? { id: "visual_assets_renderable", status: "pass", message: "every scene has a renderable intended visual" }
-        : fallbackRatio <= maxPlaceholderRatio
-          ? { id: "visual_assets_renderable", status: "warn", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery`, measured: fallbackRatio, threshold: maxPlaceholderRatio }
-          : { id: "visual_assets_renderable", status: "fail", message: `${fallbackScenes} of ${sceneCount} scenes contain fallback imagery (${pct(fallbackRatio)})`, measured: fallbackRatio, threshold: maxPlaceholderRatio });
+      const scenes = Array.isArray(script.scenes) ? script.scenes : [];
+      const clips = Array.isArray(voice.clips) ? voice.clips : [];
+      add("script_nonempty", scenes.length > 0 ? "pass" : "fail", scenes.length > 0 ? `${scenes.length} approved narration scenes` : "approved script has no scenes", scenes.length, 1);
 
-      if (assets.visual_review) {
-        const remainingIds = assets.visual_review.remaining_flagged_shots ?? [];
-        const remaining = remainingIds.length;
-        const heroIds = new Set(visualScenes.flatMap((s) => s.hero_shot_ids ?? []));
-        const remainingHeroes = remainingIds.filter((id) => heroIds.has(id));
-        const scores = assets.visual_review.scores ?? {};
-        const numericScores = Object.values(scores).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-        const minScore = numericScores.length ? Math.min(...numericScores) : null;
-        const criticalFailures = CRITICAL_VISUAL_SCORES
-          .flatMap((key) => {
-            const value = scores[key];
-            return typeof value === "number" && Number.isFinite(value) && value < VISUAL_REVIEW_FAIL_FLOOR
-              ? [`${key}=${value.toFixed(2)}`]
-              : [];
-          });
+      const sceneIds = scenes.map((s) => s.scene_index);
+      const uniqueSceneIds = new Set(sceneIds);
+      const sorted = [...sceneIds].sort((a, b) => a - b);
+      const contiguous = sorted.every((value, index) => index === 0 || value === sorted[index - 1]! + 1);
+      add("script_scene_indices", uniqueSceneIds.size === scenes.length && contiguous ? "pass" : "fail", uniqueSceneIds.size === scenes.length && contiguous ? "script scene indices are unique and contiguous" : "script scene indices are duplicated or non-contiguous");
 
-        if (assets.visual_review.status === "unavailable") {
-          checks.push({ id: "episode_visual_review", status: "warn", message: assets.visual_review.reason || "episode-level multimodal visual review unavailable" });
-        } else if (remainingHeroes.length > 0) {
-          checks.push({
-            id: "episode_visual_review",
-            status: "fail",
-            message: `${remainingHeroes.length} hero shot(s) remain flagged after targeted regeneration: ${remainingHeroes.join(", ")}`,
-            measured: remainingHeroes.length,
-            threshold: 0,
-          });
-        } else if (criticalFailures.length > 0) {
-          checks.push({
-            id: "episode_visual_review",
-            status: "fail",
-            message: `critical visual-review score below ${VISUAL_REVIEW_FAIL_FLOOR.toFixed(2)}: ${criticalFailures.join(", ")}`,
-            measured: Math.min(...criticalFailures.map((item) => Number(item.split("=")[1]))),
-            threshold: VISUAL_REVIEW_FAIL_FLOOR,
-          });
-        } else if (remaining > 0) {
-          checks.push({ id: "episode_visual_review", status: "warn", message: `${remaining} non-hero shot(s) remain flagged after targeted regeneration: ${remainingIds.join(", ")}`, measured: remaining, threshold: 0 });
-        } else if (assets.visual_review.status === "warn" || (minScore !== null && minScore < VISUAL_REVIEW_WARN_FLOOR)) {
-          checks.push({
-            id: "episode_visual_review",
-            status: "warn",
-            message: assets.visual_review.reason || `episode-level visual review minimum score ${minScore?.toFixed(2)} remains below ${VISUAL_REVIEW_WARN_FLOOR.toFixed(2)}`,
-            ...(minScore !== null ? { measured: minScore, threshold: VISUAL_REVIEW_WARN_FLOOR } : {}),
-          });
-        } else {
-          checks.push({ id: "episode_visual_review", status: "pass", message: `episode-level visual review passed across ${assets.visual_review.reviewed_shots ?? 0} shots` });
+      const clipIds = clips.map((c) => c.scene_index);
+      const uniqueClipIds = new Set(clipIds);
+      const exactVoiceCoverage = clips.length === scenes.length && uniqueClipIds.size === clips.length && scenes.every((s) => uniqueClipIds.has(s.scene_index));
+      add("voice_scene_coverage", exactVoiceCoverage ? "pass" : "fail", exactVoiceCoverage ? "exactly one voice clip covers every approved narration scene" : "voice clips do not exactly match approved narration scenes", clips.length, scenes.length);
+
+      const invalidClips = clips.filter((c) => !c.audio_uri?.trim() || !(c.duration_sec > 0));
+      add("voice_clip_integrity", invalidClips.length === 0 ? "pass" : "fail", invalidClips.length === 0 ? "all voice clips have audio blobs and positive duration" : `${invalidClips.length} voice clip(s) have missing audio or invalid duration`, invalidClips.length, 0);
+
+      const voiceDuration = clips.reduce((sum, c) => sum + (Number.isFinite(c.duration_sec) ? c.duration_sec : 0), 0);
+      add("voice_duration", voiceDuration > 0 ? "pass" : "fail", voiceDuration > 0 ? `voice programme duration ${voiceDuration.toFixed(2)}s` : "voice programme duration is zero", voiceDuration, 0);
+
+      add("render_media_type", render.media_type === "video/mp4" ? "pass" : "fail", render.media_type === "video/mp4" ? "render is video/mp4" : `render media type is ${render.media_type ?? "missing"}`);
+      add("render_scene_count", render.scene_count === scenes.length ? "pass" : "fail", render.scene_count === scenes.length ? "render scene count matches approved script" : `render scene count ${render.scene_count ?? "missing"} does not match script ${scenes.length}`, render.scene_count, scenes.length);
+      add("render_not_degraded", (render.degraded_scenes ?? 0) === 0 ? "pass" : "fail", (render.degraded_scenes ?? 0) === 0 ? "audio-first render has no degraded scenes" : `render reports ${render.degraded_scenes} degraded scene(s)`, render.degraded_scenes ?? 0, 0);
+
+      if (!render.video_uri) {
+        add("render_blob", "fail", "rendered video blob is missing");
+      } else {
+        try {
+          const bytes = await ctx.blobs.get(render.video_uri);
+          const geometry = readMp4Geometry(bytes);
+          add("render_blob", bytes.length > 0 ? "pass" : "fail", bytes.length > 0 ? `rendered MP4 is ${bytes.length} bytes` : "rendered MP4 is empty", bytes.length, 1);
+          add("render_geometry", geometry?.width === 1920 && geometry?.height === 1080 ? "pass" : "fail", geometry ? `render geometry ${geometry.width}x${geometry.height}` : "could not read MP4 display geometry");
+        } catch (err) {
+          add("render_blob", "fail", `rendered video blob cannot be read: ${String(err)}`);
         }
       }
 
-      const clips = voice.clips?.length ?? 0;
-      checks.push(clips === sceneCount
-        ? { id: "narration_complete", status: "pass", message: `${clips} clips for ${sceneCount} scenes` }
-        : { id: "narration_complete", status: "fail", message: `${clips} voice clips for ${sceneCount} scenes`, measured: clips, threshold: sceneCount });
-      const rendered = render.scene_count ?? 0;
-      checks.push(rendered === sceneCount
-        ? { id: "scenes_rendered", status: "pass", message: `all ${sceneCount} scenes rendered` }
-        : { id: "scenes_rendered", status: "fail", message: `renderer reported ${rendered} scenes, the script has ${sceneCount}`, measured: rendered, threshold: sceneCount });
-
-      if (targetSec > 0 && typeof render.duration_sec === "number") {
-        const drift = Math.abs(render.duration_sec - targetSec) / targetSec;
-        checks.push(drift <= maxDurationDrift
-          ? { id: "duration", status: "pass", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target`, measured: drift, threshold: maxDurationDrift }
-          : { id: "duration", status: "fail", message: `${Math.round(render.duration_sec)}s against a ${targetSec}s target (${pct(drift)} off)`, measured: drift, threshold: maxDurationDrift });
-      } else checks.push({ id: "duration", status: "warn", message: "no rendered duration reported", measured: null });
-
-      if (targetSec > 0 && typeof script.word_count === "number" && script.word_count > 0) {
-        const budget = (targetSec / 60) * wpm;
-        const drift = Math.abs(script.word_count - budget) / budget;
-        checks.push({ id: "script_length", status: drift <= maxScriptDrift ? "pass" : "warn", message: `${script.word_count} words against ~${Math.round(budget)}`, measured: drift, threshold: maxScriptDrift });
+      if (typeof render.duration_sec === "number" && render.duration_sec > 0 && voiceDuration > 0) {
+        const delta = Math.abs(render.duration_sec - voiceDuration);
+        const tolerance = Math.max(4, voiceDuration * 0.03);
+        add("render_audio_duration", delta <= tolerance ? "pass" : "fail", `render/voice duration delta ${delta.toFixed(2)}s (tolerance ${tolerance.toFixed(2)}s)`, delta, tolerance);
+      } else {
+        add("render_audio_duration", "warn", "renderer did not report a duration; voice coverage remains authoritative");
       }
-      checks.push(thumb.background === "supplied"
-        ? { id: "thumbnail_image", status: "pass", message: "thumbnail uses a supplied image" }
-        : { id: "thumbnail_image", status: "warn", message: `thumbnail background is ${thumb.background ?? "unknown"}` });
 
-      const title = seo.title ?? "";
+      if (typeof intent.target_duration_sec === "number" && intent.target_duration_sec > 0 && voiceDuration > 0) {
+        const drift = Math.abs(voiceDuration - intent.target_duration_sec) / intent.target_duration_sec;
+        add("target_duration", drift <= 0.15 ? "pass" : "warn", `voice duration is ${(drift * 100).toFixed(1)}% from requested target`, drift, 0.15);
+      }
+
+      const thumbOk = !!thumbnail.thumbnail_uri && (thumbnail.media_type === "image/png" || thumbnail.media_type === "image/jpeg") && (thumbnail.width ?? 0) >= 1280 && (thumbnail.height ?? 0) >= 720;
+      add("thumbnail_integrity", thumbOk ? "pass" : "fail", thumbOk ? `thumbnail ${thumbnail.width}x${thumbnail.height} ${thumbnail.media_type}` : "thumbnail is missing, undersized, or has an unsupported media type");
+      if (typeof thumbnail.bytes === "number") add("thumbnail_size", thumbnail.bytes <= 2 * 1024 * 1024 ? "pass" : "fail", `thumbnail payload ${thumbnail.bytes} bytes`, thumbnail.bytes, 2 * 1024 * 1024);
+
+      const title = seo.title?.trim() ?? "";
+      add("seo_title", title.length > 0 && title.length <= 100 ? "pass" : "fail", title.length ? `SEO title is ${title.length} characters` : "SEO title is missing", title.length, 100);
       const description = seo.description ?? "";
-      const tagChars = (seo.tags ?? []).reduce((n, t) => n + t.length, 0);
-      const problems: string[] = [];
-      if (title.length > 100) problems.push(`title ${title.length}/100 chars`);
-      if (description.length > 5000) problems.push(`description ${description.length}/5000`);
-      if (tagChars > 500) problems.push(`tags ${tagChars}/500 chars`);
-      checks.push(problems.length === 0
-        ? { id: "metadata_limits", status: "pass", message: "title, description and tags fit" }
-        : { id: "metadata_limits", status: "fail", message: `YouTube would reject: ${problems.join("; ")}` });
+      add("seo_description", description.length <= 5000 ? "pass" : "fail", `SEO description is ${description.length} characters`, description.length, 5000);
+      const tags = Array.isArray(seo.tags) ? seo.tags : [];
+      const tagChars = tags.reduce((sum, tag) => sum + tag.length, 0);
+      add("seo_tags", tags.length <= 15 && tagChars <= 500 ? "pass" : "fail", `${tags.length} tags / ${tagChars} total characters`, tagChars, 500);
 
       const failed = checks.filter((c) => c.status === "fail").length;
       const warned = checks.filter((c) => c.status === "warn").length;
-      const verdict = failed > 0 ? "fail" : "pass";
-      for (const c of checks.filter((c) => c.status !== "pass")) {
-        const log = c.status === "fail" ? ctx.logger.error : ctx.logger.warn;
-        log(`[qa] ${c.status.toUpperCase()} ${c.id}: ${c.message}`);
-      }
-      await ctx.progress({ detail: `qa ${verdict}: ${failed} failed, ${warned} warned` });
-      return { payload: { verdict, failed, warned, checks: checks.map((c) => ({ id: c.id, status: c.status, message: c.message, ...(c.measured !== undefined ? { measured: c.measured } : {}), ...(c.threshold !== undefined ? { threshold: c.threshold } : {}) })) } };
+      return { payload: { verdict: failed === 0 ? "pass" : "fail", checks, failed, warned } };
     },
   };
 }

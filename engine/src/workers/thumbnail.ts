@@ -5,10 +5,11 @@
  * configured, generate real artwork; if generation fails or nothing was
  * asked for, fall back to the renderer's gradient background rather than
  * blocking the run. The stricter "must have real cast artwork or fail"
- * behavior existed only for the two-host character pipeline (retired,
- * RFC 0008); the illustrated-story format's stills are produced by their
- * own dedicated worker (illustrated_scene_assets), not through a thumbnail
- * brief, so nothing left here needs to enforce that.
+ * behavior existed only for the retired two-host character pipeline.
+ *
+ * In the audio-first graph this is the ONLY image the pipeline generates:
+ * the episode itself is narration over a static shell, so the thumbnail is
+ * a packaging concern, not part of the episode's visual content.
  */
 
 import type { BlobRef } from "../artifact.ts";

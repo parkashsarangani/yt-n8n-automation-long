@@ -15,7 +15,6 @@
  *  3. High-output structured requests only try free models explicitly admitted
  *     to that workload. Smaller models remain available to ordinary agents.
  *
- * Visual QA is a separate concern and does not belong in this router.
  */
 
 export type LlmRouterMode = "freellmapi" | "direct";
@@ -44,7 +43,7 @@ export const RETIRED_FREE_TEXT_MODELS: ReadonlySet<string> = new Set([
 /**
  * Requests above the ordinary 8k structured-output budget are deliberately
  * conservative. These are the only currently configured free candidates worth
- * probing for a large structured artifact such as visual_beat_plan. A 413 or
+ * probing for a large structured artifact. A 413 or
  * other incompatibility still disqualifies the candidate dynamically and the
  * chain advances; inclusion here is permission to try, not a promise that the
  * upstream provider can serve every payload.

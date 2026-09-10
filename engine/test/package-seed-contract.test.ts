@@ -51,7 +51,6 @@ test("a scheduled run's intent validates against the real intent schema", async 
     brief: winner().brief,
     target_duration_sec: 540,
     genre: "drama",
-    image_style: "documentary_sketch",
     package_seed: seed,
   };
 

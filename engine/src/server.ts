@@ -115,11 +115,9 @@ export function createUiServer(opts: ServerOptions) {
         brief?: string;
         duration_sec?: number;
         genre?: string;
-        image_style?: string;
       };
       const runId = await service.startRun(String(body.brief ?? ""), body.duration_sec ?? 180, {
         ...(body.genre ? { genre: body.genre as never } : {}),
-        ...(body.image_style ? { imageStyle: body.image_style as never } : {}),
       });
       json(res, 201, { run_id: runId });
       return;
