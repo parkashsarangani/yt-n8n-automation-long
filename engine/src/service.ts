@@ -797,8 +797,38 @@ export class VidGenService {
     void this.drive(runId, () => this.executor.resume(graph, runId, { [nodeId]: decision }, { presetOutputs: state.presetOutputs }));
   }
 
-  /** Retry a failed run from where it stopped — completed nodes are preserved. */
+  /**
+   * Retry a failed run from where it stopped — completed nodes are preserved.
+   * This is the OPERATOR-FACING entry point (UI "Retry", API caller): it also
+   * restarts unattended self-healing, in case the retry fails again and needs
+   * another auto-repair round.
+   *
+   * driveUnattended()'s OWN retry loop must call resumeFailedRun() below
+   * instead of this method. Chaining driveUnattended() from here again would
+   * spawn a second, independent, unbounded driveUnattended() loop on every
+   * single iteration of the first one — an exponential fan-out of concurrent
+   * retries that never converges (each fresh loop's own round counter starts
+   * back at 0, so its "give up after N attempts" ceiling never fires) and
+   * corrupts persisted per-run counters like the script revision `attempt`
+   * field by racing far more regenerations through than any one bounded loop
+   * would ever allow. Real production incident: this looped thousands of
+   * times in minutes and pushed a script's revision attempt past its schema
+   * ceiling, permanently wedging the run.
+   */
   async retry(runId: string): Promise<void> {
+    void this.beginResumeFromFailure(runId).then(() => this.driveUnattended(runId));
+  }
+
+  /**
+   * Resume a failed run from where it stopped, with no follow-on repair
+   * chaining. driveUnattended()'s own retry loop calls THIS, not retry().
+   */
+  private async resumeFailedRun(runId: string): Promise<void> {
+    await this.beginResumeFromFailure(runId);
+  }
+
+  /** Shared guard/state-reset/resume kickoff for retry() and resumeFailedRun(). */
+  private beginResumeFromFailure(runId: string): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
     if (!state.finished) throw new Error(`run ${runId} is still executing`);
@@ -806,8 +836,7 @@ export class VidGenService {
     state.error = null;
     console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
     const graph = this.resolveRunGraph(state.graph);
-    void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }))
-      .then(() => this.driveUnattended(runId));
+    return this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }));
   }
 
   /**
@@ -996,7 +1025,7 @@ export class VidGenService {
       } else {
         console.log(`[run ${runId.slice(4, 12)}] unattended: auto-resuming a blocked attempt (retry ${round + 1}/${maxRetries})`);
       }
-      await this.retry(runId);
+      await this.resumeFailedRun(runId);
     }
   }
 
