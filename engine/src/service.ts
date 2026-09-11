@@ -312,13 +312,14 @@ export class VidGenService {
 
     // Every reasoning capability resolves to OpenAIProvider, which is free-first:
     // requests walk the ordered free FreeLLMAPI chain and only fall through to
-    // paid OpenAI (gpt-5.6-luna) when the free chain is exhausted OR the agent
+    // paid OpenAI (Astra for editorial reasoning, Luna for routine stages)
+    // when the free chain is exhausted OR the agent
     // sets model.prefer_paid_reasoning (a spend-authorizing judge/reviser whose
     // quality bar is calibrated to the paid model). It's a capability, not a
     // vendor/model (RFC 0004).
     const providers = new ProviderRouter({
-      reasoning_high: new OpenAIProvider({ effort: "medium" }),
-      reasoning_fast: new OpenAIProvider({ effort: "medium" }),
+      reasoning_high: new OpenAIProvider({ effort: "high", model: scriptAuthoringModel() }),
+      reasoning_fast: new OpenAIProvider({ effort: "low", model: "gpt-5.6-luna" }),
       // Audio-first: the script is the product. It is authored on OpenAI's
       // strongest model (GPT-6 Astra by default, SCRIPT_MODEL to override); the
       // agent still sets prefer_paid_reasoning so the draft goes there directly
@@ -805,7 +806,8 @@ export class VidGenService {
     state.error = null;
     console.log(`[run ${runId.slice(4, 12)}] retrying from failure`);
     const graph = this.resolveRunGraph(state.graph);
-    void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }));
+    void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }))
+      .then(() => this.driveUnattended(runId));
   }
 
   /**

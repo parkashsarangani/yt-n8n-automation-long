@@ -41,6 +41,27 @@ test("audio-first compositor exports an express app", () => {
   assert.equal(typeof app, "function");
 });
 
+test("thumbnail endpoint renders gradient and supplied artwork through bundled FFmpeg", async () => {
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise(resolve => server.once("listening", resolve));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/thumbnail`;
+    let image;
+    for (const background of ["gradient", "supplied"]) {
+      const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "LET ME FINISH {literal}", ...(image ? { image_base64: image } : {}) }) });
+      const body = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.background, background);
+      const bytes = Buffer.from(body.image_base64, "base64");
+      assert.equal(bytes.subarray(1, 4).toString(), "PNG");
+      assert.equal(bytes.readUInt32BE(16), 1280);
+      assert.equal(bytes.readUInt32BE(20), 720);
+      image = body.image_base64;
+    }
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test("topic history is isolated and sanitized by niche", () => {
   assert.equal(path.basename(historyPathFor("History & Mystery")), "topic_history_HistoryMystery.json");
   assert.equal(path.basename(historyPathFor("../")), "topic_history_default.json");
