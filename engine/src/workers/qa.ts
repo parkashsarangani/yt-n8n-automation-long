@@ -1,5 +1,6 @@
 /** Deterministic pre-publish QA for the audio-first production graph. */
 import { readMp4Geometry } from "../media/mp4.ts";
+import { narrationPace } from "../audio/narration-delivery.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface QaWorkerOptions { version?: string }
@@ -13,7 +14,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "5",
+    version: opts.version ?? "6",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -56,6 +57,20 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       const voiceDuration = clips.reduce((sum, c) => sum + (Number.isFinite(c.duration_sec) ? c.duration_sec : 0), 0);
       add("voice_duration", voiceDuration > 0 ? "pass" : "fail", voiceDuration > 0 ? `voice programme duration ${voiceDuration.toFixed(2)}s` : "voice programme duration is zero", voiceDuration, 0);
+      const narration = scenes.map(s => s.narration).join(" ");
+      const wordCount = narration.trim().split(/\s+/).filter(Boolean).length;
+      if (exactVoiceCoverage && wordCount >= 80 && voiceDuration > 0) {
+        const pace = narrationPace(narration, voiceDuration)!;
+        add("narration_pace", pace >= 130 && pace <= 185 ? "pass" : "warn",
+          `${pace} words/minute measured across the programme; review delivery outside 130–185 WPM. Aim around 145–170 for this channel; pace does not measure persuasion.`, pace);
+        const by = new Map(clips.map(c => [c.scene_index, c]));
+        const outliers = scenes.filter(s => s.narration.trim().split(/\s+/).length >= 35).filter(s => {
+          const rate = narrationPace(s.narration, by.get(s.scene_index)!.duration_sec);
+          return rate !== null && (rate < 110 || rate > 210);
+        });
+        add("narration_pace_consistency", outliers.length ? "warn" : "pass",
+          outliers.length ? `Listen to pace outliers in scenes ${outliers.map(s=>s.scene_index).join(", ")}; the programme average can hide slow or rushed passages.` : "No extreme pace outliers in substantial narration scenes", outliers.length, 0);
+      }
 
       add("render_media_type", render.media_type === "video/mp4" ? "pass" : "fail", render.media_type === "video/mp4" ? "render is video/mp4" : `render media type is ${render.media_type ?? "missing"}`);
       add("render_scene_count", render.scene_count === scenes.length ? "pass" : "fail", render.scene_count === scenes.length ? "render scene count matches approved script" : `render scene count ${render.scene_count ?? "missing"} does not match script ${scenes.length}`, render.scene_count, scenes.length);

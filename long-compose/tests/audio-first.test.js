@@ -85,6 +85,20 @@ test("audio-first render rejects an empty programme", async () => {
   await assert.rejects(() => buildAudioFirstVideo([], "/tmp/unused.mp4"), /at least one audio scene/);
 });
 
+test("subtitle safe band occludes even a white text-bearing background", async () => {
+  const dir=await fsp.mkdtemp(path.join(os.tmpdir(),"caption-contrast-"));
+  try {
+    const output=path.join(dir,"out.mp4");
+    const ppm=Buffer.concat([Buffer.from("P6\n2 2\n255\n"),Buffer.alloc(12,255)]);
+    await buildAudioFirstVideo([{...scene(0,0.5),narration:"Readable words."}],output,{image_base64:ppm.toString("base64")});
+    const {promisify}=require("node:util");
+    const exec=promisify(require("node:child_process").execFile);
+    const bundled=require("ffmpeg-static");
+    const result=await exec(fs.existsSync(bundled)?bundled:"ffmpeg",["-v","error","-i",output,"-vf","crop=4:4:10:900,format=rgb24","-frames:v","1","-f","rawvideo","pipe:1"],{encoding:"buffer"});
+    assert.ok([...result.stdout].every(v=>v<35),"image pixels must not show through subtitle band");
+  } finally {await fsp.rm(dir,{recursive:true,force:true});}
+});
+
 test("conversation cards render through FFmpeg with literal untrusted text", async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "conversation-test-"));
   try {

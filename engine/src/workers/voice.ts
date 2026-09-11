@@ -20,6 +20,7 @@ import { mapWithConcurrency } from "../concurrency.ts";
 import type { SpeechProvider } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { trimMp3ToSpeechWindow } from "../audio/speech-trim.ts";
+import { narrationPace } from "../audio/narration-delivery.ts";
 
 export interface VoiceWorkerOptions {
   voiceId: string;
@@ -133,6 +134,8 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
           });
           await ctx.progress({ detail: `speech usage: scene ${scene.scene_index}`, usage: result.usage });
           result = await trimProductionSpeech(speech, result, ctx);
+          const pace = narrationPace(scene.narration, result.duration_sec ?? 0);
+          await ctx.progress({ detail: `voice scene ${scene.scene_index}: ${pace ?? "unknown"} words/minute; voice ${voiceId}` });
 
           const audio = await ctx.blobs.put(result.audio, {
             role: "audio",

@@ -98,7 +98,9 @@ test("composites deterministic text over generated artwork", async () => {
   const h = await harness();
   const out = await run(h);
 
-  assert.deepEqual(h.images!.prompts, [BRIEF.background_query]);
+  assert.equal(h.images!.prompts.length, 1);
+  assert.ok(h.images!.prompts[0]!.includes(BRIEF.background_query));
+  assert.ok(h.images!.prompts[0]!.includes("Quiet Signal editorial illustration"));
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);

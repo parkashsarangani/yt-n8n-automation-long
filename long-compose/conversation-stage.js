@@ -21,9 +21,9 @@ function buildTitleCard(text) {
   // drawtext is absent from the bundled ffmpeg build (FFmpeg 7 gates it behind
   // libharfbuzz); libass is present, so the title renders through the same
   // subtitle path the conversation stage already uses.
-  const words = String(text || "").trim().split(/\s+/).filter(Boolean).flatMap(w => w.match(/.{1,16}/gu) || []);
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean).flatMap(w => w.match(/.{1,12}/gu) || []);
   const lines = []; let line = "";
-  for (const word of words) { if (line && line.length + word.length + 1 > 18) { lines.push(line); line = ""; } line += (line ? " " : "") + word; }
+  for (const word of words) { if (line && line.length + word.length + 1 > 12) { lines.push(line); line = ""; } line += (line ? " " : "") + word; }
   if (line) lines.push(line);
   const body = lines.map(safe).join("\\N");
   const style = "Style: Title,DejaVu Sans,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,60,60,40,1";
@@ -40,7 +40,7 @@ function buildTitleCard(text) {
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    "Dialogue: 0,0:00:00.00,0:00:10.00,Title,,0,0,0,,{\\pos(640,360)}" + body,
+    "Dialogue: 0,0:00:00.00,0:00:10.00,Title,,0,0,0,,{\\pos(320,360)\\fs48\\c&HDDEBF3&}" + body,
     "",
   ].join("\n");
 }
@@ -74,15 +74,28 @@ function captionCues(scene, duration) {
 function buildStage(scenes, durations, lessonTitle) {
   let script=buildTitleCard("").replace("PlayResX: 1280","PlayResX: 1920").replace("PlayResY: 720","PlayResY: 1080");
   script=script.slice(0,script.indexOf("Dialogue:"));
-  script=script.replace(/Style: Title,[^\n]+/, "Style: Caption,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,160,160,110,1\nStyle: Heading,DejaVu Sans,32,&H007ADCE8,&H007ADCE8,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,160,160,65,1");
+  script=script.replace(/Style: Title,[^\n]+/, "Style: Caption,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,160,160,110,1\nStyle: Heading,DejaVu Sans,32,&H006AB8E8,&H006AB8E8,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,160,160,65,1");
   const add=(start,end,style,text)=>{script+="Dialogue: 0,"+clock(start)+","+clock(end)+","+style+",,0,0,0,,"+text+"\n";};
   const total=durations.reduce((a,b)=>a+b,0);
-  if(lessonTitle)add(0,total,"Heading",safe(String(lessonTitle).slice(0,90)));
+  if(lessonTitle)add(0,Math.min(total,8),"Heading",safe(String(lessonTitle).slice(0,90)));
   let offset=0;
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    for(const cue of captionCues(scene,duration))add(offset+cue.start,offset+cue.end,"Caption",safe(cue.text));
+    const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
+    const label = labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
+    add(offset, offset + duration, "Heading", "{\\an7\\pos(120,32)}" + safe(label));
+    add(offset, offset + duration, "Heading", "{\\an9\\pos(1800,32)}" + `${i + 1} / ${scenes.length}`);
+    for(const cue of captionCues(scene,duration)) {
+      // Explicit line breaks avoid single-line overflow at mobile preview sizes.
+      const lines=[]; let line="";
+      for(const word of cue.text.split(/\s+/)) {
+        if(line && line.length+word.length+1>38){lines.push(line);line="";}
+        line+=(line?" ":"")+word;
+      }
+      if(line)lines.push(line);
+      add(offset+cue.start,offset+cue.end,"Caption",lines.map(safe).join("\\N"));
+    }
     offset+=duration;
   });
   return script;

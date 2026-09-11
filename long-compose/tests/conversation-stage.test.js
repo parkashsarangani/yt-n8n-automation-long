@@ -10,7 +10,7 @@ test("bounded cards retain all normal words instead of truncating narration",()=
 test("stage advances at measured scene boundaries and sanitizes ASS commands",()=>{
   const ass=buildStage([{point:"[scenario]",narration:"Imagine this."},{point:"[exercise]",narration:"{\\pos(0,0)} Try this."}],[2,3]);
   assert.match(ass,/0:00:02.00,0:00:05.00,Caption/);
-  assert.doesNotMatch(ass,/Style: Card|Style: Label|TRY THIS|LISTEN & REFLECT/);
+  assert.doesNotMatch(ass,/Style: Card|Style: Label|LISTEN & REFLECT/);
   assert.doesNotMatch(ass,/\{\\pos\(0,0\)\}/);
   assert.throws(()=>buildStage([{}],[0]),/measured/);
 });

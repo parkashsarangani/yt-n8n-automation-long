@@ -1,6 +1,6 @@
 {
   "graph_id": "illustrated_story",
-  "version": "10",
+  "version": "11",
   "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. The retired illustrated/RFC0010 visual-generation stack is intentionally absent; render produces a minimal YouTube-compatible video shell around approved narration audio.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
@@ -19,10 +19,10 @@
     { "id": "voice", "transformation": "voice", "in": ["approve_script", "tts_moderation"] },
     { "id": "seo", "transformation": "seo_optimizer", "in": ["approve_story", "approve_script", "package_release"] },
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
-    { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief"] },
+    { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief", "render"] },
     { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "package_release"] },
     { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "render", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
-    { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish"] }
+    { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish", "approve_script", "voice"] }
   ]
 }

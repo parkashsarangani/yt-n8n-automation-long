@@ -1242,8 +1242,9 @@ export class VidGenService {
     if (analytics && candidates.length > 0) {
       try {
         visibility = await analytics.fetchVisibility(candidates.map((c) => c.externalId));
-      } catch {
-        visibility = {};
+      } catch (error) {
+        const message = `analytics visibility preflight failed: ${String(error)}`;
+        return { measured, skipped, failed: candidates.map(c => ({ external_id: c.externalId, error: message })) };
       }
     }
 
@@ -1277,7 +1278,11 @@ export class VidGenService {
           { runId },
         );
         const outId = result.outputs["performance"];
+        if (result.status !== "completed" || !outId) {
+          throw new Error(`measurement ${result.status}: ${result.failures.map(f => f.error).join("; ") || "no completed performance output"}; inspect run ${runId}`);
+        }
         const perf = outId ? await this.store.get(outId) : null;
+        if (!perf) throw new Error(`measurement artifact missing for run ${runId}`);
         const views = (perf?.payload as { metrics?: { views?: number } })?.metrics?.views ?? 0;
         await this.closeRun(runId, result.status);
         measured.push({ external_id: externalId, views });

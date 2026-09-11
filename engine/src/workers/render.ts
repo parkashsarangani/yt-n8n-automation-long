@@ -1,5 +1,6 @@
 /** Audio-first render worker: approved script + voice -> YouTube-compatible MP4 shell. */
 import type { Artifact, BlobRef } from "../artifact.ts";
+import { episodeArtPrompt } from "../visual-identity.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import type { RenderRequest, RenderScene } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -73,7 +74,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "11",
+    version: opts.version ?? "13",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -98,7 +99,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       } else if (ctx.media.images) {
         try {
           const found = await ctx.media.images.generate({
-            prompt: `Create a restrained painterly editorial scene about adult conversation and quiet confidence. Warm chiaroscuro, believable human interaction, no text or logos, uncluttered dark lower third for subtitles. Topic context: ${scenes[0]?.narration?.slice(0, 800) ?? "listening with confidence"}`,
+            prompt: episodeArtPrompt(scenes[0]?.narration ?? "listening with confidence"),
             aspect: "16:9", count: 1,
           });
           await ctx.progress({ detail: "episode background image usage", usage: found.usage });

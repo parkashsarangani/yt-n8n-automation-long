@@ -83,7 +83,7 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
       const res = await this.fetchImpl(url.toString(), {
         headers: { Authorization: `Bearer ${await this.token()}` },
       });
-      if (!res.ok) continue;
+      if (!res.ok) throw new ProviderError(`youtube visibility failed (${res.status}): ${(await res.text()).slice(0, 220)}`);
       const body = (await res.json()) as {
         items?: Array<{ id?: string; status?: { privacyStatus?: string } }>;
       };

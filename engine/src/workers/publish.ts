@@ -13,6 +13,7 @@
 import type { PublishMetadata, PublishTarget } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
+import { episodeChapters, hasChapterStart } from "../chapters.ts";
 
 export interface PublishWorkerOptions {
   target: PublishTarget;
@@ -59,12 +60,14 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
   return {
     name: "publish",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "3",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
       { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
       { schema_id: "qa_report", range: "^1", as: "qa" },
+      { schema_id: "script", range: "^1", as: "script", optional: true },
+      { schema_id: "voice", range: "^1", as: "voice", optional: true },
     ],
     produces: "published_episode",
 
@@ -99,6 +102,17 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         privacy,
         made_for_kids: opts.madeForKids ?? false,
       };
+      if (inputs["script"] && inputs["voice"]) {
+        const scenes = (inputs["script"].payload as { scenes: Array<{scene_index:number; point?:string}> }).scenes;
+        const clips = (inputs["voice"].payload as { clips: Array<{scene_index:number; duration_sec:number}> }).clips;
+        const chapters = episodeChapters(scenes, clips);
+        // Do not duplicate existing operator/SEO chapters or truncate an approved description.
+        if (chapters && !hasChapterStart(seo.description)) {
+          const description = `${seo.description}\n\nChapters\n${chapters}`;
+          if (description.length <= (reqs.max_description_chars ?? Infinity)) metadata.description = description;
+          else ctx.logger.warn("measured chapters omitted: description would exceed target limit");
+        }
+      }
 
       if (!qaIsClean(qa) && privacy !== (opts.privacy ?? "private")) {
         ctx.logger.warn(

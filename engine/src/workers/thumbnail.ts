@@ -13,6 +13,7 @@
  */
 
 import type { BlobRef } from "../artifact.ts";
+import { episodeArtPrompt } from "../visual-identity.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface ThumbnailWorkerOptions { version?: string; }
@@ -31,8 +32,8 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "5",
-    consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }],
+    version: opts.version ?? "7",
+    consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }, { schema_id: "rendered_video", range: "^1", as: "episode", optional: true }],
     produces: "thumbnail",
 
     async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
@@ -43,10 +44,12 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       const imagePrompt = brief.art_prompt?.trim() || brief.background_query?.trim();
 
       let background: Uint8Array | undefined;
-      if (ctx.media.images && imagePrompt) {
+      const shared = inputs["episode"]?.blobs?.find(b => b.role === "episode_background");
+      if (shared) background = await ctx.blobs.get(shared.uri);
+      if (!background && !inputs["episode"] && ctx.media.images && imagePrompt) {
         try {
           await ctx.progress({ detail: `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
-          const found = await ctx.media.images.generate({ prompt: imagePrompt, aspect: "16:9", count: 1 });
+          const found = await ctx.media.images.generate({ prompt: episodeArtPrompt(imagePrompt), aspect: "16:9", count: 1 });
           await ctx.progress({ detail: "thumbnail image usage", usage: found.usage });
           const first = found.images[0];
           background = first?.bytes;
