@@ -183,3 +183,16 @@ test("a brief without emphasis still renders", async () => {
   assert.equal(out.text, BRIEF.text);
   assert.equal(h.renderer.thumbnailRequests[0]!.emphasis, undefined);
 });
+
+test("shared art direction asks for one legible face, not a multi-person tableau", async () => {
+  // vidIQ's 2026 breakout-thumbnail study: 69% of breakout thumbnails used a
+  // human face (80% of the biggest overperformers), 89% used a face or
+  // high-contrast color, and only 1 in 20 used an exaggerated expression.
+  // The shared artwork now doubles as the production thumbnail, so its
+  // composition must actually work as one -- a two-person profile-view scene
+  // has no single focal point.
+  const { CHANNEL_ART_DIRECTION } = await import("../src/visual-identity.ts");
+  assert.match(CHANNEL_ART_DIRECTION, /\bone\b.*adult/i);
+  assert.match(CHANNEL_ART_DIRECTION, /genuine.*expression/i);
+  assert.match(CHANNEL_ART_DIRECTION, /never (?:profile|manufactured)/i);
+});
