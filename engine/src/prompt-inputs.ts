@@ -79,6 +79,20 @@ function scriptView(value: unknown, maxScenes: number): unknown {
   });
 }
 
+// script/1.7.0's narration field allows up to 2000 chars and point up to 420
+// (schemas/script/1.7.0.json). On the audio-first channel narration IS the
+// deliverable being judged -- clipping it below its schema ceiling silently
+// truncates real scenes mid-sentence before the watchability_critic ever sees
+// them. Production incident: a 360-char clip cut a ~450-char scene at
+// "...introduce yourself, then f[…]", and the critic (correctly, given what it
+// was shown) reported "cut-off" scenes and missing endings for the longest
+// (payoff/outro) scenes, docking watchability/payoff on a script that was
+// actually complete. Clip at the schema ceiling so scoring never happens on a
+// mutilated scene; scenes at the true schema max are rare, so this changes
+// nothing for the common case.
+const MAX_NARRATION_CHARS = 2000;
+const MAX_POINT_CHARS = 420;
+
 function sceneView(scene: unknown): unknown {
   const obj = asObject(scene);
   if (!obj) return compactPayload(scene, SHORT_LIMITS);
@@ -91,8 +105,8 @@ function sceneView(scene: unknown): unknown {
     speaker_id: obj.speaker_id,
     speaker_name: obj.speaker_name,
     character_id: obj.character_id,
-    point: clip(obj.point, 260),
-    narration: clip(obj.narration, 360),
+    point: clip(obj.point, MAX_POINT_CHARS),
+    narration: clip(obj.narration, MAX_NARRATION_CHARS),
     dialogue: compactPayload(obj.dialogue, { ...SHORT_LIMITS, maxArrayItems: 8 }),
     visual_intent: clip(obj.visual_intent, 260),
   });
