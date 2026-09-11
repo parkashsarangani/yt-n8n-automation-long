@@ -13,7 +13,7 @@
 import type { PublishMetadata, PublishTarget } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
-import { episodeChapters } from "../chapters.ts";
+import { episodeChapters, hasChapterStart } from "../chapters.ts";
 
 export interface PublishWorkerOptions {
   target: PublishTarget;
@@ -60,7 +60,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
   return {
     name: "publish",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
@@ -107,7 +107,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         const clips = (inputs["voice"].payload as { clips: Array<{scene_index:number; duration_sec:number}> }).clips;
         const chapters = episodeChapters(scenes, clips);
         // Do not duplicate existing operator/SEO chapters or truncate an approved description.
-        if (chapters && !/^\s*0?:?00\s/m.test(seo.description)) {
+        if (chapters && !hasChapterStart(seo.description)) {
           const description = `${seo.description}\n\nChapters\n${chapters}`;
           if (description.length <= (reqs.max_description_chars ?? Infinity)) metadata.description = description;
           else ctx.logger.warn("measured chapters omitted: description would exceed target limit");

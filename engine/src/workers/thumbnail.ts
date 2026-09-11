@@ -32,7 +32,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "6",
+    version: opts.version ?? "7",
     consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }, { schema_id: "rendered_video", range: "^1", as: "episode", optional: true }],
     produces: "thumbnail",
 

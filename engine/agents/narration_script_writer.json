@@ -1,7 +1,7 @@
 {
   "name": "narration_script_writer",
   "kind": "agent",
-  "version": "10",
+  "version": "11",
   "revision_input": "watchability",
   "consumes": [
     {
@@ -23,7 +23,7 @@
     }
   ],
   "produces": "script",
-  "prompt": "narration_script_writer@9",
+  "prompt": "narration_script_writer@10",
   "model": {
     "capability": "reasoning_script",
     "max_output_tokens": 14000,

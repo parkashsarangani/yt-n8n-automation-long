@@ -9,6 +9,7 @@ const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 const { buildStage, buildTitleCard } = require("./conversation-stage");
+const { channelFrame } = require("./channel-frame");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -121,7 +122,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
       "-map", "0:v:0", "-map", "1:a:0",
-      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
+      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
@@ -172,10 +173,9 @@ function writeGradientPpm(file, width = 1280, height = 720) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const tx = x / width;
-      const ty = y / height;
-      pixels[offset++] = Math.round(15 + 28 * tx);
-      pixels[offset++] = Math.round(18 + 22 * ty);
-      pixels[offset++] = Math.round(28 + 42 * tx);
+      pixels[offset++] = Math.round(16 + 9 * tx);
+      pixels[offset++] = Math.round(18 + 74 * tx);
+      pixels[offset++] = Math.round(23 + 73 * tx);
     }
   }
   fs.writeFileSync(file, Buffer.concat([header, pixels]));
@@ -207,7 +207,7 @@ app.post("/thumbnail", async (req, res) => {
     }
     // The bundled ffmpeg-static build ships without the drawtext filter; libass
     // is present, so the title is rendered from an ASS subtitle instead.
-    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.18:t=fill,ass='${escapeFilterPath(assFile)}'`;
+    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,${channelFrame(1280,720,true)},ass='${escapeFilterPath(assFile)}'`;
     await execFileAsync(ffmpegPath, ["-y", "-i", input, "-vf", filter, "-frames:v", "1", output]);
     const bytes = await fsp.readFile(output);
     return res.json({ success: true, image_base64: bytes.toString("base64"), media_type: "image/png", width: 1280, height: 720, background });
