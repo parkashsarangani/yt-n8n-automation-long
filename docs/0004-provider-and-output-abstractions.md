@@ -73,9 +73,15 @@ agent on a cheaper model to measure quality/cost trade-off is a one-line change.
 concrete model is recorded on the artifact (`produced_by.provider`) so past runs remain
 explicable after the mapping changes.
 
-Profiles to start with: `reasoning_high` (story, script, fact-check), `reasoning_fast`
+Profiles to start with: `reasoning_high` (story, fact-check), `reasoning_fast`
 (classification, scoring, short structured extraction), `reasoning_max` (reserved — hard
 research synthesis).
+
+`reasoning_script` is the narration script writer's own profile: on the audio-first channel
+the script carries the whole episode, so it is bound to OpenAI's strongest model (GPT-6 Astra,
+`SCRIPT_MODEL` to override) at `high` effort, and the agent sets `prefer_paid_reasoning` so the
+draft is authored there directly instead of after the free chain is exhausted. It still degrades
+to the free chain when paid text is unavailable — a capability, not a hard dependency.
 
 ### Capability declaration and emulation
 

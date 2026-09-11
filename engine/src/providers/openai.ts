@@ -87,6 +87,17 @@ export function defaultOpenAIBaseUrl(env: NodeJS.ProcessEnv = process.env): stri
   return cleanEnv(env["OPENAI_BASE_URL"]) ?? DEFAULT_OPENAI_BASE_URL;
 }
 
+/**
+ * Paid model backing the `reasoning_script` capability. The audio-first channel
+ * lives or dies on the narration script, so it is authored on OpenAI's strongest
+ * model (GPT-6 Astra) rather than the deployment's ordinary paid tier. Override
+ * with SCRIPT_MODEL to dial it back without touching agent data.
+ */
+export const DEFAULT_SCRIPT_MODEL = "gpt-6-astra";
+export function scriptAuthoringModel(env: NodeJS.ProcessEnv = process.env): string {
+  return cleanEnv(env["SCRIPT_MODEL"]) ?? DEFAULT_SCRIPT_MODEL;
+}
+
 function outputPrompt(prompt: string, schema: unknown): string {
   return `${prompt}\n\nSTRUCTURED OUTPUT CONTRACT:\nReturn exactly one JSON object matching the JSON Schema below. Do not use markdown or commentary. Copy property names exactly; do not invent or rename keys; do not add properties where additionalProperties is false; include every required field; every array element must have the schema-declared type. The confidence envelope is required and confidence.overall must be a numeric value from 0 to 1. Before responding, silently verify the JSON structure against the schema.\n${JSON.stringify(schema)}`;
 }
@@ -414,6 +425,10 @@ const PRICES: Record<string, Price> = {
   "gpt-5.6-luna": { input: 0.2, output: 1.2 },
   "gpt-5.6-terra": { input: 2, output: 12 },
   "gpt-5.6-sol": { input: 5, output: 30 },
+  // Standard tier. Prompts over 272K input tokens bill higher upstream; the
+  // script author's payloads sit far below that, so the base rate is the
+  // faithful estimate here.
+  "gpt-6-astra": { input: 10, output: 50 },
 };
 
 export function estimateOpenAICost(model: string, inputTokens: number, outputTokens: number): number {

@@ -78,6 +78,14 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "gpt-5.6-luna is used",
   },
   {
+    key: "SCRIPT_MODEL",
+    label: "Script-authoring model",
+    secret: false,
+    placeholder: "gpt-6-astra",
+    help: "Paid OpenAI model the narration script writer runs on (its reasoning_script capability). The audio-first channel hinges on the script, so it authors on the strongest model rather than the ordinary paid tier. Needs OPENAI_API_KEY and PAID_TEXT_FALLBACK on; otherwise the writer degrades to the free chain.",
+    fallback: "gpt-6-astra is used",
+  },
+  {
     key: "PAID_TEXT_FALLBACK",
     label: "Paid text fallback",
     secret: false,

@@ -8,7 +8,7 @@ const ffmpeg = require("fluent-ffmpeg");
 const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { buildStage } = require("./conversation-stage");
+const { buildStage, buildTitleCard } = require("./conversation-stage");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -186,10 +186,10 @@ function escapeFilterPath(value) {
 app.post("/thumbnail", async (req, res) => {
   const dir = tmpDir();
   try {
-    const text = String(req.body && req.body.text || "").trim().slice(0, 30);
+    const text = String(req.body && req.body.text || "").trim().slice(0, 60);
     if (!text) return res.status(400).json({ success: false, error: "thumbnail text is required" });
-    const textFile = path.join(dir, "title.txt");
-    await fsp.writeFile(textFile, text);
+    const assFile = path.join(dir, "title.ass");
+    await fsp.writeFile(assFile, buildTitleCard(text));
     const output = path.join(dir, "thumbnail.png");
     const supplied = req.body && req.body.image_base64;
     let input;
@@ -203,8 +203,9 @@ app.post("/thumbnail", async (req, res) => {
       writeGradientPpm(input);
       background = "gradient";
     }
-    const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
-    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.18:t=fill,drawtext=fontfile='${escapeFilterPath(font)}':textfile='${escapeFilterPath(textFile)}':fontcolor=white:fontsize=78:borderw=4:bordercolor=black@0.8:x=(w-text_w)/2:y=(h-text_h)/2`;
+    // The bundled ffmpeg-static build ships without the drawtext filter; libass
+    // is present, so the title is rendered from an ASS subtitle instead.
+    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.18:t=fill,ass='${escapeFilterPath(assFile)}'`;
     await execFileAsync(ffmpegPath, ["-y", "-i", input, "-vf", filter, "-frames:v", "1", output]);
     const bytes = await fsp.readFile(output);
     return res.json({ success: true, image_base64: bytes.toString("base64"), media_type: "image/png", width: 1280, height: 720, background });
