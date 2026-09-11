@@ -47,6 +47,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
         try {
           await ctx.progress({ detail: `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
           const found = await ctx.media.images.generate({ prompt: imagePrompt, aspect: "16:9", count: 1 });
+          await ctx.progress({ detail: "thumbnail image usage", usage: found.usage });
           const first = found.images[0];
           background = first?.bytes;
           if (!background) throw new Error("image provider returned no thumbnail image");

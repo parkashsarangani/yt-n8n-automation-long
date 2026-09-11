@@ -109,6 +109,14 @@ export const CREDENTIALS: CredentialSpec[] = [
     fallback: "a placeholder voice id is used only in non-live fixtures",
   },
   {
+    key: "ELEVENLABS_SPEED",
+    label: "Narration speed",
+    secret: false,
+    placeholder: "0.9",
+    help: "0.7–1.2. Start at 0.9; audition the chosen voice and measure 130–150 words/minute before publishing.",
+    fallback: "0.9 (provisional slower narration)",
+  },
+  {
     key: "FAL_KEY",
     label: "fal.ai image API key",
     secret: true,

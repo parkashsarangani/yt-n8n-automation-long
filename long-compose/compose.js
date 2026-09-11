@@ -81,7 +81,7 @@ function concatPath(file) {
   return file.replace(/'/g, "'\\''");
 }
 
-async function buildAudioFirstVideo(data, outputPath) {
+async function buildAudioFirstVideo(data, outputPath, options = {}) {
   if (!Array.isArray(data) || data.length === 0) throw new Error("compose requires at least one audio scene");
   const ordered = [...data].sort((a, b) => Number(a.scene_index) - Number(b.scene_index));
   const seen = new Set();
@@ -112,14 +112,16 @@ async function buildAudioFirstVideo(data, outputPath) {
 
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
-    if (hasStage) await fsp.writeFile(stageFile, buildStage(ordered, durations));
+    if (hasStage) await fsp.writeFile(stageFile, buildStage(ordered, durations, options.lesson_title));
+    const background = path.join(dir, "background.img");
+    if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
 
     await execFileAsync(ffmpegPath, [
       "-y",
-      "-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30",
+      ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
       "-map", "0:v:0", "-map", "1:a:0",
-      ...(hasStage ? ["-vf", `drawbox=x=160:y=300:w=1600:h=460:color=0x1f2532:t=fill,drawbox=x=160:y=300:w=8:h=460:color=0x7ac5ce:t=fill,ass='${escapeFilterPath(stageFile)}'`] : []),
+      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1${hasStage ? `,ass='${escapeFilterPath(stageFile)}'` : ""}`,
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
@@ -141,7 +143,7 @@ app.post("/compose", (req, res) => {
   res.status(202).json({ job_id: jobId, status: "processing" });
 
   const started = Date.now();
-  buildAudioFirstVideo(req.body && req.body.data, outputPath)
+  buildAudioFirstVideo(req.body && req.body.data, outputPath, req.body || {})
     .then((duration) => jobs.set(jobId, {
       status: "done",
       success: true,
