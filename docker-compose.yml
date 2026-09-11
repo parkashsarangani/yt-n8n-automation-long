@@ -46,7 +46,8 @@ services:
 
       # Narration remains on the established ElevenLabs production path.
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
-      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-gZiz6WFdAxF6MKJ0s5s6}
+      ELEVENLABS_SPEED: ${ELEVENLABS_SPEED:-0.9}
 
       # OpenAI is used for text fallback/direct rollback and pre-TTS moderation.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

@@ -75,7 +75,7 @@ export interface WorkerContext {
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
   };
-  progress(note: { detail: string; job_id?: string }): Promise<void>;
+  progress(note: { detail: string; job_id?: string; usage?: Usage }): Promise<void>;
   /**
    * 1 on this node's first execution for this run, incrementing each time a
    * prior execution of the SAME node_id in the SAME run recorded a "failed"
@@ -584,6 +584,7 @@ export class Runner {
           error: null,
           ...(note.job_id ? { external_job_id: note.job_id } : {}),
           detail: note.detail,
+          ...(note.usage ? { usage: note.usage, provider: note.usage.provider, model: note.usage.model } : {}),
         });
       },
     };

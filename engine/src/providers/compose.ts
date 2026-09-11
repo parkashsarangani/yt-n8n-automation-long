@@ -102,6 +102,8 @@ export class ComposeRenderer implements MediaRenderer {
     const continuation = req as ContinuationRenderRequest;
     const body = {
       caption_style: req.caption_style ?? "neutral",
+      ...(req.background_image ? { image_base64: toBase64(req.background_image) } : {}),
+      ...(req.lesson_title ? { lesson_title: req.lesson_title } : {}),
       ...(continuation.outro_line?.trim() ? { outro_line: continuation.outro_line.trim() } : {}),
       data: req.scenes.map((scene) => ({
         scene_index: scene.scene_index,

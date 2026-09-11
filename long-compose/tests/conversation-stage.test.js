@@ -9,8 +9,19 @@ test("bounded cards retain all normal words instead of truncating narration",()=
 });
 test("stage advances at measured scene boundaries and sanitizes ASS commands",()=>{
   const ass=buildStage([{point:"[scenario]",narration:"Imagine this."},{point:"[exercise]",narration:"{\\pos(0,0)} Try this."}],[2,3]);
-  assert.match(ass,/0:00:02.00,0:00:05.00,Label/);
-  assert.match(ass,/TRY THIS/);
+  assert.match(ass,/0:00:02.00,0:00:05.00,Caption/);
+  assert.doesNotMatch(ass,/Style: Card|Style: Label|TRY THIS|LISTEN & REFLECT/);
   assert.doesNotMatch(ass,/\{\\pos\(0,0\)\}/);
   assert.throws(()=>buildStage([{}],[0]),/measured/);
+});
+
+test("short captions retain words and follow real character timestamps",()=>{
+  const {captionCues}=require("../conversation-stage");
+  const text="Listen first. Then respond.";
+  const a={characters:[...text], character_start_times_seconds:[...text].map((_,i)=>1+i*0.1), character_end_times_seconds:[...text].map((_,i)=>1+(i+1)*0.1)};
+  const cues=captionCues({narration:text,audio:{alignment:a}},5);
+  assert.equal(cues.map(c=>c.text).join(" "),text);
+  assert.equal(cues[0].start,1);
+  assert.ok(cues.every(c=>c.end<=5));
+  assert.equal(captionCues({narration:text,audio:{alignment:{...a,characters:["bad"]}}},5).map(c=>c.text).join(" "),text);
 });

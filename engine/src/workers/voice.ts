@@ -131,6 +131,7 @@ export function makeVoiceWorker(opts: VoiceWorkerOptions): WorkerDef {
               ...(i < ordered.length - 1 ? { next: ordered[i + 1]!.narration } : {}),
             },
           });
+          await ctx.progress({ detail: `speech usage: scene ${scene.scene_index}`, usage: result.usage });
           result = await trimProductionSpeech(speech, result, ctx);
 
           const audio = await ctx.blobs.put(result.audio, {

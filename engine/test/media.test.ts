@@ -9,7 +9,7 @@ import { SchemaRegistry } from "../src/registry.ts";
 import { PromptStore } from "../src/prompts.ts";
 import { FsArtifactStore } from "../src/store.ts";
 import { FsBlobStore, MemoryBlobStore, BlobStoreError, isBlobUri } from "../src/blobs.ts";
-import { MemoryRunLog } from "../src/runlog.ts";
+import { MemoryRunLog, rollup } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
 import { FakeSpeechProvider } from "../src/providers/fake.ts";
 import { Runner } from "../src/runner.ts";
@@ -30,12 +30,13 @@ async function harness(speech = new FakeSpeechProvider()) {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-media-")), registry);
   const blobs = new MemoryBlobStore();
+  const runLog = new MemoryRunLog();
   const runner = new Runner({
     store,
     registry,
     prompts,
     providers: new ProviderRouter({}),
-    runLog: new MemoryRunLog(),
+    runLog,
     logger: silent(),
     blobs,
     media: { speech },
@@ -46,7 +47,7 @@ async function harness(speech = new FakeSpeechProvider()) {
       payload,
       produced_by: { transformation: producer, version: "1", run_id: "t", provider: null },
     })).artifact;
-  return { store, blobs, speech, runner, seed };
+  return { store, blobs, speech, runner, seed, runLog };
 }
 
 test("blobs are content-addressed, immutable, and deduplicated", async () => {
@@ -97,6 +98,21 @@ test("voice worker produces exactly one clip per approved narration scene", asyn
     assert.ok(owned.has(clip.audio_uri));
     assert.ok(await h.blobs.has(clip.audio_uri));
   }
+});
+
+test("speech costs include every completed scene and survive a later synthesis failure", async () => {
+  const speech = new FakeSpeechProvider();
+  const synthesize = speech.synthesize.bind(speech);
+  let count = 0;
+  speech.synthesize = async (req) => {
+    if (++count === 3) throw new Error("provider unavailable");
+    const result = await synthesize(req);
+    return { ...result, usage: { ...result.usage, cost_usd: 0.25 } };
+  };
+  const h = await harness(speech);
+  const script = await h.seed("script", SCRIPT, "script_writer");
+  await assert.rejects(() => h.runner.run(makeVoiceWorker({ voiceId: "voice-1" }), [script.artifact_id]), /provider unavailable/);
+  assert.equal(rollup(await h.runLog.all()).cost_usd, 0.5);
 });
 
 test("voice worker passes neighbouring narration for prosody continuity", async () => {

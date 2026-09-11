@@ -109,6 +109,8 @@ export interface RenderScene {
 }
 
 export interface RenderRequest {
+  background_image?: Uint8Array;
+  lesson_title?: string;
   scenes: RenderScene[];
   caption_style?: string;
 }
