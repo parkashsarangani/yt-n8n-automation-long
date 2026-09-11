@@ -39,7 +39,9 @@ jobs:
           OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL || 'omni-moderation-latest' }}
           TTS_MODERATION_TIMEOUT_MS: ${{ vars.TTS_MODERATION_TIMEOUT_MS || '30000' }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+          # Operator-selected narrator; voice IDs are public identifiers, not credentials.
+          ELEVENLABS_VOICE_ID: gZiz6WFdAxF6MKJ0s5s6
+          ELEVENLABS_SPEED: ${{ vars.ELEVENLABS_SPEED || '0.9' }}
 
           # Optional custom thumbnail artwork.
           FAL_KEY: ${{ secrets.FAL_KEY }}

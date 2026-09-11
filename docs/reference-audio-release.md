@@ -3,7 +3,7 @@
 - The long-form programme stays 1920×1080. One text-free editorial image is generated separately from the thumbnail, with plain-background fallback when image billing/access is unavailable.
 - Caption cards, role labels and scene counters are removed. Short phrases use ElevenLabs character timing when valid and text-matching; old artifacts use proportional timing within measured scene durations. The package title is a persistent heading.
 - Completed speech/image calls write usage immediately via worker progress records. Failed downstream work does not erase those charges. These are provider estimates, not reconciled invoices; free LLM calls remain zero.
-- `ELEVENLABS_SPEED` is configurable through the existing config API. Default 0.9 is provisional, not an auditioned production calibration. No voice ID has been changed.
+- `ELEVENLABS_SPEED` is configurable through the existing config API. Default 0.9 is provisional, not an auditioned production calibration. The operator selected voice `gZiz6WFdAxF6MKJ0s5s6`; deployment and Compose defaults now use it. Existing successful voice artifacts are preserved until explicitly regenerated.
 
 ## Required live acceptance
 

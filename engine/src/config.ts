@@ -104,7 +104,7 @@ export const CREDENTIALS: CredentialSpec[] = [
     key: "ELEVENLABS_VOICE_ID",
     label: "ElevenLabs voice ID",
     secret: false,
-    placeholder: "e.g. UgBBYS2sOqTuMpoF3BR0",
+    placeholder: "gZiz6WFdAxF6MKJ0s5s6",
     help: "Production narrator voice id.",
     fallback: "a placeholder voice id is used only in non-live fixtures",
   },
