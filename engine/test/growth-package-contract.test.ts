@@ -93,6 +93,27 @@ test("growth_packager semantic validation accepts repairable drift without mutat
   assert.deepEqual(payload, before, "semantic preflight must preserve the raw agent artifact");
 });
 
+test("a recap-then-pivot next_video_bridge is a hard semantic error", () => {
+  // Production incident: growth_packager kept producing "Now that you've
+  // learned X, let's explore Y" across unrelated episodes. It becomes the
+  // script's outro narration verbatim (enforceContinuationBridge), and
+  // watchability_critic flagged it as unnatural every time, capping otherwise
+  // strong (0.84 raw average) scripts at the release floor.
+  for (const bridge of [
+    "Now that you've learned how to balance conversations, let's explore how to show interest without applying pressure in our next episode.",
+    "In this episode you learned to start conversations naturally; next we'll look at keeping them going.",
+  ]) {
+    const payload = { ...packagePayload(), next_video_bridge: bridge };
+    const errors = agentSemanticValidationErrors({ name: "growth_packager" } as never, payload, {});
+    assert.ok(errors.some((error) => error.startsWith(HARD_ERROR_PREFIX)), `should flag: ${bridge}`);
+    assert.ok(errors.some((error) => error.includes("recap-then-pivot")), `should name the pattern: ${bridge}`);
+  }
+
+  // A concrete, non-recap bridge in the same shape must still pass.
+  const clean = { ...packagePayload(), next_video_bridge: "Next: what to do when the other person barely talks back." };
+  assert.deepEqual(agentSemanticValidationErrors({ name: "growth_packager" } as never, clean, {}), []);
+});
+
 test("unrepairable package relationship remains a hard semantic error", () => {
   const payload = packagePayload();
   payload.variants[0]!.title = undefined as unknown as string;
