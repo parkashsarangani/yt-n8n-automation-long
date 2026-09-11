@@ -119,3 +119,25 @@ test("performance prompt views cap large episode arrays", () => {
   assert.doesNotMatch(rendered, /video-80/);
   assert.doesNotMatch(rendered, /raw_platform_blob/);
 });
+
+test("a realistic-length narration scene reaches the critic whole, not cut mid-sentence", () => {
+  // Production incident: sceneView() clipped narration at 360 chars while
+  // schemas/script/1.7.0.json allows up to 2000. A normal ~450-char scene got
+  // cut to "...introduce yourself, then f" mid-word, and watchability_critic
+  // (correctly, given what it was shown) scored the episode down for a
+  // "cut-off" scene and "missing endings" on scenes that were actually
+  // complete. The clip must cover the schema ceiling.
+  const narration =
+    "You say, \"That update covered a lot of projects. Which one connects with your work?\" " +
+    "Your colleague, Maya, replies, \"I'm helping with the new booking system.\" Now you have " +
+    "somewhere to go. You haven't delivered a dazzling introduction. You've made it easy to " +
+    "answer, and her answer has supplied your next topic. You can introduce yourself, then " +
+    "follow that detail: \"I'm Alex, from operations. What part of the system are you working on?\"";
+  assert.ok(narration.length > 360 && narration.length < 2000, "fixture must exceed the old clip and stay under schema max");
+
+  const script = { scenes: [{ scene_index: 1, point: "demonstrate an observation and open question", narration }] };
+  const view = promptInputView("watchability_critic", "script", script) as { scenes: Array<{ narration: string }> };
+
+  assert.equal(view.scenes[0]!.narration, narration);
+  assert.doesNotMatch(text(view), /then f\W*\[truncated\]/);
+});
