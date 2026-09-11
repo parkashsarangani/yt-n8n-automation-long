@@ -186,6 +186,21 @@ test("watchability summary prompt stays comfortably below the 800-character sche
   assert.equal(schema.json_schema.properties.summary.maxLength, 800);
 });
 
+test("growth_packager and seo_optimizer prompts require a searchable title, not just an evocative one", async () => {
+  // Production incident: "Interest Without Pressure" scored searchability 0.6
+  // because it's an editor's summary nobody would type into YouTube search --
+  // and seo_optimizer's own prompt forbade it from fixing that ("never turn a
+  // conflict title into a generic search title"), locking the weakness in
+  // from packaging all the way to publish.
+  const packagerPrompt = await readFile(path.join(ROOT, "prompts", "growth_packager", "8.md"), "utf8");
+  assert.match(packagerPrompt, /actually type into YouTube search/i);
+  assert.match(packagerPrompt, /how to/i);
+
+  const seoPrompt = await readFile(path.join(ROOT, "prompts", "seo_optimizer", "3.md"), "utf8");
+  assert.match(seoPrompt, /editor's summary/i);
+  assert.match(seoPrompt, /small clarity\/search phrasing correction/i);
+});
+
 test("package contract marker stays stable for operator diagnostics", () => {
   assert.equal(PACKAGE_CONTRACT_MARKER, "PACKAGE_CONTRACT");
 });
