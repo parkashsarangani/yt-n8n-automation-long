@@ -3,6 +3,7 @@
  */
 
 import { ProviderError, type SpeechProvider, type Usage } from "../provider.ts";
+import { deliverySetting } from "../audio/narration-delivery.ts";
 
 export interface ElevenLabsOptions {
   apiKey?: string;
@@ -39,13 +40,18 @@ export class ElevenLabsProvider implements SpeechProvider {
     const speed = Number(process.env["ELEVENLABS_SPEED"]?.trim() || "1.0");
     if (!Number.isFinite(speed) || speed < 0.7 || speed > 1.2) throw new ProviderError("ELEVENLABS_SPEED must be between 0.7 and 1.2");
     this.voiceSettings = {
-      stability: 0.45,
+      stability: deliverySetting(process.env, "ELEVENLABS_STABILITY", 0.45, 0, 1),
       similarity_boost: 0.8,
-      style: 0.35,
+      // Exaggeration can cause inconsistent speed and unnatural extra sounds.
+      style: deliverySetting(process.env, "ELEVENLABS_STYLE", 0, 0, 1),
       use_speaker_boost: true,
       speed,
       ...opts.voiceSettings,
     };
+    for (const [name, min, max] of [["speed", 0.7, 1.2], ["stability", 0, 1], ["style", 0, 1]] as const) {
+      const value = this.voiceSettings[name];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) throw new ProviderError(`voice_settings.${name} must be between ${min} and ${max}`);
+    }
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.id = `elevenlabs/${this.modelId}`;
   }

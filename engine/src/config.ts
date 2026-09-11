@@ -113,9 +113,11 @@ export const CREDENTIALS: CredentialSpec[] = [
     label: "Narration speed",
     secret: false,
     placeholder: "1.0",
-    help: "0.7–1.2. Start at 1.0; audition the chosen voice and measure 130–150 words/minute before publishing.",
+    help: "0.7–1.2. Start at 1.0; aim around 145–170 measured words/minute. Listen before publishing; speed is not persuasion.",
     fallback: "1.0 (natural pace; calibrate the selected voice)",
   },
+  { key: "ELEVENLABS_STABILITY", label: "Narrator stability", secret: false, placeholder: "0.45", help: "0–1. Lower values allow more variation but may reduce consistency. Audition with real narration.", fallback: "0.45" },
+  { key: "ELEVENLABS_STYLE", label: "Voice style exaggeration", secret: false, placeholder: "0", help: "0–1. Keep at 0 initially to avoid exaggerated pacing and added sounds.", fallback: "0" },
   {
     key: "FAL_KEY",
     label: "fal.ai image API key",

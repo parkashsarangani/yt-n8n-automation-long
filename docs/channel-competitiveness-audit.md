@@ -25,3 +25,8 @@ Deploy, regenerate a private episode, and inspect the actual output with sound. 
 Run a small sequence of independently accessible episodes, changing one major packaging/format variable at a time. Compare like-for-like traffic sources and exposure windows, first-30-second retention, average percentage viewed, returning viewers and qualitative comments. Treat small samples and unavailable impressions/CTR as uncertainty. Do not promise a universal CTR floor or virality score.
 
 Sources: https://support.google.com/youtube/answer/16089387 ; https://support.google.com/youtube/answer/9884579 ; https://blog.youtube/inside-youtube/on-youtubes-recommendation-system/
+
+## Audio follow-up
+The current voice inherited stability 0.45 and style 0.35; neither was auditioned for this voice. Stability and style are now configurable through deployment and the engine config API. Baseline: speed 1.0, stability 0.45, style 0. Lower stability 0.35 is a comparison candidate, not an asserted improvement. Higher style is not a universal persuasion setting; ElevenLabs notes speed inconsistency and extra sounds with exaggeration (https://elevenlabs.io/docs/resources).
+
+Voice progress records report measured per-scene WPM. QA warns outside a provisional 130–185 programme WPM range, and for substantial individual scenes below 110 or above 210. These warnings use the existing private-publish path; they do not automatically rewrite or re-synthesise narration. Aim around 145–170 WPM, but listen for natural pauses, credible emphasis and clear contrasts; numbers alone cannot prove persuasive delivery. Existing slow voice artifacts require explicit regeneration. No paid audition was possible in this workspace.
