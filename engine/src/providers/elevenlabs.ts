@@ -36,7 +36,7 @@ export class ElevenLabsProvider implements SpeechProvider {
     this.modelId = opts.modelId ?? "eleven_multilingual_v2";
     this.baseUrl = opts.baseUrl ?? "https://api.elevenlabs.io";
     this.pricePerKChar = opts.pricePerKChar ?? 0.30;
-    const speed = Number(process.env["ELEVENLABS_SPEED"]?.trim() || "0.9");
+    const speed = Number(process.env["ELEVENLABS_SPEED"]?.trim() || "1.0");
     if (!Number.isFinite(speed) || speed < 0.7 || speed > 1.2) throw new ProviderError("ELEVENLABS_SPEED must be between 0.7 and 1.2");
     this.voiceSettings = {
       stability: 0.45,

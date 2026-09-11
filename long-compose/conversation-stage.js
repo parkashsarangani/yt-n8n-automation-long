@@ -77,12 +77,21 @@ function buildStage(scenes, durations, lessonTitle) {
   script=script.replace(/Style: Title,[^\n]+/, "Style: Caption,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,160,160,110,1\nStyle: Heading,DejaVu Sans,32,&H007ADCE8,&H007ADCE8,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,160,160,65,1");
   const add=(start,end,style,text)=>{script+="Dialogue: 0,"+clock(start)+","+clock(end)+","+style+",,0,0,0,,"+text+"\n";};
   const total=durations.reduce((a,b)=>a+b,0);
-  if(lessonTitle)add(0,total,"Heading",safe(String(lessonTitle).slice(0,90)));
+  if(lessonTitle)add(0,Math.min(total,8),"Heading",safe(String(lessonTitle).slice(0,90)));
   let offset=0;
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    for(const cue of captionCues(scene,duration))add(offset+cue.start,offset+cue.end,"Caption",safe(cue.text));
+    for(const cue of captionCues(scene,duration)) {
+      // Explicit line breaks avoid single-line overflow at mobile preview sizes.
+      const lines=[]; let line="";
+      for(const word of cue.text.split(/\s+/)) {
+        if(line && line.length+word.length+1>38){lines.push(line);line="";}
+        line+=(line?" ":"")+word;
+      }
+      if(line)lines.push(line);
+      add(offset+cue.start,offset+cue.end,"Caption",lines.map(safe).join("\\N"));
+    }
     offset+=duration;
   });
   return script;

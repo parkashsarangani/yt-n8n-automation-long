@@ -121,7 +121,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
       "-map", "0:v:0", "-map", "1:a:0",
-      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1${hasStage ? `,ass='${escapeFilterPath(stageFile)}'` : ""}`,
+      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",

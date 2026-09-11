@@ -41,7 +41,7 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           # Operator-selected narrator; voice IDs are public identifiers, not credentials.
           ELEVENLABS_VOICE_ID: gZiz6WFdAxF6MKJ0s5s6
-          ELEVENLABS_SPEED: ${{ vars.ELEVENLABS_SPEED || '0.9' }}
+          ELEVENLABS_SPEED: ${{ vars.ELEVENLABS_SPEED || '1.0' }}
 
           # Optional custom thumbnail artwork.
           FAL_KEY: ${{ secrets.FAL_KEY }}
