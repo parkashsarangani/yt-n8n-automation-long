@@ -1,6 +1,32 @@
 import type { RunView, VidGenService } from "./service.ts";
 import { Scheduler, type JobStatus } from "./scheduler.ts";
 import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
+import { localHourToUtcHour } from "./timezone-hour.ts";
+
+/**
+ * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
+ * Otherwise resolve today's UTC hour from a local wall-clock target (default
+ * 9pm Europe/Berlin) so the daily publish slot survives a DST change instead
+ * of silently drifting an hour twice a year -- this recomputes fresh on
+ * every service start, and the project redeploys on every merge to main, so
+ * restart-driven staleness is not a real risk here.
+ */
+function produceTargetHourUtc(): number {
+  const explicit = process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim();
+  if (explicit) {
+    const n = Number(explicit);
+    return Number.isFinite(n) ? Math.max(0, Math.min(23, Math.floor(n))) : 19;
+  }
+  const timeZone = process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin";
+  const localHourRaw = Number(process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"] ?? 21);
+  const localHour = Number.isInteger(localHourRaw) && localHourRaw >= 0 && localHourRaw <= 23 ? localHourRaw : 21;
+  try {
+    return localHourToUtcHour(timeZone, localHour);
+  } catch {
+    console.warn(`[scheduler] SCHEDULE_PRODUCE_TIMEZONE "${timeZone}" is not a recognized IANA zone; falling back to 19:00 UTC`);
+    return 19;
+  }
+}
 
 type Genre = "moral_story" | "drama" | "true_story" | "short_story";
 interface CandidateVariant { family?: string; title?: string }
@@ -157,8 +183,7 @@ function mostRecentProduction(service: VidGenService): number | undefined {
 export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedulerOptions = {}): GrowthSchedulerHandle {
   const raw = process.env["SCHEDULE_PRODUCE_HOURS"];
   const produceHours = raw === undefined || raw.trim() === "" ? 24 : Number(raw);
-  const target = Number(process.env["SCHEDULE_PRODUCE_HOUR_UTC"] ?? 19);
-  const targetHourUtc = Number.isFinite(target) ? Math.max(0, Math.min(23, Math.floor(target))) : 19;
+  const targetHourUtc = produceTargetHourUtc();
   const measureHours = Number(process.env["SCHEDULE_MEASURE_HOURS"] ?? 24);
   const maxCandidateAttempts = Math.max(1, Math.min(6, Number(process.env["SCHEDULE_MAX_TOPIC_ATTEMPTS"] ?? 3) || 3));
   const analyticsReal = service.capabilities().some((s) => s.id === "analytics" && s.real);
@@ -166,7 +191,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const scheduler = new Scheduler({ jobs: [
     {
       id: "produce", everyHours: produceHours > 0 ? produceHours : 24, enabled: Number.isFinite(produceHours) && produceHours > 0,
-      description: `rank packages and publish the first creative winner (up to ${maxCandidateAttempts} topic attempts)`, targetHourUtc,
+      description: `rank packages and publish the first creative winner (up to ${maxCandidateAttempts} topic attempts), targeting 9pm ${process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin"} (currently ${targetHourUtc}:00 UTC)`, targetHourUtc,
       ...(lastProduction !== undefined ? { seedLastRun: lastProduction } : {}),
       async run() {
         const discovered = await service.discoverTopics();
