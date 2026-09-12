@@ -1,6 +1,19 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const {pages,buildStage}=require("../conversation-stage");
+test("phrase captions preserve different topics and avoid orphan subtitle lines",()=>{
+  const {captionCues,captionLines}=require("../conversation-stage");
+  for(const narration of ["This proposal puts requests into one shared inbox, so everyone can see the next step.","A second invitation leaves the other person enough room to decline without explaining.","You can disagree with a friend and still respect their choice."]) {
+    const cues=captionCues({narration},12);
+    assert.equal(cues.map(c=>c.text).join(" "),narration);
+    for(const cue of cues) {
+      const lines=captionLines(cue.text);
+      assert.ok(lines.length<=2);
+      if(lines.length===2)assert.ok(lines.every(line=>line.split(" ").length>1 && line.length<=38));
+      assert.ok(cue.end>cue.start && cue.end<=12);
+    }
+  }
+});
 test("bounded cards retain all normal words instead of truncating narration",()=>{
   const text="A thoughtful response gives both people room to speak. ".repeat(20).trim();
   const result=pages(text);

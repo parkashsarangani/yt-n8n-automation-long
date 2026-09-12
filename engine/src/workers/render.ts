@@ -74,7 +74,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "14",
+    version: opts.version ?? "15",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },

@@ -23,6 +23,15 @@ function candidate(overall = 0.8): DiscoveryCandidate {
   };
 }
 
+test("scheduled measurement failures remain visible in job health", async () => {
+  const service={listRuns:()=>[],capabilities:()=>[{id:"analytics",real:true}],measureAll:async()=>({measured:[],skipped:[],failed:[{external_id:"episode",error:"403 insufficient scope"}]})} as any;
+  const scheduler=startGrowthScheduler(service);
+  try {
+    await scheduler.runNow("measure");
+    assert.match(scheduler.status().find(job=>job.id==="measure")!.last_error!,/403 insufficient scope/);
+  } finally {scheduler.stop();}
+});
+
 test("viability floor rejects weak packages before production spend", () => {
   assert.equal(viableCandidate(candidate()), true);
   const weak = candidate(); weak.scores!.story_potential = 0.4;

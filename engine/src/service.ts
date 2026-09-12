@@ -1238,6 +1238,9 @@ export class VidGenService {
     }
 
     const analytics = this.analyticsProvider;
+    if (!analytics) {
+      return { measured, skipped, failed: candidates.map(c => ({ external_id: c.externalId, error: "Analytics provider is not configured; configure YouTube Analytics authorization before measuring." })) };
+    }
     let visibility: Record<string, string> = {};
     if (analytics && candidates.length > 0) {
       try {

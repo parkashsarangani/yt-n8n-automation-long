@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { episodeChapters, hasChapterStart } from "../src/chapters.ts";
+test("distinct applications retain their own chapters even with the same role",()=>{
+  const scenes=["First choice","A harder choice","Try it today"].map((label,i)=>({scene_index:i,point:`[exercise] ${label}`}));
+  assert.equal(episodeChapters(scenes,scenes.map(s=>({scene_index:s.scene_index,duration_sec:20}))),"00:00 First choice\n00:20 A harder choice\n00:40 Try it today");
+});
 test("recognizes existing chapter starts without mistaking prose for chapters",()=>{
   for (const stamp of ["0:00", "00:00", "0:00:00", "00:00:00"]) {
     assert.equal(hasChapterStart(`Description\n${stamp} Introduction`),true);
