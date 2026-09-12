@@ -2,6 +2,7 @@ FROM node:20-slim
 
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    tesseract-ocr \
     fonts-dejavu-core \
     ca-certificates \
     --no-install-recommends \

@@ -11,6 +11,7 @@ export interface RenderWorkerOptions {
 }
 
 interface ScriptScene {
+  visual?: RenderScene["visual"];
   point?: string;
   scene_index: number;
   narration: string;
@@ -61,6 +62,7 @@ async function buildScenes(inputs: Record<string, Artifact>, ctx: WorkerContext)
       scene_index: scene.scene_index,
       narration: scene.narration,
       ...(scene.point ? { point: scene.point } : {}),
+      ...(scene.visual ? { visual: scene.visual } : {}),
       audio,
       audio_media_type: clip.media_type?.trim() || "audio/mpeg",
       ...(alignment !== undefined ? { alignment } : {}),
@@ -74,7 +76,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "15",
+    version: opts.version ?? "16",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
