@@ -112,7 +112,12 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if (!(duration > 0)) throw new Error("concatenated narration has zero duration");
     const analysis = await execFileAsync(ffmpegPath, ["-hide_banner", "-nostats", "-i", programme,
       "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"]);
-    const measured = JSON.parse(analysis.stderr.slice(analysis.stderr.lastIndexOf("{")));
+    // ffmpeg prints muxer/summary lines (e.g. "[out#0/null...] video:0KiB...",
+    // "size=N/A time=...") AFTER the closing brace of the loudnorm JSON block,
+    // so the slice must be bounded on both ends -- an unbounded slice to the
+    // end of stderr always fails to parse (reproduced against real ffmpeg;
+    // this fires on every render, not just an edge case).
+    const measured = JSON.parse(analysis.stderr.slice(analysis.stderr.lastIndexOf("{"), analysis.stderr.lastIndexOf("}") + 1));
     // Silence has -inf loudness. Do not feed non-finite measurements to loudnorm:
     // some FFmpeg versions produce NaNs that the AAC encoder cannot accept.
     const values = ["input_i", "input_tp", "input_lra", "input_thresh", "target_offset"].map(key => Number(measured[key]));

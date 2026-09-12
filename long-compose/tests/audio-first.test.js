@@ -98,7 +98,7 @@ test("quiet programme is normalized without changing its timeline", async () => 
     const duration=await buildAudioFirstVideo([{scene_index:0,audio:{audio_base64:wav.toString("base64"),media_type:"audio/wav"}}],output);
     assert.ok(Math.abs(duration-4)<0.1);
     const result=await exec(ffmpeg,["-hide_banner","-nostats","-i",output,"-af","loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json","-f","null","-"]);
-    const levels=JSON.parse(result.stderr.slice(result.stderr.lastIndexOf("{")));
+    const levels=JSON.parse(result.stderr.slice(result.stderr.lastIndexOf("{"), result.stderr.lastIndexOf("}")+1));
     assert.ok(Math.abs(Number(levels.input_i)+16)<1,JSON.stringify(levels));
     assert.ok(Number(levels.input_tp)<=-1,JSON.stringify(levels));
   } finally {await fsp.rm(dir,{recursive:true,force:true});}
