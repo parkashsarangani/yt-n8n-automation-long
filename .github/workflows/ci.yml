@@ -26,7 +26,7 @@ jobs:
           from pathlib import Path
 
           graph = json.loads(Path('engine/graphs/illustrated_story.json').read_text())
-          assert graph['version'] == '10'
+          assert graph['version'] == '11'
           transforms = {n.get('transformation') for n in graph['nodes'] if n.get('transformation')}
           required = {'channel_strategist','growth_packager','growth_package_release','narrative_story_architect','narration_script_writer','watchability_critic','watchability_release','tts_moderation','voice','seo_optimizer','thumbnail_designer','thumbnail','render','qa','publish'}
           assert required <= transforms, sorted(required - transforms)
