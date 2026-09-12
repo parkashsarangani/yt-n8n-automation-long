@@ -1,7 +1,7 @@
 {
   "name": "watchability_critic",
   "kind": "agent",
-  "version": "8",
+  "version": "9",
   "consumes": [
     {
       "schema_id": "story",
@@ -28,7 +28,7 @@
   ],
   "produces": "watchability_report",
   "produces_version": "2.1.0",
-  "prompt": "watchability_critic@8",
+  "prompt": "watchability_critic@9",
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 18000,

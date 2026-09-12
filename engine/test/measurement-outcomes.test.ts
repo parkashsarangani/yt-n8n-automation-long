@@ -12,6 +12,11 @@ function fixture() {
 }
 test("blocked measurement is failed, never a successful zero-view observation",async()=>{
   const r=await fixture().measureAll();assert.equal(r.measured.length,0);assert.equal(r.failed.length,1);
+  assert.match(r.failed[0].error,/measurement blocked/);
+});
+test("missing analytics configuration is an actionable failure rather than an unknown-visibility skip",async()=>{
+  const svc=fixture();svc.analyticsProvider=undefined;
+  const r=await svc.measureAll();assert.equal(r.skipped.length,0);assert.match(r.failed[0].error,/not configured/);
 });
 test("visibility authorization failure is exposed rather than silently skipped",async()=>{
   const svc=fixture();svc.analyticsProvider.fetchVisibility=async()=>{throw new Error("403 insufficient scope");};

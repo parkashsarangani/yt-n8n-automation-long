@@ -1,7 +1,7 @@
 {
   "name": "channel_strategist",
   "kind": "agent",
-  "version": "2",
+  "version": "3",
   "consumes": [
     {
       "schema_id": "performance_window",
@@ -11,7 +11,7 @@
   ],
   "produces": "channel_insights",
   "produces_version": "2.0.0",
-  "prompt": "channel_strategist@2",
+  "prompt": "channel_strategist@3",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 5000,

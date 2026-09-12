@@ -219,7 +219,10 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
         throw new Error(`all ${candidates.length} viable ranked candidates failed the creative bar; no episode published this cycle`);
       },
     },
-    { id: "measure", everyHours: Number.isFinite(measureHours) && measureHours > 0 ? measureHours : 24, enabled: analyticsReal && Number.isFinite(measureHours) && measureHours > 0, description: "measure public episodes and refresh retention/editorial evidence", async run() { await service.measureAll(); } },
+    { id: "measure", everyHours: Number.isFinite(measureHours) && measureHours > 0 ? measureHours : 24, enabled: analyticsReal && Number.isFinite(measureHours) && measureHours > 0, description: "measure public episodes and refresh retention/editorial evidence", async run() {
+      const result = await service.measureAll();
+      if (result.failed.length) throw new Error(`Measurement failed for ${result.failed.length} episode(s): ${result.failed[0]!.error}`);
+    } },
   ] });
   scheduler.start();
   return { status: () => scheduler.status(), runNow: (id) => scheduler.runNow(id), stop: () => scheduler.stop() };

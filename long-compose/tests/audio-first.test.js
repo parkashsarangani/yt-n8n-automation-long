@@ -85,6 +85,25 @@ test("audio-first render rejects an empty programme", async () => {
   await assert.rejects(() => buildAudioFirstVideo([], "/tmp/unused.mp4"), /at least one audio scene/);
 });
 
+test("quiet programme is normalized without changing its timeline", async () => {
+  const {promisify}=require("node:util");
+  const exec=promisify(require("node:child_process").execFile);
+  const bundled=require("ffmpeg-static");
+  const ffmpeg=process.env.FFMPEG_PATH || (bundled && fs.existsSync(bundled) ? bundled : "ffmpeg");
+  const dir=await fsp.mkdtemp(path.join(os.tmpdir(),"programme-level-"));
+  try {
+    const wav=silentWav(24000,4);
+    for(let i=0;i<96000;i++)wav.writeInt16LE(Math.round(500*Math.sin(2*Math.PI*440*i/24000)),44+i*2);
+    const output=path.join(dir,"out.mp4");
+    const duration=await buildAudioFirstVideo([{scene_index:0,audio:{audio_base64:wav.toString("base64"),media_type:"audio/wav"}}],output);
+    assert.ok(Math.abs(duration-4)<0.1);
+    const result=await exec(ffmpeg,["-hide_banner","-nostats","-i",output,"-af","loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json","-f","null","-"]);
+    const levels=JSON.parse(result.stderr.slice(result.stderr.lastIndexOf("{"), result.stderr.lastIndexOf("}")+1));
+    assert.ok(Math.abs(Number(levels.input_i)+16)<1,JSON.stringify(levels));
+    assert.ok(Number(levels.input_tp)<=-1,JSON.stringify(levels));
+  } finally {await fsp.rm(dir,{recursive:true,force:true});}
+});
+
 test("subtitle safe band occludes even a white text-bearing background", async () => {
   const dir=await fsp.mkdtemp(path.join(os.tmpdir(),"caption-contrast-"));
   try {

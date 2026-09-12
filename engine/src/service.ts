@@ -1238,6 +1238,9 @@ export class VidGenService {
     }
 
     const analytics = this.analyticsProvider;
+    if (!analytics) {
+      return { measured, skipped, failed: candidates.map(c => ({ external_id: c.externalId, error: "Analytics provider is not configured; configure YouTube Analytics authorization before measuring." })) };
+    }
     let visibility: Record<string, string> = {};
     if (analytics && candidates.length > 0) {
       try {
@@ -1279,7 +1282,7 @@ export class VidGenService {
         );
         const outId = result.outputs["performance"];
         if (result.status !== "completed" || !outId) {
-          throw new Error(`measurement ${result.status}: ${result.failures.map(f => f.error).join("; ") || "no completed performance output"}; inspect run ${runId}`);
+          throw new Error(`measurement ${result.status}: ${(result.failures ?? []).map(f => f.error).join("; ") || "no completed performance output"}; inspect run ${runId}`);
         }
         const perf = outId ? await this.store.get(outId) : null;
         if (!perf) throw new Error(`measurement artifact missing for run ${runId}`);
@@ -1382,6 +1385,7 @@ export class VidGenService {
           console.log(
             `[scheduler] measured ${r.measured.length}, skipped ${r.skipped.length}, failed ${r.failed.length}`,
           );
+          if (r.failed.length) throw new Error(`Measurement failed for ${r.failed.length} episode(s): ${r.failed[0]!.error}`);
         },
       },
       {
