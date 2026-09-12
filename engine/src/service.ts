@@ -161,6 +161,7 @@ type Genre = "moral_story" | "drama" | "true_story" | "short_story";
 
 /** The operator-selectable knobs from the active intent@2.x schema. */
 export interface RunOptions {
+  niche?: "practical-social-intelligence";
   seriesEpisode?: number;
   genre?: Genre;
   /**
@@ -626,7 +627,8 @@ export class VidGenService {
       payload: {
         brief: trimmed,
         target_duration_sec: durationSec,
-        ...(series ? { series, niche: "practical-social-intelligence" } : {}),
+        ...(series ? { series } : {}),
+        ...((series || opts.niche || !opts.genre) ? { niche: "practical-social-intelligence" } : {}),
         ...(opts.genre ? { genre: opts.genre } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
@@ -1430,6 +1432,7 @@ export class VidGenService {
             console.log("[scheduler] winning candidate is missing package fields; running it as a plain brief");
           }
           const runId = await this.startRun(top.brief, undefined, {
+            niche: "practical-social-intelligence",
             ...(top.genre ? { genre: top.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
           });

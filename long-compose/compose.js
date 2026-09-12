@@ -10,6 +10,7 @@ const { execFile } = require("child_process");
 const { promisify } = require("util");
 const { buildStage, buildTitleCard } = require("./conversation-stage");
 const { channelFrame } = require("./channel-frame");
+const {visualCard}=require("./visual-cards");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -130,13 +131,19 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if (hasStage) await fsp.writeFile(stageFile, buildStage(ordered, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
+    const safeArtwork=options.image_base64 && await artworkHasNoText(background,dir);
+    let elapsed=0;
+    const cardMasks=ordered.map((scene,i)=>{
+      const start=elapsed;elapsed+=durations[i];
+      return visualCard(scene)?`,drawbox=x=0:y=180:w=iw:h=630:color=0x101217:t=fill:enable='between(t,${start},${elapsed})'`:"";
+    }).join("");
 
     await execFileAsync(ffmpegPath, [
       "-y",
-      ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
+      ...(safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
       "-map", "0:v:0", "-map", "1:a:0",
-      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
+      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${cardMasks}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
@@ -202,6 +209,18 @@ function escapeFilterPath(value) {
   return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+async function artworkHasNoText(input,dir) {
+  try {
+    const image=path.join(dir,"ocr.png");
+    await execFileAsync(ffmpegPath,["-y","-i",input,"-vf","scale=1600:-1","-frames:v","1",image]);
+    const result=await execFileAsync("tesseract",[image,"stdout","--psm","11"],{timeout:20000,env:{...process.env,OMP_THREAD_LIMIT:"1"}});
+    return !/[\p{L}\p{N}]{2,}/u.test(result.stdout);
+  } catch(error) {
+    console.warn("Artwork OCR unavailable; using clean background",String(error));
+    return false;
+  }
+}
+
 app.post("/thumbnail", async (req, res) => {
   const dir = tmpDir();
   try {
@@ -217,6 +236,9 @@ app.post("/thumbnail", async (req, res) => {
       input = path.join(dir, "background.img");
       await fsp.writeFile(input, Buffer.from(supplied, "base64"));
       background = "supplied";
+      if(!await artworkHasNoText(input,dir)) {
+        input=path.join(dir,"background.ppm");writeGradientPpm(input);background="gradient";
+      }
     } else {
       input = path.join(dir, "background.ppm");
       writeGradientPpm(input);

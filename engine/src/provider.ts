@@ -98,6 +98,7 @@ export interface ImageProvider {
 
 /** One scene as the audio-first renderer needs it. */
 export interface RenderScene {
+  visual?: { kind: "quote" | "comparison" | "steps"; title: string; items: string[] };
   narration?: string;
   point?: string;
   scene_index: number;

@@ -1,4 +1,5 @@
 // Text comes verbatim from the approved script, never from a second LLM.
+const {visualCard,cardText}=require("./visual-cards");
 const labels = {scenario:"THE SITUATION", response_a:"ONE RESPONSE", response_b:"ANOTHER RESPONSE", explanation:"WHY IT MATTERS", limitations:"CONTEXT MATTERS", exercise:"TRY THIS", payoff:"TAKE THIS WITH YOU"};
 function safe(text) {
   return String(text).replace(/\\/g,"＼").replace(/\{/g,"（").replace(/\}/g,"）").replace(/[\r\n\x00-\x1f]/g," ");
@@ -111,7 +112,9 @@ function buildStage(scenes, durations, lessonTitle) {
   let offset=0;
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
+    const card=visualCard(scene);
     if(!(duration>0))throw Error("stage requires measured scene durations");
+    if(card)add(offset,offset+duration,"Heading",cardText(card,safe));
     const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
     const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").trim();
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
