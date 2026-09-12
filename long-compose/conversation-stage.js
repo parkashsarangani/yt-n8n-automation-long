@@ -63,13 +63,43 @@ function captionCues(scene, duration) {
     if(end>start)cues.push({start,end,text:group.map(t=>t[0]).join(" ")});
     group=[];
   };
-  for(const token of tokens) {
-    if(group.length && group.map(t=>t[0]).join(" ").length+token[0].length>64)emit();
-    group.push(token);
-    if(group.length>=7 || /[.!?;,:]$/.test(token[0]))emit();
+  // Choose readable phrase boundaries rather than cutting every seventh word.
+  // Function words and common modifiers should stay with the phrase they introduce.
+  const hanging=/^(a|an|the|to|of|in|on|at|for|with|and|or|but|their|your|our|my|this|that|one|shared|very|more|most)$/i;
+  let cursor=0;
+  while(cursor<tokens.length) {
+    let best=cursor+1, bestScore=-Infinity, length=0;
+    for(let end=cursor;end<Math.min(tokens.length,cursor+10);end++) {
+      length+=tokens[end][0].length+(end>cursor?1:0);
+      if(length>68 && end>cursor)break;
+      const word=tokens[end][0];
+      const clean=word.replace(/[“”"'.,!?;:—…]/g,"");
+      const terminal=/[.!?][”"']?$/.test(word) && !/\.{2,}|…/.test(word);
+      const punctuation=/[,;:][”"']?$/.test(word);
+      const count=end-cursor+1;
+      let score=count- Math.abs(count-6)*0.7;
+      if(hanging.test(clean))score-=20;
+      if(punctuation)score+=8;
+      if(terminal)score+=30;
+      if(end===tokens.length-1)score+=15;
+      if(score>bestScore){best=end+1;bestScore=score;}
+      if(terminal)break;
+    }
+    group=tokens.slice(cursor,best);emit();cursor=best;
   }
-  if(group.length)emit();
   return cues;
+}
+function captionLines(text) {
+  const words=text.split(/\s+/);
+  if(text.length<=38)return [text];
+  let best=null, score=Infinity;
+  for(let i=1;i<words.length;i++) {
+    const a=words.slice(0,i).join(" "), b=words.slice(i).join(" ");
+    if(a.length>38||b.length>38)continue;
+    const cost=Math.abs(a.length-b.length)+(i===1||i===words.length-1?25:0);
+    if(cost<score){best=[a,b];score=cost;}
+  }
+  return best||[text];
 }
 function buildStage(scenes, durations, lessonTitle) {
   let script=buildTitleCard("").replace("PlayResX: 1280","PlayResX: 1920").replace("PlayResY: 720","PlayResY: 1080");
@@ -83,21 +113,18 @@ function buildStage(scenes, durations, lessonTitle) {
     const duration=durations[i];
     if(!(duration>0))throw Error("stage requires measured scene durations");
     const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
-    const label = labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
+    const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").trim();
+    const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
     add(offset, offset + duration, "Heading", "{\\an7\\pos(120,32)}" + safe(label));
     add(offset, offset + duration, "Heading", "{\\an9\\pos(1800,32)}" + `${i + 1} / ${scenes.length}`);
     for(const cue of captionCues(scene,duration)) {
       // Explicit line breaks avoid single-line overflow at mobile preview sizes.
-      const lines=[]; let line="";
-      for(const word of cue.text.split(/\s+/)) {
-        if(line && line.length+word.length+1>38){lines.push(line);line="";}
-        line+=(line?" ":"")+word;
-      }
-      if(line)lines.push(line);
-      add(offset+cue.start,offset+cue.end,"Caption",lines.map(safe).join("\\N"));
+      const lines=captionLines(cue.text);
+      const fit=lines.length===1 && cue.text.length>38 ? "{\\fs"+Math.max(26,Math.floor(52*38/cue.text.length))+"}" : "";
+      add(offset+cue.start,offset+cue.end,"Caption",fit+lines.map(safe).join("\\N"));
     }
     offset+=duration;
   });
   return script;
 }
-module.exports={buildStage,buildTitleCard,pages,captionCues};
+module.exports={buildStage,buildTitleCard,pages,captionCues,captionLines};

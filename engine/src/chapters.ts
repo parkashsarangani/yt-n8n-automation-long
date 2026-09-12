@@ -18,11 +18,12 @@ export function episodeChapters(scenes: Array<{scene_index: number; point?: stri
     const scene=by.get(clip.scene_index);
     if(!scene)return "";
     const role=/^\[([^\]]+)\]/.exec(scene.point||"")?.[1]||"";
-    const title=labels[role];
+    const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").replace(/[\r\n\x00-\x1f]/g," ").trim();
+    const title=detail && detail.length<=58 ? detail : labels[role];
     const second=Math.floor(elapsed);
     if(!chapters.length)chapters.push({second:0,title:title||"The situation"});
-    else if(title && role!==previous && second-chapters.at(-1)!.second>=10)chapters.push({second,title});
-    previous=role; elapsed+=clip.duration_sec;
+    else if(title && title!==previous && second-chapters.at(-1)!.second>=10)chapters.push({second,title});
+    previous=title||role; elapsed+=clip.duration_sec;
   }
   while(chapters.length && elapsed-chapters.at(-1)!.second<10)chapters.pop();
   if(chapters.length<3)return "";
