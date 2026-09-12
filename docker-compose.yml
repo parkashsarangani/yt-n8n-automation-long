@@ -63,6 +63,12 @@ services:
       FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
+      # Daily publish slot is resolved from a local-time target, not a fixed
+      # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC
+      # pins a literal UTC hour instead when set, overriding both of these.
+      SCHEDULE_PRODUCE_TIMEZONE: ${SCHEDULE_PRODUCE_TIMEZONE:-Europe/Berlin}
+      SCHEDULE_PRODUCE_LOCAL_HOUR: ${SCHEDULE_PRODUCE_LOCAL_HOUR:-21}
+      SCHEDULE_PRODUCE_HOUR_UTC: ${SCHEDULE_PRODUCE_HOUR_UTC:-}
       SCHEDULE_MEASURE_HOURS: ${SCHEDULE_MEASURE_HOURS:-24}
 
       YOUTUBE_ACCESS_TOKEN: ${YOUTUBE_ACCESS_TOKEN:-}

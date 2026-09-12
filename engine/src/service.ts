@@ -59,6 +59,7 @@ import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
 import { buildManualEpisode, type ManualScriptInput } from "./manual-script.ts";
 import { Scheduler, type Job, type JobStatus } from "./scheduler.ts";
+import { localHourToUtcHour } from "./timezone-hour.ts";
 import {
   GraphExecutor,
   type ExecutorEvent,
@@ -1363,6 +1364,28 @@ export class VidGenService {
       const n = Number(raw);
       return Number.isInteger(n) && n >= 0 && n <= 23 ? n : fallback;
     };
+    /**
+     * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override --
+     * useful for a channel that genuinely wants "whatever hour that is
+     * everywhere", or for a one-off manual pin. Otherwise resolve today's UTC
+     * hour from a local wall-clock target (default 9pm Europe/Berlin), so the
+     * schedule survives a DST change without silently drifting an hour --
+     * this recomputes fresh every service start, and the project redeploys
+     * on every merge to main, so restart-driven staleness isn't a real risk.
+     */
+    const produceHourUtc = (): number => {
+      const explicit = process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim();
+      if (explicit) return hour("SCHEDULE_PRODUCE_HOUR_UTC", 19);
+      const timeZone = process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin";
+      const localHour = hour("SCHEDULE_PRODUCE_LOCAL_HOUR", 21);
+      try {
+        return localHourToUtcHour(timeZone, localHour);
+      } catch {
+        console.warn(`[scheduler] SCHEDULE_PRODUCE_TIMEZONE "${timeZone}" is not a recognized IANA zone; falling back to 19:00 UTC`);
+        return 19;
+      }
+    };
+    const produceTargetHourUtc = produceHourUtc();
 
     const lastProduceAt = Math.max(
       -Infinity,
@@ -1390,9 +1413,9 @@ export class VidGenService {
       },
       {
         id: "produce",
-        description: `Pick the top discovery candidate, produce it and publish it — one episode a day, timed for a US audience (~${hour("SCHEDULE_PRODUCE_HOUR_UTC", 19)}:00 UTC)`,
+        description: `Pick the top discovery candidate, produce it and publish it — one episode a day, targeting 9pm ${process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin"} (currently ${produceTargetHourUtc}:00 UTC)`,
         everyHours: num("SCHEDULE_PRODUCE_HOURS") ?? 24,
-        targetHourUtc: hour("SCHEDULE_PRODUCE_HOUR_UTC", 19),
+        targetHourUtc: produceTargetHourUtc,
         ...(Number.isFinite(lastProduceAt) ? { seedLastRun: lastProduceAt } : {}),
         enabled: process.env["SCHEDULE_PRODUCE_HOURS"]?.trim() !== "0",
         run: async () => {

@@ -23,6 +23,40 @@ function candidate(overall = 0.8): DiscoveryCandidate {
   };
 }
 
+test("produce targets 9pm Europe/Berlin by resolved UTC hour, not a hardcoded US-timed default", async () => {
+  const service = { listRuns: () => [], capabilities: () => [] } as any;
+  const previous = {
+    hourUtc: process.env["SCHEDULE_PRODUCE_HOUR_UTC"],
+    timezone: process.env["SCHEDULE_PRODUCE_TIMEZONE"],
+    localHour: process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"],
+  };
+  try {
+    delete process.env["SCHEDULE_PRODUCE_HOUR_UTC"];
+    delete process.env["SCHEDULE_PRODUCE_TIMEZONE"];
+    delete process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"];
+    const scheduler = startGrowthScheduler(service);
+    try {
+      const produce = scheduler.status().find((j) => j.id === "produce")!;
+      // Berlin is UTC+1 or UTC+2 depending on the date this test happens to
+      // run; either way 9pm local is 19:00 or 20:00 UTC, never the old fixed
+      // "always 19:00" default that drifted an hour every DST change.
+      assert.match(produce.description, /targeting 9pm Europe\/Berlin \(currently (19|20):00 UTC\)/);
+    } finally { scheduler.stop(); }
+
+    // An explicit SCHEDULE_PRODUCE_HOUR_UTC still wins as a literal override.
+    process.env["SCHEDULE_PRODUCE_HOUR_UTC"] = "5";
+    const pinned = startGrowthScheduler(service);
+    try {
+      assert.match(pinned.status().find((j) => j.id === "produce")!.description, /currently 5:00 UTC/);
+    } finally { pinned.stop(); }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      const envKey = key === "hourUtc" ? "SCHEDULE_PRODUCE_HOUR_UTC" : key === "timezone" ? "SCHEDULE_PRODUCE_TIMEZONE" : "SCHEDULE_PRODUCE_LOCAL_HOUR";
+      if (value === undefined) delete process.env[envKey]; else process.env[envKey] = value;
+    }
+  }
+});
+
 test("scheduled measurement failures remain visible in job health", async () => {
   const service={listRuns:()=>[],capabilities:()=>[{id:"analytics",real:true}],measureAll:async()=>({measured:[],skipped:[],failed:[{external_id:"episode",error:"403 insufficient scope"}]})} as any;
   const scheduler=startGrowthScheduler(service);
