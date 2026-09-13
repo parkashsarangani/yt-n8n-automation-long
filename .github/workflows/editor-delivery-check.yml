@@ -1,0 +1,21 @@
+name: Verify editor delivery
+on:
+  workflow_dispatch:
+    inputs:
+      produce:
+        description: Prepare or recover today's episode when missing
+        type: boolean
+        default: false
+jobs:
+  verify:
+    runs-on: self-hosted
+    timeout-minutes: 100
+    steps:
+      - name: Inspect live engine and optionally prepare today's episode
+        env:
+          PRODUCE: ${{ inputs.produce }}
+        run: |
+          set -euo pipefail
+          cid=$(docker ps -q --filter label=com.docker.compose.project=vidgen --filter label=com.docker.compose.service=engine)
+          test -n "$cid"
+          docker exec -e VERIFY_PRODUCE="$PRODUCE" "$cid" node --import tsx scripts/verify-editor-delivery.ts

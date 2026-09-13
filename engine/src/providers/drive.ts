@@ -54,6 +54,7 @@ export class DriveProvider implements DriveExchange {
   async createFolder(name: string, parentId: string): Promise<string> {
     const token = await this.token();
     const res = await this.fetchImpl(`${this.baseUrl}/files?fields=id`, {
+      signal: AbortSignal.timeout(120_000),
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }),
@@ -75,6 +76,7 @@ export class DriveProvider implements DriveExchange {
     const body = new Blob([head, bytes, tail]);
 
     const res = await this.fetchImpl(`${this.uploadUrl}/files?uploadType=multipart&fields=id`, {
+      signal: AbortSignal.timeout(300_000),
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
       body,
@@ -88,17 +90,25 @@ export class DriveProvider implements DriveExchange {
   async listFiles(folderId: string): Promise<DriveFile[]> {
     const token = await this.token();
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-    const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=100`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new ProviderError(`drive list failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-    const body = (await res.json()) as { files?: DriveFile[] };
-    return body.files ?? [];
+    const files: DriveFile[] = [];
+    let page: string | undefined;
+    do {
+      const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType)&pageSize=100${page ? "&pageToken="+encodeURIComponent(page) : ""}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) throw new ProviderError(`drive list failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+      const body = (await res.json()) as { files?: DriveFile[]; nextPageToken?: string };
+      files.push(...(body.files ?? []));
+      page = body.nextPageToken;
+    } while(page);
+    return files;
   }
 
   async downloadFile(fileId: string): Promise<Uint8Array> {
     const token = await this.token();
     const res = await this.fetchImpl(`${this.baseUrl}/files/${fileId}?alt=media`, {
+      signal: AbortSignal.timeout(300_000),
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new ProviderError(`drive download failed (${res.status}): ${(await res.text()).slice(0, 300)}`);

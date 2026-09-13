@@ -140,4 +140,16 @@ function buildStage(scenes, durations, lessonTitle) {
   });
   return script;
 }
-module.exports={buildStage,buildTitleCard,pages,captionCues,captionLines};
+function buildSrt(scenes, durations) {
+  const stamp = sec => {
+    const ms=Math.round(sec*1000);
+    return `${String(Math.floor(ms/3600000)).padStart(2,"0")}:${String(Math.floor(ms/60000)%60).padStart(2,"0")}:${String(Math.floor(ms/1000)%60).padStart(2,"0")},${String(ms%1000).padStart(3,"0")}`;
+  };
+  let offset=0, count=0;
+  return scenes.map((scene,i)=>{
+    const cues=captionCues(scene,durations[i]).map(c=>`${++count}\n${stamp(offset+c.start)} --> ${stamp(offset+c.end)}\n${captionLines(c.text).join("\n")}\n`);
+    offset+=durations[i];
+    return cues.join("\n");
+  }).join("\n");
+}
+module.exports={buildStage,buildTitleCard,pages,captionCues,captionLines,buildSrt};

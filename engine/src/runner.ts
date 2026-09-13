@@ -13,6 +13,7 @@ import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
+import { repairVisualCards } from "./episode-presentation.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import { buildScriptRevisionContext } from "./script-revision.ts";
 import {
@@ -363,9 +364,10 @@ export class Runner {
             repairs.map((r) => `${r.path}: "${r.from}" -> "${r.to}"`).join("; "),
         );
       }
-      const { data: payload, repairs: outroRepairs } = def.produces === "script"
+      const { data: scriptRepaired, repairs: outroRepairs } = def.produces === "script"
         ? repairMissingOutroFlag(enumRepaired)
         : { data: enumRepaired, repairs: [] };
+      const payload = def.produces === "script" && version === "1.1.0" ? repairVisualCards(scriptRepaired) : scriptRepaired;
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +

@@ -27,7 +27,11 @@
  * persisted history (e.g. the most recent production run) instead of `null`.
  */
 
+import { localParts, localSlot } from "./delivery-time.ts";
+
 export interface Job {
+  localSchedule?: { hour: number; timeZone: string };
+  retryMinutes?: number;
   id: string;
   /** How often to run. Ignored when targetHourUtc is set (see below). */
   everyHours: number;
@@ -71,6 +75,7 @@ export interface JobStatus {
 }
 
 interface JobState {
+  retryAt?: number;
   lastRun: number | null;
   running: boolean;
   lastError: string | null;
@@ -96,6 +101,10 @@ function isSameUtcDay(a: number, b: number): boolean {
 
 /** The next epoch ms at which `job` becomes due, given its last completion (or null). */
 function nextRunAt(job: Job, lastRun: number | null, nowMs: number): number {
+  if (job.localSchedule) {
+    const { hour, timeZone } = job.localSchedule;
+    return localSlot(nowMs, hour, timeZone, lastRun !== null && localParts(lastRun, timeZone).date === localParts(nowMs, timeZone).date);
+  }
   if (job.targetHourUtc === undefined) {
     return lastRun === null ? nowMs : lastRun + job.everyHours * HOUR_MS;
   }
@@ -160,7 +169,7 @@ export class Scheduler {
       if (!job.enabled) continue;
       const st = this.state.get(job.id)!;
       if (st.running) continue;
-      if (!isDue(job, st.lastRun, this.now())) continue;
+      if (st.retryAt !== undefined ? this.now() < st.retryAt : !isDue(job, st.lastRun, this.now())) continue;
       await this.execute(job);
     }
   }
@@ -180,9 +189,11 @@ export class Scheduler {
     try {
       await job.run();
       st.lastError = null;
+      st.retryAt = undefined;
     } catch (err) {
       // Recorded, never rethrown: one bad pass must not take down the schedule.
       st.lastError = err instanceof Error ? err.message : String(err);
+      if (job.retryMinutes) st.retryAt = this.now() + job.retryMinutes * 60_000;
       this.logger.error(`[scheduler] ${job.id} failed: ${st.lastError}`);
     } finally {
       st.running = false;
@@ -207,9 +218,9 @@ export class Scheduler {
         last_error: st.lastError,
         last_duration_ms: st.lastDurationMs,
         next_run:
-          !j.enabled || (st.lastRun === null && j.targetHourUtc === undefined)
+          !j.enabled || (st.lastRun === null && j.targetHourUtc === undefined && !j.localSchedule && st.retryAt === undefined)
             ? null
-            : new Date(nextRunAt(j, st.lastRun, this.now())).toISOString(),
+            : new Date(st.retryAt ?? nextRunAt(j, st.lastRun, this.now())).toISOString(),
         runs: st.runs,
       };
     });

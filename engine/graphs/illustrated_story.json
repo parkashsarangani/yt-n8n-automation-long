@@ -1,6 +1,6 @@
 {
   "graph_id": "illustrated_story",
-  "version": "13",
+  "version": "14",
   "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. After the draft render, an editor package is built and the run waits at editor_review for a human touch-up cut before finalize_video, qa, and publish use it.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
@@ -21,7 +21,8 @@
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief", "render"] },
     { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "package_release"] },
-    { "id": "editor_package", "transformation": "editor_package", "in": ["approve_script", "voice", "render", "seo", "thumbnail"] },
+    { "id": "editor_delivery", "type": "human_gate", "in": ["render"] },
+    { "id": "editor_package", "transformation": "editor_package", "in": ["approve_script", "voice", "editor_delivery", "seo", "thumbnail"] },
     { "id": "editor_review", "type": "human_gate", "in": ["editor_package"] },
     { "id": "finalize_video", "transformation": "finalize_video", "in": ["editor_review", "render"] },
     { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "finalize_video", "thumbnail", "seo"] },

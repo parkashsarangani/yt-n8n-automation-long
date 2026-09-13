@@ -1,4 +1,29 @@
 /** Mechanical checks supplement the critic; they do not establish narrative quality. */
+export function repairVisualCards(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as any).scenes)) return payload;
+  return {...payload, scenes:(payload as any).scenes.map((scene:any)=>{
+    if (!scene || typeof scene.narration !== "string" || scene.is_outro) return scene;
+    const v=scene.visual;
+    const shaped=v && ["quote","comparison","steps"].includes(v.kind)
+      && typeof v.title==="string" && v.title.length>0 && v.title.length<=42
+      && Array.isArray(v.items) && v.items.every((x:unknown)=>typeof x==="string" && x.length>0 && x.length<=72)
+      && Object.keys(v).every(k=>["kind","title","items"].includes(k));
+    if(shaped && presentationErrors({scenes:[scene]}).length===0)return scene;
+    // Exact contiguous narration excerpt. Preserve the audio/script; replace
+    // only an unusable decorative card with a mechanically grounded quote.
+    const tokens=[...scene.narration.matchAll(/\S+/g)];
+    let end=0;
+    for(const token of tokens){
+      const next=token.index!+token[0].length;
+      if(next>72)break;
+      end=next;
+      if(/[.!?]$/.test(token[0]))break;
+    }
+    if(!end)return scene;
+    return {...scene,visual:{kind:"quote",title:"In this moment",items:[scene.narration.slice(0,end).trim()]}};
+  })};
+}
+
 export function presentationErrors(payload: unknown): string[] {
   const scenes=(payload as {scenes?: Array<{point?:string;narration?:string;is_outro?:boolean;visual?:{kind:string;title:string;items:string[]}}>})?.scenes;
   if(!Array.isArray(scenes))return ["scenes required"];

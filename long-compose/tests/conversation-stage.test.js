@@ -1,5 +1,15 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
+test("SRT uses the same aligned phrase cues and measured scene offsets as burned captions",()=>{
+  const {buildSrt}=require("../conversation-stage");
+  const text="Ask once.";
+  const a={characters:[...text],character_start_times_seconds:[...text].map((_,i)=>0.5+i*0.1),character_end_times_seconds:[...text].map((_,i)=>0.6+i*0.1)};
+  const srt=buildSrt([{narration:text,alignment:a},{narration:"Then wait."}],[2,3]);
+  assert.match(srt,/00:00:00,500 --> 00:00:01,400/);
+  assert.match(srt,/00:00:02,000 --> 00:00:05,000/);
+  assert.match(srt,/Ask once\./);
+  assert.match(srt,/Then wait\./);
+});
 const {pages,buildStage}=require("../conversation-stage");
 test("phrase captions preserve different topics and avoid orphan subtitle lines",()=>{
   const {captionCues,captionLines}=require("../conversation-stage");
