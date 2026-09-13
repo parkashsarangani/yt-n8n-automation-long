@@ -2,14 +2,12 @@ import type { RunView, VidGenService } from "./service.ts";
 import { Scheduler, type JobStatus } from "./scheduler.ts";
 import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
 import { localHourToUtcHour } from "./timezone-hour.ts";
+import { localParts } from "./delivery-time.ts";
 
 /**
  * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
- * Otherwise resolve today's UTC hour from a local wall-clock target (default
- * 9pm Europe/Berlin) so the daily publish slot survives a DST change instead
- * of silently drifting an hour twice a year -- this recomputes fresh on
- * every service start, and the project redeploys on every merge to main, so
- * restart-driven staleness is not a real risk here.
+ * Otherwise display today's UTC equivalent of 03:00 Berlin preparation.
+ * Scheduling itself uses localSchedule, resolved on every tick.
  */
 function produceTargetHourUtc(): number {
   const explicit = process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim();
@@ -18,8 +16,8 @@ function produceTargetHourUtc(): number {
     return Number.isFinite(n) ? Math.max(0, Math.min(23, Math.floor(n))) : 19;
   }
   const timeZone = process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin";
-  const localHourRaw = Number(process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"] ?? 21);
-  const localHour = Number.isInteger(localHourRaw) && localHourRaw >= 0 && localHourRaw <= 23 ? localHourRaw : 21;
+  const localHourRaw = Number(process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"] ?? 3);
+  const localHour = Number.isInteger(localHourRaw) && localHourRaw >= 0 && localHourRaw <= 23 ? localHourRaw : 3;
   try {
     return localHourToUtcHour(timeZone, localHour);
   } catch {
@@ -52,6 +50,7 @@ export type CreativeFailureKind = "creative_viability" | "watchability";
 export type WatchabilityRetryState = "retrying" | "exhausted";
 export interface GrowthSchedulerHandle { status(): JobStatus[]; runNow(id: string): Promise<void>; stop(): void }
 export interface GrowthSchedulerOptions {
+  now?: () => number;
   /** Test/embedding override only; production defaults to a three-second observation cadence. */
   pollMs?: number;
   /** Test/embedding override only; production allows long image/render stages up to 90 minutes. */
@@ -177,7 +176,11 @@ export function creativeFailure(view: RunView | null): boolean {
 }
 
 function mostRecentProduction(service: VidGenService): number | undefined {
-  return service.listRuns().filter((r) => r.kind === "production").map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
+  return service.listRuns().filter((r) => r.kind === "production" && productionReady(r)).map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
+}
+
+export function productionReady(view: RunView | null): boolean {
+  return !!view && !view.failures.length && (view.status === "completed" || (view.status === "waiting" && view.waiting.some(w => ["editor_delivery", "editor_review"].includes(w.node_id))));
 }
 
 export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedulerOptions = {}): GrowthSchedulerHandle {
@@ -190,12 +193,30 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const editorHandoffReal = service.capabilities().some((s) => s.id === "editor_handoff" && s.real);
   const editorWatchMinutes = Math.max(5, Number(process.env["SCHEDULE_EDITOR_WATCH_MINUTES"] ?? 20) || 20);
   const lastProduction = mostRecentProduction(service);
-  const scheduler = new Scheduler({ jobs: [
+  const timeZone = process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin";
+  const requestedHour = Number(process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"] ?? 3);
+  const localHour = Number.isInteger(requestedHour) && requestedHour >= 0 && requestedHour <= 23 ? requestedHour : 3;
+  const now = opts.now ?? Date.now;
+  const uploadRetries = new Map<string,number>();
+  const scheduler = new Scheduler({ now, jobs: [
     {
       id: "produce", everyHours: produceHours > 0 ? produceHours : 24, enabled: Number.isFinite(produceHours) && produceHours > 0,
-      description: `rank packages and publish the first creative winner (up to ${maxCandidateAttempts} topic attempts), targeting 9pm ${process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin"} (currently ${targetHourUtc}:00 UTC)`, targetHourUtc,
+      description: `prepare daily draft at ${localHour}:00 ${timeZone} (currently ${targetHourUtc}:00 UTC); Drive delivery at 05:00 Europe/Berlin`,
+      ...(process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim() ? { targetHourUtc } : { localSchedule: { hour: localHour, timeZone } }),
+      retryMinutes: 15,
       ...(lastProduction !== undefined ? { seedLastRun: lastProduction } : {}),
       async run() {
+        const today = localParts(now()).date;
+        const existing = service.listRuns().filter(r => r.kind === "production" && localParts(Date.parse(r.created_at)).date === today).sort((a,b) => b.created_at.localeCompare(a.created_at));
+        if (existing.some(productionReady)) return;
+        const active = service.listRuns().find(r => r.kind === "production" && r.status === "running")
+          ?? existing.find(r => r.status === "blocked" && !creativeFailure(r));
+        if (active) {
+          if (active.status === "blocked") await service.retry(active.run_id);
+          const recovered = await waitForTerminal(service, active.run_id, opts);
+          if (productionReady(recovered)) return;
+          throw new Error(`Daily run ${active.run_id} has not reached editor delivery: ${recovered?.failures.map(f => f.error).join("; ") || recovered?.status}`);
+        }
         const discovered = await service.discoverTopics();
         const candidates = ((discovered.candidates as { candidates?: DiscoveryCandidate[] })?.candidates ?? [])
           .filter(viableCandidate)
@@ -213,7 +234,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
             ...(seed ? { packageSeed: seed } : {}),
           });
           const final = await waitForTerminal(service, runId, opts);
-          if (final?.status === "completed") {
+          if (productionReady(final)) {
             console.log(`[growth-scheduler] candidate ${i + 1} cleared creative + technical gates; daily production complete`);
             return;
           }
@@ -245,6 +266,22 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           throw new Error(`candidate ${i + 1} stopped for a non-creative reason; refusing to switch topic: ${final?.failures.map((f) => `${f.node_id}: ${f.error}`).join("; ") || final?.status || "unknown"}`);
         }
         throw new Error(`all ${candidates.length} viable ranked candidates failed the creative bar; no episode published this cycle`);
+      },
+    },
+    {
+      id: "editor_delivery", everyHours: 1 / 60, enabled: editorHandoffReal,
+      description: "release prepared drafts to Google Drive daily at 05:00 Europe/Berlin; catch up late drafts every minute",
+      async run() {
+        if (localParts(now()).hour < 5) return;
+        const pending = service.listRuns().filter(r => r.status === "waiting" && r.waiting.some(w => w.node_id === "editor_delivery"));
+        for (const run of pending) {
+          await service.decide(run.run_id, "editor_delivery", { result: "approve" });
+        }
+        for(const run of service.listRuns().filter(r => r.status === "blocked" && r.failures.length > 0 && r.failures.every(f => f.node_id === "editor_package"))) {
+          if(now() - (uploadRetries.get(run.run_id) ?? 0) < 15*60_000) continue;
+          uploadRetries.set(run.run_id,now());
+          await service.retry(run.run_id);
+        }
       },
     },
     { id: "measure", everyHours: Number.isFinite(measureHours) && measureHours > 0 ? measureHours : 24, enabled: analyticsReal && Number.isFinite(measureHours) && measureHours > 0, description: "measure public episodes and refresh retention/editorial evidence", async run() {

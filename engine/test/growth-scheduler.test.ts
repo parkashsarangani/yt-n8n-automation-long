@@ -23,7 +23,7 @@ function candidate(overall = 0.8): DiscoveryCandidate {
   };
 }
 
-test("produce targets 9pm Europe/Berlin by resolved UTC hour, not a hardcoded US-timed default", async () => {
+test("produce prepares before daily 05:00 Berlin delivery", async () => {
   const service = { listRuns: () => [], capabilities: () => [] } as any;
   const previous = {
     hourUtc: process.env["SCHEDULE_PRODUCE_HOUR_UTC"],
@@ -40,7 +40,7 @@ test("produce targets 9pm Europe/Berlin by resolved UTC hour, not a hardcoded US
       // Berlin is UTC+1 or UTC+2 depending on the date this test happens to
       // run; either way 9pm local is 19:00 or 20:00 UTC, never the old fixed
       // "always 19:00" default that drifted an hour every DST change.
-      assert.match(produce.description, /targeting 9pm Europe\/Berlin \(currently (19|20):00 UTC\)/);
+      assert.match(produce.description, /prepare daily draft at 3:00 Europe\/Berlin \(currently (1|2):00 UTC\); Drive delivery at 05:00 Europe\/Berlin/);
     } finally { scheduler.stop(); }
 
     // An explicit SCHEDULE_PRODUCE_HOUR_UTC still wins as a literal override.

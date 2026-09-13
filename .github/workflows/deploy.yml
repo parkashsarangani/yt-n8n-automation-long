@@ -65,6 +65,10 @@ jobs:
           DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
           DRIVE_ROOT_FOLDER_ID: ${{ vars.DRIVE_ROOT_FOLDER_ID || '' }}
           SCHEDULE_EDITOR_WATCH_MINUTES: ${{ vars.SCHEDULE_EDITOR_WATCH_MINUTES || '20' }}
+          SCHEDULE_PRODUCE_HOURS: "24"
+          SCHEDULE_PRODUCE_TIMEZONE: Europe/Berlin
+          SCHEDULE_PRODUCE_LOCAL_HOUR: "3"
+          SCHEDULE_PRODUCE_HOUR_UTC: ""
         run: |
           set -euo pipefail
 

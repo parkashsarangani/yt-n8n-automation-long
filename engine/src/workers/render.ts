@@ -75,7 +75,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "18",
+    version: opts.version ?? "19",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -110,6 +110,8 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       }
 
       const blobs: BlobRef[] = [];
+      if (renderer.id === "long-compose" && !result.captions_srt?.trim()) throw new Error("render: compositor returned no captions");
+      if (result.captions_srt) blobs.push(await ctx.blobs.put(new TextEncoder().encode(result.captions_srt), { role: "captions", media_type: "application/x-subrip" }));
       if(result.footage_thumbnail){
         blobs.push(await ctx.blobs.put(result.footage_thumbnail.bytes,{role:"episode_background",media_type:result.footage_thumbnail.media_type}));
       }

@@ -41,6 +41,7 @@ export function driveTokenFactory(opts: DriveAuthOptions): TokenFactory {
 
     async function refresh(): Promise<string> {
         const res = await fetchImpl(TOKEN_URL, {
+            signal: AbortSignal.timeout(30_000),
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({

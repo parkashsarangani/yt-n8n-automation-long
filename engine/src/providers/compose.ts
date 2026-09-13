@@ -17,6 +17,7 @@ export interface ComposeRendererOptions {
 }
 
 interface ComposeStatus {
+  captions_srt?: string;
   footage_thumbnail_base64?: string;
   footage_credits?: import("../provider.ts").RenderResult["footage_credits"];
   status: "processing" | "done" | "failed" | "not_found";
@@ -140,6 +141,7 @@ export class ComposeRenderer implements MediaRenderer {
       const video = await this.download(status.output_path);
       return {
         video,
+        ...(status.captions_srt ? { captions_srt: status.captions_srt } : {}),
         media_type: "video/mp4",
         ...(status.duration_sec !== undefined ? { duration_sec: status.duration_sec } : {}),
         ...(status.render_time_sec !== undefined ? { render_time_sec: status.render_time_sec } : {}),

@@ -9,6 +9,7 @@
  * touch. Only the video comes back changed.
  */
 import type { Artifact } from "../artifact.ts";
+import { createHash } from "node:crypto";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface EditorPackageWorkerOptions {
@@ -94,7 +95,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
   return {
     name: "editor_package",
     kind: "worker",
-    version: opts.version ?? "2",
+    version: opts.version ?? "3",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -142,21 +143,32 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
       });
 
       // Folder named by date so the editor can find it without a run id.
-      const folderName = new Date().toISOString().slice(0, 10);
-      const folderId = await drive.createFolder(folderName, rootFolderId);
+      const folderName = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      // Stable per-render identity lets a failed multipart upload resume without
+      // creating a second episode folder or duplicating completed files.
+      const deliveryName = `${folderName}-${createHash("sha256").update(render.video_uri).digest("hex").slice(0, 12)}`;
+      const priorFolder = (await drive.listFiles(rootFolderId)).find(f => f.name === deliveryName && f.mimeType === "application/vnd.google-apps.folder");
+      const folderId = priorFolder?.id ?? await drive.createFolder(deliveryName, rootFolderId);
+      const uploaded = new Set((await drive.listFiles(folderId)).map(f => f.name));
+      const upload = async (name: string, bytes: Uint8Array, mime: string) => {
+        if (!uploaded.has(name)) await drive.uploadFile(folderId, name, bytes, mime);
+      };
 
       const videoBytes = await ctx.blobs.get(render.video_uri);
-      await drive.uploadFile(folderId, "draft.mp4", videoBytes, render.media_type || "video/mp4");
+      await upload("draft.mp4", videoBytes, render.media_type || "video/mp4");
+      const captions = inputs["render"]!.blobs?.find(b => b.role === "captions");
+      if (captions) await upload("captions.srt", await ctx.blobs.get(captions.uri), "application/x-subrip");
 
       const thumbnailBytes = await ctx.blobs.get(thumbnail.thumbnail_uri);
       const thumbnailExt = thumbnail.media_type === "image/jpeg" ? "jpg" : "png";
-      await drive.uploadFile(folderId, `thumbnail.${thumbnailExt}`, thumbnailBytes, thumbnail.media_type);
+      await upload(`thumbnail.${thumbnailExt}`, thumbnailBytes, thumbnail.media_type);
 
       const packageMd = [
         `# Episode draft — ${folderName}`,
         "",
         "Export your finished cut as `final.mp4` and upload it into this same folder when done.",
         "Swap out any visual that doesn't fit; general polish is welcome. This is a light touch-up pass, not a rebuild.",
+        "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
         "The title, thumbnail and description below are already final -- reference only, not yours to edit.",
         "",
         "## Title, thumbnail and description (for context)",
@@ -174,6 +186,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
         ...beats.flatMap((b) => [
           `**${formatClock(b.start_sec)}–${formatClock(b.start_sec + b.duration_sec)}** (scene ${b.scene_index}) — ${escapeMd(b.point)}`,
           `- Current visual: ${escapeMd(b.visual_summary)}`,
+          `- Narration: ${escapeMd(scenes.find(s => s.scene_index === b.scene_index)!.narration)}`,
           ...(b.search_terms ? [`- Suggested search terms: ${b.search_terms.join(", ")}`] : []),
           "",
         ]),
@@ -186,10 +199,10 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
         "- Creator/attribution text:",
         "",
       ].join("\n");
-      await drive.uploadFile(folderId, "package.md", new TextEncoder().encode(packageMd), "text/markdown");
+      await upload("package.md", new TextEncoder().encode(packageMd), "text/markdown");
 
       const creditsJson = JSON.stringify({ existing_footage_credits: credits, new_assets_used: [] }, null, 2);
-      await drive.uploadFile(folderId, "credits.json", new TextEncoder().encode(creditsJson), "application/json");
+      await upload("credits.json", new TextEncoder().encode(creditsJson), "application/json");
 
       return {
         payload: {

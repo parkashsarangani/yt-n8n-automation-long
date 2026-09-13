@@ -8,7 +8,7 @@ const ffmpeg = require("fluent-ffmpeg");
 const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { buildStage, buildTitleCard } = require("./conversation-stage");
+const { buildStage, buildTitleCard, buildSrt } = require("./conversation-stage");
 const { channelFrame } = require("./channel-frame");
 const {visualCard}=require("./visual-cards");
 const {loadLibrary,planFootage}=require("./footage-library");
@@ -141,6 +141,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     const stageScenes=ordered.map(scene=>({...scene,footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
+    if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations));
     if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
@@ -205,7 +206,8 @@ app.post("/compose", (req, res) => {
   const started = Date.now();
   let footageCredits=[];
   let footageThumbnail;
-  buildAudioFirstVideo(req.body && req.body.data, outputPath, {...(req.body||{}),onFootage:(credits,thumbnail)=>{footageCredits=credits;footageThumbnail=thumbnail;}})
+  let captionsSrt;
+  buildAudioFirstVideo(req.body && req.body.data, outputPath, {...(req.body||{}),onCaptions:srt=>{captionsSrt=srt;},onFootage:(credits,thumbnail)=>{footageCredits=credits;footageThumbnail=thumbnail;}})
     .then((duration) => jobs.set(jobId, {
       status: "done",
       success: true,
@@ -213,6 +215,7 @@ app.post("/compose", (req, res) => {
       duration_sec: duration,
       render_time_sec: (Date.now() - started) / 1000,
       footage_credits: footageCredits,
+      captions_srt: captionsSrt,
       ...(footageThumbnail?{footage_thumbnail_base64:footageThumbnail}:{}),
       finishedAt: Date.now(),
     }))
