@@ -1087,10 +1087,14 @@ export class VidGenService {
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
             `needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
-        // Persist the terminal failure from the final in-memory retry round.
-        // Without this, a restart can reconstruct only the first failed
-        // watchability attempt and the scheduler may retry an exhausted run
-        // forever instead of moving to the next topic candidate.
+        // Only the FIRST watchability_release failure of a driveUnattended
+        // cycle ever gets a persisted run-log record -- every later round's
+        // failure lives only in this process's in-memory RunState. Without
+        // this, a restart's reloadRuns() reconstructs "attempt 1" forever,
+        // so watchabilityRetryState() reports "retrying" for an already-
+        // exhausted run and a scheduler recovery pass retries it forever
+        // instead of recognizing the terminal creative failure. Persist the
+        // real final state so it survives a restart.
         const state = this.runs.get(runId);
         const graph = state ? this.resolveRunGraph(state.graph) : this.graph;
         for (const failure of view.failures) {
