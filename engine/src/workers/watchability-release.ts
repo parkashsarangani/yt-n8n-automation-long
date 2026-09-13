@@ -163,11 +163,23 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const durationSec = targetDuration(inputs["intent"]?.payload);
       const result = assessWatchability(inputs["report"]?.payload, durationSec);
-      if (!result.passed) {
+      // A human editor now reviews every draft before it publishes (editor_review),
+      // so a script that still misses the bar after the full repair budget is a
+      // handoff to that reviewer, not a reason to abandon the topic outright.
+      // A genuinely broken premise (abandonRecommended) still blocks -- that's a
+      // different signal than "the script needs another pass."
+      const autoAccept = !result.passed && !result.abandonRecommended && ctx.attemptNumber >= MAX_ATTEMPTS_BEFORE_ACCEPTING;
+      if (!result.passed && !autoAccept) {
         const disposition = result.abandonRecommended ? `ABANDON_TOPIC: ${result.abandonReason}` : "REVISE_SCRIPT";
         throw new Error(
           `watchability release blocked (${disposition}; attempt ${ctx.attemptNumber}; profile ${result.profile.mode}` +
           `${durationSec ? ` ${durationSec}s` : ""}): ${result.failures.join("; ")}`,
+        );
+      }
+      if (autoAccept) {
+        ctx.logger.warn(
+          `[watchability_release] accepting attempt ${ctx.attemptNumber} below the watchability bar after ` +
+          `${MAX_ATTEMPTS_BEFORE_ACCEPTING} attempts -- editor_review is the remaining quality gate: ${result.failures.join("; ")}`,
         );
       }
       const packageErrors = validateGrowthPackageSelection(inputs["package"]?.payload);
