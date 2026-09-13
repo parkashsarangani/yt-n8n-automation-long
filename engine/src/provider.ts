@@ -117,6 +117,8 @@ export interface RenderRequest {
 }
 
 export interface RenderResult {
+  footage_thumbnail?: {bytes:Uint8Array;media_type:string};
+  footage_credits?: Array<{id:string;creator:string;source_url:string;license_url:string;credit:string;sha256:string}>;
   video: Uint8Array;
   media_type: string;
   thumbnail?: { bytes: Uint8Array; media_type: string };

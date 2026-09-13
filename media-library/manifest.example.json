@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "assets": [{
+    "id": "your-phone-shot",
+    "file": "phone-shot.mp4",
+    "kind": "video",
+    "tags": ["phone", "invitation", "message", "reply"],
+    "start_sec": 0,
+    "reviewed": false,
+    "creator": "Replace with actual creator",
+    "source_url": "https://example.com/actual-source",
+    "license_url": "https://example.com/actual-license",
+    "credit": "Replace with required attribution",
+    "sha256": "REPLACE_WITH_FILE_SHA256"
+  }]
+}

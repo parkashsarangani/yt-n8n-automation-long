@@ -17,6 +17,8 @@ export interface ComposeRendererOptions {
 }
 
 interface ComposeStatus {
+  footage_thumbnail_base64?: string;
+  footage_credits?: import("../provider.ts").RenderResult["footage_credits"];
   status: "processing" | "done" | "failed" | "not_found";
   success?: boolean;
   output_path?: string;
@@ -142,6 +144,8 @@ export class ComposeRenderer implements MediaRenderer {
         ...(status.duration_sec !== undefined ? { duration_sec: status.duration_sec } : {}),
         ...(status.render_time_sec !== undefined ? { render_time_sec: status.render_time_sec } : {}),
         degraded_scenes: 0,
+        ...(status.footage_credits?.length ? {footage_credits:status.footage_credits} : {}),
+        ...(status.footage_thumbnail_base64 ? {footage_thumbnail:{bytes:fromBase64(status.footage_thumbnail_base64),media_type:"image/png"}} : {}),
         usage: { input_tokens: 0, output_tokens: 0, units: status.render_time_sec ?? null, cost_usd: 0, provider: "long-compose", model: "ffmpeg-audio-first" },
       };
     }

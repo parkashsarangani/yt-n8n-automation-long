@@ -75,7 +75,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "17",
+    version: opts.version ?? "18",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -110,6 +110,12 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       }
 
       const blobs: BlobRef[] = [];
+      if(result.footage_thumbnail){
+        blobs.push(await ctx.blobs.put(result.footage_thumbnail.bytes,{role:"episode_background",media_type:result.footage_thumbnail.media_type}));
+      }
+      if(result.footage_credits?.length){
+        blobs.push(await ctx.blobs.put(new TextEncoder().encode(JSON.stringify(result.footage_credits)),{role:"footage_credits",media_type:"application/json"}));
+      }
       const video = await ctx.blobs.put(result.video, { role: "video", media_type: result.media_type });
       blobs.push(video);
       let thumbRef: BlobRef | null = null;

@@ -117,17 +117,18 @@ function buildStage(scenes, durations, lessonTitle) {
       const cues=require("./visual-cards").cardCues(scene,duration);
       // Establish context while waiting for the first quoted words; do not
       // leave a blank opening or spoil a later response ahead of narration.
-      if(cues[0]?.start>0)
-        add(offset,offset+cues[0].start,"Heading","{\\an7\\pos(210,230)\\fs42\\fad(120,0)}"+safe(card.title));
+      const lead=scene.footage_duration||0;
+      if(cues[0]?.start>lead)
+        add(offset+lead,offset+cues[0].start,"Heading","{\\an7\\pos(210,230)\\fs42\\fad(120,0)}"+safe(card.title));
       for(const cue of cues)
-        add(offset+cue.start,offset+cue.end,"Heading",cardText(cue.card,safe));
+        if(cue.end>Math.max(cue.start,lead))add(offset+Math.max(cue.start,lead),offset+cue.end,"Heading",cardText(cue.card,safe));
     }
     const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
     const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").trim();
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
     // A brief contextual label only for legacy scenes without a visual.
     // Card scenes already carry their own meaning; avoid a second headline.
-    if(!card && !scene.is_outro && detail)
+    if(!card && !scene.is_outro && detail && !scene.footage_duration)
       add(offset, offset + Math.min(duration,2.5), "Heading", "{\\an7\\pos(150,170)\\fad(100,150)}" + safe(label));
     for(const cue of captionCues(scene,duration)) {
       // Explicit line breaks avoid single-line overflow at mobile preview sizes.
