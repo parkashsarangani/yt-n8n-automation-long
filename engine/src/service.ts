@@ -1087,6 +1087,29 @@ export class VidGenService {
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
             `needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
+        // Persist the terminal failure from the final in-memory retry round.
+        // Without this, a restart can reconstruct only the first failed
+        // watchability attempt and the scheduler may retry an exhausted run
+        // forever instead of moving to the next topic candidate.
+        const state = this.runs.get(runId);
+        const graph = state ? this.resolveRunGraph(state.graph) : this.graph;
+        for (const failure of view.failures) {
+          await this.runLog.record({
+            run_id: runId,
+            graph_id: `${graph.graph_id}@${graph.version}`,
+            node_id: failure.node_id,
+            transformation: failure.node_id,
+            transformation_version: this.transformations.get(failure.node_id)?.version ?? "1",
+            inputs: [],
+            output: null,
+            status: "failed",
+            attempt: 1,
+            max_attempts: 1,
+            started_at: new Date().toISOString(),
+            duration_ms: 0,
+            error: failure.error,
+          });
+        }
         return;
       }
 

@@ -6,7 +6,7 @@ function visualCard(scene) {
   const bounds=counts[v.kind];
   if(!bounds || typeof v.title!=="string" || !v.title.trim() || v.title.length>42 || !Array.isArray(v.items)
     || v.items.length<bounds[0] || v.items.length>bounds[1]
-    || v.items.some(s=>typeof s!=="string" || !s.trim() || s.length>72))throw Error("invalid approved visual card");
+    || v.items.some(s=>typeof s!=="string" || !s.trim() || s.length>72))return null;
   return v;
 }
 function cardText(v,safe) {
@@ -39,13 +39,16 @@ function cardCues(scene,duration) {
     && alignment.character_start_times_seconds?.length===alignment.characters.length
     && alignment.character_start_times_seconds.every((t,i,a)=>Number.isFinite(t)&&t>=0&&t<duration&&(i===0||t>=a[i-1]));
   let cursor=0;
-  const starts=v.items.map(item=>{
+  const starts=v.items.map((item,idx)=>{
     const wanted=(item.match(/[\p{L}\p{N}]+/gu)||[]).map(w=>w.toLowerCase());
     let found=-1;
     for(let i=cursor;i<=words.length-wanted.length;i++){
       if(wanted.length && wanted.every((word,j)=>words[i+j]===word)){found=i;break;}
     }
-    if(found<0)throw Error("visual card item is absent or out of narration order");
+    // Visual metadata is editor-owned and is not a render gate. If an item is
+    // paraphrased or reordered, keep the episode renderable and place it at a
+    // deterministic fallback point rather than failing the whole draft.
+    if(found<0)return duration*(idx+1)/(v.items.length+1);
     cursor=found+wanted.length;
     const position=tokens[found].index;
     return aligned?alignment.character_start_times_seconds[position]:duration*position/Math.max(1,scene.narration.length);

@@ -36,6 +36,10 @@ test("driveUnattended's own retry loop never calls the public retry() -- no expo
   const state = { finished: true, error: null as string | null, graph: "graph" };
   const service = Object.create(VidGenService.prototype);
   service.runs = new Map([["run-test", state]]);
+  service.resolveRunGraph = () => ({ graph_id: "illustrated_story", version: "1" });
+  service.transformations = new Map();
+  const recorded: unknown[] = [];
+  service.runLog = { record: async (r: unknown) => { recorded.push(r); } };
   service.getRun = () => ({
     status: "blocked",
     failures: [{ node_id: "draft_script", error: "payload does not satisfy some_schema@1.0.0: /attempt must be <= 6" }],
@@ -47,4 +51,7 @@ test("driveUnattended's own retry loop never calls the public retry() -- no expo
 
   const expectedRounds = MAX_ATTEMPTS_BEFORE_ACCEPTING - 1;
   assert.deepEqual(calls, Array(expectedRounds).fill("resumeFailedRun"));
+  assert.equal(recorded.length, 1);
+  assert.equal((recorded[0] as { node_id: string }).node_id, "draft_script");
+  assert.equal((recorded[0] as { status: string }).status, "failed");
 });
