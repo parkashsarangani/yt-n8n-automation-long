@@ -114,7 +114,8 @@ function buildStage(scenes, durations, lessonTitle) {
     const duration=durations[i];
     const card=visualCard(scene);
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    if(card)add(offset,offset+duration,"Heading",cardText(card,safe));
+    if(card)for(const cue of require("./visual-cards").cardCues(scene,duration))
+      add(offset+cue.start,offset+cue.end,"Heading",cardText(cue.card,safe));
     const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
     const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").trim();
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");

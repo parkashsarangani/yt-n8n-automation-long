@@ -1,7 +1,7 @@
 {
   "name": "narration_script_writer",
   "kind": "agent",
-  "version": "13",
+  "version": "14",
   "revision_input": "watchability",
   "consumes": [
     {

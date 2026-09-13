@@ -213,11 +213,10 @@ async function artworkHasNoText(input,dir) {
   try {
     const image=path.join(dir,"ocr.png");
     await execFileAsync(ffmpegPath,["-y","-i",input,"-vf","scale=1600:-1","-frames:v","1",image]);
-    const result=await execFileAsync("tesseract",[image,"stdout","--psm","11"],{timeout:20000,env:{...process.env,OMP_THREAD_LIMIT:"1"}});
+    const result=await execFileAsync("tesseract",[image,"stdout","-l","eng","--psm","11"],{timeout:20000,env:{...process.env,OMP_THREAD_LIMIT:"1"}});
     return !/[\p{L}\p{N}]{2,}/u.test(result.stdout);
   } catch(error) {
-    console.warn("Artwork OCR unavailable; using clean background",String(error));
-    return false;
+    throw new Error("Artwork OCR screening failed; repair the OCR service before retrying", {cause:error});
   }
 }
 

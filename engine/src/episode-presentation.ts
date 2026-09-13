@@ -14,7 +14,15 @@ export function presentationErrors(payload: unknown): string[] {
     if(!v){errors.push("substantive scene requires an approved visual card");continue;}
     const count=v.items?.length;
     if((v.kind==="quote" && count!==1)||(v.kind==="comparison" && count!==2)||(v.kind==="steps" && !(count>=2 && count<=3)))errors.push("visual card item count does not match kind");
-    if(v.kind==="quote" && v.items?.some(item=>!normalize(scene.narration||"").includes(normalize(item))))errors.push("visual quote must occur in the scene narration");
+    if(v.items?.some(item=>!normalize(item) || !(" "+normalize(scene.narration||"")+" ").includes(" "+normalize(item)+" ")))errors.push("visual card items must occur in the scene narration");
+    let cursor=0;
+    const spoken=" "+normalize(scene.narration||"")+" ";
+    for(const item of v.items||[]){
+      const needle=" "+normalize(item)+" ";
+      const found=spoken.indexOf(needle,cursor);
+      if(found<0){errors.push("visual card items must follow narration order");break;}
+      cursor=found+needle.length-1;
+    }
   }
   const payoff=scenes.findIndex(s=>/^\[payoff\]/i.test(s.point||""));
   if(payoff>=0){
