@@ -12,11 +12,20 @@ function visualCard(scene) {
 function cardText(v,safe) {
   const wrap=s=>{
     const lines=[];let line="";
-    for(const word of s.split(/\s+/).flatMap(w=>w.match(/.{1,36}/gu)||[])){if(line && line.length+word.length+1>36){lines.push(line);line="";}line+=(line?" ":"")+word;}
+    for(const word of s.split(/\s+/).flatMap(w=>w.match(/.{1,26}/gu)||[])){if(line && line.length+word.length+1>26){lines.push(line);line="";}line+=(line?" ":"")+word;}
     if(line)lines.push(line);return lines.map(safe).join("\\N");
   };
-  return "{\\an8\\pos(960,225)\\fs40\\c&H6AB8E8&}"+wrap(v.title)+"\\N\\N{\\fs42\\c&HDDEBF3&}"
-    +v.items.map((s,i)=>wrap((v.kind==="steps"?`${(v.stepIndex||0)+i+1}. `:v.kind==="comparison"?`${i===0?"A":"B"}: `:"")+s)).join("\\N\\N");
+  const entry="{\\an7\\pos(210,230)\\fad(120,0)}";
+  if(v.kind==="quote")
+    return entry+"{\\fs62\\c&HDDEBF3&}"+wrap(v.items[0]);
+  if(v.kind==="steps")
+    return entry+"{\\fs30\\c&H6AB8E8&}"+safe(v.title)+"\\N\\N{\\fs58\\c&HDDEBF3&}"
+      +wrap(`${(v.stepIndex||0)+1}. ${v.items[0]}`);
+  // Keep the first response visible but subdued when the alternative arrives.
+  // These are excerpts, not invented messages or fake screenshots.
+  return entry+v.items.map((s,i)=>
+    (i===0 && v.items.length>1?"{\\fs48\\c&HAAAAAA&}":"{\\fs54\\c&HDDEBF3&}")+wrap(s)
+  ).join("\\N\\N");
 }
 // Reveal approved items when their words occur, using character alignment
 // where available and proportional narration timing for legacy callers.

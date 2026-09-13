@@ -9,7 +9,9 @@ test("ComposeRenderer submits audio-only scenes and returns the completed MP4", 
     requests.push({ url, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
     if (url.endsWith("/compose")) return new Response(JSON.stringify({ job_id: "job-1" }), { status: 200 });
     if (url.endsWith("/compose-status/job-1")) {
-      return new Response(JSON.stringify({ status: "done", success: true, output_path: "/outputs/final.mp4", duration_sec: 12 }), { status: 200 });
+      return new Response(JSON.stringify({ status: "done", success: true, output_path: "/outputs/final.mp4", duration_sec: 12,
+        footage_credits:[{id:"clip",creator:"Creator",credit:"Credit",source_url:"https://example.com/source",license_url:"https://example.com/license",sha256:"a".repeat(64)}],
+        footage_thumbnail_base64:"AQID" }), { status: 200 });
     }
     if (url.endsWith("/outputs/final.mp4")) return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
     return new Response("not found", { status: 404 });
@@ -23,6 +25,8 @@ test("ComposeRenderer submits audio-only scenes and returns the completed MP4", 
 
   assert.equal(jobId, "job-1");
   assert.equal(result.media_type, "video/mp4");
+  assert.equal(result.footage_credits?.[0]?.id,"clip");
+  assert.deepEqual([...result.footage_thumbnail!.bytes],[1,2,3]);
   assert.deepEqual([...result.video], [1, 2, 3]);
   const submitted = requests[0]!.body as { data: Array<Record<string, unknown>> };
   assert.deepEqual(Object.keys(submitted.data[0]!).sort(), ["audio", "scene_index"]);

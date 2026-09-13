@@ -2,6 +2,7 @@
 const palette = { charcoal: "0x101217", teal: "0x195C60", ivory: "0xF3EBDD", amber: "0xE8B86A" };
 function channelFrame(width, height, thumbnail = false) {
   const box = (x, y, w, h, color) => `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=fill`;
+  if(!thumbnail)return box(Math.round(width*0.075),Math.round(height*0.72),Math.round(width*0.85),2,palette.teal);
   return [
     box(0, 0, width, Math.round(height * (thumbnail ? 0.04 : 0.135)), palette.charcoal),
     ...(thumbnail ? [box(0, 0, width / 2, height, palette.charcoal)] : []),

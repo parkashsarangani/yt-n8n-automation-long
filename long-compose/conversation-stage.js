@@ -108,19 +108,28 @@ function buildStage(scenes, durations, lessonTitle) {
   script=script.replace(/Style: Title,[^\n]+/, "Style: Caption,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,160,160,110,1\nStyle: Heading,DejaVu Sans,32,&H006AB8E8,&H006AB8E8,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,8,160,160,65,1");
   const add=(start,end,style,text)=>{script+="Dialogue: 0,"+clock(start)+","+clock(end)+","+style+",,0,0,0,,"+text+"\n";};
   const total=durations.reduce((a,b)=>a+b,0);
-  if(lessonTitle)add(0,Math.min(total,8),"Heading",safe(String(lessonTitle).slice(0,90)));
   let offset=0;
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
     const card=visualCard(scene);
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    if(card)for(const cue of require("./visual-cards").cardCues(scene,duration))
-      add(offset+cue.start,offset+cue.end,"Heading",cardText(cue.card,safe));
+    if(card){
+      const cues=require("./visual-cards").cardCues(scene,duration);
+      // Establish context while waiting for the first quoted words; do not
+      // leave a blank opening or spoil a later response ahead of narration.
+      const lead=scene.footage_duration||0;
+      if(cues[0]?.start>lead)
+        add(offset+lead,offset+cues[0].start,"Heading","{\\an7\\pos(210,230)\\fs42\\fad(120,0)}"+safe(card.title));
+      for(const cue of cues)
+        if(cue.end>Math.max(cue.start,lead))add(offset+Math.max(cue.start,lead),offset+cue.end,"Heading",cardText(cue.card,safe));
+    }
     const role = /^\[([^\]]+)\]/.exec(scene.point || "")?.[1];
     const detail=String(scene.point||"").replace(/^\[[^\]]+\]\s*/,"").trim();
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
-    add(offset, offset + duration, "Heading", "{\\an7\\pos(120,32)}" + safe(label));
-    add(offset, offset + duration, "Heading", "{\\an9\\pos(1800,32)}" + `${i + 1} / ${scenes.length}`);
+    // A brief contextual label only for legacy scenes without a visual.
+    // Card scenes already carry their own meaning; avoid a second headline.
+    if(!card && !scene.is_outro && detail && !scene.footage_duration)
+      add(offset, offset + Math.min(duration,2.5), "Heading", "{\\an7\\pos(150,170)\\fad(100,150)}" + safe(label));
     for(const cue of captionCues(scene,duration)) {
       // Explicit line breaks avoid single-line overflow at mobile preview sizes.
       const lines=captionLines(cue.text);

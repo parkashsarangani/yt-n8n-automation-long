@@ -95,9 +95,13 @@ services:
       OUTPUT_DIR: /app/outputs
       TOPIC_HISTORY_PATH: /app/data/topic_history.json
       COMPOSE_CONCURRENCY: ${COMPOSE_CONCURRENCY:-3}
+      # Enable hybrid after installing the reviewed media library.
+      FOOTAGE_MODE: ${FOOTAGE_MODE:-graphics}
+      FOOTAGE_LIBRARY: /app/footage
     volumes:
       - long_outputs:/app/outputs
       - long_data:/app/data
+      - ./media-library:/app/footage:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 20s

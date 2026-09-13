@@ -11,6 +11,7 @@ const { promisify } = require("util");
 const { buildStage, buildTitleCard } = require("./conversation-stage");
 const { channelFrame } = require("./channel-frame");
 const {visualCard}=require("./visual-cards");
+const {loadLibrary,planFootage}=require("./footage-library");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -85,6 +86,12 @@ function concatPath(file) {
 
 async function buildAudioFirstVideo(data, outputPath, options = {}) {
   if (!Array.isArray(data) || data.length === 0) throw new Error("compose requires at least one audio scene");
+  const mode=process.env.FOOTAGE_MODE||"graphics";
+  if(!["graphics","hybrid"].includes(mode))throw Error("FOOTAGE_MODE must be graphics or hybrid");
+  if(mode==="hybrid"){
+    if(!process.env.FOOTAGE_LIBRARY)throw Error("Hybrid footage requires FOOTAGE_LIBRARY and a reviewed manifest.json");
+    await loadLibrary(process.env.FOOTAGE_LIBRARY);
+  }
   const ordered = [...data].sort((a, b) => Number(a.scene_index) - Number(b.scene_index));
   const seen = new Set();
   const dir = tmpDir();
@@ -126,24 +133,42 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       ? `loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=${values[0]}:measured_TP=${values[1]}:measured_LRA=${values[2]}:measured_thresh=${values[3]}:offset=${values[4]}:linear=true`
       : "anull";
 
+    const shots=mode==="hybrid"?await planFootage(ordered,durations,process.env.FOOTAGE_LIBRARY):[];
+    for(const shot of shots){
+      if(shot.kind==="video" && await probeDuration(shot.file)<shot.start_sec+shot.duration)
+        throw Error("Reviewed footage is shorter than its selected shot");
+    }
+    const stageScenes=ordered.map(scene=>({...scene,footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
-    if (hasStage) await fsp.writeFile(stageFile, buildStage(ordered, durations, options.lesson_title));
+    if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
     const safeArtwork=options.image_base64 && await artworkHasNoText(background,dir);
     let elapsed=0;
     const cardMasks=ordered.map((scene,i)=>{
-      const start=elapsed;elapsed+=durations[i];
+      const start=elapsed+(stageScenes[i].footage_duration||0);elapsed+=durations[i];
       return visualCard(scene)?`,drawbox=x=0:y=180:w=iw:h=630:color=0x101217:t=fill:enable='between(t,${start},${elapsed})'`:"";
     }).join("");
 
+    const visualFilters=`scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${cardMasks}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`;
+    const shotInputs=shots.flatMap(s=>s.kind==="photo"
+      ?["-loop","1","-framerate","30","-t",String(s.duration),"-i",s.file]
+      :["-ss",String(s.start_sec),"-t",String(s.duration),"-i",s.file]);
+    const shotFilters=[];
+    shots.forEach((shot,i)=>{
+      // Fit the complete source frame above the caption band; never crop faces.
+      shotFilters.push(`[${i+2}:v]fps=30,scale=1920:810:force_original_aspect_ratio=decrease,pad=1920:810:(ow-iw)/2:(oh-ih)/2:color=0x101217,setsar=1,setpts=PTS-STARTPTS+${shot.start}/TB[shot${i}]`);
+      shotFilters.push(`[${i?"base"+(i-1):"0:v"}][shot${i}]overlay=x=0:y=0:eof_action=pass:repeatlast=0:enable='gte(t,${shot.start})*lt(t,${shot.start+shot.duration})'[base${i}]`);
+    });
+    if(shots.length)shotFilters.push(`[base${shots.length-1}]${visualFilters}[video]`);
     await execFileAsync(ffmpegPath, [
       "-y",
       ...(safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
-      "-map", "0:v:0", "-map", "1:a:0",
-      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${cardMasks}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
+      ...shotInputs,
+      "-map", shots.length?"[video]":"0:v:0", "-map", "1:a:0",
+      ...(shots.length?["-filter_complex",shotFilters.join(";")]:["-vf",visualFilters]),
       "-t", String(duration),
       "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
@@ -154,6 +179,16 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       "-movflags", "+faststart",
       outputPath,
     ]);
+    if(options.onFootage){
+      let thumbnail;
+      if(shots.length){
+        const first=shots[0],preview=path.join(dir,"footage-thumbnail.png");
+        await execFileAsync(ffmpegPath,["-y",...(first.kind==="video"?["-ss",String(first.start_sec)]:[]),
+          "-i",first.file,"-vf","scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x101217","-frames:v","1",preview]);
+        thumbnail=(await fsp.readFile(preview)).toString("base64");
+      }
+      await options.onFootage(shots.map(s=>s.credit),thumbnail);
+    }
     return await probeDuration(outputPath);
   } finally {
     await fsp.rm(dir, { recursive: true, force: true });
@@ -168,13 +203,17 @@ app.post("/compose", (req, res) => {
   res.status(202).json({ job_id: jobId, status: "processing" });
 
   const started = Date.now();
-  buildAudioFirstVideo(req.body && req.body.data, outputPath, req.body || {})
+  let footageCredits=[];
+  let footageThumbnail;
+  buildAudioFirstVideo(req.body && req.body.data, outputPath, {...(req.body||{}),onFootage:(credits,thumbnail)=>{footageCredits=credits;footageThumbnail=thumbnail;}})
     .then((duration) => jobs.set(jobId, {
       status: "done",
       success: true,
       output_path: outputPath,
       duration_sec: duration,
       render_time_sec: (Date.now() - started) / 1000,
+      footage_credits: footageCredits,
+      ...(footageThumbnail?{footage_thumbnail_base64:footageThumbnail}:{}),
       finishedAt: Date.now(),
     }))
     .catch(async (err) => {
