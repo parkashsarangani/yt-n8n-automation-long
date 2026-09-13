@@ -1,7 +1,7 @@
 {
   "graph_id": "illustrated_story",
   "version": "11",
-  "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. The retired illustrated/RFC0010 visual-generation stack is intentionally absent; render produces a minimal YouTube-compatible video shell around approved narration audio.",
+  "description": "Single production graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, scene-driven rendering, thumbnail, SEO, technical QA and publishing. Render creates a bounded visual plan after script approval, combining a few text-free artwork beats with deterministic evidence, comparison, timeline and payoff overlays.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },

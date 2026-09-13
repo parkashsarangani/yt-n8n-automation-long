@@ -23,6 +23,7 @@ interface ComposeStatus {
   thumbnail_path?: string;
   duration_sec?: number;
   render_time_sec?: number;
+  degraded_scenes?: number;
   error?: string;
 }
 
@@ -115,6 +116,16 @@ export class ComposeRenderer implements MediaRenderer {
           ...(scene.alignment !== undefined ? { alignment: scene.alignment } : {}),
         },
         ...(scene.is_outro ? { is_outro: true } : {}),
+        ...(scene.visual ? {
+          visual: {
+            kind: scene.visual.kind,
+            ...(scene.visual.requires_artwork !== undefined ? { requires_artwork: scene.visual.requires_artwork } : {}),
+            viewer_understands: scene.visual.viewer_understands,
+            scene_reference: scene.visual.scene_reference,
+            ...(scene.visual.overlay ? { overlay: scene.visual.overlay } : {}),
+            ...(scene.visual.image ? { image_base64: toBase64(scene.visual.image) } : {}),
+          },
+        } : {}),
       })),
     };
 
@@ -140,7 +151,7 @@ export class ComposeRenderer implements MediaRenderer {
         media_type: "video/mp4",
         ...(status.duration_sec !== undefined ? { duration_sec: status.duration_sec } : {}),
         ...(status.render_time_sec !== undefined ? { render_time_sec: status.render_time_sec } : {}),
-        degraded_scenes: 0,
+        degraded_scenes: status.degraded_scenes ?? 0,
         usage: { input_tokens: 0, output_tokens: 0, units: status.render_time_sec ?? null, cost_usd: 0, provider: "long-compose", model: "ffmpeg-audio-first" },
       };
     }

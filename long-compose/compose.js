@@ -117,19 +117,57 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
 
-    await execFileAsync(ffmpegPath, [
-      "-y",
-      ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
-      "-i", programme,
-      "-map", "0:v:0", "-map", "1:a:0",
-      "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`,
-      "-t", String(duration),
-      "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
-      "-pix_fmt", "yuv420p", "-r", "30",
-      "-c:a", "aac", "-b:a", "192k",
-      "-movflags", "+faststart",
-      outputPath,
-    ]);
+    const hasPlannedVisuals = ordered.some((scene) => scene.visual);
+    const finalVisualFilters = `${channelFrame(1920,1080)}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`;
+    if (!hasPlannedVisuals) {
+      // Legacy callers with no visual plan retain the inexpensive single-source
+      // path. Planned episodes use the per-scene path below, even when a scene
+      // has no artwork, because a deterministic card is still a visual change.
+      await execFileAsync(ffmpegPath, [
+        "-y",
+        ...(options.image_base64 ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
+        "-i", programme,
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${finalVisualFilters}`,
+        "-t", String(duration),
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-r", "30",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        outputPath,
+      ]);
+    } else {
+      const inputArgs = [];
+      const filters = [];
+      for (let i = 0; i < ordered.length; i += 1) {
+        const scene = ordered[i];
+        const visualB64 = scene.visual && scene.visual.image_base64 || options.image_base64;
+        if (visualB64) {
+          const imagePath = path.join(dir, `visual-${i}.img`);
+          await fsp.writeFile(imagePath, Buffer.from(visualB64, "base64"));
+          inputArgs.push("-loop", "1", "-framerate", "30", "-t", String(durations[i]), "-i", imagePath);
+        } else {
+          inputArgs.push("-f", "lavfi", "-t", String(durations[i]), "-i", "color=c=0x101217:s=1920x1080:r=30");
+        }
+        filters.push(`[${i}:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,format=yuv420p[v${i}]`);
+      }
+      const joined = Array.from({ length: ordered.length }, (_, i) => `[v${i}]`).join("");
+      filters.push(`${joined}concat=n=${ordered.length}:v=1:a=0[vbase]`);
+      filters.push(`[vbase]${finalVisualFilters}[vout]`);
+      await execFileAsync(ffmpegPath, [
+        "-y",
+        ...inputArgs,
+        "-i", programme,
+        "-filter_complex", filters.join(";"),
+        "-map", "[vout]", "-map", `${ordered.length}:a:0`,
+        "-t", String(duration),
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-r", "30",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        outputPath,
+      ]);
+    }
     return await probeDuration(outputPath);
   } finally {
     await fsp.rm(dir, { recursive: true, force: true });

@@ -7,9 +7,9 @@
  * blocking the run. The stricter "must have real cast artwork or fail"
  * behavior existed only for the retired two-host character pipeline.
  *
- * In the audio-first graph this is the ONLY image the pipeline generates:
- * the episode itself is narration over a static shell, so the thumbnail is
- * a packaging concern, not part of the episode's visual content.
+ * The render worker now supplies a small set of episode artwork beats. This
+ * worker reuses the exact first beat when available, so packaging stays in the
+ * same visual world without another independently generated image.
  */
 
 import type { BlobRef } from "../artifact.ts";
@@ -44,7 +44,12 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       const imagePrompt = brief.art_prompt?.trim() || brief.background_query?.trim();
 
       let background: Uint8Array | undefined;
-      const shared = inputs["episode"]?.blobs?.find(b => b.role === "episode_background");
+      // Prefer the exact episode artwork already selected by render. The first
+      // scene artwork is a safe thumbnail background when the legacy
+      // episode_background role is absent; this prevents a second image roll
+      // that can drift away from the published video's visual identity.
+      const shared = inputs["episode"]?.blobs?.find(b => b.role === "episode_background")
+        ?? inputs["episode"]?.blobs?.find(b => b.role.startsWith("scene_artwork:"));
       if (shared) background = await ctx.blobs.get(shared.uri);
       if (!background && !inputs["episode"] && ctx.media.images && imagePrompt) {
         try {

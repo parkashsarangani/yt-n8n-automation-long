@@ -123,8 +123,8 @@ export const CREDENTIALS: CredentialSpec[] = [
     label: "fal.ai image API key",
     secret: true,
     placeholder: "fal key",
-    help: "Optional image generation for custom thumbnail artwork.",
-    fallback: "thumbnail rendering uses a generated gradient",
+    help: "Optional image generation for a bounded set of text-free episode artwork beats and the shared thumbnail background.",
+    fallback: "episode visuals use clean renderer-built cards and thumbnail rendering uses a generated gradient",
   },
   {
     key: "FAL_MODEL",

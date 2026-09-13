@@ -39,3 +39,39 @@ test("ComposeRenderer surfaces the compositor failure", async () => {
     /encoder died/,
   );
 });
+
+test("ComposeRenderer forwards typed visual beats and compositor degradation", async () => {
+  let submitted: any;
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/compose")) {
+      submitted = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ job_id: "job-visual" }), { status: 200 });
+    }
+    if (url.endsWith("/compose-status/job-visual")) {
+      return new Response(JSON.stringify({ status: "done", success: true, output_path: "/outputs/visual.mp4", degraded_scenes: 1 }), { status: 200 });
+    }
+    if (url.endsWith("/outputs/visual.mp4")) return new Response(new Uint8Array([4, 5, 6]), { status: 200 });
+    return new Response("not found", { status: 404 });
+  };
+  const renderer = new ComposeRenderer({ baseUrl: "http://compose", fetchImpl, pollIntervalSec: 0, sleepImpl: async () => {} });
+  const result = await renderer.render({
+    scenes: [{
+      scene_index: 0,
+      audio: new Uint8Array([7]),
+      audio_media_type: "audio/mpeg",
+      visual: {
+        kind: "comparison",
+        viewer_understands: "See the deliberate next move.",
+        scene_reference: "A colleague interrupts.",
+        overlay: { left_label: "MOMENT", left_text: "Interrupted", right_label: "NEXT", right_text: "Pause first" },
+        image: new Uint8Array([8, 9]),
+      },
+    }],
+  });
+
+  assert.equal(result.degraded_scenes, 1);
+  assert.equal(submitted.data[0].visual.kind, "comparison");
+  assert.equal(submitted.data[0].visual.image_base64, Buffer.from([8, 9]).toString("base64"));
+  assert.equal(submitted.data[0].visual.overlay.right_text, "Pause first");
+});

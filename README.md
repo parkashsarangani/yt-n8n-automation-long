@@ -1,6 +1,6 @@
 # VidGen Long
 
-Audio-first long-form YouTube production pipeline. The engine selects and packages a story, writes and moderates narration, synthesizes timestamped speech, assembles a minimal 1080p MP4, designs a thumbnail, validates technical output, publishes, and feeds YouTube performance back into future selections.
+Audio-first long-form YouTube production pipeline. The engine selects and packages a story, writes and moderates narration, synthesizes timestamped speech, assembles a 1080p MP4 with bounded scene-driven visuals, designs a thumbnail, validates technical output, publishes, and feeds YouTube performance back into future selections.
 
 ## Run locally
 
@@ -19,12 +19,12 @@ docker compose up --build
 | `OPENAI_API_KEY` | Paid text fallback and pre-TTS moderation | Moderated production cannot proceed |
 | `ELEVENLABS_API_KEY` | Narration | Fake speech in non-production runs |
 | `ELEVENLABS_VOICE_ID` | Narrator voice | Test-only placeholder voice |
-| `FAL_KEY` | Optional thumbnail artwork | Gradient thumbnail background |
+| `FAL_KEY` | Optional episode/thumbnail artwork | Clean renderer-built visual cards and gradient thumbnail background |
 | `COMPOSE_URL` | FFmpeg compositor | Fake renderer in non-production runs |
 | YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
 | `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
 
-Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, stock-media, visual-director, Remotion, and legacy n8n production paths are intentionally absent.
+Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. The active render path uses optional scene artwork plus deterministic renderer-built overlays; generated-video, stock-media, Remotion, and legacy n8n production paths remain absent.
 
 ## Quiet Confidence — Season 1
 
@@ -36,7 +36,7 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 ## Verification
 
-The conversation stage displays approved narration in bounded phrase cards on a dark 1080p canvas. Scene-role headings distinguish situations, responses, explanations, context, exercises and takeaways. Text is paginated without dropping words, with subtle fades and scene progress. Scene boundaries use measured audio duration; within-scene page timing is proportional to text length, not word-synchronised captions. No additional image provider or visual-generation agent is required. Legacy requests without narration retain the plain background.
+The conversation stage displays approved narration in bounded phrase cards on a dark 1080p canvas. Scene-role headings distinguish situations, responses, explanations, context, exercises and takeaways. After script approval, the renderer builds a bounded visual plan: a few continuity-prompted, text-free artwork beats plus deterministic document, comparison, timeline and payoff cards. Text is paginated without dropping words, with subtle fades and scene progress. Scene boundaries use measured audio duration; within-scene page timing is proportional to text length, not word-synchronised captions. Missing artwork uses a clean renderer fallback and is recorded for QA. Legacy requests without visual states retain the plain background.
 
 ```bash
 cd engine && npm ci && npm run typecheck && npm test

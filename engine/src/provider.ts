@@ -96,6 +96,61 @@ export interface ImageProvider {
   }>;
 }
 
+/**
+ * A deliberately small visual vocabulary for the audio-first renderer.
+ * Artwork is used for people and settings; the other kinds are rendered from
+ * typed text by the compositor so generated images can never corrupt a quote,
+ * label, comparison, or timeline.
+ */
+export type VisualKind = "artwork" | "document" | "comparison" | "timeline" | "payoff";
+
+export interface VisualOverlay {
+  eyebrow?: string;
+  title?: string;
+  body?: string;
+  left_label?: string;
+  left_text?: string;
+  right_label?: string;
+  right_text?: string;
+  steps?: string[];
+}
+
+export interface SceneVisual {
+  kind: VisualKind;
+  requires_artwork?: boolean;
+  /** The viewer-facing reason this visual exists, not a prompt or a score. */
+  viewer_understands: string;
+  /** Short script reference used for continuity and later QA. */
+  scene_reference: string;
+  /** Renderer-built text. Artwork itself must remain text-free. */
+  overlay?: VisualOverlay;
+  /** Present only for an artwork beat; omitted for deterministic graphics. */
+  image?: Uint8Array;
+}
+
+export interface VisualPlanBeat {
+  scene_index: number;
+  kind: VisualKind;
+  viewer_understands: string;
+  scene_reference: string;
+  requires_artwork: boolean;
+  overlay?: VisualOverlay;
+}
+
+export interface EpisodeVisualReference {
+  id: string;
+  subject: string;
+  setting: string;
+  wardrobe: string;
+  palette: string;
+}
+
+export interface VisualPlan {
+  version: "1";
+  reference: EpisodeVisualReference;
+  beats: VisualPlanBeat[];
+}
+
 /** One scene as the audio-first renderer needs it. */
 export interface RenderScene {
   narration?: string;
@@ -106,6 +161,8 @@ export interface RenderScene {
   /** Word/character timings, for burned-in captions. */
   alignment?: unknown;
   is_outro?: boolean;
+  /** One purposeful visual state for this measured narration scene. */
+  visual?: SceneVisual;
 }
 
 export interface RenderRequest {

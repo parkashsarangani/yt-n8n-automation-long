@@ -6,6 +6,9 @@ Every video and thumbnail now receives the same deterministic charcoal/teal fram
 ## Discussion
 Versioned packager and writer prompts require exactly one specific discussion invitation after useful value, before the replaceable outro. They require one recognisable awkward dialogue example and a plausible consequence, without manufactured outrage or humiliation. The critic explicitly checks these requirements and requests revisions through the existing report. This is an editorial generation/review requirement, not a deterministic guarantee of audience engagement. Previously generated scripts are unchanged.
 
+## Visual progression
+The render worker creates a versioned visual plan from the approved script and measured voice coverage. It uses a small, bounded artwork budget with one episode continuity reference, then renders evidence, comparison, timeline and payoff overlays directly from typed data. Artwork prompts prohibit text; renderer-built overlays are the only source of episode text outside captions. Matching artwork blobs are reused on render retries, and missing artwork falls back cleanly while being surfaced in QA.
+
 ## Navigation
 On-screen role labels and scene progress advance at the compositor's measured audio boundaries. Chapter labels use the same wording. PR 279's publishing path still appends timestamps from measured voice durations, with its three-chapter and ten-second constraints. Incomplete or duplicate voice coverage now yields no fabricated chapters. Existing 0:00, 00:00 and hour-format chapter starts are recognized correctly, avoiding duplicate chapter lists. Existing description length protection remains in place.
 

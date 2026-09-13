@@ -1,0 +1,91 @@
+{
+  "schema_id": "rendered_video",
+  "version": "1.1.0",
+  "status": "active",
+  "description": "The assembled video plus the approved-script visual plan and its deterministic artwork/fallback counts. Bytes live in the blob store; the payload records what was rendered and how it went, including the external job id so a run can be traced back to the renderer's own logs.",
+  "produced_by": ["render"],
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "RenderedVideoArtifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["video_uri", "media_type", "scene_count", "degraded_scenes"],
+    "properties": {
+      "video_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
+      "media_type": { "type": "string", "minLength": 3, "maxLength": 80 },
+      "thumbnail_uri": { "type": "string", "pattern": "^blob://sha256:[0-9a-f]{64}$" },
+      "scene_count": { "type": "integer", "minimum": 1 },
+      "degraded_scenes": { "type": "integer", "minimum": 0, "description": "Scenes rendered with a placeholder instead of a generated image." },
+      "duration_sec": { "type": "number", "minimum": 0 },
+      "render_time_sec": { "type": "number", "minimum": 0 },
+      "renderer": { "type": "string", "maxLength": 120 },
+      "job_id": { "type": "string", "maxLength": 200, "description": "The renderer's own job identifier, for cross-referencing its logs." },
+      "visual_reference_id": { "type": "string", "pattern": "^quiet-signal-[0-9a-f]{16}$" },
+      "visual_artwork_count": { "type": "integer", "minimum": 0, "maximum": 6 },
+      "visual_fallback_count": { "type": "integer", "minimum": 0 },
+      "visual_qa": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artwork_text_policy", "caption_overlap_guard", "scene_boundaries", "max_visual_hold_sec", "human_review_required"],
+        "properties": {
+          "artwork_text_policy": { "type": "string", "minLength": 3, "maxLength": 180 },
+          "caption_overlap_guard": { "type": "string", "minLength": 3, "maxLength": 120 },
+          "scene_boundaries": { "type": "string", "minLength": 3, "maxLength": 120 },
+          "max_visual_hold_sec": { "type": "number", "minimum": 0 },
+          "human_review_required": { "type": "boolean" }
+        }
+      },
+      "visual_plan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "reference", "beats"],
+        "properties": {
+          "version": { "const": "1" },
+          "reference": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "subject", "setting", "wardrobe", "palette"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^quiet-signal-[0-9a-f]{16}$" },
+              "subject": { "type": "string", "minLength": 3, "maxLength": 180 },
+              "setting": { "type": "string", "minLength": 3, "maxLength": 240 },
+              "wardrobe": { "type": "string", "minLength": 3, "maxLength": 180 },
+              "palette": { "type": "string", "minLength": 3, "maxLength": 180 }
+            }
+          },
+          "beats": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scene_index", "kind", "viewer_understands", "scene_reference", "requires_artwork"],
+              "properties": {
+                "scene_index": { "type": "integer", "minimum": 0 },
+                "kind": { "enum": ["artwork", "document", "comparison", "timeline", "payoff"] },
+                "viewer_understands": { "type": "string", "minLength": 8, "maxLength": 220 },
+                "scene_reference": { "type": "string", "minLength": 3, "maxLength": 180 },
+                "requires_artwork": { "type": "boolean" },
+                "overlay": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "eyebrow": { "type": "string", "maxLength": 80 },
+                    "title": { "type": "string", "maxLength": 120 },
+                    "body": { "type": "string", "maxLength": 220 },
+                    "left_label": { "type": "string", "maxLength": 50 },
+                    "left_text": { "type": "string", "maxLength": 160 },
+                    "right_label": { "type": "string", "maxLength": 50 },
+                    "right_text": { "type": "string", "maxLength": 160 },
+                    "steps": { "type": "array", "maxItems": 4, "items": { "type": "string", "maxLength": 160 } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

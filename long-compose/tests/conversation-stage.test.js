@@ -25,3 +25,21 @@ test("short captions retain words and follow real character timestamps",()=>{
   assert.ok(cues.every(c=>c.end<=5));
   assert.equal(captionCues({narration:text,audio:{alignment:{...a,characters:["bad"]}}},5).map(c=>c.text).join(" "),text);
 });
+
+test("visual cards are renderer-built and follow the scene boundary",()=>{
+  const ass=buildStage([{
+    point:"[response_a]",
+    narration:"A colleague interrupts.",
+    visual:{
+      kind:"comparison",
+      viewer_understands:"See the deliberate next move.",
+      scene_reference:"A colleague interrupts.",
+      overlay:{eyebrow:"COMPARE THE RESPONSE",left_label:"MOMENT",left_text:"Interrupted",right_label:"NEXT",right_text:"Pause first"}
+    }
+  }],[2]);
+  assert.match(ass,/Style: Visual/);
+  assert.match(ass,/COMPARE THE RESPONSE/);
+  assert.match(ass,/MOMENT/);
+  assert.match(ass,/0:00:00.00,0:00:02.00,Visual/);
+  assert.doesNotMatch(ass,/\\pos\(0,0\)/);
+});

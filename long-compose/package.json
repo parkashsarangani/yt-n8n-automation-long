@@ -1,7 +1,7 @@
 {
   "name": "long-compose",
   "version": "3.0.0",
-  "description": "Audio-first YouTube compositor: narration assembly, minimal 1080p MP4 shell, topic history and thumbnail compositing.",
+  "description": "Audio-first YouTube compositor: measured narration assembly, scene-driven visual beats, topic history and thumbnail compositing.",
   "main": "compose.js",
   "scripts": {
     "start": "node compose.js",
