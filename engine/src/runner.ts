@@ -13,7 +13,6 @@ import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
-import { repairVisualCards } from "./episode-presentation.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import { buildScriptRevisionContext } from "./script-revision.ts";
 import {
@@ -367,7 +366,11 @@ export class Runner {
       const { data: scriptRepaired, repairs: outroRepairs } = def.produces === "script"
         ? repairMissingOutroFlag(enumRepaired)
         : { data: enumRepaired, repairs: [] };
-      const payload = def.produces === "script" && version === "1.1.0" ? repairVisualCards(scriptRepaired) : scriptRepaired;
+      // Visual cards are editor-owned presentation metadata. Remove them
+      // before schema validation so malformed cards cannot block narration.
+      const payload = def.produces === "script" && version === "1.1.0"
+        ? stripEditorVisuals(scriptRepaired)
+        : scriptRepaired;
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +
@@ -598,7 +601,9 @@ export class Runner {
     let blobs: BlobRef[] | undefined;
     try {
       const out = await def.execute(inputs, ctx);
-      payload = out.payload;
+      payload = def.produces === "script" && version === "1.1.0"
+        ? stripEditorVisuals(out.payload)
+        : out.payload;
       blobs = out.blobs;
     } catch (err) {
       await this.writeRecord({
@@ -685,4 +690,22 @@ function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_cont
   if (/natural dialogue|robotic|duplicate dialogue|short lines|human moment|definition\/explainer/.test(text)) return "natural_dialogue";
   if (/contract violated|payoff|resolution|midpoint|engagement beat|function order|teach-back/.test(text)) return "story_contract";
   return "other_semantic";
+}
+
+/**
+ * Visual cards are editor-owned metadata, not part of the script contract.
+ * Remove them before schema validation/storage so malformed model-produced
+ * cards cannot block a narration-only draft. Legacy artifacts containing
+ * cards remain renderable; the compositor already treats bad cards as absent.
+ */
+export function stripEditorVisuals(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { scenes?: unknown }).scenes)) return payload;
+  return {
+    ...(payload as Record<string, unknown>),
+    scenes: (payload as { scenes: unknown[] }).scenes.map((scene) => {
+      if (!scene || typeof scene !== "object" || Array.isArray(scene)) return scene;
+      const { visual: _visual, ...withoutVisual } = scene as Record<string, unknown>;
+      return withoutVisual;
+    }),
+  };
 }

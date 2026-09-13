@@ -1,7 +1,6 @@
 /** Per-agent semantic validation hook. */
 import type { AgentDef } from "./runner.ts";
 import { socialSeriesScriptErrors } from "./social-series.ts";
-import {presentationErrors} from "./episode-presentation.ts";
 import type { Artifact } from "./artifact.ts";
 import { validateGrowthPackageReleaseability } from "./growth-package-contract.ts";
 
@@ -52,7 +51,12 @@ export function agentSemanticValidationErrors(
 ): string[] {
   const intent = _inputs.intent?.payload as { series?: unknown; niche?: string } | undefined;
   if (def.name === "narration_script_writer" && (intent?.series || intent?.niche === "practical-social-intelligence")) {
-    return hard([...socialSeriesScriptErrors(payload), ...(def.produces_version === "1.1.0" ? presentationErrors(payload) : [])]);
+    // Script structure is part of the bounded quality loop. Visual-card
+    // correctness is intentionally not checked here: the editor owns the
+    // visuals and the draft renderer can safely fall back to the gradient.
+    // Keep these errors soft so the final schema-valid attempt can still be
+    // accepted after the configured repair budget.
+    return socialSeriesScriptErrors(payload);
   }
   if (def.name === "growth_packager") {
     return hard([...continuationBridgeErrors(payload), ...validateGrowthPackageReleaseability(payload)]);

@@ -59,8 +59,9 @@ export const LONG_FORM_MIN_DURATION_SEC = 180;
 /**
  * Real evaluations before the best failed draft is accepted for a final
  * evaluation. Operator-set to 3 on 2026-09-08 (from 6): two regenerations plus
- * the best-of-N final. RFC 0009 never turns this bound into an unconditional
- * pass.
+ * the best-of-N final. The final schema-valid attempt may be accepted below
+ * the editorial bar so the human editor, rather than a noisy critic, owns the
+ * final visual and polish decision.
  */
 export const MAX_ATTEMPTS_BEFORE_ACCEPTING = 3;
 

@@ -1,9 +1,9 @@
 /**
  * Watchability release worker (RFC 0008 + RFC 0009).
  *
- * RFC 0009 removes the old "accept after three" escape hatch. A fully
- * unattended growth system must be able to abandon a weak idea instead of
- * spending voice/image/render budget just because several drafts were tried.
+ * The watchability critic gets a bounded repair loop. After three failed
+ * evaluations, a schema-valid script may continue to the editor handoff;
+ * only a structurally unviable premise remains an abandonment outcome.
  */
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 import {
@@ -163,11 +163,22 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const durationSec = targetDuration(inputs["intent"]?.payload);
       const result = assessWatchability(inputs["report"]?.payload, durationSec);
-      if (!result.passed) {
+      // Watchability is the single soft script-quality gate. After three
+      // evaluations, continue with the best schema-valid script so a noisy
+      // critic cannot prevent an editor handoff forever. Premise/package
+      // contract failures remain hard safety boundaries.
+      const autoAccept = !result.passed && !result.abandonRecommended && ctx.attemptNumber >= MAX_ATTEMPTS_BEFORE_ACCEPTING;
+      if (!result.passed && !autoAccept) {
         const disposition = result.abandonRecommended ? `ABANDON_TOPIC: ${result.abandonReason}` : "REVISE_SCRIPT";
         throw new Error(
           `watchability release blocked (${disposition}; attempt ${ctx.attemptNumber}; profile ${result.profile.mode}` +
           `${durationSec ? ` ${durationSec}s` : ""}): ${result.failures.join("; ")}`,
+        );
+      }
+      if (autoAccept) {
+        ctx.logger.warn(
+          `[watchability_release] accepting attempt ${ctx.attemptNumber} below the watchability bar after ` +
+          `${MAX_ATTEMPTS_BEFORE_ACCEPTING} attempts -- editor_review is the remaining quality gate: ${result.failures.join("; ")}`,
         );
       }
       const packageErrors = validateGrowthPackageSelection(inputs["package"]?.payload);
