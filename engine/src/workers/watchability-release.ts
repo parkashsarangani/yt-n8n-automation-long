@@ -143,7 +143,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "7",
+    version: "8",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },

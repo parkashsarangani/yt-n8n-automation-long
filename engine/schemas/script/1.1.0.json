@@ -2,14 +2,18 @@
   "schema_id": "script",
   "version": "1.1.0",
   "status": "active",
-  "description": "Adds \"human\" to the producer allowlist: the manual-script flow lets an operator write their own narration instead of script_writer, so a script artifact can now legitimately come from either. No change to the payload shape — produced_by only gates writes, never reads — so this is a MINOR bump per RFC 0007: existing script@1.0.0 artifacts stay valid, consumers on ^1 keep working, and no migrator is needed.",
-  "produced_by": ["script_writer", "human"],
+  "description": "Narration broken into scenes. One scene = one narration beat = one TTS call = one visual (the flat model carried over from the long-form pipeline).",
+  "produced_by": [
+    "narration_script_writer"
+  ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "ScriptArtifact",
     "type": "object",
     "additionalProperties": false,
-    "required": ["scenes"],
+    "required": [
+      "scenes"
+    ],
     "properties": {
       "scenes": {
         "type": "array",
@@ -18,22 +22,74 @@
         "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["scene_index", "point", "narration"],
+          "required": [
+            "scene_index",
+            "point",
+            "narration"
+          ],
           "properties": {
-            "scene_index": { "type": "integer", "minimum": 0 },
-            "act_index": { "type": "integer", "minimum": 0 },
+            "scene_index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "act_index": {
+              "type": "integer",
+              "minimum": 0
+            },
             "point": {
               "type": "string",
               "minLength": 3,
               "maxLength": 300,
               "description": "What this beat does for the story."
             },
-            "narration": { "type": "string", "minLength": 5, "maxLength": 2000 },
-            "is_outro": { "type": "boolean" }
+            "narration": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 2000
+            },
+            "is_outro": {
+              "type": "boolean"
+            },
+            "visual": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "title",
+                "items"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "quote",
+                    "comparison",
+                    "steps"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 42
+                },
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 72
+                  }
+                }
+              }
+            }
           }
         }
       },
-      "word_count": { "type": "integer", "minimum": 0 }
+      "word_count": {
+        "type": "integer",
+        "minimum": 0
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 /** Per-agent semantic validation hook. */
 import type { AgentDef } from "./runner.ts";
 import { socialSeriesScriptErrors } from "./social-series.ts";
+import {presentationErrors} from "./episode-presentation.ts";
 import type { Artifact } from "./artifact.ts";
 import { validateGrowthPackageReleaseability } from "./growth-package-contract.ts";
 
@@ -49,8 +50,9 @@ export function agentSemanticValidationErrors(
   payload: unknown,
   _inputs: Record<string, Artifact>,
 ): string[] {
-  if (def.name === "narration_script_writer" && (_inputs.intent?.payload as { series?: unknown } | undefined)?.series) {
-    return hard(socialSeriesScriptErrors(payload));
+  const intent = _inputs.intent?.payload as { series?: unknown; niche?: string } | undefined;
+  if (def.name === "narration_script_writer" && (intent?.series || intent?.niche === "practical-social-intelligence")) {
+    return hard([...socialSeriesScriptErrors(payload), ...(def.produces_version === "1.1.0" ? presentationErrors(payload) : [])]);
   }
   if (def.name === "growth_packager") {
     return hard([...continuationBridgeErrors(payload), ...validateGrowthPackageReleaseability(payload)]);

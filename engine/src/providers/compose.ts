@@ -109,6 +109,7 @@ export class ComposeRenderer implements MediaRenderer {
         scene_index: scene.scene_index,
         ...(scene.narration ? { narration: scene.narration } : {}),
         ...(scene.point ? { point: scene.point } : {}),
+        ...(scene.visual ? { visual: scene.visual } : {}),
         audio: {
           audio_base64: toBase64(scene.audio),
           media_type: scene.audio_media_type,

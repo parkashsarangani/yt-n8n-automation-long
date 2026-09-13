@@ -206,6 +206,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           console.log(`[growth-scheduler] candidate ${i + 1}/${candidates.length} score=${candidateOverallScore(candidate).toFixed(3)}: ${candidate.brief}`);
           const seed = packageSeedOf(candidate);
           const runId = await service.startRun(candidate.brief!, 180, {
+            niche: "practical-social-intelligence",
             ...(candidate.genre ? { genre: candidate.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
           });

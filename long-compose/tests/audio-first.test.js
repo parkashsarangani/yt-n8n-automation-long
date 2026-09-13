@@ -46,10 +46,11 @@ test("thumbnail endpoint renders gradient and supplied artwork through bundled F
   await new Promise(resolve => server.once("listening", resolve));
   try {
     const url = `http://127.0.0.1:${server.address().port}/thumbnail`;
-    let image;
+    const image = Buffer.concat([Buffer.from("P6\n2 2\n255\n"), Buffer.alloc(12, 100)]).toString("base64");
+    let rendered;
     for (const background of ["gradient", "supplied"]) {
       const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: "LET ME FINISH {literal}", ...(image ? { image_base64: image } : {}) }) });
+        body: JSON.stringify({ text: "LET ME FINISH {literal}", ...(background === "supplied" ? { image_base64: image } : {}) }) });
       const body = await response.json();
       assert.equal(response.status, 200, JSON.stringify(body));
       assert.equal(body.background, background);
@@ -57,8 +58,22 @@ test("thumbnail endpoint renders gradient and supplied artwork through bundled F
       assert.equal(bytes.subarray(1, 4).toString(), "PNG");
       assert.equal(bytes.readUInt32BE(16), 1280);
       assert.equal(bytes.readUInt32BE(20), 720);
-      image = body.image_base64;
+      rendered = body.image_base64;
     }
+    // A finished thumbnail contains real lettering and must not be accepted
+    // as text-free source artwork.
+    const rejected = await fetch(url, {method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({text:"NEW TITLE",image_base64:rendered})});
+    assert.equal(rejected.status,200);
+    assert.equal((await rejected.json()).background,"gradient");
+    const originalPath=process.env.PATH;
+    try {
+      process.env.PATH="/missing-ocr-test";
+      const unavailable=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({text:"NEW TITLE",image_base64:image})});
+      assert.equal(unavailable.status,500);
+      assert.match((await unavailable.json()).error,/OCR screening failed/);
+    } finally {process.env.PATH=originalPath;}
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
