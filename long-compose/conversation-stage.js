@@ -74,6 +74,18 @@ function captionCues(scene, duration) {
 function visualText(value, max = 150) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max).trim();
 }
+function wrapVisual(value) {
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean)
+    .flatMap(word => word.match(/.{1,26}/gu) || []);
+  const lines = []; let line = "";
+  for (const word of words) {
+    if (line && line.length + word.length + 1 > 26) { lines.push(line); line = ""; }
+    line += (line ? " " : "") + word;
+  }
+  if (line) lines.push(line);
+  if (lines.length > 5) lines[4] = lines[4].slice(0, 23) + "…";
+  return lines.slice(0, 5).map(safe).join("\\N");
+}
 function buildVisualEvents(scene, start, end, add) {
   const visual = scene.visual;
   if (!visual) return;
@@ -84,25 +96,27 @@ function buildVisualEvents(scene, start, end, add) {
   const accent = text => "{\\c&H006AB8E8&}" + safe(text) + "{\\c&H00F3EBDD&}";
   const card = text => "{\\an7\\pos(160,220)}" + text;
   if (visual.kind === "comparison") {
-    const left = [visualText(overlay.left_label || "THE MOMENT", 50), visualText(overlay.left_text || visual.scene_reference, 130)].filter(Boolean).map(safe).join("\\N");
-    const right = [visualText(overlay.right_label || "THE NEXT MOVE", 50), visualText(overlay.right_text || "Pause, choose, then speak clearly", 130)].filter(Boolean).map(safe).join("\\N");
+    const left = [visualText(overlay.left_label, 26), visualText(overlay.left_text || visual.scene_reference, 130)].filter(Boolean).map(wrapVisual).join("\\N");
+    const right = [visualText(overlay.right_label, 26), visualText(overlay.right_text, 130)].filter(Boolean).map(wrapVisual).join("\\N");
     add(start, end, "Visual", "{\\an7\\pos(150,220)}" + accent(eyebrow) + "\\N" + left);
-    add(start, end, "Visual", "{\\an7\\pos(1030,220)}" + accent("NEXT") + "\\N" + right);
+    if (right) add(start, end, "Visual", "{\\an7\\pos(1030,220)}" + right);
     return;
   }
   if (visual.kind === "timeline") {
-    const steps = Array.isArray(overlay.steps) ? overlay.steps : [body, "Pause and choose", "Carry it forward"];
-    add(start, end, "Visual", card(accent(eyebrow) + (title ? "\\N" + safe(title) : "")));
-    steps.slice(0, 4).forEach((step, index) => {
-      add(start, end, "Visual", "{\\an7\\pos(210," + (350 + index * 78) + ")}" + accent(String(index + 1).padStart(2, "0")) + "  " + safe(visualText(step, 150)));
+    const steps = Array.isArray(overlay.steps) && overlay.steps.length ? overlay.steps.slice(0, 3) : [body];
+    add(start, end, "Visual", card(accent(eyebrow)));
+    steps.forEach((step, index) => {
+      const from = start + (end - start) * index / steps.length;
+      const to = start + (end - start) * (index + 1) / steps.length;
+      add(from, to, "Visual", "{\\an7\\pos(210,350)}" + accent(String(index + 1).padStart(2, "0")) + "\\N" + wrapVisual(step));
     });
     return;
   }
   if (visual.kind === "payoff") {
-    add(start, end, "Visual", "{\\an8\\pos(960,250)}" + accent(eyebrow) + (title ? "\\N" + safe(title) : "") + (body ? "\\N" + safe(body) : ""));
+    add(start, end, "Visual", "{\\an8\\pos(960,250)}" + accent(eyebrow) + (title ? "\\N" + wrapVisual(title) : "") + (body ? "\\N" + wrapVisual(body) : ""));
     return;
   }
-  add(start, end, "Visual", card(accent(eyebrow) + (title ? "\\N" + safe(title) : "") + (body ? "\\N" + safe(body) : "")));
+  add(start, end, "Visual", card(accent(eyebrow) + (title ? "\\N" + wrapVisual(title) : "") + (body ? "\\N" + wrapVisual(body) : "")));
 }
 function buildStage(scenes, durations, lessonTitle) {
   let script=buildTitleCard("").replace("PlayResX: 1280","PlayResX: 1920").replace("PlayResY: 720","PlayResY: 1080");

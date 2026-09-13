@@ -2,6 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildVisualPlan, visualPrompt } from "../src/visual-plan.ts";
 
+test("cards use approved narration and narration edits invalidate artwork reuse", () => {
+  const scene = { scene_index: 0, point: "[response_a] compare choices", narration: "Save the notice. Request the complete recording." };
+  const plan = buildVisualPlan([scene]);
+  const overlay = plan.beats[0]!.overlay!;
+  assert.equal(overlay.body, "Save the notice.");
+  assert.doesNotMatch(JSON.stringify(overlay), /Pause, choose|Carry it forward/);
+  assert.notEqual(plan.reference.id, buildVisualPlan([{ ...scene, narration: "A different account." }]).reference.id);
+});
+
 test("visual planning maps approved story beats to purposeful visual states", () => {
   const plan = buildVisualPlan([
     { scene_index: 0, point: "[scenario] establish the situation", narration: "A colleague cuts across the point you were making." },
@@ -31,4 +40,3 @@ test("visual artwork requests are bounded and carry one continuity reference", (
   assert.equal(new Set(prompts.map((prompt) => prompt.match(/Episode continuity reference ([^:]+):/)?.[1])).size, 1);
   assert.ok(prompts.every((prompt) => /text-free|never render this text/i.test(prompt)));
 });
-

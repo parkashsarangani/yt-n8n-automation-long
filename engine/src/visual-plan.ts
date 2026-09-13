@@ -48,6 +48,7 @@ function referenceOf(scene: VisualPlanScene): string {
 function kindOf(scene: VisualPlanScene, index: number): VisualKind {
   const text = `${scene.point ?? ""} ${scene.narration ?? ""}`;
   const role = roleOf(scene);
+  if (/exercise|practice|sequence/.test(role)) return "timeline";
   if (scene.is_outro || PAYOFF_WORDS.test(text) || /payoff|takeaway|outro/.test(role)) return "payoff";
   if (EVIDENCE_WORDS.test(text)) return "document";
   if (COMPARISON_WORDS.test(text) || /response|choice|interruption|boundary/.test(role)) return "comparison";
@@ -58,36 +59,37 @@ function kindOf(scene: VisualPlanScene, index: number): VisualKind {
   return index % 3 === 0 ? "artwork" : "document";
 }
 
-function overlayOf(kind: VisualKind, reference: string): VisualOverlay {
+function overlayOf(kind: VisualKind, reference: string, narration: string): VisualOverlay {
+  // Only show excerpts from the approved scene; never invent advice or evidence.
+  const excerpts = (narration.match(/[^.!?]+[.!?]*/g) ?? [reference])
+    .map((part) => clean(part, 130)).filter(Boolean);
+  const first = excerpts[0] || reference;
   switch (kind) {
     case "document":
       return {
-        eyebrow: "KEEP THE DETAIL VISIBLE",
-        title: "What actually happened",
-        body: reference,
+        eyebrow: "FROM THE NARRATION",
+        body: first,
       };
     case "comparison":
       return {
-        eyebrow: "COMPARE THE RESPONSE",
-        left_label: "THE MOMENT",
-        left_text: reference,
-        right_label: "THE NEXT MOVE",
-        right_text: "Pause, choose, then speak clearly",
+        eyebrow: "FROM THE NARRATION",
+        left_label: "EXCERPT",
+        left_text: first,
+        right_label: excerpts[1] ? "CONTINUED" : "",
+        right_text: excerpts[1] || "",
       };
     case "timeline":
       return {
         eyebrow: "THE SEQUENCE",
-        title: "Make the next step visible",
-        steps: [reference, "Pause and choose", "Carry it forward"],
+        steps: excerpts.slice(0, 3),
       };
     case "payoff":
       return {
         eyebrow: "TAKE THIS WITH YOU",
-        title: "The useful part is the choice",
-        body: reference,
+        body: first,
       };
     case "artwork":
-      return { eyebrow: "THE SITUATION", body: reference };
+      return { eyebrow: "ILLUSTRATION", body: first };
   }
 }
 
@@ -104,12 +106,13 @@ function viewerUnderstands(kind: VisualKind): string {
 function referenceFor(scenes: VisualPlanScene[], lessonTitle?: string): EpisodeVisualReference {
   const seed = JSON.stringify({
     title: clean(lessonTitle, 120),
-    scenes: scenes.map((scene) => ({ scene_index: scene.scene_index, point: clean(scene.point, 120) })),
+    planner: 2,
+    scenes: scenes.map((scene) => ({ ...scene })),
   });
   const id = createHash("sha256").update(seed).digest("hex").slice(0, 16);
   return {
     id: `quiet-signal-${id}`,
-    subject: "the same contemporary adult subject throughout the episode",
+    subject: "one episode establishing illustration, reused unchanged; do not invent recurring character variants",
     setting: "the setting established by each scene, with believable continuity between related beats",
     wardrobe: "the same understated contemporary outfit in related beats; no costume changes without a script reason",
     palette: "charcoal, deep teal, warm ivory, and one restrained amber accent",
@@ -141,8 +144,8 @@ export function buildVisualPlan(scenes: VisualPlanScene[], options: VisualPlanOp
       kind,
       viewer_understands: viewerUnderstands(kind),
       scene_reference: sceneReference,
-      requires_artwork: kind === "artwork" && artworkSet.has(index),
-      overlay: overlayOf(kind, sceneReference),
+      requires_artwork: artworkSet.has(index),
+      overlay: overlayOf(kind, sceneReference, scene.narration || ""),
     };
   });
 

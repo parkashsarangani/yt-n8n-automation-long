@@ -14,7 +14,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "6",
+    version: opts.version ?? "7",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -113,7 +113,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         if (typeof maxHold === "number") {
           add("visual_hold_cadence", maxHold <= 30 ? "pass" : "warn", maxHold <= 30 ? "no planned visual hold exceeds 30 seconds" : `a visual state holds for ${maxHold.toFixed(1)}s; inspect for a needed visual reset`, maxHold, 30);
         }
-        add("visual_content_review", visualQa?.human_review_required === true ? "warn" : "fail", visualQa?.human_review_required === true ? "inspect generated artwork for malformed text, cropped faces and composition before publishing" : "render did not record the required visual content review");
+        add("visual_content_review", "fail", "Rendered video is ready for inspection. Review text, faces, composition and narration fidelity before manually approving the publish gate; any upload with this unresolved QA report stays private.");
       } else {
         // Older rendered_video@1.0 artifacts remain readable and publishable;
         // new renders carry the stronger plan contract above.

@@ -141,7 +141,8 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       const filters = [];
       for (let i = 0; i < ordered.length; i += 1) {
         const scene = ordered[i];
-        const visualB64 = scene.visual && scene.visual.image_base64 || options.image_base64;
+        const visualB64 = scene.visual?.kind === "artwork"
+          ? scene.visual.image_base64 || options.image_base64 : undefined;
         if (visualB64) {
           const imagePath = path.join(dir, `visual-${i}.img`);
           await fsp.writeFile(imagePath, Buffer.from(visualB64, "base64"));

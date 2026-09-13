@@ -87,7 +87,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "14",
+    version: opts.version ?? "15",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -132,7 +132,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
           .map((blob) => [blob.role, blob]),
       );
       const legacyBackground = ctx.priorArtifact?.blobs?.find(b => b.role === "episode_background");
-      if (legacyBackground) {
+      if (legacyBackground && priorMatches) {
         background = await ctx.blobs.get(legacyBackground.uri);
         artwork.push(legacyBackground);
       }
@@ -140,6 +140,12 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       const artworkScenes = new Map<number, Uint8Array>();
       for (const beat of visualPlan.beats.filter((candidate) => candidate.requires_artwork)) {
         const role = `scene_artwork:${beat.scene_index}`;
+        // The provider has no image-reference input. Reuse exact pixels instead
+        // of pretending a repeated prompt anchors identity across generations.
+        if (background) {
+          artworkScenes.set(beat.scene_index, background);
+          continue;
+        }
         const prior = priorMatches ? priorByRole.get(role) : undefined;
         if (prior) {
           const bytes = await ctx.blobs.get(prior.uri);

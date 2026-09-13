@@ -1,6 +1,16 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const {pages,buildStage}=require("../conversation-stage");
+
+test("long visual excerpts wrap and timeline steps appear separately",()=>{
+  const ass=buildStage([{narration:"First save it. Then ask.",
+    visual:{kind:"timeline",overlay:{steps:["A long approved excerpt ".repeat(8),"Then ask."]}}
+  }],[10]);
+  assert.match(ass,/0:00:00.00,0:00:05.00,Visual/);
+  assert.match(ass,/0:00:05.00,0:00:10.00,Visual/);
+  assert.match(ass,/approved.*\\N/);
+  assert.doesNotMatch(ass,/Carry it forward|Pause and choose/);
+});
 test("bounded cards retain all normal words instead of truncating narration",()=>{
   const text="A thoughtful response gives both people room to speak. ".repeat(20).trim();
   const result=pages(text);
