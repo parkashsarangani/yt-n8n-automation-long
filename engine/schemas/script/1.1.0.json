@@ -4,7 +4,8 @@
   "status": "active",
   "description": "Narration broken into scenes. One scene = one narration beat = one TTS call = one visual (the flat model carried over from the long-form pipeline).",
   "produced_by": [
-    "narration_script_writer"
+    "narration_script_writer",
+    "watchability_release"
   ],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
