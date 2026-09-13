@@ -35,7 +35,7 @@ const handoffId=run?.nodes.find(n=>n.node_id==="editor_package")?.artifact_id;
 if(!handoffId) throw Error("No completed Drive handoff for today's episode yet");
 const {artifact}=await api("artifacts/"+encodeURIComponent(handoffId));
 const saved=await readEnvFile(process.env.AMOS_ENV_FILE||"/data/.env");
-const env=(key:string)=>saved[key]?.trim()||process.env[key]?.trim()||"";
+const env=(key:string)=>process.env[key]?.trim()||saved[key]?.trim()||"";
 const drive=new DriveProvider({accessToken:driveTokenFactory({clientId:env("DRIVE_CLIENT_ID"),clientSecret:env("DRIVE_CLIENT_SECRET"),refreshToken:env("DRIVE_REFRESH_TOKEN")})});
 const files=await drive.listFiles(artifact.payload.drive_folder_id);
 console.log(JSON.stringify({drive_folder_url:artifact.payload.drive_folder_url,files:files.map(f=>f.name)}));

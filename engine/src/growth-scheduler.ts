@@ -6,11 +6,8 @@ import { localParts } from "./delivery-time.ts";
 
 /**
  * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
- * Otherwise resolve today's UTC hour from a local wall-clock target (default
- * 9pm Europe/Berlin) so the daily publish slot survives a DST change instead
- * of silently drifting an hour twice a year -- this recomputes fresh on
- * every service start, and the project redeploys on every merge to main, so
- * restart-driven staleness is not a real risk here.
+ * Otherwise display today's UTC equivalent of 03:00 Berlin preparation.
+ * Scheduling itself uses localSchedule, resolved on every tick.
  */
 function produceTargetHourUtc(): number {
   const explicit = process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim();
