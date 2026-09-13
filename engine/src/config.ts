@@ -228,6 +228,37 @@ export const CREDENTIALS: CredentialSpec[] = [
     help: "expires in ~1h. Prefer the OAuth trio above, which refreshes itself",
     fallback: "publishing runs against a dry-run target",
   },
+  {
+    key: "DRIVE_CLIENT_ID",
+    label: "Google Drive OAuth client ID",
+    secret: false,
+    placeholder: "…apps.googleusercontent.com",
+    help: "Google Cloud console → Credentials → OAuth 2.0 Client ID (Desktop app). Needs the full https://www.googleapis.com/auth/drive scope, not drive.file, so the editor's uploaded cut is visible.",
+    fallback: "the run stops at editor_review with no way to build or check the editor's Drive folder",
+  },
+  {
+    key: "DRIVE_CLIENT_SECRET",
+    label: "Google Drive OAuth client secret",
+    secret: true,
+    placeholder: "GOCSPX-…",
+    help: "shown next to the client ID in the Google Cloud console",
+    fallback: "the run stops at editor_review with no way to build or check the editor's Drive folder",
+  },
+  {
+    key: "DRIVE_REFRESH_TOKEN",
+    label: "Google Drive refresh token",
+    secret: true,
+    help: "one-time OAuth consent flow with the drive scope above",
+    fallback: "the run stops at editor_review with no way to build or check the editor's Drive folder",
+  },
+  {
+    key: "DRIVE_ROOT_FOLDER_ID",
+    label: "Drive root folder ID",
+    secret: false,
+    placeholder: "1a2B3c…",
+    help: "One Drive folder, shared with the editor (Editor access). Each episode gets a dated subfolder created under it.",
+    fallback: "the run stops at editor_review with no folder to create the episode subfolder under",
+  },
 ];
 
 export interface CredentialStatus {

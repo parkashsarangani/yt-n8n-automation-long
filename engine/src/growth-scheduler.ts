@@ -187,6 +187,8 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const measureHours = Number(process.env["SCHEDULE_MEASURE_HOURS"] ?? 24);
   const maxCandidateAttempts = Math.max(1, Math.min(6, Number(process.env["SCHEDULE_MAX_TOPIC_ATTEMPTS"] ?? 3) || 3));
   const analyticsReal = service.capabilities().some((s) => s.id === "analytics" && s.real);
+  const editorHandoffReal = service.capabilities().some((s) => s.id === "editor_handoff" && s.real);
+  const editorWatchMinutes = Math.max(5, Number(process.env["SCHEDULE_EDITOR_WATCH_MINUTES"] ?? 20) || 20);
   const lastProduction = mostRecentProduction(service);
   const scheduler = new Scheduler({ jobs: [
     {
@@ -249,6 +251,14 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       const result = await service.measureAll();
       if (result.failed.length) throw new Error(`Measurement failed for ${result.failed.length} episode(s): ${result.failed[0]!.error}`);
     } },
+    {
+      id: "editor_watch", everyHours: editorWatchMinutes / 60, enabled: editorHandoffReal,
+      description: `check every run parked at editor_review for a returned final.mp4 in its Drive folder (every ${editorWatchMinutes}m)`,
+      async run() {
+        const result = await service.checkEditorReturns();
+        console.log(`[growth-scheduler] editor-watch: checked ${result.checked} run(s) parked at editor_review, advanced ${result.advanced}`);
+      },
+    },
   ] });
   scheduler.start();
   return { status: () => scheduler.status(), runNow: (id) => scheduler.runNow(id), stop: () => scheduler.stop() };

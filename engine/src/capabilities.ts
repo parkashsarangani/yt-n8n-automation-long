@@ -81,6 +81,14 @@ export const STAGES: StageSpec[] = [
     },
   },
   {
+    id: "editor_handoff",
+    label: "Human editor handoff (Drive)",
+    requires: [["DRIVE_CLIENT_ID", "DRIVE_CLIENT_SECRET", "DRIVE_REFRESH_TOKEN", "DRIVE_ROOT_FOLDER_ID"]],
+    real: "google-drive",
+    fallback: "unavailable",
+    consequence: "every run stops at editor_review — there is no way to build or check the editor's Drive folder without this",
+  },
+  {
     id: "analytics",
     label: "Performance measurement",
     requires: [["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]],

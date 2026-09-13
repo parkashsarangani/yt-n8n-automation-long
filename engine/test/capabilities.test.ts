@@ -5,7 +5,7 @@ import { capabilityReport, credentialsSatisfied, STAGES } from "../src/capabilit
 const stage = (id: string) => STAGES.find((item) => item.id === id)!;
 
 test("audio-first capabilities expose no retired visual QA or media-generation stages", () => {
-  assert.deepEqual(STAGES.map((item) => item.id), ["reasoning", "speech", "images", "renderer", "publish", "analytics"]);
+  assert.deepEqual(STAGES.map((item) => item.id), ["reasoning", "speech", "images", "renderer", "publish", "editor_handoff", "analytics"]);
   assert.equal(credentialsSatisfied(stage("images"), { FAL_KEY: "fal" }), true);
   assert.equal(credentialsSatisfied(stage("images"), { FREELLMAPI_API_KEY: "free" }), false);
 });

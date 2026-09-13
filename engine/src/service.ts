@@ -35,11 +35,15 @@ import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
+import { DriveProvider, type DriveExchange } from "./providers/drive.ts";
+import { driveTokenFactory } from "./drive-auth.ts";
+import { assertYouTubeProductionGeometry } from "./media/mp4.ts";
 import {
   FakeImageProvider,
   FakePublishTarget,
   FakeRenderer,
   FakeSpeechProvider,
+  FakeDriveProvider,
 } from "./providers/fake.ts";
 import { Runner, type TransformationDef } from "./runner.ts";
 import { loadAgentDefs, validateCatalog } from "./catalog.ts";
@@ -189,6 +193,8 @@ export class VidGenService {
   private transformations!: Map<string, TransformationDef>;
   /** Held so measureAll can check live visibility before spending a call. */
   private analyticsProvider: AnalyticsProvider | undefined;
+  /** Held so the editor-watch scheduler job can list/download from the run's Drive folder. */
+  private driveProvider: DriveExchange | undefined;
 
   private readonly runs = new Map<string, RunState>();
   readonly envFile: string;
@@ -269,6 +275,16 @@ export class VidGenService {
     const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
+    const drive: DriveExchange = can("editor_handoff")
+      ? new DriveProvider({
+        accessToken: driveTokenFactory({
+          clientId: env("DRIVE_CLIENT_ID")!,
+          clientSecret: env("DRIVE_CLIENT_SECRET")!,
+          refreshToken: env("DRIVE_REFRESH_TOKEN")!,
+        }),
+      })
+      : new FakeDriveProvider();
+    this.driveProvider = drive;
 
     // The OAuth trio is preferred: it refreshes itself. The bare access token
     // is the one-hour stopgap, and only used when the trio is incomplete.
@@ -308,6 +324,7 @@ export class VidGenService {
         // production evidence: an episode with missing scenes went public
         // unattended before that existed).
         publish: { target, privacy: "public" },
+        editorPackage: { rootFolderId: env("DRIVE_ROOT_FOLDER_ID") },
       }),
     );
     validateGraph(this.graph, { registry: this.registry, transformations: this.transformations });
@@ -336,7 +353,7 @@ export class VidGenService {
       providers,
       runLog: this.runLog,
       blobs: this.blobs,
-      media: { speech, images, renderer, ...(analytics ? { analytics } : {}) },
+      media: { speech, images, renderer, drive, ...(analytics ? { analytics } : {}) },
       logger: console,
     });
 
@@ -788,6 +805,84 @@ export class VidGenService {
   /** There is only one publish-capable production graph. */
   private resolveRunGraph(_ref: string | undefined): GraphDoc {
     return this.graph;
+  }
+
+  /**
+   * Record the human editor's returned cut as `finalize_video`'s preset
+   * output, so the next decide() on `editor_review` uses it instead of
+   * letting finalize_video pass the draft through unchanged. Called by the
+   * editor-watch poller once it finds and validates a `final.mp4` in the
+   * run's Drive folder -- never by the editor directly, since Drive is the
+   * only surface they touch.
+   */
+  async supplyEditorCut(
+    runId: string,
+    video: { bytes: Uint8Array; media_type: string; scene_count: number; degraded_scenes: number; duration_sec?: number },
+  ): Promise<void> {
+    const state = this.runs.get(runId);
+    if (!state) throw new Error(`unknown run ${runId}`);
+    const videoBlob = await this.blobs.put(video.bytes, { role: "video", media_type: video.media_type });
+    const artifact = await this.store.put({
+      schema_id: "rendered_video",
+      payload: {
+        video_uri: videoBlob.uri,
+        media_type: video.media_type,
+        scene_count: video.scene_count,
+        degraded_scenes: video.degraded_scenes,
+        ...(video.duration_sec !== undefined ? { duration_sec: video.duration_sec } : {}),
+        renderer: "editor",
+      },
+      blobs: [videoBlob],
+      produced_by: { transformation: "finalize_video", version: "1", run_id: runId, provider: null },
+    });
+    state.presetOutputs = { ...(state.presetOutputs ?? {}), finalize_video: artifact.artifact.artifact_id };
+  }
+
+  /**
+   * Poll every run parked at editor_review for a `final.mp4` dropped into its
+   * Drive folder. A run that fails its check (bad geometry, transient Drive
+   * error) is logged and left waiting for the next poll -- it must never
+   * crash the run or the scheduler.
+   */
+  async checkEditorReturns(): Promise<{ checked: number; advanced: number }> {
+    const drive = this.driveProvider;
+    const runs = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review"));
+    if (!drive || runs.length === 0) return { checked: runs.length, advanced: 0 };
+
+    let advanced = 0;
+    for (const run of runs) {
+      try {
+        const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
+        const handoff = await this.store.get<{ drive_folder_id: string }>(handoffId);
+        if (!handoff) continue;
+
+        const files = await drive.listFiles(handoff.payload.drive_folder_id);
+        const final = files.find((f) => f.name.trim().toLowerCase() === "final.mp4");
+        if (!final) continue;
+
+        const bytes = await drive.downloadFile(final.id);
+        assertYouTubeProductionGeometry(bytes);
+
+        const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
+        const draft = renderId
+          ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
+          : null;
+
+        await this.supplyEditorCut(run.run_id, {
+          bytes,
+          media_type: "video/mp4",
+          scene_count: draft?.payload.scene_count ?? 1,
+          degraded_scenes: draft?.payload.degraded_scenes ?? 0,
+          ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
+        });
+        await this.decide(run.run_id, "editor_review", { result: "approve" });
+        advanced += 1;
+        console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
+      } catch (err) {
+        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { checked: runs.length, advanced };
   }
 
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {

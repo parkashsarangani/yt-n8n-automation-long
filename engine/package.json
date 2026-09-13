@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "ui": "node --env-file-if-exists=.env --import tsx scripts/serve.ts",
     "youtube-token": "node --import tsx ../scripts/youtube-token.ts",
-    "youtube-auth": "node --import tsx ../scripts/youtube-token.ts --auth"
+    "youtube-auth": "node --import tsx ../scripts/youtube-token.ts --auth",
+    "drive-token": "node --import tsx ../scripts/drive-token.ts",
+    "drive-auth": "node --import tsx ../scripts/drive-token.ts --auth"
   },
   "dependencies": {
     "ajv": "^8.17.1",

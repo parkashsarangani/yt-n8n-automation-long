@@ -76,6 +76,15 @@ services:
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
       YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
+
+      # Human editor handoff. Each episode's draft + transcript/beat-list
+      # package is uploaded to a dated subfolder under this Drive folder; the
+      # run waits there until a final.mp4 is dropped back in.
+      DRIVE_CLIENT_ID: ${DRIVE_CLIENT_ID:-}
+      DRIVE_CLIENT_SECRET: ${DRIVE_CLIENT_SECRET:-}
+      DRIVE_REFRESH_TOKEN: ${DRIVE_REFRESH_TOKEN:-}
+      DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
+      SCHEDULE_EDITOR_WATCH_MINUTES: ${SCHEDULE_EDITOR_WATCH_MINUTES:-20}
     volumes:
       - vidgen_data:/data
       - ./engine/config:/app/config:ro
