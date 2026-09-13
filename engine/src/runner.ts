@@ -26,6 +26,7 @@ import {
   type SpeechProvider,
   type Usage,
 } from "./provider.ts";
+import type { DriveExchange } from "./providers/drive.ts";
 import { SchemaRegistry, SchemaValidationError } from "./registry.ts";
 import type { ArtifactStore } from "./store.ts";
 import type { RunLog, RunRecord, RunStatus } from "./runlog.ts";
@@ -74,6 +75,7 @@ export interface WorkerContext {
     images?: ImageProvider;
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
+    drive?: DriveExchange;
   };
   progress(note: { detail: string; job_id?: string; usage?: Usage }): Promise<void>;
   /**
@@ -150,6 +152,7 @@ export interface RunnerDeps {
     images?: ImageProvider;
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
+    drive?: DriveExchange;
   };
 }
 

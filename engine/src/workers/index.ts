@@ -9,6 +9,8 @@ import { makeMeasureWorker, type MeasureWorkerOptions } from "./measure.ts";
 import { makeQaWorker, type QaWorkerOptions } from "./qa.ts";
 import { makeGrowthPackageReleaseWorker } from "./growth-package-release.ts";
 import { makeWatchabilityReleaseWorker } from "./watchability-release.ts";
+import { makeEditorPackageWorker, type EditorPackageWorkerOptions } from "./editor-package.ts";
+import { makeFinalizeVideoWorker, type FinalizeVideoWorkerOptions } from "./finalize-video.ts";
 
 export {
   makeVoiceWorker,
@@ -20,6 +22,8 @@ export {
   makeQaWorker,
   makeGrowthPackageReleaseWorker,
   makeWatchabilityReleaseWorker,
+  makeEditorPackageWorker,
+  makeFinalizeVideoWorker,
 };
 
 export interface WorkerSetOptions {
@@ -30,6 +34,8 @@ export interface WorkerSetOptions {
   measure?: MeasureWorkerOptions;
   qa?: QaWorkerOptions;
   publish?: PublishWorkerOptions;
+  editorPackage?: EditorPackageWorkerOptions;
+  finalizeVideo?: FinalizeVideoWorkerOptions;
 }
 
 export function defaultWorkers(opts: WorkerSetOptions): Map<string, TransformationDef> {
@@ -42,6 +48,8 @@ export function defaultWorkers(opts: WorkerSetOptions): Map<string, Transformati
     makeThumbnailWorker(opts.thumbnail ?? {}),
     makeMeasureWorker(opts.measure ?? {}),
     makeQaWorker(opts.qa ?? {}),
+    makeEditorPackageWorker(opts.editorPackage ?? {}),
+    makeFinalizeVideoWorker(opts.finalizeVideo ?? {}),
     ...(opts.publish ? [makePublishWorker(opts.publish)] : []),
   ];
   return new Map(workers.map((worker) => [worker.name, worker]));

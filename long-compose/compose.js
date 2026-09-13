@@ -187,7 +187,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
           "-i",first.file,"-vf","scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x101217","-frames:v","1",preview]);
         thumbnail=(await fsp.readFile(preview)).toString("base64");
       }
-      await options.onFootage(shots.map(s=>s.credit),thumbnail);
+      await options.onFootage(shots.map(s=>({...s.credit,scene_index:s.scene_index})),thumbnail);
     }
     return await probeDuration(outputPath);
   } finally {

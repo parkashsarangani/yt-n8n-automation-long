@@ -1,7 +1,7 @@
 {
   "graph_id": "illustrated_story",
-  "version": "11",
-  "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. The retired illustrated/RFC0010 visual-generation stack is intentionally absent; render produces a minimal YouTube-compatible video shell around approved narration audio.",
+  "version": "12",
+  "description": "Single production audio-first long-form graph. Editorial quality is concentrated in topic selection, package, story architecture, narration, watchability, voice, sound-ready rendering, thumbnail, SEO, technical QA and publishing. After the draft render, an editor package is built and the run waits at editor_review for a human touch-up cut before finalize_video, qa, and publish use it.",
   "nodes": [
     { "id": "intent", "type": "input", "schema_id": "intent" },
     { "id": "performance", "type": "input", "schema_id": "performance_window" },
@@ -21,8 +21,11 @@
     { "id": "thumbnail_brief", "transformation": "thumbnail_designer", "in": ["approve_story", "package_release"] },
     { "id": "thumbnail", "transformation": "thumbnail", "in": ["thumbnail_brief", "render"] },
     { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "package_release"] },
-    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "render", "thumbnail", "seo"] },
+    { "id": "editor_package", "transformation": "editor_package", "in": ["approve_script", "voice", "render"] },
+    { "id": "editor_review", "type": "human_gate", "in": ["editor_package"] },
+    { "id": "finalize_video", "transformation": "finalize_video", "in": ["editor_review", "render"] },
+    { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "finalize_video", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
-    { "id": "publish", "transformation": "publish", "in": ["render", "seo", "thumbnail", "approve_publish", "approve_script", "voice"] }
+    { "id": "publish", "transformation": "publish", "in": ["finalize_video", "seo", "thumbnail", "approve_publish", "approve_script", "voice"] }
   ]
 }

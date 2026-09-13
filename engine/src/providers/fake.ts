@@ -6,7 +6,7 @@
  * inputs (RFC 0003 rule 2).
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   ProviderError,
   ProviderRefusal,
@@ -29,6 +29,7 @@ import {
   type SpeechProvider,
   type TargetRequirements,
 } from "../provider.ts";
+import type { DriveExchange, DriveFile } from "./drive.ts";
 
 export type FakeHandler = (
   req: CompletionRequest,
@@ -256,6 +257,47 @@ export class FakePublishTarget implements PublishTarget {
         model: this.id,
       },
     };
+  }
+}
+
+/**
+ * In-memory Drive stand-in: folders/files live in a Map for the life of the
+ * process, so a test can upload, list, and download without any network.
+ */
+export class FakeDriveProvider implements DriveExchange {
+  readonly id = "fake/drive";
+  private readonly files = new Map<string, { name: string; mimeType: string; bytes: Uint8Array; parent: string }>();
+  private readonly folders = new Set<string>(["root"]);
+
+  async createFolder(name: string, parentId: string): Promise<string> {
+    if (!this.folders.has(parentId)) throw new ProviderError(`fake drive: unknown parent folder ${parentId}`);
+    const id = `folder_${randomUUID()}`;
+    this.folders.add(id);
+    this.files.set(id, { name, mimeType: "application/vnd.google-apps.folder", bytes: new Uint8Array(), parent: parentId });
+    return id;
+  }
+
+  async uploadFile(folderId: string, name: string, bytes: Uint8Array, mimeType: string): Promise<string> {
+    if (!this.folders.has(folderId)) throw new ProviderError(`fake drive: unknown folder ${folderId}`);
+    const id = `file_${randomUUID()}`;
+    this.files.set(id, { name, mimeType, bytes, parent: folderId });
+    return id;
+  }
+
+  async listFiles(folderId: string): Promise<DriveFile[]> {
+    return [...this.files.entries()]
+      .filter(([, f]) => f.parent === folderId)
+      .map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType }));
+  }
+
+  async downloadFile(fileId: string): Promise<Uint8Array> {
+    const file = this.files.get(fileId);
+    if (!file) throw new ProviderError(`fake drive: unknown file ${fileId}`);
+    return file.bytes;
+  }
+
+  folderUrl(folderId: string): string {
+    return `https://example.test/drive/${folderId}`;
   }
 }
 
