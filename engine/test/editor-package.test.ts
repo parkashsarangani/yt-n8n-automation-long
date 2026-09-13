@@ -20,6 +20,7 @@ test("editor package uploads the draft and records a beat per scene", async () =
   const ctx = ctxWith();
   const blobs = ctx.blobs;
   const video = await blobs.put(new Uint8Array([1, 2, 3]), { role: "video", media_type: "video/mp4" });
+  const thumb = await blobs.put(new Uint8Array([4, 5]), { role: "thumbnail", media_type: "image/png" });
 
   const inputs = {
     script: {
@@ -32,6 +33,8 @@ test("editor package uploads the draft and records a beat per scene", async () =
     } as Artifact,
     voice: { payload: { clips: [{ scene_index: 0, duration_sec: 10 }, { scene_index: 1, duration_sec: 5 }] } } as Artifact,
     render: { payload: { video_uri: video.uri, media_type: "video/mp4" }, blobs: [video] } as Artifact,
+    seo: { payload: { title: "A calmer response", description: "How to handle a colleague who keeps cutting you off.", tags: ["communication", "workplace"] } } as Artifact,
+    thumbnail: { payload: { thumbnail_uri: thumb.uri, media_type: "image/png" } } as Artifact,
   };
 
   const worker = makeEditorPackageWorker({ rootFolderId: "root" });
@@ -49,7 +52,7 @@ test("editor package uploads the draft and records a beat per scene", async () =
 
   const drive = (ctx.media.drive as FakeDriveProvider);
   const files = await drive.listFiles(payload.drive_folder_id);
-  assert.deepEqual(files.map((f) => f.name).sort(), ["credits.json", "draft.mp4", "package.md"]);
+  assert.deepEqual(files.map((f) => f.name).sort(), ["credits.json", "draft.mp4", "package.md", "thumbnail.png"]);
 });
 
 test("a scene already covered by footage gets no search-term suggestion", async () => {
@@ -61,10 +64,13 @@ test("a scene already covered by footage gets no search-term suggestion", async 
     { role: "footage_credits", media_type: "application/json" },
   );
 
+  const thumb = await blobs.put(new Uint8Array([4, 5]), { role: "thumbnail", media_type: "image/png" });
   const inputs = {
     script: { payload: { scenes: [{ scene_index: 0, point: "[scenario] intro", narration: "A colleague cuts across the point you were making." }] } } as Artifact,
     voice: { payload: { clips: [{ scene_index: 0, duration_sec: 8 }] } } as Artifact,
     render: { payload: { video_uri: video.uri, media_type: "video/mp4" }, blobs: [video, credits] } as Artifact,
+    seo: { payload: { title: "A calmer response", description: "How to handle a colleague who keeps cutting you off.", tags: ["communication"] } } as Artifact,
+    thumbnail: { payload: { thumbnail_uri: thumb.uri, media_type: "image/png" } } as Artifact,
   };
 
   const out = await makeEditorPackageWorker({ rootFolderId: "root" }).execute(inputs, ctx);
