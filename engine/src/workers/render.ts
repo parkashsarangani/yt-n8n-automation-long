@@ -1,6 +1,5 @@
 /** Audio-first render worker: approved script + voice -> YouTube-compatible MP4 shell. */
 import type { Artifact, BlobRef } from "../artifact.ts";
-import { episodeArtPrompt } from "../visual-identity.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import type { RenderRequest, RenderScene } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -76,7 +75,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "16",
+    version: opts.version ?? "17",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -90,33 +89,11 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       const scenes = await buildScenes(inputs, ctx);
       if (!scenes.length) throw new Error("render: approved script contains no scenes");
       const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
-      // One text-free editorial image per episode, separate from click-oriented thumbnail artwork.
-      // Keep it on the render artifact so a manual render retry can reuse it.
-      const artwork: BlobRef[] = [];
-      let background: Uint8Array | undefined;
-      const prior = ctx.priorArtifact?.blobs?.find(b => b.role === "episode_background");
-      if (prior) {
-        background = await ctx.blobs.get(prior.uri);
-        artwork.push(prior);
-      } else if (ctx.media.images) {
-        try {
-          const found = await ctx.media.images.generate({
-            prompt: episodeArtPrompt(scenes[0]?.narration ?? "listening with confidence"),
-            aspect: "16:9", count: 1,
-          });
-          await ctx.progress({ detail: "episode background image usage", usage: found.usage });
-          background = found.images[0]?.bytes;
-          if (!background) throw new Error("image provider returned no episode background");
-          artwork.push(await ctx.blobs.put(background, { role: "episode_background", media_type: found.images[0]!.media_type }));
-        } catch (error) {
-          ctx.logger.warn(`episode artwork unavailable; using plain background: ${String(error)}`);
-          await ctx.progress({ detail: "episode artwork unavailable; plain background fallback" });
-        }
-      }
+      // Native editorial graphics are the default. Do not regenerate generic
+      // people or revive cached synthetic backgrounds on a render retry.
       const request: ContinuationRenderRequest = {
         scenes,
         ...((inputs["package"]?.payload as GrowthPackage | undefined)?.selected_title ? { lesson_title: (inputs["package"]!.payload as GrowthPackage).selected_title! } : {}),
-        ...(background ? { background_image: background } : {}),
         caption_style: opts.captionStyle ?? "neutral",
         ...(bridge ? { outro_line: bridge } : {}),
       };
@@ -132,7 +109,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
         assertYouTubeProductionGeometry(result.video);
       }
 
-      const blobs: BlobRef[] = [...artwork];
+      const blobs: BlobRef[] = [];
       const video = await ctx.blobs.put(result.video, { role: "video", media_type: result.media_type });
       blobs.push(video);
       let thumbRef: BlobRef | null = null;

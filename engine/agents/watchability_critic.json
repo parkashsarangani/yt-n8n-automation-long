@@ -1,7 +1,7 @@
 {
   "name": "watchability_critic",
   "kind": "agent",
-  "version": "10",
+  "version": "11",
   "consumes": [
     {
       "schema_id": "story",
