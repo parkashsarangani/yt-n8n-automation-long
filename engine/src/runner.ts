@@ -13,7 +13,6 @@ import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
 import { repairEnumValues } from "./schema-repair.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
-import { repairVisualCards } from "./episode-presentation.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import { buildScriptRevisionContext } from "./script-revision.ts";
 import {
@@ -367,7 +366,11 @@ export class Runner {
       const { data: scriptRepaired, repairs: outroRepairs } = def.produces === "script"
         ? repairMissingOutroFlag(enumRepaired)
         : { data: enumRepaired, repairs: [] };
-      const payload = def.produces === "script" && version === "1.1.0" ? repairVisualCards(scriptRepaired) : scriptRepaired;
+      // Visual cards are editor-owned presentation metadata. Remove them
+      // before schema validation so malformed cards cannot block narration.
+      const payload = def.produces === "script" && version === "1.1.0"
+        ? stripEditorVisuals(scriptRepaired)
+        : scriptRepaired;
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +
