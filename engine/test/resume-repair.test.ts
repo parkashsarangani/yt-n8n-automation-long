@@ -36,6 +36,10 @@ test("driveUnattended's own retry loop never calls the public retry() -- no expo
   const state = { finished: true, error: null as string | null, graph: "graph" };
   const service = Object.create(VidGenService.prototype);
   service.runs = new Map([["run-test", state]]);
+  service.resolveRunGraph = () => ({ graph_id: "illustrated_story", version: "1" });
+  service.transformations = new Map();
+  const recorded: unknown[] = [];
+  service.runLog = { record: async (r: unknown) => { recorded.push(r); } };
   service.getRun = () => ({
     status: "blocked",
     failures: [{ node_id: "draft_script", error: "payload does not satisfy some_schema@1.0.0: /attempt must be <= 6" }],
@@ -47,4 +51,14 @@ test("driveUnattended's own retry loop never calls the public retry() -- no expo
 
   const expectedRounds = MAX_ATTEMPTS_BEFORE_ACCEPTING - 1;
   assert.deepEqual(calls, Array(expectedRounds).fill("resumeFailedRun"));
+  // The give-up decision must be persisted, or a later reloadRuns() after a
+  // restart only ever sees the first attempt's failure and reports this
+  // exhausted run as still "retrying" -- confirmed live in production: a
+  // restart mid-exhaustion made creativeFailure() return false for a run
+  // that had already burned its full retry budget, so the daily scheduler's
+  // recovery path retried it forever instead of moving to a new topic.
+  assert.equal(recorded.length, 1);
+  assert.equal((recorded[0] as { node_id: string }).node_id, "draft_script");
+  assert.equal((recorded[0] as { status: string }).status, "failed");
+  assert.match((recorded[0] as { error: string }).error, /attempt must be <= 6/);
 });
