@@ -1,11 +1,12 @@
 /**
- * Editor-package worker: approved script + voice + the draft render -> a
- * Drive folder the human editor can pick up from, plus the same beat list
- * recorded on the artifact so the operator can review it without opening
- * Drive.
+ * Editor-package worker: approved script + voice + the draft render + the
+ * already-produced thumbnail/SEO metadata -> a Drive folder the human editor
+ * can pick up from, plus the same beat list recorded on the artifact so the
+ * operator can review it without opening Drive.
  *
- * The editor never sees thumbnail/SEO/title -- only the video and what it
- * needs to judge and replace a weak visual moment.
+ * The editor never edits thumbnail/SEO/title -- those are handed over as
+ * reference context alongside the draft, not something they're expected to
+ * touch. Only the video comes back changed.
  */
 import type { Artifact } from "../artifact.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
@@ -27,6 +28,17 @@ interface ScriptScene {
 interface VoiceClip {
   scene_index: number;
   duration_sec: number;
+}
+
+interface SeoMetadata {
+  title: string;
+  description: string;
+  tags: string[];
+}
+
+interface ThumbnailArtifact {
+  thumbnail_uri: string;
+  media_type: "image/png" | "image/jpeg";
 }
 
 interface FootageCredit {
@@ -82,11 +94,13 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
   return {
     name: "editor_package",
     kind: "worker",
-    version: opts.version ?? "1",
+    version: opts.version ?? "2",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
       { schema_id: "rendered_video", range: "^1", as: "render" },
+      { schema_id: "seo_metadata", range: "^1", as: "seo" },
+      { schema_id: "thumbnail", range: "^1", as: "thumbnail" },
     ],
     produces: "editor_handoff",
     async execute(inputs: Record<string, Artifact>, ctx: WorkerContext): Promise<WorkerOutput> {
@@ -101,6 +115,8 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
       const clips = (inputs["voice"]!.payload as { clips: VoiceClip[] }).clips;
       const durationBy = new Map(clips.map((c) => [c.scene_index, c.duration_sec]));
       const render = inputs["render"]!.payload as { video_uri: string; media_type: string };
+      const seo = inputs["seo"]!.payload as SeoMetadata;
+      const thumbnail = inputs["thumbnail"]!.payload as ThumbnailArtifact;
 
       const creditsBlob = inputs["render"]!.blobs?.find((b) => b.role === "footage_credits");
       const credits: FootageCredit[] = creditsBlob
@@ -132,11 +148,26 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
       const videoBytes = await ctx.blobs.get(render.video_uri);
       await drive.uploadFile(folderId, "draft.mp4", videoBytes, render.media_type || "video/mp4");
 
+      const thumbnailBytes = await ctx.blobs.get(thumbnail.thumbnail_uri);
+      const thumbnailExt = thumbnail.media_type === "image/jpeg" ? "jpg" : "png";
+      await drive.uploadFile(folderId, `thumbnail.${thumbnailExt}`, thumbnailBytes, thumbnail.media_type);
+
       const packageMd = [
         `# Episode draft — ${folderName}`,
         "",
         "Export your finished cut as `final.mp4` and upload it into this same folder when done.",
         "Swap out any visual that doesn't fit; general polish is welcome. This is a light touch-up pass, not a rebuild.",
+        "The title, thumbnail and description below are already final -- reference only, not yours to edit.",
+        "",
+        "## Title, thumbnail and description (for context)",
+        "",
+        `**Title:** ${escapeMd(seo.title)}`,
+        "",
+        "**Thumbnail:** see `thumbnail." + thumbnailExt + "` in this folder.",
+        "",
+        `**Description:** ${escapeMd(seo.description)}`,
+        "",
+        `**Tags:** ${seo.tags.join(", ")}`,
         "",
         "## Transcript and visual beats",
         "",

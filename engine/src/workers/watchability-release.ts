@@ -143,7 +143,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "8",
+    version: "9",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
@@ -151,7 +151,15 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       { schema_id: "intent", range: "^2", as: "intent", optional: true },
     ],
     produces: "script",
-    produces_version: "1.7.0",
+    // Must match narration_script_writer's produces_version (script@1.1.0,
+    // which carries the approved-visual-card "visual" field) -- this worker
+    // only re-emits that same payload (enforceContinuationBridge edits the
+    // outro text, nothing else), so declaring a different schema version here
+    // rejects every real payload the moment it includes a visual card. It was
+    // still 1.7.0 (the pre-visual-cards schema) after PR #284 repurposed
+    // narration_script_writer onto 1.1.0, which blocked every production
+    // episode at this exact node.
+    produces_version: "1.1.0",
     async execute(inputs, ctx): Promise<WorkerOutput> {
       const durationSec = targetDuration(inputs["intent"]?.payload);
       const result = assessWatchability(inputs["report"]?.payload, durationSec);
