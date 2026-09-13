@@ -92,7 +92,12 @@ async function authFlow(): Promise<void> {
     const clientId = requireEnv(env, "DRIVE_CLIENT_ID");
     const clientSecret = requireEnv(env, "DRIVE_CLIENT_SECRET");
 
-    const REDIRECT_PORT = 8977;
+    // Reuses the same port youtube-token.ts uses. Since this is the same
+    // Desktop OAuth client as YouTube's, that redirect URI is already
+    // authorized in Google Cloud Console -- a different port here would need
+    // its own console edit for no benefit (the two scripts are never run at
+    // the same time).
+    const REDIRECT_PORT = 8976;
     const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}`;
 
     const code = await new Promise<string>((resolveCode, reject) => {
