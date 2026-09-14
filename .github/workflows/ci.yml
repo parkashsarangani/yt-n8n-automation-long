@@ -26,8 +26,13 @@ jobs:
           from pathlib import Path
 
           graph = json.loads(Path('engine/graphs/illustrated_story.json').read_text())
-          assert graph['version'] == '14'
+          assert graph['version'] == '15'
           nodes = {n['id']: n for n in graph['nodes']}
+          assert nodes['thumbnail']['in'] == ['thumbnail_brief']
+          assert nodes['thumbnail_brief']['in'] == ['approve_script', 'seo', 'package_release']
+          designer = json.loads(Path('engine/agents/thumbnail_designer.json').read_text())
+          assert designer['prompt'] == 'thumbnail_designer@4'
+          assert designer['produces_version'] == '2.0.0'
           assert nodes['editor_delivery']['type'] == 'human_gate'
           assert nodes['editor_delivery']['in'] == ['render']
           assert 'editor_delivery' in nodes['editor_package']['in']
