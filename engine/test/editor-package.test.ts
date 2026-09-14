@@ -22,6 +22,8 @@ test("editor package uploads the draft and records a beat per scene", async () =
   const video = await blobs.put(new Uint8Array([1, 2, 3]), { role: "video", media_type: "video/mp4" });
   const thumb = await blobs.put(new Uint8Array([4, 5]), { role: "thumbnail", media_type: "image/png" });
   const captions = await blobs.put(new TextEncoder().encode("1\n00:00:00,000 --> 00:00:02,000\nA colleague cuts across.\n"), { role: "captions", media_type: "application/x-subrip" });
+  const prompt = await blobs.put(new TextEncoder().encode('{"status":"needs_editor_replacement","image_prompt":"A candid scene"}'), {role:"thumbnail_prompt",media_type:"application/json"});
+  const artwork = await blobs.put(new Uint8Array([8,9]), {role:"thumbnail_artwork",media_type:"image/jpeg"});
 
   const inputs = {
     script: {
@@ -35,7 +37,7 @@ test("editor package uploads the draft and records a beat per scene", async () =
     voice: { payload: { clips: [{ scene_index: 0, duration_sec: 10 }, { scene_index: 1, duration_sec: 5 }] } } as Artifact,
     render: { payload: { video_uri: video.uri, media_type: "video/mp4" }, blobs: [video, captions] } as Artifact,
     seo: { payload: { title: "A calmer response", description: "How to handle a colleague who keeps cutting you off.", tags: ["communication", "workplace"] } } as Artifact,
-    thumbnail: { payload: { thumbnail_uri: thumb.uri, media_type: "image/png" } } as Artifact,
+    thumbnail: { payload: { thumbnail_uri: thumb.uri, media_type: "image/png", background: "gradient" }, blobs:[thumb,prompt,artwork] } as Artifact,
   };
 
   const worker = makeEditorPackageWorker({ rootFolderId: "root" });
@@ -53,14 +55,18 @@ test("editor package uploads the draft and records a beat per scene", async () =
 
   const drive = (ctx.media.drive as FakeDriveProvider);
   const files = await drive.listFiles(payload.drive_folder_id);
-  assert.deepEqual(files.map((f) => f.name).sort(), ["captions.srt", "credits.json", "draft.mp4", "package.md", "thumbnail.png"]);
+  assert.deepEqual(files.map((f) => f.name).sort(), ["captions.srt", "credits.json", "draft.mp4", "package.md", "thumbnail-artwork.jpg", "thumbnail-prompt.json", "thumbnail.png"]);
+  assert.deepEqual(await drive.downloadFile(files.find(f=>f.name==="thumbnail-artwork.jpg")!.id),await blobs.get(artwork.uri));
+  assert.deepEqual(await drive.downloadFile(files.find(f=>f.name==="thumbnail-prompt.json")!.id),await blobs.get(prompt.uri));
   const md = new TextDecoder().decode(await drive.downloadFile(files.find(f=>f.name==="package.md")!.id));
   assert.match(md,/A colleague cuts across the point you were making/);
   assert.match(md,/Preserve the narration timing/);
+  assert.match(md,/THUMBNAIL NEEDS REPLACEMENT/);
+  assert.doesNotMatch(md,/already final/);
   assert.deepEqual(await drive.downloadFile(files.find(f=>f.name==="captions.srt")!.id),await blobs.get(captions.uri));
   const again = await worker.execute(inputs,ctx);
   assert.equal((again.payload as any).drive_folder_id,payload.drive_folder_id);
-  assert.equal((await drive.listFiles(payload.drive_folder_id)).length,5);
+  assert.equal((await drive.listFiles(payload.drive_folder_id)).length,7);
 });
 
 test("a scene already covered by footage gets no search-term suggestion", async () => {

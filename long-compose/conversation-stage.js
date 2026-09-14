@@ -18,7 +18,7 @@ function pages(text) {
   for(let i=0;i<lines.length;i+=3)result.push(lines.slice(i,i+3));
   return result;
 }
-function buildTitleCard(text) {
+function buildTitleCard(text, accent) {
   // drawtext is absent from the bundled ffmpeg build (FFmpeg 7 gates it behind
   // libharfbuzz); libass is present, so the title renders through the same
   // subtitle path the conversation stage already uses.
@@ -27,6 +27,7 @@ function buildTitleCard(text) {
   for (const word of words) { if (line && line.length + word.length + 1 > 12) { lines.push(line); line = ""; } line += (line ? " " : "") + word; }
   if (line) lines.push(line);
   const body = lines.map(safe).join("\\N");
+  const color = /^#[0-9a-f]{6}$/i.test(accent || "") ? accent.slice(5,7)+accent.slice(3,5)+accent.slice(1,3) : "DDEBF3";
   const style = "Style: Title,DejaVu Sans,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,5,60,60,40,1";
   return [
     "[Script Info]",
@@ -41,7 +42,7 @@ function buildTitleCard(text) {
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    "Dialogue: 0,0:00:00.00,0:00:10.00,Title,,0,0,0,,{\\pos(320,360)\\fs48\\c&HDDEBF3&}" + body,
+    "Dialogue: 0,0:00:00.00,0:00:10.00,Title,,0,0,0,,{\\pos(320,360)\\fs48\\c&H" + color + "&}" + body,
     "",
   ].join("\n");
 }
@@ -128,7 +129,7 @@ function buildStage(scenes, durations, lessonTitle) {
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
     // A brief contextual label only for legacy scenes without a visual.
     // Card scenes already carry their own meaning; avoid a second headline.
-    if(!card && !scene.is_outro && detail && !scene.footage_duration)
+    if(!card && !scene.is_outro && detail && !scene.footage_duration && !scene.suppress_heading)
       add(offset, offset + Math.min(duration,2.5), "Heading", "{\\an7\\pos(150,170)\\fad(100,150)}" + safe(label));
     for(const cue of captionCues(scene,duration)) {
       // Explicit line breaks avoid single-line overflow at mobile preview sizes.

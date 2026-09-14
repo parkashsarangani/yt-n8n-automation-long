@@ -1,98 +1,75 @@
-/**
- * Thumbnail worker: thumbnail_brief -> thumbnail.
- *
- * Best-effort artwork: if a prompt is given and an image provider is
- * configured, generate real artwork; if generation fails or nothing was
- * asked for, fall back to the renderer's gradient background rather than
- * blocking the run. The stricter "must have real cast artwork or fail"
- * behavior existed only for the retired two-host character pipeline.
- *
- * In the audio-first graph this is the ONLY image the pipeline generates:
- * the episode itself is narration over a static shell, so the thumbnail is
- * a packaging concern, not part of the episode's visual content.
- */
-
+/** Standalone thumbnail: one prompt, at most two image attempts, deterministic text. */
 import type { BlobRef } from "../artifact.ts";
-import { episodeArtPrompt } from "../visual-identity.ts";
-import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
-
-export interface ThumbnailWorkerOptions { version?: string; }
-
-interface ThumbnailBrief {
-  text: string;
-  emphasis?: string;
-  art_prompt?: string;
-  background_query?: string;
-  accent: string;
-  rationale: string;
-  alternatives?: string[];
+import type { ThumbnailResult } from "../provider.ts";
+import type { WorkerDef } from "../runner.ts";
+export interface ThumbnailWorkerOptions { version?: string }
+interface Brief { text:string; image_prompt?:string; art_prompt?:string; background_query?:string; emphasis?:string; accent:string }
+export function makeThumbnailWorker(opts:ThumbnailWorkerOptions={}):WorkerDef {
+  return {
+    name:"thumbnail",kind:"worker",version:opts.version??"10",
+    consumes:[{schema_id:"thumbnail_brief",range:"^1 || ^2",as:"brief"}],
+    produces:"thumbnail",
+    async execute(inputs,ctx) {
+      const brief=inputs["brief"]!.payload as Brief;
+      const renderer=ctx.media.renderer;
+      if(!renderer)throw Error("thumbnail worker needs a renderer; none was configured");
+      // Legacy fields are accepted only for existing artifacts, never emitted by the new designer.
+      const prompt=(brief.image_prompt||brief.art_prompt||brief.background_query||"").trim();
+      const blobs:BlobRef[]=[];
+      const attempts:Array<{prompt:string; outcome:string; error?:string}>=[];
+      let result:ThumbnailResult|undefined;
+      const overlay={text:brief.text,accent:brief.accent,...(brief.emphasis?{emphasis:brief.emphasis}:{})};
+      if(prompt && ctx.media.images) for(let attempt=0;attempt<2;attempt++){
+        const sent=attempt===0?prompt:prompt+" Repair: simplify the scene and remove ALL writing, signage, letters, logos and watermarks. Keep the original subject and narrative meaning.";
+        let stage:"generation"|"rendering"="generation";
+        try {
+          await ctx.progress({detail:`thumbnail artwork attempt ${attempt+1}/2`});
+          const found=await ctx.media.images.generate({prompt:sent,aspect:"16:9",count:1});
+          await ctx.progress({detail:"thumbnail image usage",usage:found.usage});
+          const image=found.images[0];
+          if(!image?.bytes?.length)throw Error("image provider returned no thumbnail image");
+          stage="rendering";
+          result=await renderer.renderThumbnail({...overlay,image:image.bytes});
+          if(result.degradation_reason){
+            const message=thumbnailErrorDetail(result.degradation_reason);
+            attempts.push({prompt:sent,outcome:"render_service_failure",error:message});
+            ctx.logger.warn(`thumbnail rendering service failed: ${message}; editor replacement required`);
+            break; // A new image cannot repair an OCR/compositor outage.
+          }
+          if(result.background==="supplied"){
+            blobs.push(await ctx.blobs.put(image.bytes,{role:"thumbnail_artwork",media_type:image.media_type}));
+            attempts.push({prompt:sent,outcome:"accepted"});
+            break;
+          }
+          attempts.push({prompt:sent,outcome:"artwork rejected by renderer"});
+        } catch (error) {
+          const message=thumbnailErrorDetail(error);
+          attempts.push({prompt:sent,outcome:stage==="generation"?"generation_failure":"render_service_failure",error:message});
+          ctx.logger.warn(`thumbnail ${stage} failed: ${message}`);
+          if(stage==="rendering")break;
+        }
+      }
+      if(!result)result=await renderer.renderThumbnail(overlay);
+      const needsReplacement=result.background!=="supplied";
+      if(needsReplacement)ctx.logger.warn("THUMBNAIL NEEDS REPLACEMENT: placeholder only; notify the editor/operator before publication");
+      blobs.push(await ctx.blobs.put(new TextEncoder().encode(JSON.stringify({
+        image_prompt:prompt,text:brief.text,attempts,
+        status:needsReplacement?"needs_editor_replacement":"candidate",
+        artwork_available:!needsReplacement,
+        note:"Generated illustration, not documentary evidence. Only final.mp4 is automatically imported; coordinate thumbnail replacement with the operator."
+      },null,2)),{role:"thumbnail_prompt",media_type:"application/json"}));
+      const ref=await ctx.blobs.put(result.bytes,{role:"thumbnail",media_type:result.media_type});
+      blobs.unshift(ref);
+      return {payload:{thumbnail_uri:ref.uri,media_type:result.media_type,width:result.width,height:result.height,text:brief.text,
+        ...(brief.emphasis?{emphasis:brief.emphasis}:{}),background:result.background,bytes:result.bytes.byteLength},blobs};
+    }
+  };
 }
 
-export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDef {
-  return {
-    name: "thumbnail",
-    kind: "worker",
-    version: opts.version ?? "7",
-    consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }, { schema_id: "rendered_video", range: "^1", as: "episode", optional: true }],
-    produces: "thumbnail",
-
-    async execute(inputs, ctx: WorkerContext): Promise<WorkerOutput> {
-      const brief = inputs["brief"]!.payload as ThumbnailBrief;
-      const renderer = ctx.media.renderer;
-      if (!renderer) throw new Error("thumbnail worker needs a renderer; none was configured");
-
-      const imagePrompt = brief.art_prompt?.trim() || brief.background_query?.trim();
-
-      let background: Uint8Array | undefined;
-      const shared = inputs["episode"]?.blobs?.find(b => b.role === "episode_background");
-      if (shared) background = await ctx.blobs.get(shared.uri);
-      if (!background && !inputs["episode"] && ctx.media.images && imagePrompt) {
-        try {
-          await ctx.progress({ detail: `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
-          const found = await ctx.media.images.generate({ prompt: episodeArtPrompt(imagePrompt), aspect: "16:9", count: 1 });
-          await ctx.progress({ detail: "thumbnail image usage", usage: found.usage });
-          const first = found.images[0];
-          background = first?.bytes;
-          if (!background) throw new Error("image provider returned no thumbnail image");
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          ctx.logger.warn(`thumbnail artwork generation failed (${message}) — falling back to renderer background`);
-        }
-      } else if (!imagePrompt) {
-        ctx.logger.warn("thumbnail brief contained no usable artwork prompt — using renderer background");
-      }
-
-      await ctx.progress({ detail: `compositing thumbnail: "${brief.text}"` });
-      const result = await renderer.renderThumbnail({
-        ...(background ? { image: background } : {}),
-        text: brief.text,
-        ...(brief.emphasis ? { emphasis: brief.emphasis } : {}),
-        accent: brief.accent,
-      });
-
-      if (result.background === "gradient" && background) {
-        ctx.logger.warn("thumbnail artwork was generated but the renderer could not use it and fell back to a gradient");
-      }
-
-      const ref: BlobRef = await ctx.blobs.put(result.bytes, {
-        role: "thumbnail",
-        media_type: result.media_type,
-      });
-
-      return {
-        payload: {
-          thumbnail_uri: ref.uri,
-          media_type: result.media_type,
-          width: result.width,
-          height: result.height,
-          text: brief.text,
-          ...(brief.emphasis ? { emphasis: brief.emphasis } : {}),
-          background: result.background,
-          ...(imagePrompt ? { background_query: imagePrompt.slice(0, 120) } : {}),
-          bytes: result.bytes.byteLength,
-        },
-        blobs: [ref],
-      };
-    },
-  };
+/** Keep actionable diagnostics bounded and redact common credential formats. */
+export function thumbnailErrorDetail(error:unknown):string {
+  return (error instanceof Error?error.message:String(error))
+    .replace(/Bearer\s+[^\s"']+/gi,"Bearer [REDACTED]")
+    .replace(/((?:api[_-]?key|access_token|token|authorization)["']?\s*[:=]\s*["']?)[^\s"',;&}]+/gi,"$1[REDACTED]")
+    .replace(/[\r\n]+/g," ").slice(0,1000);
 }

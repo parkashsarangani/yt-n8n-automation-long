@@ -60,7 +60,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
   return {
     name: "publish",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "5",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
@@ -103,23 +103,33 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         made_for_kids: opts.madeForKids ?? false,
       };
       const creditsBlob=inputs["video"]!.blobs?.find(blob=>blob.role==="footage_credits");
-      if(creditsBlob){
-        const credits=JSON.parse(new TextDecoder().decode(await ctx.blobs.get(creditsBlob.uri))) as Array<{credit:string;source_url:string;license_url:string}>;
-        const text=credits.map(c=>`${c.credit}\n${c.source_url}\nLicense: ${c.license_url}`).join("\n\n");
-        const description=`${metadata.description||""}\n\nIllustrative footage (not footage of the narrated events):\n${text}`;
-        if(description.length>(reqs.max_description_chars??5000))throw Error("Required footage credits exceed description limit; shorten the SEO description");
-        metadata.description=description;
-      }
-      if (inputs["script"] && inputs["voice"]) {
+      let chapterSuffix = "";
+      if (inputs["script"] && inputs["voice"] && !hasChapterStart(seo.description)) {
         const scenes = (inputs["script"].payload as { scenes: Array<{scene_index:number; point?:string}> }).scenes;
         const clips = (inputs["voice"].payload as { clips: Array<{scene_index:number; duration_sec:number}> }).clips;
         const chapters = episodeChapters(scenes, clips);
-        // Do not duplicate existing operator/SEO chapters or truncate an approved description.
-        if (chapters && !hasChapterStart(seo.description)) {
-          const description = `${metadata.description}\n\nChapters\n${chapters}`;
-          if (description.length <= (reqs.max_description_chars ?? Infinity)) metadata.description = description;
-          else ctx.logger.warn("measured chapters omitted: description would exceed target limit");
+        if (chapters) chapterSuffix = `\n\nChapters\n${chapters}`;
+      }
+      if(creditsBlob){
+        const credits=JSON.parse(new TextDecoder().decode(await ctx.blobs.get(creditsBlob.uri))) as Array<{credit:string;source_url:string;license_url:string}>;
+        const unique=[...new Map(credits.map(c=>[c.source_url,c])).values()];
+        const text=unique.map(c=>`${c.credit}\n${c.source_url}\nLicense: ${c.license_url}`).join("\n\n");
+        const suffix=`\n\nIllustrative footage (not footage of the narrated events):\n${text}`;
+        const limit=reqs.max_description_chars??Infinity;
+        let description=(metadata.description||"")+chapterSuffix+suffix;
+        if(description.length>limit && chapterSuffix){
+          ctx.logger.warn("measured chapters omitted: description would exceed target limit");
+          description=(metadata.description||"")+suffix;
         }
+        if(description.length>limit)
+          throw Error("Required footage credits exceed description limit with approved prose; shorten the SEO description before publishing");
+        metadata.description=description;
+      }
+      if (!creditsBlob && chapterSuffix) {
+        // Do not duplicate existing operator/SEO chapters or truncate an approved description.
+        const description = `${metadata.description}${chapterSuffix}`;
+        if (description.length <= (reqs.max_description_chars ?? Infinity)) metadata.description = description;
+        else ctx.logger.warn("measured chapters omitted: description would exceed target limit");
       }
 
       if (!qaIsClean(qa) && privacy !== (opts.privacy ?? "private")) {

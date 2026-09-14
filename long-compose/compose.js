@@ -12,6 +12,9 @@ const { buildStage, buildTitleCard, buildSrt } = require("./conversation-stage")
 const { channelFrame } = require("./channel-frame");
 const {visualCard}=require("./visual-cards");
 const {loadLibrary,planFootage}=require("./footage-library");
+const {planStock}=require("./stock-media");
+const {buildStockTrack}=require("./stock-track");
+const {concatPath}=require("./concat-path");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -80,14 +83,10 @@ async function probeDuration(file) {
   });
 }
 
-function concatPath(file) {
-  return file.replace(/'/g, "'\\''");
-}
-
 async function buildAudioFirstVideo(data, outputPath, options = {}) {
   if (!Array.isArray(data) || data.length === 0) throw new Error("compose requires at least one audio scene");
   const mode=process.env.FOOTAGE_MODE||"graphics";
-  if(!["graphics","hybrid"].includes(mode))throw Error("FOOTAGE_MODE must be graphics or hybrid");
+  if(!["graphics","hybrid","stock"].includes(mode))throw Error("FOOTAGE_MODE must be graphics, hybrid or stock");
   if(mode==="hybrid"){
     if(!process.env.FOOTAGE_LIBRARY)throw Error("Hybrid footage requires FOOTAGE_LIBRARY and a reviewed manifest.json");
     await loadLibrary(process.env.FOOTAGE_LIBRARY);
@@ -134,18 +133,31 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       : "anull";
 
     const shots=mode==="hybrid"?await planFootage(ordered,durations,process.env.FOOTAGE_LIBRARY):[];
+    let stock = {file:null,shots:[]};
+    if(mode==="stock") {
+      try {
+        const suggestions=await planStock(ordered,durations,dir,{warn:console.warn});
+        stock=await buildStockTrack(ordered,durations,suggestions,dir,{ffmpeg:ffmpegPath,exec:execFileAsync});
+      } catch {
+        console.warn("Stock assembly unavailable; preserving narration and captions over background");
+      }
+    }
     for(const shot of shots){
       if(shot.kind==="video" && await probeDuration(shot.file)<shot.start_sec+shot.duration)
         throw Error("Reviewed footage is shorter than its selected shot");
     }
-    const stageScenes=ordered.map(scene=>({...scene,footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
+    const visibleShots=[...shots,...stock.shots];
+    // Only short hybrid inserts delay cards. Stock scenes keep legacy/manual
+    // cards readable and consistently omit navigation headings, matched or not.
+    const stageScenes=ordered.map(scene=>({...scene,suppress_heading:mode==="stock",
+      footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
     if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations));
     if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
-    const safeArtwork=options.image_base64 && await artworkHasNoText(background,dir);
+    const safeArtwork=!stock.file && options.image_base64 && await artworkHasNoText(background,dir);
     let elapsed=0;
     const cardMasks=ordered.map((scene,i)=>{
       const start=elapsed+(stageScenes[i].footage_duration||0);elapsed+=durations[i];
@@ -165,13 +177,13 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if(shots.length)shotFilters.push(`[base${shots.length-1}]${visualFilters}[video]`);
     await execFileAsync(ffmpegPath, [
       "-y",
-      ...(safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
+      ...(stock.file ? ["-i",stock.file] : safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
       "-i", programme,
       ...shotInputs,
       "-map", shots.length?"[video]":"0:v:0", "-map", "1:a:0",
       ...(shots.length?["-filter_complex",shotFilters.join(";")]:["-vf",visualFilters]),
       "-t", String(duration),
-      "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
+      "-c:v", "libx264", "-preset", "veryfast", ...(stock.file || shots.some(s=>s.kind==="video") ? [] : ["-tune", "stillimage"]), "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
       // Normalize the complete programme, not individual scenes, to preserve
       // intentional emphasis and scene-to-scene consistency without retiming.
@@ -188,7 +200,8 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
           "-i",first.file,"-vf","scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x101217","-frames:v","1",preview]);
         thumbnail=(await fsp.readFile(preview)).toString("base64");
       }
-      await options.onFootage(shots.map(s=>({...s.credit,scene_index:s.scene_index})),thumbnail);
+      // Automatically selected stock is not implicitly reused as thumbnail art.
+      await options.onFootage(visibleShots.map(s=>({...s.credit,scene_index:s.scene_index})),thumbnail);
     }
     return await probeDuration(outputPath);
   } finally {
@@ -266,9 +279,9 @@ app.post("/thumbnail", async (req, res) => {
   const dir = tmpDir();
   try {
     const text = String(req.body && req.body.text || "").trim().slice(0, 60);
-    if (!text) return res.status(400).json({ success: false, error: "thumbnail text is required" });
+    // Empty overlay is valid for a visually self-explanatory thumbnail.
     const assFile = path.join(dir, "title.ass");
-    await fsp.writeFile(assFile, buildTitleCard(text));
+    await fsp.writeFile(assFile, buildTitleCard(text, req.body?.accent));
     const output = path.join(dir, "thumbnail.png");
     const supplied = req.body && req.body.image_base64;
     let input;

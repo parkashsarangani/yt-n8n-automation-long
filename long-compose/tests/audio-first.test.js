@@ -41,6 +41,24 @@ test("audio-first compositor exports an express app", () => {
   assert.equal(typeof app, "function");
 });
 
+test("thumbnail endpoint applies requested accent to real title pixels", async()=>{
+  const server=app.listen(0,"127.0.0.1");
+  await new Promise(resolve=>server.once("listening",resolve));
+  try {
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/thumbnail`,{
+      method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:"A REAL HOOK",accent:"#FF0000"})});
+    assert.equal(response.status,200);
+    const body=await response.json();
+    const decoded=require("node:child_process").spawnSync(require("ffmpeg-static"),
+      ["-v","error","-i","pipe:0","-vf","format=rgb24","-frames:v","1","-f","rawvideo","pipe:1"],
+      {input:Buffer.from(body.image_base64,"base64"),maxBuffer:4*1024*1024});
+    assert.equal(decoded.status,0,String(decoded.stderr));
+    let red=0;
+    for(let i=0;i<decoded.stdout.length;i+=3) if(decoded.stdout[i]>200 && decoded.stdout[i+1]<50 && decoded.stdout[i+2]<50)red++;
+    assert.ok(red>100,"requested red accent appears in title glyphs");
+  } finally {await new Promise(resolve=>server.close(resolve));}
+});
+
 test("thumbnail endpoint renders gradient and supplied artwork through bundled FFmpeg", async () => {
   const server = app.listen(0, "127.0.0.1");
   await new Promise(resolve => server.once("listening", resolve));
@@ -60,6 +78,21 @@ test("thumbnail endpoint renders gradient and supplied artwork through bundled F
       assert.equal(bytes.readUInt32BE(20), 720);
       rendered = body.image_base64;
     }
+    const blank = await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({text:"",image_base64:image})});
+    assert.equal(blank.status,200);
+    const blankBody=await blank.json();
+    assert.equal(blankBody.background,"supplied");
+    const child = require("node:child_process").spawnSync(require("ffmpeg-static"),
+      ["-v","error","-i","pipe:0","-vf","crop=2:2:100:100,format=rgb24","-frames:v","1","-f","rawvideo","pipe:1"],
+      {input:Buffer.from(blankBody.image_base64,"base64")});
+    assert.equal(child.status,0,String(child.stderr));
+    assert.ok([...child.stdout].every(v=>v>85 && v<115),"left-side artwork is not covered by an opaque panel");
+    const motif = require("node:child_process").spawnSync(require("ffmpeg-static"),
+      ["-v","error","-i","pipe:0","-vf","crop=2:2:4:100,format=rgb24","-frames:v","1","-f","rawvideo","pipe:1"],
+      {input:Buffer.from(blankBody.image_base64,"base64")});
+    assert.equal(motif.status,0,String(motif.stderr));
+    assert.ok(motif.stdout[1]>70 && motif.stdout[0]<45,"teal channel stripe remains visible");
     // A finished thumbnail contains real lettering and must not be accepted
     // as text-free source artwork.
     const rejected = await fetch(url, {method:"POST",headers:{"content-type":"application/json"},

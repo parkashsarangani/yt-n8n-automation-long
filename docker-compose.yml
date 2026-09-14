@@ -104,9 +104,12 @@ services:
       OUTPUT_DIR: /app/outputs
       TOPIC_HISTORY_PATH: /app/data/topic_history.json
       COMPOSE_CONCURRENCY: ${COMPOSE_CONCURRENCY:-3}
-      # Enable hybrid after installing the reviewed media library.
-      FOOTAGE_MODE: ${FOOTAGE_MODE:-graphics}
+      # Suggested stock images/videos; missing keys or failed matches use background.
+      FOOTAGE_MODE: ${FOOTAGE_MODE:-stock}
       FOOTAGE_LIBRARY: /app/footage
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+      STOCK_CACHE_DIR: /app/data/stock-cache
     volumes:
       - long_outputs:/app/outputs
       - long_data:/app/data

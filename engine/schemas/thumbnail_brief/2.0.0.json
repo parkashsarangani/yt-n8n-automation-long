@@ -1,0 +1,39 @@
+{
+  "schema_id": "thumbnail_brief",
+  "version": "2.0.0",
+  "status": "active",
+  "description": "Standalone thumbnail prompt and optional overlay.",
+  "produced_by": [
+    "thumbnail_designer"
+  ],
+  "json_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "image_prompt",
+      "text",
+      "accent",
+      "rationale"
+    ],
+    "properties": {
+      "image_prompt": {
+        "type": "string",
+        "minLength": 30,
+        "maxLength": 2000
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 30
+      },
+      "accent": {
+        "type": "string",
+        "pattern": "^#[0-9A-Fa-f]{6}$"
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 600
+      }
+    }
+  }
+}

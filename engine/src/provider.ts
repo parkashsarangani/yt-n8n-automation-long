@@ -116,10 +116,22 @@ export interface RenderRequest {
   caption_style?: string;
 }
 
+export interface FootageCredit {
+  id: string;
+  creator: string;
+  source_url: string;
+  license_url: string;
+  credit: string;
+  sha256: string;
+  scene_index?: number;
+  needs_review?: boolean;
+  query?: string;
+}
+
 export interface RenderResult {
   captions_srt?: string;
   footage_thumbnail?: {bytes:Uint8Array;media_type:string};
-  footage_credits?: Array<{id:string;creator:string;source_url:string;license_url:string;credit:string;sha256:string;scene_index?:number}>;
+  footage_credits?: FootageCredit[];
   video: Uint8Array;
   media_type: string;
   thumbnail?: { bytes: Uint8Array; media_type: string };
@@ -199,6 +211,8 @@ export interface ThumbnailRequest {
 }
 
 export interface ThumbnailResult {
+  /** Service failure which required rendering without artwork, not an OCR text rejection. */
+  degradation_reason?: string;
   bytes: Uint8Array;
   media_type: string;
   width: number;

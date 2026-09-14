@@ -26,8 +26,13 @@ jobs:
           from pathlib import Path
 
           graph = json.loads(Path('engine/graphs/illustrated_story.json').read_text())
-          assert graph['version'] == '14'
+          assert graph['version'] == '15'
           nodes = {n['id']: n for n in graph['nodes']}
+          assert nodes['thumbnail']['in'] == ['thumbnail_brief']
+          assert nodes['thumbnail_brief']['in'] == ['approve_script', 'seo', 'package_release']
+          designer = json.loads(Path('engine/agents/thumbnail_designer.json').read_text())
+          assert designer['prompt'] == 'thumbnail_designer@4'
+          assert designer['produces_version'] == '2.0.0'
           assert nodes['editor_delivery']['type'] == 'human_gate'
           assert nodes['editor_delivery']['in'] == ['render']
           assert 'editor_delivery' in nodes['editor_package']['in']
@@ -40,6 +45,7 @@ jobs:
           assert not (transforms & forbidden), sorted(transforms & forbidden)
 
           retired_paths = [
+            'engine/src/visual-identity.ts',
             'contracts',
             'long-compose/remotion',
             'long-compose/motion-assets',
@@ -110,10 +116,12 @@ jobs:
             'PAID_IMAGE_FALLBACK', 'PAID_VIDEO_FALLBACK',
             'FREELLMAPI_IMAGE_MODELS', 'FREELLMAPI_VIDEO_MODELS',
             'FAL_EDIT_MODEL', 'FAL_VIDEO_MODEL', 'FAL_TEXT_TO_VIDEO_MODEL',
-            'PEXELS_API_KEY', 'UNSPLASH_ACCESS_KEY', 'PIXABAY_API_KEY',
           ]
           found = [name for name in stale if name in operational]
           assert not found, f'stale visual provider/deploy configuration remains: {found}'
+          for key in ['PEXELS_API_KEY', 'UNSPLASH_ACCESS_KEY']:
+            assert key in Path('docker-compose.yml').read_text()
+            assert 'secrets.' + key in Path('.github/workflows/deploy.yml').read_text()
           print('audio-first architecture contract OK')
           PY
 
