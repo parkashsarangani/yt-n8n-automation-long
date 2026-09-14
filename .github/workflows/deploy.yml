@@ -49,6 +49,10 @@ jobs:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           FAL_MODEL: ${{ vars.FAL_MODEL || 'fal-ai/flux-2' }}
           FAL_PRICE_PER_IMAGE: ${{ vars.FAL_PRICE_PER_IMAGE || '' }}
+          FOOTAGE_MODE: ${{ vars.FOOTAGE_MODE || 'stock' }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
 
           PAID_TEXT_FALLBACK: ${{ vars.PAID_TEXT_FALLBACK || 'true' }}
 

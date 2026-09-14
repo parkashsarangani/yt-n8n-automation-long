@@ -75,7 +75,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "19",
+    version: opts.version ?? "20",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -89,8 +89,8 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       const scenes = await buildScenes(inputs, ctx);
       if (!scenes.length) throw new Error("render: approved script contains no scenes");
       const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
-      // Native editorial graphics are the default. Do not regenerate generic
-      // people or revive cached synthetic backgrounds on a render retry.
+      // The compositor chooses optional stock suggestions; no generative
+      // scene artwork or additional script gate is needed here.
       const request: ContinuationRenderRequest = {
         scenes,
         ...((inputs["package"]?.payload as GrowthPackage | undefined)?.selected_title ? { lesson_title: (inputs["package"]!.payload as GrowthPackage).selected_title! } : {}),

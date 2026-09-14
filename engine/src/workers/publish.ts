@@ -60,7 +60,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
   return {
     name: "publish",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "5",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
@@ -105,10 +105,17 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       const creditsBlob=inputs["video"]!.blobs?.find(blob=>blob.role==="footage_credits");
       if(creditsBlob){
         const credits=JSON.parse(new TextDecoder().decode(await ctx.blobs.get(creditsBlob.uri))) as Array<{credit:string;source_url:string;license_url:string}>;
-        const text=credits.map(c=>`${c.credit}\n${c.source_url}\nLicense: ${c.license_url}`).join("\n\n");
-        const description=`${metadata.description||""}\n\nIllustrative footage (not footage of the narrated events):\n${text}`;
-        if(description.length>(reqs.max_description_chars??5000))throw Error("Required footage credits exceed description limit; shorten the SEO description");
-        metadata.description=description;
+        const unique=[...new Map(credits.map(c=>[c.source_url,c])).values()];
+        const text=unique.map(c=>`${c.credit}\n${c.source_url}\nLicense: ${c.license_url}`).join("\n\n");
+        const suffix=`\n\nIllustrative footage (not footage of the narrated events):\n${text}`;
+        const room=(reqs.max_description_chars??5000)-suffix.length;
+        if(room<0)throw Error("Required footage credits exceed description limit");
+        let prose=metadata.description||"";
+        if(prose.length>room){
+          ctx.logger.warn("SEO description shortened to preserve all stock attribution");
+          prose=prose.slice(0,room).trimEnd();
+        }
+        metadata.description=prose+suffix;
       }
       if (inputs["script"] && inputs["voice"]) {
         const scenes = (inputs["script"].payload as { scenes: Array<{scene_index:number; point?:string}> }).scenes;

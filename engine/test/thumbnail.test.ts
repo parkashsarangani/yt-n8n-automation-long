@@ -23,6 +23,8 @@ import { ProviderRouter } from "../src/provider.ts";
 import { FakeRenderer, FakeImageProvider } from "../src/providers/fake.ts";
 import { Runner } from "../src/runner.ts";
 import { makeThumbnailWorker } from "../src/workers/index.ts";
+import type { Artifact } from "../src/artifact.ts";
+import type { WorkerContext } from "../src/runner.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
@@ -93,6 +95,29 @@ async function harness(opts: {
 const run = async (h: Awaited<ReturnType<typeof harness>>) =>
   (await h.runner.run(makeThumbnailWorker(), [h.brief.artifact_id])).artifact
     .payload as ThumbPayload;
+
+test("a gradient episode does not suppress thumbnail artwork generation", async () => {
+  const h = await harness();
+  const out = await makeThumbnailWorker().execute({
+    brief: h.brief,
+    episode: { payload: { video_uri: "draft" }, blobs: [] } as unknown as Artifact,
+  }, { blobs: h.blobs, media: { renderer: h.renderer, images: h.images },
+    logger: silent(), progress: async () => {} } as unknown as WorkerContext);
+  assert.equal(h.images!.prompts.length, 1);
+  assert.ok(h.renderer.thumbnailRequests[0]!.image);
+  assert.equal((out.payload as ThumbPayload).background, "supplied");
+});
+
+test("existing reviewed episode artwork is reused without another generation", async () => {
+  const h = await harness();
+  const bytes = new Uint8Array([1,2,3]);
+  const background = await h.blobs.put(bytes, {role:"episode_background",media_type:"image/png"});
+  await makeThumbnailWorker().execute({brief:h.brief,
+    episode:{payload:{video_uri:"draft"},blobs:[background]} as unknown as Artifact,
+  }, {blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}} as unknown as WorkerContext);
+  assert.equal(h.images!.prompts.length,0);
+  assert.deepEqual(h.renderer.thumbnailRequests[0]!.image,bytes);
+});
 
 test("composites deterministic text over generated artwork", async () => {
   const h = await harness();

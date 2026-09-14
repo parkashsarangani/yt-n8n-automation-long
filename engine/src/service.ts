@@ -822,6 +822,11 @@ export class VidGenService {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
     const videoBlob = await this.blobs.put(video.bytes, { role: "video", media_type: video.media_type });
+    const draftId = state.completedOutputs.get("render");
+    const draft = draftId ? await this.store.get(draftId) : null;
+    // The editor may retain suggested stock. Preserve its attribution through
+    // the replacement video artifact instead of dropping it on final.mp4 import.
+    const credits = draft?.blobs?.filter(blob => blob.role === "footage_credits") ?? [];
     const artifact = await this.store.put({
       schema_id: "rendered_video",
       payload: {
@@ -832,7 +837,7 @@ export class VidGenService {
         ...(video.duration_sec !== undefined ? { duration_sec: video.duration_sec } : {}),
         renderer: "editor",
       },
-      blobs: [videoBlob],
+      blobs: [videoBlob, ...credits],
       produced_by: { transformation: "finalize_video", version: "1", run_id: runId, provider: null },
     });
     state.presetOutputs = { ...(state.presetOutputs ?? {}), finalize_video: artifact.artifact.artifact_id };

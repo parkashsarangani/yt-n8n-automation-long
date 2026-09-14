@@ -32,7 +32,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
   return {
     name: "thumbnail",
     kind: "worker",
-    version: opts.version ?? "7",
+    version: opts.version ?? "8",
     consumes: [{ schema_id: "thumbnail_brief", range: "^1", as: "brief" }, { schema_id: "rendered_video", range: "^1", as: "episode", optional: true }],
     produces: "thumbnail",
 
@@ -46,7 +46,7 @@ export function makeThumbnailWorker(opts: ThumbnailWorkerOptions = {}): WorkerDe
       let background: Uint8Array | undefined;
       const shared = inputs["episode"]?.blobs?.find(b => b.role === "episode_background");
       if (shared) background = await ctx.blobs.get(shared.uri);
-      if (!background && !inputs["episode"] && ctx.media.images && imagePrompt) {
+      if (!background && ctx.media.images && imagePrompt) {
         try {
           await ctx.progress({ detail: `thumbnail artwork: ${imagePrompt.slice(0, 120)}` });
           const found = await ctx.media.images.generate({ prompt: episodeArtPrompt(imagePrompt), aspect: "16:9", count: 1 });

@@ -40,6 +40,7 @@ interface SeoMetadata {
 interface ThumbnailArtifact {
   thumbnail_uri: string;
   media_type: "image/png" | "image/jpeg";
+  background?: "supplied" | "gradient";
 }
 
 interface FootageCredit {
@@ -50,6 +51,8 @@ interface FootageCredit {
   credit: string;
   sha256: string;
   scene_index?: number;
+  needs_review?: boolean;
+  query?: string;
 }
 
 const STOPWORDS = new Set([
@@ -73,7 +76,7 @@ function searchTerms(narration: string, max = 6): string[] {
 }
 
 function visualSummary(scene: ScriptScene, credit: FootageCredit | undefined): string {
-  if (credit) return `Footage: ${credit.credit}`;
+  if (credit) return `${credit.needs_review ? "Suggested stock (keep or replace)" : "Footage"}: ${credit.credit}${credit.query ? `; search: ${credit.query}` : ""}`;
   if (scene.visual) {
     const kind = scene.visual.kind;
     return `${kind[0]!.toUpperCase()}${kind.slice(1)} card: "${scene.visual.title}"`;
@@ -95,7 +98,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
   return {
     name: "editor_package",
     kind: "worker",
-    version: opts.version ?? "3",
+    version: opts.version ?? "4",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -167,9 +170,12 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
         `# Episode draft — ${folderName}`,
         "",
         "Export your finished cut as `final.mp4` and upload it into this same folder when done.",
-        "Swap out any visual that doesn't fit; general polish is welcome. This is a light touch-up pass, not a rebuild.",
+        "Keep useful stock shots and replace any weak or misleading match with your own images/footage. Stock illustrates a situation; it does not depict the actual narrated people or events. Background-only scenes still need your visual treatment.",
         "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
-        "The title, thumbnail and description below are already final -- reference only, not yours to edit.",
+        "The title and description below are reference context. Only final.mp4 is automatically imported from this folder.",
+        thumbnail.background === "gradient"
+          ? "THUMBNAIL NEEDS REPLACEMENT: artwork was unavailable or rejected. thumbnail.png is a placeholder; flag it to the operator for replacement before publication. Editing it here does not automatically update the publishing thumbnail."
+          : "The thumbnail below is the automated candidate; flag any issue to the operator before publication.",
         "",
         "## Title, thumbnail and description (for context)",
         "",
