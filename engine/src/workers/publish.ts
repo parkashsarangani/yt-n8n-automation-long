@@ -115,9 +115,14 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         const unique=[...new Map(credits.map(c=>[c.source_url,c])).values()];
         const text=unique.map(c=>`${c.credit}\n${c.source_url}\nLicense: ${c.license_url}`).join("\n\n");
         const suffix=`\n\nIllustrative footage (not footage of the narrated events):\n${text}`;
-        const description=(metadata.description||"")+chapterSuffix+suffix;
-        if(description.length>(reqs.max_description_chars??5000))
-          throw Error("Required footage credits exceed description limit with approved prose and chapters; shorten the SEO description before publishing");
+        const limit=reqs.max_description_chars??Infinity;
+        let description=(metadata.description||"")+chapterSuffix+suffix;
+        if(description.length>limit && chapterSuffix){
+          ctx.logger.warn("measured chapters omitted: description would exceed target limit");
+          description=(metadata.description||"")+suffix;
+        }
+        if(description.length>limit)
+          throw Error("Required footage credits exceed description limit with approved prose; shorten the SEO description before publishing");
         metadata.description=description;
       }
       if (!creditsBlob && chapterSuffix) {

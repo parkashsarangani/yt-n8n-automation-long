@@ -33,7 +33,7 @@ test('stock video and photo render above captions; corrupt stock falls back with
     let credits,captions;
     const output=path.join(dir,'draft.mp4');
     const duration=await buildAudioFirstVideo(['An office meeting.','A coffee conversation.','A phone message.'].map((narration,scene_index)=>({narration,scene_index,audio})),output,
-      {onFootage:c=>{credits=c;},onCaptions:c=>{captions=c;}});
+      {image_base64:Buffer.from('invalid unused artwork: OCR must not run').toString('base64'),onFootage:c=>{credits=c;},onCaptions:c=>{captions=c;}});
     assert.ok(Math.abs(duration-12)<0.1);
     assert.equal(credits.length,2,'only successfully decoded footage receives credits');
     assert.match(captions,/00:00:08,000 --> 00:00:12,000/);

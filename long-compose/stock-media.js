@@ -7,8 +7,8 @@ const tokens = value => String(value || '').toLowerCase().match(/[a-z]{3,}/g) ||
 const stop = new Set('the and you your with that this for from then them they what when into have will was were are not but his her she him who how can just about would could should said says say there their one'.split(' '));
 // Concrete situations beat searches for abstract traits such as confidence.
 const contexts = [
-  [/\b(meetings?|colleagues?|coworkers?|managers?|offices?)\b/i, 'office meeting'],
-  [/\b(phones?|texting|messages?|reply|replies|notifications?)\b/i, 'phone message'],
+  [/\b(meetings?|colleagues?|coworkers?|managers?|offices?|boss(?:es)?)\b/i, 'office meeting'],
+  [/\b(phones?|text(?:s|ed|ing)?|messages?|reply|replies|replied|replying|notifications?)\b/i, 'phone message'],
   [/\b(coffee|cafes?|cafeterias?)\b/i, 'coffee conversation'],
   [/\b(dinners?|restaurants?|waiters?)\b/i, 'restaurant conversation'],
   [/\b(friends?|invitations?|invites?|inviting|party|parties)\b/i, 'friends talking'],
@@ -19,6 +19,8 @@ const contexts = [
 function sceneQuery(scene) {
   if (scene.is_outro) return '';
   const narration = String(scene.narration || '');
+  // An explicit home-meal setting is more specific than generic "dinner".
+  if (/\b(?:family|home)\s+dinners?\b|\bdinners?\s+(?:at\s+home|with\s+(?:(?:your|my|the|her|his)\s+)?(?:family|parents))\b/i.test(narration)) return 'family conversation';
   for (const [pattern, query] of contexts) if (pattern.test(narration)) return query;
   // No names, dialogue quotations or entire scripts are sent to stock services.
   return '';

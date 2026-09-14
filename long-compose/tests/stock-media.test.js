@@ -14,6 +14,12 @@ test('plural and irregular narration selects concrete contexts',()=>{
     ['Two coworkers presented your slides.','office meeting'],
     ['You give presentations weekly.','presentation audience'],
     ['Families wait for replies after parties.','phone message'],
+    ['You replied to her text an hour later.','phone message'],
+    ['He texted again.','phone message'],
+    ['Your boss interrupted.','office meeting'],
+    ['At the family dinner nobody spoke.','family conversation'],
+    ['Dinner with your parents was quiet.','family conversation'],
+    ['Dinner at the restaurant was quiet.','restaurant conversation'],
   ]) assert.equal(sceneQuery({narration}),query,narration);
 });
 

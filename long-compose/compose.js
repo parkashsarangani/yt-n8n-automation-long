@@ -157,7 +157,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
-    const safeArtwork=options.image_base64 && await artworkHasNoText(background,dir);
+    const safeArtwork=!stock.file && options.image_base64 && await artworkHasNoText(background,dir);
     let elapsed=0;
     const cardMasks=ordered.map((scene,i)=>{
       const start=elapsed+(stageScenes[i].footage_duration||0);elapsed+=durations[i];

@@ -48,9 +48,12 @@ scenes; legacy/manual cards still display. Motion tracks omit still-image tuning
 `package.md` labels stock as suggestions to keep or replace. `credits.json`
 records source, creator, license, SHA-256 and scene index. Reused assets receive
 only one publication credit. Original credits survive `final.mp4` import;
-approved prose, chapters and attribution are never silently truncated. When
-their combined length exceeds the destination limit, publication fails before
-upload and requests a shorter approved SEO description.
+approved prose and attribution are never silently truncated. Optional generated
+chapters are omitted with a warning when the combined description is too long.
+Only if prose plus attribution still exceeds the target's reported limit does
+publication fail before upload and request a shorter approved SEO description.
+The 2800-character stock credit budget is a selection cap, not a guarantee of
+publication fit: the publisher checks the actual target limit and full text.
 The operator must reconcile credits for removed/replaced media and new editor
 assets before publishing. The poller still imports only `final.mp4`, not an
 edited thumbnail or a revised credits file. Narration and caption timing should

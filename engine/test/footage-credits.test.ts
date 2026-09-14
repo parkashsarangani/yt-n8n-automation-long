@@ -33,6 +33,15 @@ test("footage attribution survives publishing and cannot be silently truncated",
   assert.ok(published.startsWith("A description\n\nChapters\n00:00 Chapter 0"));
   assert.match(published,/00:40 Chapter 2/);
   const wouldTruncate=new FakePublishTarget({requirements:{max_description_chars:published.length-1}});
-  await assert.rejects(()=>makePublishWorker({target:wouldTruncate}).execute(inputs,ctx),/approved prose and chapters/);
-  assert.equal(wouldTruncate.published.length,0);
+  const warnings:string[]=[];
+  await makePublishWorker({target:wouldTruncate}).execute(inputs,{...ctx,logger:{...console,warn:(message:string)=>warnings.push(message)}});
+  assert.equal(wouldTruncate.published[0]!.metadata.description,target.published[0]!.metadata.description);
+  assert.ok(warnings.some(message=>message.includes("chapters omitted")));
+  const proseAndCredits=target.published[0]!.metadata.description!;
+  const exact=new FakePublishTarget({requirements:{max_description_chars:proseAndCredits.length}});
+  await makePublishWorker({target:exact}).execute(inputs,ctx);
+  assert.equal(exact.published[0]!.metadata.description,proseAndCredits);
+  const overflow=new FakePublishTarget({requirements:{max_description_chars:proseAndCredits.length-1}});
+  await assert.rejects(()=>makePublishWorker({target:overflow}).execute(inputs,ctx),/approved prose/);
+  assert.equal(overflow.published.length,0);
 });
