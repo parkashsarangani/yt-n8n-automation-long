@@ -7,14 +7,14 @@ const tokens = value => String(value || '').toLowerCase().match(/[a-z]{3,}/g) ||
 const stop = new Set('the and you your with that this for from then them they what when into have will was were are not but his her she him who how can just about would could should said says say there their one'.split(' '));
 // Concrete situations beat searches for abstract traits such as confidence.
 const contexts = [
-  [/\b(meeting|colleague|coworker|manager|office)\b/i, 'office meeting'],
-  [/\b(phone|texting|message|reply|notification)\b/i, 'phone message'],
-  [/\b(coffee|cafe|cafeteria)\b/i, 'coffee conversation'],
-  [/\b(dinner|restaurant|waiter)\b/i, 'restaurant conversation'],
-  [/\b(friend|invitation|invite|party)\b/i, 'friends talking'],
-  [/\b(family|parent|kitchen)\b/i, 'family conversation'],
-  [/\b(interview|interviewer)\b/i, 'job interview'],
-  [/\b(presentation|audience|speech)\b/i, 'presentation audience'],
+  [/\b(meetings?|colleagues?|coworkers?|managers?|offices?)\b/i, 'office meeting'],
+  [/\b(phones?|texting|messages?|reply|replies|notifications?)\b/i, 'phone message'],
+  [/\b(coffee|cafes?|cafeterias?)\b/i, 'coffee conversation'],
+  [/\b(dinners?|restaurants?|waiters?)\b/i, 'restaurant conversation'],
+  [/\b(friends?|invitations?|invites?|inviting|party|parties)\b/i, 'friends talking'],
+  [/\b(family|families|parents?|kitchens?)\b/i, 'family conversation'],
+  [/\b(interviews?|interviewers?)\b/i, 'job interview'],
+  [/\b(presentations?|audiences?|speech|speeches)\b/i, 'presentation audience'],
 ];
 function sceneQuery(scene) {
   if (scene.is_outro) return '';
@@ -28,10 +28,10 @@ const hosts = {
   pixabay: ['pixabay.com'],
   unsplash: ['api.unsplash.com', 'images.unsplash.com'],
 };
-function allowedUrl(raw, provider) {
+function allowedUrl(raw, provider, source = false) {
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')
-    || !hosts[provider]?.some(host => url.hostname === host || url.hostname.endsWith('.' + host)))
+    || !(source ? {pexels:['pexels.com'],pixabay:['pixabay.com'],unsplash:['unsplash.com']}[provider] : hosts[provider])?.some(host => url.hostname === host || url.hostname.endsWith('.' + host)))
     throw Error('Unapproved stock URL');
   return url;
 }
@@ -51,11 +51,17 @@ async function request(raw, provider, {fetchImpl = fetch, headers = {}, limit = 
     if (!res.ok) { await res.body?.cancel(); throw Error(`Stock HTTP ${res.status}`); }
     if (Number(res.headers.get('content-length')) > limit) { await res.body?.cancel(); throw Error('Stock file too large'); }
     const chunks = []; let size = 0;
-    for await (const chunk of res.body) {
-      size += chunk.length;
-      if (size > limit) throw Error('Stock file too large');
-      chunks.push(chunk);
-    }
+    const reader = res.body.getReader();
+    try {
+      for (;;) {
+        const {done,value} = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > limit) throw Error('Stock file too large');
+        chunks.push(value);
+      }
+    } catch (error) { await reader.cancel().catch(()=>{}); throw error; }
+    finally { reader.releaseLock(); }
     return Buffer.concat(chunks);
   }
   throw Error('Too many stock redirects');
@@ -86,7 +92,7 @@ function normalize(provider, kind, data) {
       if (source) source += `${source.includes('?')?'&':'?'}utm_source=vidgen&utm_medium=referral`;
     }
     if (!media || !source || !creator || width < 960 || width <= height || (kind === 'video' && !(a.duration >= 3))) return [];
-    try { allowedUrl(media,provider); if (new URL(source).protocol !== 'https:') return []; } catch { return []; }
+    try { allowedUrl(media,provider); allowedUrl(source,provider,true); } catch { return []; }
     const license = provider === 'pexels' ? 'https://www.pexels.com/license/' : provider === 'pixabay' ? 'https://pixabay.com/service/license-summary/' : 'https://unsplash.com/license';
     return [{id:`${provider}-${kind}-${a.id}`,provider,kind,url:media,description,download,duration:a.duration,
       credit:{id:`${provider}-${kind}-${a.id}`,creator,source_url:source,license_url:license,credit:`${kind === 'video' ? 'Video' : 'Photo'} by ${creator} on ${provider}`,needs_review:true}}];
@@ -124,11 +130,14 @@ async function planStock(scenes, durations, directory, options = {}) {
   const env = options.env || process.env;
   const keys = {pexels:env.PEXELS_API_KEY,pixabay:env.PIXABAY_API_KEY,unsplash:env.UNSPLASH_ACCESS_KEY};
   const providers = Object.keys(keys).filter(p => keys[p]?.trim());
+  options.warn?.(`Stock sources configured: ${providers.join(', ') || 'none'}`);
   const shots = []; if (!providers.length) return shots;
   const cacheDir = options.cacheDir || env.STOCK_CACHE_DIR || path.join(directory,'stock-cache');
   await fs.mkdir(cacheDir,{recursive:true});
   const signal = AbortSignal.timeout(120_000);
   const opts = {...options,cacheDir,signal};
+  const seed = options.seed || hash(JSON.stringify(scenes.map(s=>[s.scene_index,s.narration])));
+  const creditLimit = options.creditLimit ?? 2800;
   const used = new Set(), disabled = new Set(), results = new Map(), downloaded = new Map();
   let previousId;
   let offset = 0, searches = 0, creditChars = 0;
@@ -148,12 +157,13 @@ async function planStock(scenes, durations, directory, options = {}) {
       results.set(query,candidates);
     }
     const preferredKind = i%3===2?'photo':'video';
-    const ranked = results.get(query).filter(a=>!used.has(a.id) && (a.kind!=='video'||a.duration>=durations[i]))
+    const ranked = results.get(query).filter(a=>!used.has(a.id) && (a.kind!=='video'||a.duration>=Math.min(durations[i],8))
+        && creditChars+creditLength(a.credit)<=creditLimit)
       .map(a=>({a,score:relevance(a,query)})).filter(x=>x.score>0)
-      .sort((a,b)=>b.score-a.score || Number(b.a.kind===preferredKind)-Number(a.a.kind===preferredKind) || a.a.id.localeCompare(b.a.id));
+      .sort((a,b)=>b.score-a.score || Number(b.a.kind===preferredKind)-Number(a.a.kind===preferredKind) || hash(seed+a.a.id).localeCompare(hash(seed+b.a.id)));
     // Reuse only within the same search context after exhausting the asset
     // budget. Prefer a different image from the preceding scene.
-    const reusable = [...downloaded.values()].filter(s=>s.credit.query===query && (s.kind!=='video'||s.sourceDuration>=durations[i]))
+    const reusable = [...downloaded.values()].filter(s=>s.credit.query===query && (s.kind!=='video'||s.sourceDuration>=Math.min(durations[i],8)))
       .sort((a,b)=>Number(a.credit.id===previousId)-Number(b.credit.id===previousId));
     if ((used.size >= 12 || !ranked.length) && reusable.length) {
       const shot = {...reusable[0],scene_index:scenes[i].scene_index,start,duration:durations[i]};
@@ -163,8 +173,7 @@ async function planStock(scenes, durations, directory, options = {}) {
       if (used.size >= 12 || signal.aborted) break;
       used.add(a.id);
       try {
-        const attributionLength = a.credit.credit.length+a.credit.source_url.length+a.credit.license_url.length+16;
-        if (creditChars+attributionLength>2800) continue;
+        const attributionLength = creditLength(a.credit);
         if (a.provider === 'unsplash') {
           // Record the selection/export event; image bytes use the API-returned CDN URL.
           const tracking = allowedUrl(a.download,'unsplash');
@@ -183,4 +192,5 @@ async function planStock(scenes, durations, directory, options = {}) {
   }
   return shots;
 }
-module.exports = {planStock, sceneQuery, normalize, relevance, allowedUrl};
+function creditLength(c) { return c.credit.length+c.source_url.length+c.license_url.length+16; }
+module.exports = {planStock, sceneQuery, normalize, relevance, allowedUrl, request};

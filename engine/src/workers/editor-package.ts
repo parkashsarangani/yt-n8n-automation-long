@@ -9,6 +9,7 @@
  * touch. Only the video comes back changed.
  */
 import type { Artifact } from "../artifact.ts";
+import type { FootageCredit } from "../provider.ts";
 import { createHash } from "node:crypto";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
@@ -41,18 +42,6 @@ interface ThumbnailArtifact {
   thumbnail_uri: string;
   media_type: "image/png" | "image/jpeg";
   background?: "supplied" | "gradient";
-}
-
-interface FootageCredit {
-  id: string;
-  creator: string;
-  source_url: string;
-  license_url: string;
-  credit: string;
-  sha256: string;
-  scene_index?: number;
-  needs_review?: boolean;
-  query?: string;
 }
 
 const STOPWORDS = new Set([

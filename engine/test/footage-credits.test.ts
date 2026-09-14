@@ -25,4 +25,14 @@ test("footage attribution survives publishing and cannot be silently truncated",
   const limited=new FakePublishTarget({requirements:{max_description_chars:20}});
   await assert.rejects(()=>makePublishWorker({target:limited}).execute(inputs,ctx),/credits exceed/);
   assert.equal(limited.published.length,0);
+  inputs.script={payload:{scenes:[0,1,2].map(scene_index=>({scene_index,point:`[scenario] Chapter ${scene_index}`}))}} as unknown as Artifact;
+  inputs.voice={payload:{clips:[0,1,2].map(scene_index=>({scene_index,duration_sec:20}))}} as unknown as Artifact;
+  const chapterTarget=new FakePublishTarget();
+  await makePublishWorker({target:chapterTarget}).execute(inputs,ctx);
+  const published=chapterTarget.published[0]!.metadata.description!;
+  assert.ok(published.startsWith("A description\n\nChapters\n00:00 Chapter 0"));
+  assert.match(published,/00:40 Chapter 2/);
+  const wouldTruncate=new FakePublishTarget({requirements:{max_description_chars:published.length-1}});
+  await assert.rejects(()=>makePublishWorker({target:wouldTruncate}).execute(inputs,ctx),/approved prose and chapters/);
+  assert.equal(wouldTruncate.published.length,0);
 });

@@ -128,7 +128,7 @@ function buildStage(scenes, durations, lessonTitle) {
     const label = detail && detail.length<=58 ? detail : labels[role] || (scene.is_outro ? "WHAT COMES NEXT" : "CONTINUE");
     // A brief contextual label only for legacy scenes without a visual.
     // Card scenes already carry their own meaning; avoid a second headline.
-    if(!card && !scene.is_outro && detail && !scene.footage_duration)
+    if(!card && !scene.is_outro && detail && !scene.footage_duration && !scene.suppress_heading)
       add(offset, offset + Math.min(duration,2.5), "Heading", "{\\an7\\pos(150,170)\\fad(100,150)}" + safe(label));
     for(const cue of captionCues(scene,duration)) {
       // Explicit line breaks avoid single-line overflow at mobile preview sizes.

@@ -113,7 +113,7 @@ jobs:
           ]
           found = [name for name in stale if name in operational]
           assert not found, f'stale visual provider/deploy configuration remains: {found}'
-          for key in ['PEXELS_API_KEY', 'PIXABAY_API_KEY', 'UNSPLASH_ACCESS_KEY']:
+          for key in ['PEXELS_API_KEY', 'UNSPLASH_ACCESS_KEY']:
             assert key in Path('docker-compose.yml').read_text()
             assert 'secrets.' + key in Path('.github/workflows/deploy.yml').read_text()
           print('audio-first architecture contract OK')

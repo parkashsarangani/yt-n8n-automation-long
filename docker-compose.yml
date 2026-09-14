@@ -108,7 +108,6 @@ services:
       FOOTAGE_MODE: ${FOOTAGE_MODE:-stock}
       FOOTAGE_LIBRARY: /app/footage
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
-      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       STOCK_CACHE_DIR: /app/data/stock-cache
     volumes:

@@ -3,7 +3,64 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const {planStock,sceneQuery,normalize,relevance,allowedUrl} = require('../stock-media');
+const {planStock,sceneQuery,normalize,relevance,allowedUrl,request} = require('../stock-media');
+
+test('plural and irregular narration selects concrete contexts',()=>{
+  for (const [narration,query] of [
+    ['Your colleagues keep interrupting.','office meeting'],
+    ['She raised it in meetings twice.','office meeting'],
+    ['Your friends stopped inviting you.','friends talking'],
+    ['He ignored your messages.','phone message'],
+    ['Two coworkers presented your slides.','office meeting'],
+    ['You give presentations weekly.','presentation audience'],
+    ['Families wait for replies after parties.','phone message'],
+  ]) assert.equal(sceneQuery({narration}),query,narration);
+});
+
+test('source URLs must belong to the credited provider',()=>{
+  const photo={id:1,width:1920,height:1080,photographer:'Test',alt:'office',src:{large2x:'https://images.pexels.com/a.jpg'}};
+  for (const url of ['https://evil.example/phishing','https://pexels.com.evil.example/a','https://user:password@pexels.com/a'])
+    assert.deepEqual(normalize('pexels','photo',{photos:[{...photo,url}]}),[]);
+});
+
+test('streaming size overflow explicitly cancels the response body',async()=>{
+  let cancelled=false;
+  const body=new ReadableStream({pull(controller){controller.enqueue(new Uint8Array(10));},cancel(){cancelled=true;}});
+  await assert.rejects(()=>request('https://images.pexels.com/a.jpg','pexels',{
+    limit:5,fetchImpl:async()=>new Response(body),
+  }),/too large/);
+  assert.equal(cancelled,true);
+});
+
+test('short motion is eligible, credit saturation reuses without downloads, and episode seeds vary ties',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'stock-budget-test-'));
+  let downloads=0;
+  const fetchImpl=async raw=>{
+    const u=new URL(raw);
+    if (u.hostname==='videos.pexels.com'){downloads++;return new Response(new Uint8Array([1,2,3]));}
+    return Response.json({photos:[],videos:u.pathname.includes('/videos/')?Array.from({length:8},(_,i)=>({
+      id:i,duration:8,user:{name:'Test'},url:`https://www.pexels.com/video/office-meeting-${i}/`,
+      video_files:[{file_type:'video/mp4',width:1280,height:720,link:`https://videos.pexels.com/${i}.mp4`}],
+    })):[]});
+  };
+  try {
+    const scenes=Array.from({length:18},(_,scene_index)=>({scene_index,narration:'Your colleagues are speaking in meetings.'}));
+    const opts={env:{PEXELS_API_KEY:'test'},fetchImpl,creditLimit:210,seed:'episode-a'};
+    const shots=await planStock(scenes,scenes.map(()=>32),dir,opts);
+    assert.equal(shots.length,18);
+    assert.equal(downloads,1,'credit-only skips cannot consume asset slots or redownload');
+    assert.equal(shots[0].kind,'video');
+    assert.equal(shots[0].sourceDuration,8);
+    const firsts=new Set();
+    for(let i=0;i<8;i++) {
+      const s=await planStock(scenes.slice(0,1),[32],dir,{...opts,seed:'episode-'+i});
+      firsts.add(s[0].credit.id);
+    }
+    assert.ok(firsts.size>1,'different episode seeds vary equally relevant assets');
+    const retry=await planStock(scenes.slice(0,1),[32],dir,opts);
+    assert.equal(retry[0].credit.id,shots[0].credit.id,'retry is stable for one episode');
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
 
 test('queries use concrete situations; abstract or outro scenes stay on background',()=>{
   assert.equal(sceneQuery({narration:'Your colleague starts speaking in the meeting.'}),'office meeting');

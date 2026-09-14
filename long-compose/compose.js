@@ -14,6 +14,7 @@ const {visualCard}=require("./visual-cards");
 const {loadLibrary,planFootage}=require("./footage-library");
 const {planStock}=require("./stock-media");
 const {buildStockTrack}=require("./stock-track");
+const {concatPath}=require("./concat-path");
 
 const ffmpegPath = bundledFfmpegPath && fs.existsSync(bundledFfmpegPath) ? bundledFfmpegPath : "ffmpeg";
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -82,10 +83,6 @@ async function probeDuration(file) {
   });
 }
 
-function concatPath(file) {
-  return file.replace(/'/g, "'\\''");
-}
-
 async function buildAudioFirstVideo(data, outputPath, options = {}) {
   if (!Array.isArray(data) || data.length === 0) throw new Error("compose requires at least one audio scene");
   const mode=process.env.FOOTAGE_MODE||"graphics";
@@ -150,7 +147,10 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
         throw Error("Reviewed footage is shorter than its selected shot");
     }
     const visibleShots=[...shots,...stock.shots];
-    const stageScenes=ordered.map(scene=>({...scene,footage_duration:visibleShots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
+    // Only short hybrid inserts delay cards. Stock scenes keep legacy/manual
+    // cards readable and consistently omit navigation headings, matched or not.
+    const stageScenes=ordered.map(scene=>({...scene,suppress_heading:mode==="stock",
+      footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
     if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations));
@@ -183,7 +183,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       "-map", shots.length?"[video]":"0:v:0", "-map", "1:a:0",
       ...(shots.length?["-filter_complex",shotFilters.join(";")]:["-vf",visualFilters]),
       "-t", String(duration),
-      "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "20",
+      "-c:v", "libx264", "-preset", "veryfast", ...(stock.file || shots.some(s=>s.kind==="video") ? [] : ["-tune", "stillimage"]), "-crf", "20",
       "-pix_fmt", "yuv420p", "-r", "30",
       // Normalize the complete programme, not individual scenes, to preserve
       // intentional emphasis and scene-to-scene consistency without retiming.
