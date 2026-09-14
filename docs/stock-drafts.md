@@ -59,10 +59,19 @@ assets before publishing. The poller still imports only `final.mp4`, not an
 edited thumbnail or a revised credits file. Narration and caption timing should
 be preserved unless the editor also retimes the supplied SRT.
 
-Thumbnail generation runs even when the draft has no background artwork.
-Automatically suggested stock is not reused as thumbnail artwork. A gradient
-thumbnail fallback is explicitly labelled as needing operator replacement in
-the handoff. Existing Drive folders are not rewritten by this change.
+Thumbnail generation is independent of render. The designer reads the final
+script, approved SEO title and selected package and emits one photographic
+image prompt plus optional 2–4-word overlay. No episode artwork or painterly
+wrapper is used. The renderer adds text separately, without the half-screen
+opaque panel; empty overlay text is supported. OCR still rejects unwanted text.
+Generation or artwork rejection gets one repair attempt (two generations max).
+A remaining gradient is explicitly labelled as needing editor replacement.
+Drive receives thumbnail.png, thumbnail-prompt.json (exact attempted prompts and
+candidate/replacement status), and accepted thumbnail-artwork.png/.jpg without
+overlay text when available. Failed/rejected artwork is not exported as usable.
+Only final.mp4 is automatically imported; thumbnail changes need operator action.
+Older briefs remain readable for existing runs. Existing Drive files are not
+overwritten, and a live episode is still needed to judge generated image quality.
 
 Sources: [Pexels API](https://www.pexels.com/api/documentation/),
 [Pixabay API](https://pixabay.com/api/docs/),

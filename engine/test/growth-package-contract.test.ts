@@ -157,7 +157,9 @@ test("illustrated story graph routes every package consumer through package_rele
     nodes: Array<{ id: string; transformation?: string; in?: string[] }>;
   };
   const release = graph.nodes.find((node) => node.id === "package_release");
-  assert.equal(graph.version, "14");
+  assert.equal(graph.version, "15");
+  assert.deepEqual(graph.nodes.find(n=>n.id==="thumbnail")?.in,["thumbnail_brief"]);
+  assert.deepEqual(graph.nodes.find(n=>n.id==="thumbnail_brief")?.in,["approve_script","seo","package_release"]);
   assert.equal(release?.transformation, "growth_package_release");
   assert.deepEqual(release?.in, ["package"]);
 

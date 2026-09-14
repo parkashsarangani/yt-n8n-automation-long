@@ -4,9 +4,9 @@
  * can pick up from, plus the same beat list recorded on the artifact so the
  * operator can review it without opening Drive.
  *
- * The editor never edits thumbnail/SEO/title -- those are handed over as
- * reference context alongside the draft, not something they're expected to
- * touch. Only the video comes back changed.
+ * Thumbnail candidates, accepted text-free artwork and prompts are provided
+ * for keep/replace decisions. Only final.mp4 is automatically imported;
+ * thumbnail replacement must be coordinated with the operator.
  */
 import type { Artifact } from "../artifact.ts";
 import type { FootageCredit } from "../provider.ts";
@@ -87,7 +87,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
   return {
     name: "editor_package",
     kind: "worker",
-    version: opts.version ?? "4",
+    version: opts.version ?? "5",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -154,6 +154,12 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
       const thumbnailBytes = await ctx.blobs.get(thumbnail.thumbnail_uri);
       const thumbnailExt = thumbnail.media_type === "image/jpeg" ? "jpg" : "png";
       await upload(`thumbnail.${thumbnailExt}`, thumbnailBytes, thumbnail.media_type);
+      for (const asset of inputs["thumbnail"]!.blobs ?? []) {
+        if (asset.role === "thumbnail_prompt") await upload("thumbnail-prompt.json", await ctx.blobs.get(asset.uri), "application/json");
+        if (asset.role === "thumbnail_artwork") await upload(
+          asset.media_type === "image/jpeg" ? "thumbnail-artwork.jpg" : "thumbnail-artwork.png",
+          await ctx.blobs.get(asset.uri), asset.media_type || "image/png");
+      }
 
       const packageMd = [
         `# Episode draft — ${folderName}`,
@@ -162,6 +168,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
         "Keep useful stock shots and replace any weak or misleading match with your own images/footage. Stock illustrates a situation; it does not depict the actual narrated people or events. Background-only scenes still need your visual treatment.",
         "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
         "The title and description below are reference context. Only final.mp4 is automatically imported from this folder.",
+        "Keep or replace the thumbnail candidate. thumbnail-prompt.json records its prompt and status; thumbnail-artwork.png (or .jpg), when available, is the accepted artwork without title text. Coordinate any thumbnail replacement with the operator; it is not automatically imported.",
         thumbnail.background === "gradient"
           ? "THUMBNAIL NEEDS REPLACEMENT: artwork was unavailable or rejected. thumbnail.png is a placeholder; flag it to the operator for replacement before publication. Editing it here does not automatically update the publishing thumbnail."
           : "The thumbnail below is the automated candidate; flag any issue to the operator before publication.",

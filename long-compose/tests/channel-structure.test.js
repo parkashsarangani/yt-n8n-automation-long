@@ -11,7 +11,7 @@ test('legacy context labels are brief and production counters are absent', () =>
   assert.ok(!stage.includes("2 / 2"));
   assert.ok(!stage.includes("A lesson"));
 });
-test('thumbnail text stays in the fixed left panel with literal escaping', () => {
+test('thumbnail text stays in left negative space with literal escaping', () => {
   const card=buildTitleCard('TRY {THIS} \\ NOW');
   assert.match(card,/\\pos\(320,360\)\\fs48/);
   assert.ok(!card.includes('{THIS}'));

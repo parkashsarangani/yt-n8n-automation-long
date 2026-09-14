@@ -60,6 +60,16 @@ test("thumbnail endpoint renders gradient and supplied artwork through bundled F
       assert.equal(bytes.readUInt32BE(20), 720);
       rendered = body.image_base64;
     }
+    const blank = await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({text:"",image_base64:image})});
+    assert.equal(blank.status,200);
+    const blankBody=await blank.json();
+    assert.equal(blankBody.background,"supplied");
+    const child = require("node:child_process").spawnSync(require("ffmpeg-static"),
+      ["-v","error","-i","pipe:0","-vf","crop=2:2:100:100,format=rgb24","-frames:v","1","-f","rawvideo","pipe:1"],
+      {input:Buffer.from(blankBody.image_base64,"base64")});
+    assert.equal(child.status,0,String(child.stderr));
+    assert.ok([...child.stdout].every(v=>v>85 && v<115),"left-side artwork is not covered by an opaque panel");
     // A finished thumbnail contains real lettering and must not be accepted
     // as text-free source artwork.
     const rejected = await fetch(url, {method:"POST",headers:{"content-type":"application/json"},

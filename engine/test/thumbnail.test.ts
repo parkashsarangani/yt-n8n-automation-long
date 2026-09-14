@@ -27,6 +27,49 @@ import type { Artifact } from "../src/artifact.ts";
 import type { WorkerContext } from "../src/runner.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+test("new prompt schema accepts empty overlays and rejects legacy query fields",async()=>{
+  const h=await harness();
+  const brief={image_prompt:"A candid photographic scene of a colleague pausing at a desk.",text:"",accent:"#FFFFFF",rationale:"The pause conveys the unresolved conflict."};
+  h.registry.validate("thumbnail_brief","2.0.0",brief);
+  assert.throws(()=>h.registry.validate("thumbnail_brief","2.0.0",{...brief,background_query:"office"}));
+  const saved=await h.store.put({schema_id:"thumbnail_brief",schema_version:"2.0.0",payload:brief,
+    produced_by:{transformation:"thumbnail_designer",version:"4",run_id:"new-thumbnail",provider:null}});
+  const throughRunner=await h.runner.run(makeThumbnailWorker(),[saved.artifact.artifact_id]);
+  assert.equal((throughRunner.artifact.payload as ThumbPayload).text,"");
+  const out=await makeThumbnailWorker().execute({brief:{payload:brief} as Artifact},{
+    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
+  } as unknown as WorkerContext);
+  assert.equal(h.images!.prompts[0],brief.image_prompt);
+  assert.equal(h.renderer.thumbnailRequests[0]!.text,"");
+  assert.ok(out.blobs?.some(b=>b.role==="thumbnail_artwork"));
+  const prompt=out.blobs!.find(b=>b.role==="thumbnail_prompt")!;
+  assert.equal(JSON.parse(new TextDecoder().decode(await h.blobs.get(prompt.uri))).status,"candidate");
+});
+test("OCR rejection repairs once and exports only accepted artwork",async()=>{
+  const renderer=new FakeRenderer();
+  const original=renderer.renderThumbnail.bind(renderer);
+  let calls=0;
+  renderer.renderThumbnail=async req=>({...await original(req),background:++calls===1?"gradient":"supplied"});
+  const h=await harness({renderer});
+  const out=await makeThumbnailWorker().execute({brief:h.brief},{
+    blobs:h.blobs,media:{renderer,images:h.images},logger:silent(),progress:async()=>{}
+  } as unknown as WorkerContext);
+  assert.equal(h.images!.prompts.length,2);
+  assert.match(h.images!.prompts[1]!,/Repair:/);
+  assert.equal((out.payload as ThumbPayload).background,"supplied");
+  assert.equal(out.blobs!.filter(b=>b.role==="thumbnail_artwork").length,1);
+});
+test("two failed generations export explicit replacement status and no artwork",async()=>{
+  const h=await harness({images:new FakeImageProvider(()=>true)});
+  const out=await makeThumbnailWorker().execute({brief:h.brief},{
+    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
+  } as unknown as WorkerContext);
+  assert.equal(h.images!.prompts.length,2);
+  assert.equal(out.blobs!.some(b=>b.role==="thumbnail_artwork"),false);
+  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
+  assert.equal(manifest.status,"needs_editor_replacement");
+  assert.equal(manifest.attempts.length,2);
+});
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const BRIEF = {
@@ -108,15 +151,15 @@ test("a gradient episode does not suppress thumbnail artwork generation", async 
   assert.equal((out.payload as ThumbPayload).background, "supplied");
 });
 
-test("existing reviewed episode artwork is reused without another generation", async () => {
+test("episode artwork never overrides the standalone thumbnail prompt", async () => {
   const h = await harness();
   const bytes = new Uint8Array([1,2,3]);
   const background = await h.blobs.put(bytes, {role:"episode_background",media_type:"image/png"});
   await makeThumbnailWorker().execute({brief:h.brief,
     episode:{payload:{video_uri:"draft"},blobs:[background]} as unknown as Artifact,
   }, {blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}} as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,0);
-  assert.deepEqual(h.renderer.thumbnailRequests[0]!.image,bytes);
+  assert.equal(h.images!.prompts.length,1);
+  assert.notDeepEqual(h.renderer.thumbnailRequests[0]!.image,bytes);
 });
 
 test("composites deterministic text over generated artwork", async () => {
@@ -125,7 +168,7 @@ test("composites deterministic text over generated artwork", async () => {
 
   assert.equal(h.images!.prompts.length, 1);
   assert.ok(h.images!.prompts[0]!.includes(BRIEF.background_query));
-  assert.ok(h.images!.prompts[0]!.includes("Quiet Signal editorial illustration"));
+  assert.equal(h.images!.prompts[0],BRIEF.background_query,"no inherited style wrapper");
 
   const sent = h.renderer.thumbnailRequests[0]!;
   assert.equal(sent.text, BRIEF.text);
