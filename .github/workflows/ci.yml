@@ -45,6 +45,7 @@ jobs:
           assert not (transforms & forbidden), sorted(transforms & forbidden)
 
           retired_paths = [
+            'engine/src/visual-identity.ts',
             'contracts',
             'long-compose/remotion',
             'long-compose/motion-assets',

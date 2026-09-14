@@ -281,7 +281,7 @@ app.post("/thumbnail", async (req, res) => {
     const text = String(req.body && req.body.text || "").trim().slice(0, 60);
     // Empty overlay is valid for a visually self-explanatory thumbnail.
     const assFile = path.join(dir, "title.ass");
-    await fsp.writeFile(assFile, buildTitleCard(text));
+    await fsp.writeFile(assFile, buildTitleCard(text, req.body?.accent));
     const output = path.join(dir, "thumbnail.png");
     const supplied = req.body && req.body.image_base64;
     let input;
@@ -300,7 +300,7 @@ app.post("/thumbnail", async (req, res) => {
     }
     // The bundled ffmpeg-static build ships without the drawtext filter; libass
     // is present, so the title is rendered from an ASS subtitle instead.
-    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,ass='${escapeFilterPath(assFile)}'`;
+    const filter = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,${channelFrame(1280,720,true)},ass='${escapeFilterPath(assFile)}'`;
     await execFileAsync(ffmpegPath, ["-y", "-i", input, "-vf", filter, "-frames:v", "1", output]);
     const bytes = await fsp.readFile(output);
     return res.json({ success: true, image_base64: bytes.toString("base64"), media_type: "image/png", width: 1280, height: 720, background });

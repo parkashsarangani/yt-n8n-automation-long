@@ -252,15 +252,36 @@ test("a brief without emphasis still renders", async () => {
   assert.equal(h.renderer.thumbnailRequests[0]!.emphasis, undefined);
 });
 
-test("shared art direction asks for one legible face, not a multi-person tableau", async () => {
-  // vidIQ's 2026 breakout-thumbnail study: 69% of breakout thumbnails used a
-  // human face (80% of the biggest overperformers), 89% used a face or
-  // high-contrast color, and only 1 in 20 used an exaggerated expression.
-  // The shared artwork now doubles as the production thumbnail, so its
-  // composition must actually work as one -- a two-person profile-view scene
-  // has no single focal point.
-  const { CHANNEL_ART_DIRECTION } = await import("../src/visual-identity.ts");
-  assert.match(CHANNEL_ART_DIRECTION, /\bone\b.*adult/i);
-  assert.match(CHANNEL_ART_DIRECTION, /genuine.*expression/i);
-  assert.match(CHANNEL_ART_DIRECTION, /never (?:profile|manufactured)/i);
+test("generation errors retain actionable detail without credentials",async()=>{
+  const {thumbnailErrorDetail}=await import("../src/workers/thumbnail.ts");
+  assert.equal(thumbnailErrorDetail(new Error("provider 401 api_key=secret Bearer abc")),"provider 401 api_key=[REDACTED] Bearer [REDACTED]");
+  const h=await harness({images:new FakeImageProvider(()=>true)});
+  const out=await makeThumbnailWorker().execute({brief:h.brief},{
+    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
+  } as unknown as WorkerContext);
+  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
+  assert.equal(manifest.attempts[0].outcome,"generation_failure");
+  assert.match(manifest.attempts[0].error,/fake image failed/);
+});
+test("OCR service failure survives HTTP fallback and avoids a second image charge",async()=>{
+  const {ComposeRenderer}=await import("../src/providers/compose.ts");
+  const h=await harness();
+  let calls=0;
+  const renderer=new ComposeRenderer({baseUrl:"http://fixture",fetchImpl:(async()=>{
+    calls++;
+    return calls===1
+      ? new Response(JSON.stringify({error:"Artwork OCR screening failed; repair the OCR service before retrying"}),{status:500})
+      : Response.json({success:true,image_base64:Buffer.from("png").toString("base64"),background:"gradient"});
+  }) as typeof fetch});
+  const warnings:string[]=[];
+  const out=await makeThumbnailWorker().execute({brief:h.brief},{
+    blobs:h.blobs,media:{renderer,images:h.images},logger:{...silent(),warn:(s:string)=>warnings.push(s)},progress:async()=>{}
+  } as unknown as WorkerContext);
+  assert.equal(h.images!.prompts.length,1);
+  assert.equal(calls,2);
+  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
+  assert.equal(manifest.status,"needs_editor_replacement");
+  assert.equal(manifest.attempts[0].outcome,"render_service_failure");
+  assert.match(manifest.attempts[0].error,/500.*OCR screening failed/);
+  assert.ok(warnings.some(s=>s.includes("OCR screening failed")));
 });

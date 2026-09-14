@@ -211,6 +211,8 @@ export interface ThumbnailRequest {
 }
 
 export interface ThumbnailResult {
+  /** Service failure which required rendering without artwork, not an OCR text rejection. */
+  degradation_reason?: string;
   bytes: Uint8Array;
   media_type: string;
   width: number;

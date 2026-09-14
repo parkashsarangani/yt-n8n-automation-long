@@ -63,9 +63,15 @@ Thumbnail generation is independent of render. The designer reads the final
 script, approved SEO title and selected package and emits one photographic
 image prompt plus optional 2–4-word overlay. No episode artwork or painterly
 wrapper is used. The renderer adds text separately, without the half-screen
-opaque panel; empty overlay text is supported. OCR still rejects unwanted text.
+opaque panel; the top bar, edge stripe and small channel marks remain. The
+brief's accent colors the outlined title; empty overlay text is supported.
+OCR still rejects unwanted text.
 Generation or artwork rejection gets one repair attempt (two generations max).
 A remaining gradient is explicitly labelled as needing editor replacement.
+Generation failures retain bounded, redacted error details; OCR/compositor
+service failures are distinct from rejected artwork in the prompt manifest
+and logs. A known rendering-service failure stops further image generation.
+Replacement warnings are advisory: no new publication gate is added.
 Drive receives thumbnail.png, thumbnail-prompt.json (exact attempted prompts and
 candidate/replacement status), and accepted thumbnail-artwork.png/.jpg without
 overlay text when available. Failed/rejected artwork is not exported as usable.

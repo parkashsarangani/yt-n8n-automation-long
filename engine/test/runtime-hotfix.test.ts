@@ -72,6 +72,7 @@ test("thumbnail renderer retries without supplied artwork when compositor reject
   assert.notEqual(calls[0]!.image_base64, null);
   assert.equal(calls[1]!.image_base64, null);
   assert.equal(result.background, "gradient");
+  assert.match(result.degradation_reason!,/500.*ffmpeg failed/);
   assert.equal(Buffer.from(result.bytes).toString(), "fallback-thumb");
 });
 
