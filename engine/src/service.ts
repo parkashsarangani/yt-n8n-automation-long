@@ -1081,6 +1081,16 @@ export class VidGenService {
       if (!view) return;
 
       if (view.status === "waiting") {
+        // editor_review is this pipeline's real finish line today: the editor
+        // takes the Drive draft and publishes to YouTube entirely outside
+        // this system. That is a successful, expected stop -- not a failure
+        // needing an operator -- so it gets its own message instead of the
+        // generic "needs an operator" one below (which is still correct for
+        // every other human gate this run could be waiting on).
+        if (view.waiting.some((w) => w.node_id === "editor_review")) {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: delivered to the editor -- pipeline work for this run is complete`);
+          return;
+        }
         console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate that did not auto-pass -- needs an operator`);
         return;
       }
