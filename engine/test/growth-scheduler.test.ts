@@ -66,6 +66,49 @@ test("scheduled measurement failures remain visible in job health", async () => 
   } finally {scheduler.stop();}
 });
 
+test("editor_watch is off by default and only polls Drive when explicitly re-enabled", () => {
+  const service = { listRuns: () => [], capabilities: () => [{ id: "editor_handoff", real: true }] } as any;
+  const previous = process.env["EDITOR_RETURN_WATCH_ENABLED"];
+  try {
+    delete process.env["EDITOR_RETURN_WATCH_ENABLED"];
+    const off = startGrowthScheduler(service);
+    try {
+      const job = off.status().find((j) => j.id === "editor_watch")!;
+      assert.equal(job.enabled, false, "the editor does not return a cut today -- polling Drive for one must stay off by default");
+      assert.match(job.description, /EDITOR_RETURN_WATCH_ENABLED/);
+    } finally { off.stop(); }
+
+    process.env["EDITOR_RETURN_WATCH_ENABLED"] = "true";
+    const on = startGrowthScheduler(service);
+    try {
+      assert.equal(on.status().find((j) => j.id === "editor_watch")!.enabled, true);
+    } finally { on.stop(); }
+  } finally {
+    if (previous === undefined) delete process.env["EDITOR_RETURN_WATCH_ENABLED"];
+    else process.env["EDITOR_RETURN_WATCH_ENABLED"] = previous;
+  }
+});
+
+test("a run waiting at editor_review is reported as complete hand-off, not a stuck operator gate", async () => {
+  const { VidGenService } = await import("../src/service.ts");
+  const calls: string[] = [];
+  const originalLog = console.log;
+  console.log = (msg: string) => { calls.push(msg); };
+  try {
+    const service = Object.create(VidGenService.prototype);
+    service.runs = new Map([["run-test", { finished: true }]]);
+    service.getRun = () => ({
+      status: "waiting",
+      waiting: [{ node_id: "editor_review", artifact_id: "sha256:" + "0".repeat(64), reason: "human approval required" }],
+    });
+    await service.driveUnattended("run-test");
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(calls.some((m) => /delivered to the editor -- pipeline work for this run is complete/.test(m)));
+  assert.ok(!calls.some((m) => /needs an operator/.test(m)));
+});
+
 test("viability floor rejects weak packages before production spend", () => {
   assert.equal(viableCandidate(candidate()), true);
   const weak = candidate(); weak.scores!.story_potential = 0.4;

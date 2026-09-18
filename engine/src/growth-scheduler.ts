@@ -192,6 +192,12 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const analyticsReal = service.capabilities().some((s) => s.id === "analytics" && s.real);
   const editorHandoffReal = service.capabilities().some((s) => s.id === "editor_handoff" && s.real);
   const editorWatchMinutes = Math.max(5, Number(process.env["SCHEDULE_EDITOR_WATCH_MINUTES"] ?? 20) || 20);
+  // The editor currently publishes straight to YouTube and never drops a
+  // final.mp4 back into Drive, so polling for one only wastes Drive API
+  // calls and produces "advanced 0" log noise forever. Off by default;
+  // flip EDITOR_RETURN_WATCH_ENABLED back on if that return trip resumes --
+  // checkEditorReturns()/finalize_video/qa/publish are untouched and ready.
+  const editorReturnWatchEnabled = /^(1|true|yes)$/i.test(process.env["EDITOR_RETURN_WATCH_ENABLED"] ?? "");
   const lastProduction = mostRecentProduction(service);
   const timeZone = process.env["SCHEDULE_PRODUCE_TIMEZONE"]?.trim() || "Europe/Berlin";
   const requestedHour = Number(process.env["SCHEDULE_PRODUCE_LOCAL_HOUR"] ?? 3);
@@ -289,8 +295,10 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       if (result.failed.length) throw new Error(`Measurement failed for ${result.failed.length} episode(s): ${result.failed[0]!.error}`);
     } },
     {
-      id: "editor_watch", everyHours: editorWatchMinutes / 60, enabled: editorHandoffReal,
-      description: `check every run parked at editor_review for a returned final.mp4 in its Drive folder (every ${editorWatchMinutes}m)`,
+      id: "editor_watch", everyHours: editorWatchMinutes / 60, enabled: editorHandoffReal && editorReturnWatchEnabled,
+      description: editorReturnWatchEnabled
+        ? `check every run parked at editor_review for a returned final.mp4 in its Drive folder (every ${editorWatchMinutes}m)`
+        : "disabled -- editor_review is the pipeline's finish line today; set EDITOR_RETURN_WATCH_ENABLED to resume polling Drive for a returned cut",
       async run() {
         const result = await service.checkEditorReturns();
         console.log(`[growth-scheduler] editor-watch: checked ${result.checked} run(s) parked at editor_review, advanced ${result.advanced}`);
