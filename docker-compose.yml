@@ -85,6 +85,13 @@ services:
       DRIVE_REFRESH_TOKEN: ${DRIVE_REFRESH_TOKEN:-}
       DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
       SCHEDULE_EDITOR_WATCH_MINUTES: ${SCHEDULE_EDITOR_WATCH_MINUTES:-20}
+
+      # Operator alerting when driveUnattended() gives up on a blocked run.
+      # Both opt-in; unset means no-op.
+      OPERATOR_ALERT_WEBHOOK_URL: ${OPERATOR_ALERT_WEBHOOK_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      OPERATOR_ALERT_EMAIL_TO: ${OPERATOR_ALERT_EMAIL_TO:-}
+      OPERATOR_ALERT_EMAIL_FROM: ${OPERATOR_ALERT_EMAIL_FROM:-}
     volumes:
       - vidgen_data:/data
       - ./engine/config:/app/config:ro

@@ -150,6 +150,18 @@ export function decideTtsScene(
   return { decision, reasons, signals };
 }
 
+/**
+ * A "review" verdict (unlike "block") is a borderline/false-positive-prone
+ * signal, not a confirmed policy violation -- BLOCK_OPENAI_CATEGORIES and
+ * ElevenLabs block-severity signals never produce it. It is therefore safe
+ * for driveUnattended() to treat like any other script-quality defect and
+ * heal by drafting fresh wording, the same way a watchability rejection does.
+ * A "block" verdict must never match this -- it always needs a human look.
+ */
+export function isModerationReviewFailureMessage(error: string): boolean {
+  return /voice blocked by pre-TTS moderation \(review\)/.test(error);
+}
+
 export async function moderateTextWithOpenAI(
   text: string,
   opts: OpenAiModerationOptions,

@@ -58,6 +58,8 @@ import {
 } from "./watchability-ledger.ts";
 import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
+import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
+import { sendOperatorAlert } from "./operator-alerts.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
@@ -152,6 +154,13 @@ interface RunState {
 
 /** Deterministic guard: an operator gets exactly one re-grade per manual run. */
 export const MAX_MANUAL_WATCHABILITY_RESCORES = 1;
+
+/**
+ * How many times driveUnattended() will rewrite the script and re-check
+ * moderation after a "review" (non-"block") pre-TTS verdict before giving up
+ * and alerting an operator instead of retrying forever.
+ */
+export const MAX_MODERATION_REVIEW_ATTEMPTS = 3;
 
 export interface ServiceOptions {
   root: string;
@@ -1059,6 +1068,7 @@ export class VidGenService {
     maxRetries = MAX_ATTEMPTS_BEFORE_ACCEPTING - 1,
   ): Promise<void> {
     const scriptAttempts: Array<{ scriptId: string; reportId: string; avg: number }> = [];
+    let moderationReviewAttempts = 0;
     for (let round = 0; ; round++) {
       for (let waitedMs = 0; !this.runs.get(runId)?.finished; waitedMs += 3000) {
         if (waitedMs >= 90 * 60_000) {
@@ -1083,15 +1093,91 @@ export class VidGenService {
           `[run ${runId.slice(4, 12)}] unattended: a structural package-contract defect cannot be repaired by ` +
             `regenerating the script -- needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
+        void sendOperatorAlert({
+          run_id: runId,
+          reason: "structural package-contract defect cannot be auto-repaired",
+          failures: view.failures,
+        });
         return;
       }
 
+      // A "review" verdict is borderline/false-positive-prone, not a confirmed
+      // violation (see isModerationReviewFailureMessage) -- the same script
+      // text fails identically forever otherwise, since resumeFailedRun()
+      // alone re-checks nothing. This has its own MAX_MODERATION_REVIEW_ATTEMPTS
+      // budget, checked before the shared watchability round cap below, so it
+      // is never silently cut short by an unrelated counter.
+      if (view.failures.some((f) => f.node_id === "voice" && isModerationReviewFailureMessage(f.error))) {
+        // Manual mode still means the operator owns the words, exactly as
+        // with watchability below.
+        if (await this.isManualScriptRun(view)) {
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: operator-authored script flagged by pre-TTS moderation review -- ` +
+              `leaving it blocked for review instead of rewriting the operator's words`,
+          );
+          return;
+        }
+
+        moderationReviewAttempts++;
+        if (moderationReviewAttempts > MAX_MODERATION_REVIEW_ATTEMPTS) {
+          console.log(
+            `[run ${runId.slice(4, 12)}] unattended: still blocked by pre-TTS moderation review after ` +
+              `${MAX_MODERATION_REVIEW_ATTEMPTS} script rewrites, giving up -- needs operator attention: ` +
+              `${view.failures.map((f) => f.error).join("; ")}`,
+          );
+          const giveUpState = this.runs.get(runId);
+          const giveUpGraph = giveUpState ? this.resolveRunGraph(giveUpState.graph) : this.graph;
+          for (const failure of view.failures) {
+            await this.runLog.record({
+              run_id: runId,
+              graph_id: `${giveUpGraph.graph_id}@${giveUpGraph.version}`,
+              node_id: failure.node_id,
+              transformation: failure.node_id,
+              transformation_version: this.transformations.get(failure.node_id)?.version ?? "1",
+              inputs: [],
+              output: null,
+              status: "failed",
+              attempt: 1,
+              max_attempts: 1,
+              started_at: new Date().toISOString(),
+              duration_ms: 0,
+              error: failure.error,
+            });
+          }
+          void sendOperatorAlert({
+            run_id: runId,
+            reason: `still blocked by pre-TTS moderation review after ${MAX_MODERATION_REVIEW_ATTEMPTS} script rewrites`,
+            failures: view.failures,
+          });
+          return;
+        }
+
+        const state = this.runs.get(runId)!;
+        const graph = this.resolveRunGraph(state.graph);
+        await this.executor.regenerateNode(
+          graph,
+          runId,
+          "draft_script",
+          "voice blocked by pre-TTS moderation review -- regenerating the script with different wording",
+        );
+        console.log(
+          `[run ${runId.slice(4, 12)}] unattended: voice blocked by moderation review -- regenerating script wording ` +
+            `(attempt ${moderationReviewAttempts}/${MAX_MODERATION_REVIEW_ATTEMPTS})`,
+        );
+        await this.resumeFailedRun(runId);
+        continue;
+      }
 
       if (round >= maxRetries) {
         console.log(
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
             `needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
+        void sendOperatorAlert({
+          run_id: runId,
+          reason: `still blocked after ${maxRetries} auto-retries`,
+          failures: view.failures,
+        });
         // Only the FIRST watchability_release failure of a driveUnattended
         // cycle ever gets a persisted run-log record -- every later round's
         // failure lives only in this process's in-memory RunState. Without
