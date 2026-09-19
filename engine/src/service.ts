@@ -59,7 +59,6 @@ import {
 import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
 import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
-import { sendOperatorAlert } from "./operator-alerts.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
 import { buildTopicHistory } from "./topic-history.ts";
@@ -1103,11 +1102,6 @@ export class VidGenService {
           `[run ${runId.slice(4, 12)}] unattended: a structural package-contract defect cannot be repaired by ` +
             `regenerating the script -- needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
-        void sendOperatorAlert({
-          run_id: runId,
-          reason: "structural package-contract defect cannot be auto-repaired",
-          failures: view.failures,
-        });
         return;
       }
 
@@ -1154,11 +1148,6 @@ export class VidGenService {
               error: failure.error,
             });
           }
-          void sendOperatorAlert({
-            run_id: runId,
-            reason: `still blocked by pre-TTS moderation review after ${MAX_MODERATION_REVIEW_ATTEMPTS} script rewrites`,
-            failures: view.failures,
-          });
           return;
         }
 
@@ -1183,11 +1172,6 @@ export class VidGenService {
           `[run ${runId.slice(4, 12)}] unattended: still blocked after ${maxRetries} auto-retries, giving up -- ` +
             `needs operator attention: ${view.failures.map((f) => f.error).join("; ")}`,
         );
-        void sendOperatorAlert({
-          run_id: runId,
-          reason: `still blocked after ${maxRetries} auto-retries`,
-          failures: view.failures,
-        });
         // Only the FIRST watchability_release failure of a driveUnattended
         // cycle ever gets a persisted run-log record -- every later round's
         // failure lives only in this process's in-memory RunState. Without
