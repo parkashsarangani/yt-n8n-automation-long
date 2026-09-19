@@ -38,9 +38,35 @@ export const REQUIRED_ROLES = [
   "payoff",
 ] as const;
 
+/**
+ * Every rule this module can report. A closed union rather than free-form
+ * strings because these ids are aggregation keys: a typo in one of the push
+ * sites below would otherwise compile cleanly and silently create a second,
+ * uncounted bucket in the violation report, and the only symptom would be a
+ * report that looks slightly odd.
+ */
+export type ViolationRule =
+  | "no_scenes"
+  | "missing_role"
+  | "first_scene_not_scenario"
+  | "scene_word_cap"
+  | "stacked_explanation"
+  | "no_response_scene"
+  | "first_reply_too_late"
+  | "payoff_too_early"
+  | "post_payoff_word_cap"
+  | "post_payoff_ratio"
+  | "payoff_tag_suspect"
+  | "no_discussion_question"
+  | "multiple_questions"
+  | "outro_word_cap"
+  | "outro_is_question"
+  | "no_outro"
+  | "label_too_long";
+
 export interface ScriptViolation {
   /** Stable identifier so violation rates can be counted per rule over time. */
-  rule: string;
+  rule: ViolationRule;
   detail: string;
 }
 
@@ -265,7 +291,8 @@ export function validateScriptStructure(payload: unknown): ScriptValidation {
 }
 
 export interface ViolationRate {
-  rule: string;
+  /** Always one of the closed set above, never a free-form string. */
+  rule: ViolationRule;
   scripts: number;
   occurrences: number;
 }
@@ -276,9 +303,9 @@ export interface ViolationRate {
  * actually obeys -- which decides whether those rules are worth keeping.
  */
 export function summariseViolations(validations: ScriptValidation[]): ViolationRate[] {
-  const byRule = new Map<string, { scripts: number; occurrences: number }>();
+  const byRule = new Map<ViolationRule, { scripts: number; occurrences: number }>();
   for (const validation of validations) {
-    const seen = new Set<string>();
+    const seen = new Set<ViolationRule>();
     for (const violation of validation.violations) {
       const entry = byRule.get(violation.rule) ?? { scripts: 0, occurrences: 0 };
       entry.occurrences += 1;

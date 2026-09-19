@@ -1000,6 +1000,16 @@ export class VidGenService {
         // Throwing here lands in the catch below: the run stays waiting and
         // the operator is alerted, rather than the episode going public.
         const cutDurationSec = assertEditorCutDuration(bytes, draft?.payload.duration_sec);
+        if (cutDurationSec === null) {
+          // Says so out loud, because "we could not verify" and "we verified
+          // and it passed" must not look the same in the logs. The cut still
+          // publishes: some valid containers state no duration, and refusing
+          // those would block real work to catch a rarer fault.
+          console.log(
+            `[editor-watch] run ${run.run_id.slice(4, 12)}: the returned cut states no duration, ` +
+            `so it could not be checked against the ${draft?.payload.duration_sec ?? "unknown"}s draft`,
+          );
+        }
 
         // Optional: the editor may also return a finished thumbnail. Two
         // candidates are as unresolvable here as two cuts, so neither is used.
@@ -1024,15 +1034,14 @@ export class VidGenService {
           media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
           scene_count: draft?.payload.scene_count ?? 1,
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
-          // The cut's own duration, not the draft's. Copying the draft's made
-          // the artifact assert a length the published file did not have the
-          // moment the editor trimmed anything -- and that number is what
-          // downstream measurement reasons about.
-          ...(cutDurationSec !== null
-            ? { duration_sec: cutDurationSec }
-            : draft?.payload.duration_sec !== undefined
-              ? { duration_sec: draft.payload.duration_sec }
-              : {}),
+          // The cut's own duration, or nothing at all. Copying the draft's
+          // made the artifact assert a length the published file did not have
+          // the moment the editor trimmed anything -- and that number is what
+          // downstream measurement reasons about. Falling back to the draft
+          // when the cut states no duration would reintroduce exactly that
+          // bug in the one case where we know least, so an unverifiable
+          // duration is recorded as absent rather than as a confident guess.
+          ...(cutDurationSec !== null ? { duration_sec: cutDurationSec } : {}),
         }, editorThumbnail);
         // Written before the approval, not after: a crash between publishing
         // and recording must not look like a fresh cut on the next pass. The

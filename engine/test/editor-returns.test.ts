@@ -16,8 +16,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { VidGenService } from "../src/service.ts";
-// Real MP4 bytes: checkEditorReturns runs the actual geometry assertion.
-import { mp4_1080p as mp4 } from "./mp4-fixture.ts";
+// Real MP4 bytes: checkEditorReturns runs the actual geometry assertion AND
+// the duration check, so the default fixture has to state a duration. With a
+// duration-less fixture the duration guard short-circuits and every test below
+// would pass whether or not it was wired in at all.
+import { mp4_1080p_lasting } from "./mp4-fixture.ts";
+
+/** The run's draft is 180s (see the render artifact in makeService). */
+const DRAFT_DURATION_SEC = 180;
+const mp4 = (durationSec = DRAFT_DURATION_SEC) => mp4_1080p_lasting(durationSec);
 
 interface FakeFile {
   id: string;
@@ -39,6 +46,8 @@ function makeService(files: FakeFile[], opts: { onDownload?: (id: string) => voi
   // Consumption is read back from the run log, so the fake has to behave like
   // one: records written during a pass are visible to the next.
   const records: Array<Record<string, unknown>> = [];
+  /** What checkEditorReturns actually handed to supplyEditorCut. */
+  const applied: { video?: { duration_sec?: number } } = {};
   service.graph = { graph_id: "illustrated_story", version: "15" };
   service.runLog = { record: async (r: Record<string, unknown>) => { records.push(r); } };
   service.runRecords = async () => records;
@@ -68,10 +77,13 @@ function makeService(files: FakeFile[], opts: { onDownload?: (id: string) => voi
     },
   };
 
-  service.supplyEditorCut = async () => { calls.push("supplyEditorCut"); };
+  service.supplyEditorCut = async (_runId: string, video: { duration_sec?: number }) => {
+    calls.push("supplyEditorCut");
+    applied.video = video;
+  };
   service.decide = async (_runId: string, nodeId: string) => { calls.push(`decide:${nodeId}`); };
 
-  return { service, calls, records };
+  return { service, calls, records, applied };
 }
 
 /**
@@ -88,6 +100,49 @@ test("a settled final.mp4 is applied and the gate approved", async () => {
 
   assert.deepEqual(result, { checked: 1, advanced: 1 });
   assert.deepEqual(calls, ["download:file-final", "supplyEditorCut", "decide:editor_review"]);
+});
+
+test("a cut that is not this episode is refused, not published", async () => {
+  // A complete, correctly-sized, 1920x1080 file -- and 20 seconds of a
+  // three-minute episode. Every check before the duration guard passes it.
+  // This is the case the guard exists for, exercised through the real
+  // checkEditorReturns path rather than against the helper directly.
+  const { service, calls } = makeService([finalCut(mp4(20))]);
+  const result = await service.checkEditorReturns();
+
+  assert.deepEqual(result, { checked: 1, advanced: 0 });
+  assert.ok(!calls.includes("supplyEditorCut"), "a fragment must never be applied");
+  assert.ok(!calls.includes("decide:editor_review"), "a fragment must never approve the gate");
+});
+
+test("a cut far longer than the draft -- a different episode -- is refused", async () => {
+  const { service, calls } = makeService([finalCut(mp4(600))]);
+  const result = await service.checkEditorReturns();
+
+  assert.deepEqual(result, { checked: 1, advanced: 0 });
+  assert.ok(!calls.includes("supplyEditorCut"));
+});
+
+test("the applied cut records its own duration, not the draft's", async () => {
+  // The editor trimmed 12 seconds. Recording the draft's 180s would make the
+  // artifact assert a length the published file does not have, and that
+  // number is what measurement reasons about.
+  const { service, applied } = makeService([finalCut(mp4(168))]);
+  await service.checkEditorReturns();
+
+  assert.equal(applied.video?.duration_sec, 168);
+});
+
+test("a cut stating no duration is applied but records no duration at all", async () => {
+  // Some valid containers state none. It still publishes -- but an
+  // unverifiable length must not be recorded as if it were confirmed, and
+  // must not silently inherit the draft's.
+  const { mp4_1080p } = await import("./mp4-fixture.ts");
+  const { service, calls, applied } = makeService([finalCut(mp4_1080p())]);
+  await service.checkEditorReturns();
+
+  assert.ok(calls.includes("supplyEditorCut"));
+  assert.equal(applied.video?.duration_sec, undefined);
 });
 
 test("a file still being uploaded is left alone until it settles", async () => {
