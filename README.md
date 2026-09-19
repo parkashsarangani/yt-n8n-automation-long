@@ -11,6 +11,8 @@ docker compose up --build
 - Studio/API: http://localhost:4321
 - Compositor: http://localhost:4001
 
+Both are published to `127.0.0.1` only — deliberately, since the local Studio holds API keys. They are not reachable from another machine without an explicit tunnel or reverse proxy.
+
 ## Production configuration
 
 | Variable | Purpose | Without it |
@@ -21,13 +23,15 @@ docker compose up --build
 | `ELEVENLABS_VOICE_ID` | Narrator voice | Test-only placeholder voice |
 | `FAL_KEY` | Optional thumbnail artwork | Gradient thumbnail background |
 | `COMPOSE_URL` | FFmpeg compositor | Fake renderer in non-production runs |
+| `FOOTAGE_MODE` | Stock footage lookup (default `stock`) | Plain background behind narration |
+| `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` | Stock media sources | Unmatched scenes use the background |
 | Drive OAuth trio + `DRIVE_ROOT_FOLDER_ID` | Editor hand-off | Runs cannot reach the editor |
 | `OPERATOR_ALERT_WEBHOOK_URL` | Alert when a run is abandoned | Failures are only logged |
 | `EDITOR_RETURN_WATCH_ENABLED` | Re-enable the dormant editor-return flow | Runs finish at `editor_review` (current behaviour) |
 | YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
 | `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
 
-Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, stock-media, visual-director, Remotion, and legacy n8n production paths are intentionally absent.
+Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, visual-director, Remotion, and legacy n8n production paths are intentionally absent. Stock footage is *not* — `FOOTAGE_MODE` defaults to `stock`, and the compositor pulls suggested Pexels/Unsplash media, falling back to a plain background when a key is missing or nothing matches.
 
 Note that the YouTube variables are currently inert: the graph's `finalize_video → qa → publish` tail sits behind `editor_review`, which nothing advances while the editor publishes directly (see below). The nodes and workers are retained deliberately so the self-publishing flow can be restored without rebuilding it.
 
@@ -43,7 +47,7 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 `editor_package` uploads the draft, transcript and beat list to a dated Drive subfolder and the run parks at `editor_review`. That wait is the pipeline's **successful terminal state**, not a stall: the editor finishes the cut and uploads to YouTube outside this system.
 
-The original design expected the editor to drop a `final.mp4` back into Drive, which `checkEditorReturns()` would pick up to drive `finalize_video → qa → publish` and then measure performance. That return trip no longer happens, so the poll is off by default. Set `EDITOR_RETURN_WATCH_ENABLED=true` to restore it. One consequence worth knowing: the `measure` job consumes `published_episode` artifacts, which only the `publish` node produces, so episodes handed to the editor are not measured automatically.
+The original design expected the editor to drop a `final.mp4` back into Drive, which `checkEditorReturns()` would pick up to drive `finalize_video → qa → publish` and then measure performance. That return trip no longer happens, so the poll is off by default. Set `EDITOR_RETURN_WATCH_ENABLED` to `true`, `1` or `yes` to restore it. One consequence worth knowing: the `measure` job consumes `published_episode` artifacts, which only the `publish` node produces, so episodes handed to the editor are not measured automatically.
 
 ## When a run fails
 
