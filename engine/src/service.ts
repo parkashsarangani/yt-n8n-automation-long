@@ -549,7 +549,24 @@ export class VidGenService {
           graph: runGraph,
           status,
           outputs: Object.fromEntries(completedOutputs),
-          waiting: [],
+          // Which gate a reloaded run is parked on is derived, not stored, so
+          // this used to come back empty and every consumer of `waiting` went
+          // blind after a restart -- checkEditorReturns() filters on exactly
+          // this, so a returned cut was never picked up for any run that
+          // predated the current process, silently, and the engine restarts on
+          // every deploy. A gate is waiting when everything it consumes is
+          // done and the gate itself is not; it carries the artifact it gates.
+          waiting:
+            matchedGraph && status === "waiting"
+              ? matchedGraph.nodes
+                  .filter((n) => nodeType(n) === "human_gate" && !completedOutputs.has(n.id))
+                  .filter((n) => inputsOf(n).length > 0 && inputsOf(n).every((dep) => completedOutputs.has(dep)))
+                  .map((n) => ({
+                    node_id: n.id,
+                    artifact_id: completedOutputs.get(inputsOf(n)[0]!)!,
+                    reason: "human approval required",
+                  }))
+              : [],
           failures: hasFailure
             ? recs.filter(r => r.status === "failed" && r.node_id).map(r => ({
               node_id: r.node_id!,
