@@ -129,6 +129,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "GET /api/scripts/validation") {
+      json(res, 200, await service.validateArchivedScripts());
+      return;
+    }
+
     if (route === "GET /api/series") {
       json(res, 200, { episodes: socialSeriesCatalog() });
       return;

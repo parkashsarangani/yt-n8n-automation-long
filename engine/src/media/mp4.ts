@@ -3,6 +3,16 @@ export interface Mp4Geometry {
   height: number;
 }
 
+/**
+ * How far the editor's cut may drift from the draft before we refuse to
+ * publish it. Wide on purpose: trimming dead air, tightening a beat or adding
+ * a title card are the editor's job and must not trip this. What it catches is
+ * the class of failure a size check cannot -- a cut that is a fragment of the
+ * episode, or a different episode entirely.
+ */
+export const EDITOR_CUT_MIN_RATIO = 0.5;
+export const EDITOR_CUT_MAX_RATIO = 2.0;
+
 interface BoxHeader {
   type: string;
   start: number;
@@ -91,6 +101,84 @@ export function readMp4Geometry(bytes: Uint8Array): Mp4Geometry | null {
   return candidates.reduce((best, item) =>
     item.width * item.height > best.width * best.height ? item : best,
   );
+}
+
+function mvhdDurationSec(bytes: Uint8Array, box: BoxHeader): number | null {
+  if (box.payloadStart >= box.end) return null;
+  const version = bytes[box.payloadStart];
+  // version 0: creation(4) modification(4) timescale(4) duration(4)
+  // version 1: creation(8) modification(8) timescale(4) duration(8)
+  // Both sit after the 1-byte version and 3 flag bytes.
+  const base = box.payloadStart + 4;
+  let timescale: number | null;
+  let duration: number | null;
+  if (version === 0) {
+    timescale = readU32(bytes, base + 8);
+    duration = readU32(bytes, base + 12);
+  } else if (version === 1) {
+    timescale = readU32(bytes, base + 16);
+    duration = readU64(bytes, base + 20);
+  } else {
+    return null;
+  }
+  if (timescale === null || duration === null || timescale <= 0 || duration <= 0) return null;
+  const seconds = duration / timescale;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+function findMvhd(bytes: Uint8Array, start: number, end: number): number | null {
+  let offset = start;
+  while (offset + 8 <= end) {
+    const box = boxAt(bytes, offset, end);
+    if (!box) return null;
+    if (box.type === "mvhd") {
+      const seconds = mvhdDurationSec(bytes, box);
+      if (seconds !== null) return seconds;
+    } else if (box.type === "moov") {
+      const nested = findMvhd(bytes, box.payloadStart, box.end);
+      if (nested !== null) return nested;
+    }
+    if (box.end <= offset) return null;
+    offset = box.end;
+  }
+  return null;
+}
+
+/**
+ * Programme duration in seconds from the movie header, or null when the
+ * container does not state one. Null means "unknown", never "zero" -- callers
+ * must not treat an unreadable duration as a short file.
+ */
+export function readMp4DurationSec(bytes: Uint8Array): number | null {
+  return findMvhd(bytes, 0, bytes.length);
+}
+
+/**
+ * Guard against publishing a cut that is not this episode.
+ *
+ * The existing Drive size check catches a file still being written; it cannot
+ * catch a file that finished uploading and is simply wrong -- a 20-second
+ * fragment of a three-minute episode, or last week's export dropped in the
+ * wrong folder. Both are complete, well-formed MP4s of the right dimensions,
+ * and both would previously have gone public unattended.
+ *
+ * An unreadable duration is not a failure: some valid containers do not state
+ * one, and refusing those would block legitimate cuts to catch a rarer fault.
+ */
+export function assertEditorCutDuration(bytes: Uint8Array, expectedSec: number | null | undefined): number | null {
+  const actual = readMp4DurationSec(bytes);
+  if (actual === null) return null;
+  if (typeof expectedSec !== "number" || !Number.isFinite(expectedSec) || expectedSec <= 0) return actual;
+
+  const ratio = actual / expectedSec;
+  if (ratio < EDITOR_CUT_MIN_RATIO || ratio > EDITOR_CUT_MAX_RATIO) {
+    throw new Error(
+      `editor cut rejected before publish: it runs ${actual.toFixed(1)}s against a ${expectedSec.toFixed(1)}s draft ` +
+      `(${ratio.toFixed(2)}x, allowed ${EDITOR_CUT_MIN_RATIO}-${EDITOR_CUT_MAX_RATIO}x). ` +
+      `This is either a partial export or a different episode -- check the file before resuming.`,
+    );
+  }
+  return actual;
 }
 
 /** Long-form production invariant for this repository's YouTube target. */
