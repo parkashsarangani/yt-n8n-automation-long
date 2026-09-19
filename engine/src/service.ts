@@ -199,6 +199,12 @@ export class VidGenService {
   private runLog!: RunLog;
   private executor!: GraphExecutor;
   private transformations!: Map<string, TransformationDef>;
+  /** The single in-flight editor-return pass, so a webhook cannot race the poll. */
+  private editorReturnsInFlight: Promise<{ checked: number; advanced: number }> | null = null;
+
+  /** `runId:fileId` of every editor cut already consumed, so none publishes twice. */
+  private readonly consumedEditorCuts = new Set<string>();
+
   /** Held so measureAll can check live visibility before spending a call. */
   private analyticsProvider: AnalyticsProvider | undefined;
   /** Held so the editor-watch scheduler job can list/download from the run's Drive folder. */
@@ -858,6 +864,19 @@ export class VidGenService {
    * crash the run or the scheduler.
    */
   async checkEditorReturns(): Promise<{ checked: number; advanced: number }> {
+    // The scheduler refuses to overlap its own jobs, but a webhook calling
+    // this directly bypasses that guard entirely: two passes could download
+    // the same final.mp4 and both approve the gate. Collapse concurrent
+    // callers onto the one in-flight pass instead of racing.
+    if (this.editorReturnsInFlight) return this.editorReturnsInFlight;
+    const pass = this.runEditorReturnsPass().finally(() => {
+      this.editorReturnsInFlight = null;
+    });
+    this.editorReturnsInFlight = pass;
+    return pass;
+  }
+
+  private async runEditorReturnsPass(): Promise<{ checked: number; advanced: number }> {
     const drive = this.driveProvider;
     const runs = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review"));
     if (!drive || runs.length === 0) return { checked: runs.length, advanced: 0 };
@@ -873,8 +892,31 @@ export class VidGenService {
         const final = files.find((f) => f.name.trim().toLowerCase() === "final.mp4");
         if (!final) continue;
 
+        // A file is only a candidate once, even if a later pass somehow still
+        // sees the run waiting -- publishing twice is not recoverable.
+        const consumedKey = `${run.run_id}:${final.id}`;
+        if (this.consumedEditorCuts.has(consumedKey)) continue;
+
         const bytes = await drive.downloadFile(final.id);
+
+        // Drive lists a file the moment it is created, not when the upload
+        // finishes, so a poll (or a creation-triggered webhook) can hand us a
+        // truncated cut. Re-read the listing and require the size Drive now
+        // reports to match what we actually downloaded; a mid-write file will
+        // differ and simply waits for the next pass. Unsized files cannot be
+        // verified, so they are skipped rather than trusted.
+        const after = (await drive.listFiles(handoff.payload.drive_folder_id)).find((f) => f.id === final.id);
+        if (after?.size === undefined) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: Drive reported no size for final.mp4; cannot confirm the upload finished, leaving it for the next pass`);
+          continue;
+        }
+        if (after.size !== bytes.byteLength) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: final.mp4 still changing (${bytes.byteLength} -> ${after.size} bytes); waiting for the upload to settle`);
+          continue;
+        }
+
         assertYouTubeProductionGeometry(bytes);
+        this.consumedEditorCuts.add(consumedKey);
 
         const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
         const draft = renderId

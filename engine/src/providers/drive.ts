@@ -14,6 +14,13 @@ export interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
+  /**
+   * Byte size as Drive reports it. Absent for files Drive does not size
+   * (native Docs/Sheets), which is why this is optional rather than assumed --
+   * a caller that needs it to prove an upload finished must treat "missing"
+   * as "cannot verify", not as zero.
+   */
+  size?: number;
 }
 
 export interface DriveExchange {
@@ -93,13 +100,21 @@ export class DriveProvider implements DriveExchange {
     const files: DriveFile[] = [];
     let page: string | undefined;
     do {
-      const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType)&pageSize=100${page ? "&pageToken="+encodeURIComponent(page) : ""}`, {
+      const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=100${page ? "&pageToken="+encodeURIComponent(page) : ""}`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(120_000),
       });
       if (!res.ok) throw new ProviderError(`drive list failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-      const body = (await res.json()) as { files?: DriveFile[]; nextPageToken?: string };
-      files.push(...(body.files ?? []));
+      // Drive reports size as a decimal string, and omits it entirely for
+      // file types it does not size.
+      const body = (await res.json()) as {
+        files?: Array<Omit<DriveFile, "size"> & { size?: string }>;
+        nextPageToken?: string;
+      };
+      files.push(...(body.files ?? []).map(({ size: raw, ...rest }) => {
+        const size = raw === undefined ? undefined : Number(raw);
+        return { ...rest, ...(size !== undefined && Number.isFinite(size) ? { size } : {}) };
+      }));
       page = body.nextPageToken;
     } while(page);
     return files;
