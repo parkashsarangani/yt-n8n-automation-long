@@ -73,6 +73,26 @@ test("a revise verdict no longer blocks release, but an abandonment still does",
   }
 });
 
+test("the crash-guard boundary itself: exactly at the floor passes, a hair below does not", () => {
+  // Every "passing" fixture in this file scores 0.85-0.99, but the live
+  // operating range is now just above 0.50, so the boundary is where real
+  // episodes will actually sit. Comparisons are strict `<`, so the floor
+  // value itself releases.
+  const atFloor: Record<string, number> = {};
+  for (const key of Object.keys(WATCHABILITY_THRESHOLDS)) atFloor[key] = MATERIAL_WEAKNESS_FLOOR;
+  const onTheLine = assessWatchability({ verdict: "revise", scores: atFloor });
+  assert.equal(onTheLine.passed, true, "exactly 0.50 is not broken");
+  assert.equal(onTheLine.abandonRecommended, false);
+  assert.equal(onTheLine.average, onTheLine.rawAverage);
+
+  const justUnder = { ...atFloor, payoff: MATERIAL_WEAKNESS_FLOOR - 0.01 };
+  const below = assessWatchability({ verdict: "revise", scores: justUnder });
+  assert.equal(below.passed, false);
+  // A failed draft's selection score must still be capped below the bar so
+  // best-of-N can never restore it over a passing draft.
+  assert.ok(below.average < WATCHABILITY_AVERAGE_THRESHOLD);
+});
+
 test("a missing verdict is not by itself a release failure", () => {
   const result = assessWatchability({ scores: passingScores() });
   assert.equal(result.passed, true);

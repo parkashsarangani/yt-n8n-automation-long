@@ -29,7 +29,11 @@
  * dimensions actually predicted retention.
  */
 
-/** A dimension at or below this is broken, not merely weak. */
+/**
+ * A dimension STRICTLY BELOW this is broken, not merely weak. Every comparison
+ * against it uses `<`, so exactly 0.50 passes -- worth stating precisely now
+ * that this constant is the live release gate rather than a floor beneath one.
+ */
 export const MATERIAL_WEAKNESS_FLOOR = 0.50;
 
 /**

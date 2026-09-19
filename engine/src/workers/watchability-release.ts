@@ -186,6 +186,18 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
           `${durationSec ? ` ${durationSec}s` : ""}): ${result.failures.join("; ")}`,
         );
       }
+      // The crash guard releases drafts the critic asked to revise. That is
+      // the intended behaviour, but it must leave a trace: without this the
+      // only record that an override happened is the verdict field on a
+      // stored artifact, so nobody could tell from the logs how often it
+      // fires. Mirrors the autoAccept warning below.
+      const reportVerdict = (inputs["report"]?.payload as { verdict?: unknown } | undefined)?.verdict;
+      if (result.passed && reportVerdict !== "pass") {
+        ctx.logger.warn(
+          `[watchability_release] critic verdict=${String(reportVerdict ?? "missing")} but the crash guard ` +
+          `released this draft -- editor_review is the remaining quality gate`,
+        );
+      }
       if (autoAccept) {
         ctx.logger.warn(
           `[watchability_release] accepting attempt ${ctx.attemptNumber} below the watchability bar after ` +
