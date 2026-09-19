@@ -32,6 +32,32 @@ export interface OperatorAlertOptions {
   emailFrom?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  now?: number;
+  cooldownMs?: number;
+}
+
+/**
+ * How long the same run+failure stays silent after it has alerted once.
+ *
+ * Production incident 2026-09-19: run 69dbad4e was blocked on a provider 429
+ * and the scheduler re-entered driveUnattended() every ~16 minutes. Each pass
+ * hit the same give-up and sent another email -- 41 of them in a day. "This
+ * run needs attention" is a STATE, not an event: alert when it becomes true,
+ * then stay quiet until it is either resolved or old enough to be worth
+ * repeating.
+ */
+export const ALERT_COOLDOWN_MS = 6 * 60 * 60_000;
+
+/**
+ * Keyed on the run and what is wrong with it -- deliberately NOT on the error
+ * text, which embeds provider request ids and timestamps that differ on every
+ * retry and would defeat the dedup entirely.
+ */
+const lastAlertAt = new Map<string, number>();
+
+function alertKey(payload: OperatorAlertPayload): string {
+  const nodes = payload.failures.map((f) => f.node_id).sort().join(",");
+  return `${payload.run_id}::${payload.reason}::${nodes}`;
 }
 
 function shortRunId(runId: string): string {
@@ -134,10 +160,25 @@ export async function sendOperatorAlert(
   const emailTo = (opts.emailTo ?? process.env["OPERATOR_ALERT_EMAIL_TO"])?.trim();
   const emailFrom = (opts.emailFrom ?? process.env["OPERATOR_ALERT_EMAIL_FROM"])?.trim();
 
+  const emailConfigured = Boolean(resendApiKey && emailTo && emailFrom);
+  // Nothing to deliver to: leave the cooldown untouched so configuring a
+  // destination later still gets the first real alert.
+  if (!webhookUrl && !emailConfigured) return;
+
+  const now = opts.now ?? Date.now();
+  const cooldownMs = opts.cooldownMs ?? ALERT_COOLDOWN_MS;
+  const key = alertKey(payload);
+  const previous = lastAlertAt.get(key);
+  if (previous !== undefined && now - previous < cooldownMs) {
+    console.log(`[operator-alerts] suppressed repeat alert for run ${shortRunId(payload.run_id)} (${payload.reason})`);
+    return;
+  }
+  lastAlertAt.set(key, now);
+
   const deliveries: Array<Promise<void>> = [];
   if (webhookUrl) deliveries.push(notifyWebhook(payload, webhookUrl, fetchImpl, timeoutMs));
-  if (resendApiKey && emailTo && emailFrom) {
-    deliveries.push(notifyEmail(payload, { apiKey: resendApiKey, to: emailTo, from: emailFrom }, fetchImpl, timeoutMs));
+  if (emailConfigured) {
+    deliveries.push(notifyEmail(payload, { apiKey: resendApiKey!, to: emailTo!, from: emailFrom! }, fetchImpl, timeoutMs));
   }
   await Promise.all(deliveries);
 }
