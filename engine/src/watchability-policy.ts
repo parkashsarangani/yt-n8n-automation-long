@@ -1,17 +1,46 @@
 /**
- * Canonical long-form production release floors.
+ * Release surface for the watchability critic.
  *
- * Set deliberately by the operator on 2026-09-08 (revised from
- * hook 0.82 / first_30 0.80 / package 0.84 / suspense 0.75 / watchability 0.78 /
- * entertainment 0.72 / payoff 0.75 / youtube_fit 0.75). This is an intentional
- * product-policy change, not a temporary test bypass: three structurally-sound
- * 240s scripts were each rejected because one axis — usually a different one
- * each run, given the critic's ~+/-0.05 scoring variance — sat a few
- * hundredths under a floor that demanded a near-exceptional score before an
- * episode could even reach production. The critic stays a real quality gate;
- * it is no longer a near-perfect-score gate.
+ * 2026-09-19: DEMOTED TO A CRASH GUARD. The critic is a model scoring another
+ * model's output, and the two share training priors, so it plausibly rewards
+ * tidy, well-organised prose of exactly the kind viewers skip. It has never
+ * been correlated with any real YouTube metric. Tuning against it can lower
+ * real retention while its scores rise, which means an editorial floor built
+ * on it filters the catalogue on an axis we cannot justify -- and, because the
+ * bias applies at the bottom of the range too, it is not trustworthy as a
+ * quality gate in either direction.
+ *
+ * So the numeric surface now sits at the material-weakness floor: it catches
+ * output that is genuinely broken (a missing or malformed dimension, a score
+ * so low the script is unusable) and nothing else. An ordinary script passes
+ * on the first attempt and is not regenerated. That is the point -- under the
+ * old editorial floors a `revise` verdict burned two extra paid reasoning
+ * calls per episode chasing a score we no longer treat as evidence.
+ *
+ * What is still a hard boundary, deliberately, because publishing is
+ * unattended and public: an explicit critic abandonment, a materially weak
+ * structural dimension, a malformed report, and the growth-package contract.
+ *
+ * The editorial floors are preserved below as PRE_FREEZE_EDITORIAL_THRESHOLDS,
+ * not deleted. When retention data exists and the critic has been validated
+ * against a metric it does NOT score (raw watch time -- correlating it against
+ * its own dimensions risks rediscovering the shared-prior artifact), restoring
+ * an editorial surface means promoting those values back, informed by which
+ * dimensions actually predicted retention.
  */
-export const WATCHABILITY_THRESHOLDS = {
+
+/**
+ * A dimension STRICTLY BELOW this is broken, not merely weak. Every comparison
+ * against it uses `<`, so exactly 0.50 passes -- worth stating precisely now
+ * that this constant is the live release gate rather than a floor beneath one.
+ */
+export const MATERIAL_WEAKNESS_FLOOR = 0.50;
+
+/**
+ * The editorial surface in force from 2026-09-08 until the 2026-09-19 freeze.
+ * Retained as the starting point for a validated surface; NOT used for gating.
+ */
+export const PRE_FREEZE_EDITORIAL_THRESHOLDS = {
   hook: 0.80,
   first_30_fidelity: 0.80,
   package_fidelity: 0.75,
@@ -21,38 +50,43 @@ export const WATCHABILITY_THRESHOLDS = {
   payoff: 0.75,
   youtube_fit: 0.75,
 } as const;
+export const PRE_FREEZE_EDITORIAL_AVERAGE_THRESHOLD = 0.75;
 
-// Operator-set on 2026-09-08 alongside the per-dimension floors above (from
-// 0.79). The aggregate stays a genuine gate — below the mean of the individual
-// floors — but no longer demands a near-exceptional overall score.
-export const WATCHABILITY_AVERAGE_THRESHOLD = 0.75;
+/**
+ * The live gate. Every dimension sits at the crash-guard floor: uniform, and
+ * deliberately duration-independent, because "is this output broken" does not
+ * depend on how long the episode is.
+ */
+export const WATCHABILITY_THRESHOLDS = {
+  hook: MATERIAL_WEAKNESS_FLOOR,
+  first_30_fidelity: MATERIAL_WEAKNESS_FLOOR,
+  package_fidelity: MATERIAL_WEAKNESS_FLOOR,
+  suspense: MATERIAL_WEAKNESS_FLOOR,
+  watchability: MATERIAL_WEAKNESS_FLOOR,
+  entertainment: MATERIAL_WEAKNESS_FLOOR,
+  payoff: MATERIAL_WEAKNESS_FLOOR,
+  youtube_fit: MATERIAL_WEAKNESS_FLOOR,
+} as const;
+
+export const WATCHABILITY_AVERAGE_THRESHOLD = MATERIAL_WEAKNESS_FLOOR;
 
 /**
  * Bump this on ANY change to the numeric release surface above (per-dimension
  * floors, aggregate, material-weakness floor, or the duration-profile shape).
  * It is one component of the watchability evaluation fingerprint, so a policy
- * change correctly invalidates every cached canonical decision — an old
+ * change correctly invalidates every cached canonical decision -- an old
  * approval must not carry forward under new floors.
  */
-export const WATCHABILITY_POLICY_VERSION = "2026-09-10-binding-verdict-v3";
-// Operator-set 2026-09-08 (from 0.55): a dimension this low still flips the
-// verdict to ABANDON_TOPIC rather than REVISE_SCRIPT.
-export const MATERIAL_WEAKNESS_FLOOR = 0.50;
+export const WATCHABILITY_POLICY_VERSION = "2026-09-19-crash-guard-v1";
 
 /**
- * Compact production probes (<=90s) keep the concept of a duration-specific
- * surface: first-30 and suspense are relaxed by 0.10 from the long-form floor
- * because 30 seconds is already one third to one half of the whole episode.
- * Every other dimension inherits the canonical long-form floor. The compact
- * aggregate keeps its historical 0.02 relaxation below the long-form aggregate
- * (a compact probe must never be held to a stricter bar than long form).
+ * The duration profile is retained (the mode is still reported, and
+ * script-revision uses the profile to shape revision directives), but while
+ * the surface is a crash guard there is nothing duration-specific to relax:
+ * compact and long form hold identical floors.
  */
-export const COMPACT_WATCHABILITY_THRESHOLDS = {
-  ...WATCHABILITY_THRESHOLDS,
-  first_30_fidelity: 0.70,
-  suspense: 0.65,
-} as const;
-export const COMPACT_WATCHABILITY_AVERAGE_THRESHOLD = 0.73;
+export const COMPACT_WATCHABILITY_THRESHOLDS = { ...WATCHABILITY_THRESHOLDS } as const;
+export const COMPACT_WATCHABILITY_AVERAGE_THRESHOLD = WATCHABILITY_AVERAGE_THRESHOLD;
 export const COMPACT_MAX_DURATION_SEC = 90;
 export const LONG_FORM_MIN_DURATION_SEC = 180;
 
@@ -61,7 +95,8 @@ export const LONG_FORM_MIN_DURATION_SEC = 180;
  * evaluation. Operator-set to 3 on 2026-09-08 (from 6): two regenerations plus
  * the best-of-N final. The final schema-valid attempt may be accepted below
  * the editorial bar so the human editor, rather than a noisy critic, owns the
- * final visual and polish decision.
+ * final visual and polish decision. Under the crash guard an ordinary script
+ * passes first time, so this budget now only applies to broken output.
  */
 export const MAX_ATTEMPTS_BEFORE_ACCEPTING = 3;
 

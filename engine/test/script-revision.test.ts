@@ -29,7 +29,7 @@ const weakReport = {
   summary: "Scenes 0-1 spend too long on neutral setup before the concrete warning changes anything.",
   scores: {
     hook: 0.84, first_30_fidelity: 0.82, package_fidelity: 0.86, suspense: 0.76,
-    watchability: 0.71, entertainment: 0.73, payoff: 0.78, youtube_fit: 0.77,
+    watchability: 0.41, entertainment: 0.73, payoff: 0.78, youtube_fit: 0.77,
   },
 };
 
@@ -58,11 +58,17 @@ test("second external draft receives the exact prior script + matching critic as
   assert.deepEqual(result!.parents, [script1, report1]);
   assert.deepEqual(result!.payload.previous_script, priorScript);
   assert.equal(result!.payload.critic.weakest_dimension, "watchability");
-  assert.ok(result!.payload.release_failures.some((f) => f.startsWith("watchability=0.71")));
+  assert.ok(result!.payload.release_failures.some((f) => f.startsWith("watchability=0.41")));
   assert.ok(result!.payload.directives.some((d) => /neutral connective prose|change the situation/i.test(d)));
 });
 
-test("compact revision context uses compact floors and does not demand long-form suspense", async () => {
+test("a compact revision context reports the compact mode and only genuinely broken dimensions", async () => {
+  // Under the crash guard this test's original assertions went vacuous: it
+  // checked that 0.72 and 0.68 were NOT reported as failures, which is now
+  // trivially true of every score above 0.50, and it would have passed even
+  // if the duration argument were dropped entirely. It now pins what the
+  // surface actually guarantees -- a broken dimension IS reported, a merely
+  // weak one is NOT, and the compact mode still reaches the directives.
   const compactReport = {
     ...weakReport,
     weakest_dimension: "suspense",
@@ -71,6 +77,7 @@ test("compact revision context uses compact floors and does not demand long-form
       first_30_fidelity: 0.72,
       suspense: 0.68,
       watchability: 0.80,
+      payoff: 0.31,
     },
   };
   const entries = new Map<string, any>([
@@ -86,8 +93,15 @@ test("compact revision context uses compact floors and does not demand long-form
     runId: "run_test", nodeId: "draft_script", runLog, store: fakeStore(entries), targetDurationSec: 60,
   });
   assert.ok(result);
+  // Merely weak: above the crash guard, so not a release failure.
   assert.ok(!result!.payload.release_failures.some((f) => f.startsWith("first_30_fidelity=0.72")));
   assert.ok(!result!.payload.release_failures.some((f) => f.startsWith("suspense=0.68")));
+  // Genuinely broken: must still be reported, or the context would hand the
+  // writer a revision brief with nothing in it to fix.
+  assert.ok(
+    result!.payload.release_failures.some((f) => f.startsWith("payoff=0.31")),
+    `a sub-floor dimension must appear: ${JSON.stringify(result!.payload.release_failures)}`,
+  );
   assert.ok(result!.payload.directives.some((d) => /compact <=90s episode/i.test(d)));
 });
 
