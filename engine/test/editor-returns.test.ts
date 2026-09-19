@@ -222,6 +222,41 @@ test("our own thumbnail.png is never mistaken for a returned one", async () => {
   assert.equal(passedThumbnail, undefined);
 });
 
+test("a failure mid-import leaves the cut retryable and tells a human", async () => {
+  // Regression: the consumed-key used to be marked before decide(), so a
+  // throw anywhere after it stranded the run -- the next pass skipped on that
+  // key with no log and no alert, forever. The run is *waiting*, not failing,
+  // so nothing else would ever surface it.
+  const { service, calls } = makeService([finalCut(mp4())]);
+  let failNext = true;
+  service.decide = async () => {
+    calls.push("decide:editor_review");
+    if (failNext) throw new Error("postgres went away");
+  };
+
+  const originalFetch = globalThis.fetch;
+  const posted: Array<{ reason: string }> = [];
+  process.env["OPERATOR_ALERT_WEBHOOK_URL"] = "https://example.test/hook";
+  globalThis.fetch = (async (_u: string, init: RequestInit) => {
+    posted.push(JSON.parse(String(init.body)));
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+    assert.equal(posted.length, 1, "a failed import must reach a human");
+    assert.match(posted[0]!.reason, /could not be imported/);
+
+    // The cut is still retryable: the next pass tries again rather than
+    // skipping it as already consumed.
+    failNext = false;
+    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env["OPERATOR_ALERT_WEBHOOK_URL"];
+  }
+});
+
 test("an upload we cannot import alerts a human instead of waiting forever", async () => {
   // The run is *waiting*, not failing, so nothing else would ever surface
   // this: the editor uploads final.mvo, believes they are done, and without

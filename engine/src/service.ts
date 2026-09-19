@@ -918,8 +918,11 @@ export class VidGenService {
         }
         const final = candidates[0]!;
 
-        // A file is only a candidate once, even if a later pass somehow still
-        // sees the run waiting -- publishing twice is not recoverable.
+        // Marked only once the gate is approved (below), never here: resume is
+        // fire-and-forget, so a later pass can still see the run waiting and
+        // would otherwise consume the same file twice. Marking it up front
+        // instead would strand the run forever if any step before the approval
+        // threw -- the next pass would skip silently on this key.
         const consumedKey = `${run.run_id}:${final.id}`;
         if (this.consumedEditorCuts.has(consumedKey)) continue;
 
@@ -942,7 +945,6 @@ export class VidGenService {
         }
 
         assertYouTubeProductionGeometry(bytes);
-        this.consumedEditorCuts.add(consumedKey);
 
         const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
         const draft = renderId
@@ -975,10 +977,22 @@ export class VidGenService {
           ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
         }, editorThumbnail);
         await this.decide(run.run_id, "editor_review", { result: "approve" });
+        this.consumedEditorCuts.add(consumedKey);
         advanced += 1;
         console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
       } catch (err) {
-        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${err instanceof Error ? err.message : String(err)}`);
+        // Same reasoning as the two report* helpers: the run is waiting rather
+        // than failing, so without an alert a cut that throws every pass (bad
+        // geometry, a Drive outage) retries unattended forever and nobody
+        // learns. sendOperatorAlert dedups, so a persistent fault pings once
+        // per cooldown rather than on every poll.
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
+        await sendOperatorAlert({
+          run_id: run.run_id,
+          reason: "the editor's returned cut could not be imported",
+          failures: [{ node_id: "editor_review", error: detail }],
+        });
       }
     }
     return { checked: runs.length, advanced };
