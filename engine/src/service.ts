@@ -1758,9 +1758,11 @@ export class VidGenService {
    * that introduced it is a rule the model is ignoring, and prose telling it
    * to try harder has already been shown not to help.
    */
-  async validateArchivedScripts(): Promise<{
+  async validateArchivedScripts(opts: { agent?: string | null } = {}): Promise<{
     scripts: number;
     clean: number;
+    scoped_to: string | null;
+    skipped_other_agents: number;
     by_rule: ViolationRate[];
     by_prompt: Array<{ prompt_ref: string; scripts: number; clean: number }>;
     offenders: Array<{
@@ -1770,8 +1772,17 @@ export class VidGenService {
       violations: ScriptViolation[];
     }>;
   }> {
+    // Scoped by default to the agent whose prompt these rules come from.
+    // Without this the report is dominated by scripts from four retired
+    // agents (dialogue_script_writer, emotional_entertainment_editor,
+    // script_quality_reviser, script_writer) that predate the bracket-role
+    // contract entirely: the first backfill reported 16/352 clean, of which
+    // the four loudest rules were simply judging old artifacts against a
+    // contract they never had to meet. Pass agent: null to see everything.
+    const agent = opts.agent === undefined ? "narration_script_writer" : opts.agent;
     const rows = (await this.store.index()).filter((r) => r.schema_id === "script");
     const validations: ScriptValidation[] = [];
+    let skippedOtherAgents = 0;
     const byPrompt = new Map<string, { scripts: number; clean: number }>();
     const offenders: Array<{
       artifact_id: string;
@@ -1784,6 +1795,11 @@ export class VidGenService {
     for (const row of rows) {
       const artifact = await this.store.get(row.artifact_id);
       if (!artifact) continue;
+      const producedByAgent = (artifact.produced_by as { transformation?: string } | undefined)?.transformation;
+      if (agent !== null && producedByAgent !== agent) {
+        skippedOtherAgents += 1;
+        continue;
+      }
       const validation = validateScriptStructure(artifact.payload);
       validations.push(validation);
 
@@ -1809,6 +1825,8 @@ export class VidGenService {
     return {
       scripts: validations.length,
       clean,
+      scoped_to: agent,
+      skipped_other_agents: skippedOtherAgents,
       by_rule: summariseViolations(validations),
       by_prompt: [...byPrompt.entries()]
         .map(([prompt_ref, counts]) => ({ prompt_ref, ...counts }))

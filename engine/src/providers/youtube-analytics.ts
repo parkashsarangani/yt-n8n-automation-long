@@ -27,10 +27,40 @@ const CORE_METRICS = [
   "shares",
 ] as const;
 
+/**
+ * Thumbnail impressions and impression CTR.
+ *
+ * These are NOT YouTube Analytics API metrics. Verified against the metrics
+ * reference on 2026-09-20: the API documents annotation, card and ad
+ * impressions, and no thumbnail impression metric of any name. Impressions
+ * and impression CTR exist only in YouTube Studio.
+ *
+ * So the API rejects them for every channel, always -- not for this channel,
+ * not for want of a scope, and not for anything an operator can switch on.
+ * The measurement path used to report them as "not supported by this API for
+ * this channel", which reads like a fixable configuration problem and sent at
+ * least one investigation looking for one.
+ *
+ * They are therefore not requested by default. The negotiation path below is
+ * kept, behind YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS, so that if Google ever
+ * exposes them the probe is one environment variable away rather than a
+ * rewrite. Until then every measurement records impressions and CTR as null,
+ * which is honest: unknown, not zero.
+ */
 const DISCOVERY_METRICS = [
   "videoThumbnailImpressions",
   "videoThumbnailImpressionsClickRate",
 ] as const;
+
+/** Opt in to re-probing, for the day the API gains these metrics. */
+function impressionProbeEnabled(): boolean {
+  const flag = process.env["YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS"]?.trim().toLowerCase();
+  return flag === "1" || flag === "true";
+}
+
+const IMPRESSIONS_UNAVAILABLE =
+  "thumbnail impressions and impression CTR are not exposed by the YouTube Analytics API " +
+  "(YouTube Studio only) -- not a scope or channel limitation";
 
 type QueryResult = Record<string, number | string> | "unknown-metric" | "no-data";
 
@@ -104,7 +134,8 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
   ): Promise<{ metrics: EpisodeMetrics; usage: Usage }> {
     const unavailable: string[] = [];
 
-    let wanted: string[] = this.discoverySupported
+    const probing = impressionProbeEnabled();
+    let wanted: string[] = probing && this.discoverySupported
       ? [...CORE_METRICS, ...DISCOVERY_METRICS]
       : [...CORE_METRICS];
 
@@ -113,13 +144,13 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
     if (row === "unknown-metric") {
       this.discoverySupported = false;
       wanted = [...CORE_METRICS];
-      unavailable.push(`${DISCOVERY_METRICS.join(", ")} (not supported by this API for this channel)`);
+      unavailable.push(IMPRESSIONS_UNAVAILABLE);
       row = await this.query(externalId, window, wanted);
       if (row === "unknown-metric") {
         throw new ProviderError("youtube analytics rejected even the core metric set");
       }
-    } else if (!this.discoverySupported) {
-      unavailable.push(`${DISCOVERY_METRICS.join(", ")} (not supported)`);
+    } else if (!probing || !this.discoverySupported) {
+      unavailable.push(IMPRESSIONS_UNAVAILABLE);
     }
 
     if (row === "no-data") {
