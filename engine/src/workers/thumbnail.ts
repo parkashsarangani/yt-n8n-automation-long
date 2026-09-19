@@ -34,14 +34,14 @@ export function makeThumbnailWorker(opts:ThumbnailWorkerOptions={}):WorkerDef {
             const message=thumbnailErrorDetail(result.degradation_reason);
             attempts.push({prompt:sent,outcome:"render_service_failure",error:message});
             ctx.logger.warn(`thumbnail rendering service failed: ${message}; editor replacement required`);
-            break; // A new image cannot repair an OCR/compositor outage.
+            break; // A new image cannot repair a compositor outage.
           }
-          if(result.background==="supplied"){
-            blobs.push(await ctx.blobs.put(image.bytes,{role:"thumbnail_artwork",media_type:image.media_type}));
-            attempts.push({prompt:sent,outcome:"accepted"});
-            break;
-          }
-          attempts.push({prompt:sent,outcome:"artwork rejected by renderer"});
+          // Keep the artwork whatever the renderer decided. It is the editor's
+          // raw material, and discarding it on rejection meant paying for an
+          // image nobody ever saw.
+          blobs.push(await ctx.blobs.put(image.bytes,{role:"thumbnail_artwork",media_type:image.media_type}));
+          attempts.push({prompt:sent,outcome:result.background==="supplied"?"accepted":"composited without artwork"});
+          break;
         } catch (error) {
           const message=thumbnailErrorDetail(error);
           attempts.push({prompt:sent,outcome:stage==="generation"?"generation_failure":"render_service_failure",error:message});
@@ -56,7 +56,7 @@ export function makeThumbnailWorker(opts:ThumbnailWorkerOptions={}):WorkerDef {
         image_prompt:prompt,text:brief.text,attempts,
         status:needsReplacement?"needs_editor_replacement":"candidate",
         artwork_available:!needsReplacement,
-        note:"Generated illustration, not documentary evidence. Only final.mp4 is automatically imported; coordinate thumbnail replacement with the operator."
+        note:"Generated illustration, not documentary evidence. Return your finished cut as final.mp4 (.mov/.m4v also accepted) and, if you make one, your thumbnail as thumbnail-final.png — both are imported automatically; leave exactly one of each."
       },null,2)),{role:"thumbnail_prompt",media_type:"application/json"}));
       const ref=await ctx.blobs.put(result.bytes,{role:"thumbnail",media_type:result.media_type});
       blobs.unshift(ref);

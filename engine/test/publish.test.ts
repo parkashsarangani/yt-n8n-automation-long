@@ -400,6 +400,40 @@ test("the designed thumbnail wins over the one the render happened to emit", asy
   );
 });
 
+test("a thumbnail the human editor returned outranks even the designed one", async () => {
+  // The editor finishes the thumbnail in Drive and returns it beside their
+  // cut; supplyEditorCut carries it on the finalize_video artifact and stamps
+  // renderer:"editor". A person chose that image over ours, so it must reach
+  // YouTube -- otherwise the whole return path is decorative.
+  const h = await harness();
+  const editorBlob = await h.blobs.put(new TextEncoder().encode("EDITOR-PNG"), { role: "thumbnail" });
+  const designedBlob = await h.blobs.put(new TextEncoder().encode("DESIGNED-PNG"), { role: "thumbnail" });
+
+  const video = await h.seed(
+    "rendered_video",
+    { ...rendered(h, false), thumbnail_uri: editorBlob.uri, renderer: "editor" },
+    "finalize_video",
+  );
+  const designed = await h.seed(
+    "thumbnail",
+    { thumbnail_uri: designedBlob.uri, media_type: "image/png", width: 1280, height: 720, text: "Ours", background: "supplied" },
+    "thumbnail",
+  );
+
+  await h.runner.run(makePublishWorker({ target: h.target }), [
+    video.artifact_id,
+    (await seedSeo(h)).artifact_id,
+    designed.artifact_id,
+    (await seedQa(h)).artifact_id,
+  ]);
+
+  assert.equal(
+    new TextDecoder().decode(h.target.published[0]!.thumbnail!.bytes),
+    "EDITOR-PNG",
+    "publish used its own thumbnail instead of the one the editor returned",
+  );
+});
+
 test("a publish failure produces no artifact", async () => {
   const h = await harness(new FakePublishTarget({ failWith: "quota exceeded" }));
   const video = await h.seed("rendered_video", rendered(h), "render");

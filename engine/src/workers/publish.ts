@@ -52,6 +52,8 @@ interface RenderedVideo {
   media_type: string;
   thumbnail_uri?: string;
   duration_sec?: number;
+  /** "editor" when a human returned this cut, which also outranks our thumbnail. */
+  renderer?: string;
 }
 
 export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
@@ -150,13 +152,22 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       }
 
       // The designed thumbnail wins over whatever the video render happened to
-      // emit: it was reasoned about, and the render's is a by-product.
+      // emit: it was reasoned about, and the render's is a by-product. The one
+      // exception is a human editor's own thumbnail, returned alongside their
+      // cut -- a person chose that over ours, so it outranks both.
       const designed = inputs["thumbnail"]?.payload as ThumbnailArtifact | undefined;
-      const thumbSource = designed?.thumbnail_uri
-        ? { uri: designed.thumbnail_uri, media_type: designed.media_type }
-        : video.thumbnail_uri
-          ? { uri: video.thumbnail_uri, media_type: "image/png" }
-          : null;
+      const editorThumbnail = video.renderer === "editor" ? video.thumbnail_uri : undefined;
+      const thumbSource = editorThumbnail
+        ? {
+            uri: editorThumbnail,
+            // The real type travels on the blob; the payload has no field for it.
+            media_type: inputs["video"]!.blobs?.find((b) => b.uri === editorThumbnail)?.media_type ?? "image/png",
+          }
+        : designed?.thumbnail_uri
+          ? { uri: designed.thumbnail_uri, media_type: designed.media_type }
+          : video.thumbnail_uri
+            ? { uri: video.thumbnail_uri, media_type: "image/png" }
+            : null;
 
       const thumbnail =
         thumbSource && reqs.supports_custom_thumbnail

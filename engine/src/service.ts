@@ -58,6 +58,8 @@ import {
 } from "./watchability-ledger.ts";
 import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
+import { isEditorCutFilename, isEditorThumbnailFilename, isPipelineAuthoredFile } from "./workers/editor-package.ts";
+import { sendOperatorAlert } from "./operator-alerts.ts";
 import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
@@ -199,6 +201,12 @@ export class VidGenService {
   private runLog!: RunLog;
   private executor!: GraphExecutor;
   private transformations!: Map<string, TransformationDef>;
+  /** The single in-flight editor-return pass, so a webhook cannot race the poll. */
+  private editorReturnsInFlight: Promise<{ checked: number; advanced: number }> | null = null;
+
+  /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
+  private static readonly EDITOR_RETURN_MARKER = "editor_return";
+
   /** Held so measureAll can check live visibility before spending a call. */
   private analyticsProvider: AnalyticsProvider | undefined;
   /** Held so the editor-watch scheduler job can list/download from the run's Drive folder. */
@@ -826,10 +834,18 @@ export class VidGenService {
   async supplyEditorCut(
     runId: string,
     video: { bytes: Uint8Array; media_type: string; scene_count: number; degraded_scenes: number; duration_sec?: number },
+    thumbnail?: { bytes: Uint8Array; media_type: string },
   ): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
     const videoBlob = await this.blobs.put(video.bytes, { role: "video", media_type: video.media_type });
+    // Carried on this artifact rather than by re-pinning the `thumbnail` node:
+    // editor_package consumes that node, so replacing it would mark the
+    // hand-off stale and re-park the run at editor_review. publish prefers
+    // this one because the renderer below is "editor".
+    const thumbnailBlob = thumbnail
+      ? await this.blobs.put(thumbnail.bytes, { role: "thumbnail", media_type: thumbnail.media_type })
+      : null;
     const draftId = state.completedOutputs.get("render");
     const draft = draftId ? await this.store.get(draftId) : null;
     // The editor may retain suggested stock. Preserve its attribution through
@@ -843,9 +859,10 @@ export class VidGenService {
         scene_count: video.scene_count,
         degraded_scenes: video.degraded_scenes,
         ...(video.duration_sec !== undefined ? { duration_sec: video.duration_sec } : {}),
+        ...(thumbnailBlob ? { thumbnail_uri: thumbnailBlob.uri } : {}),
         renderer: "editor",
       },
-      blobs: [videoBlob, ...credits],
+      blobs: [videoBlob, ...(thumbnailBlob ? [thumbnailBlob] : []), ...credits],
       produced_by: { transformation: "finalize_video", version: "1", run_id: runId, provider: null },
     });
     state.presetOutputs = { ...(state.presetOutputs ?? {}), finalize_video: artifact.artifact.artifact_id };
@@ -858,6 +875,19 @@ export class VidGenService {
    * crash the run or the scheduler.
    */
   async checkEditorReturns(): Promise<{ checked: number; advanced: number }> {
+    // The scheduler refuses to overlap its own jobs, but a webhook calling
+    // this directly bypasses that guard entirely: two passes could download
+    // the same final.mp4 and both approve the gate. Collapse concurrent
+    // callers onto the one in-flight pass instead of racing.
+    if (this.editorReturnsInFlight) return this.editorReturnsInFlight;
+    const pass = this.runEditorReturnsPass().finally(() => {
+      this.editorReturnsInFlight = null;
+    });
+    this.editorReturnsInFlight = pass;
+    return pass;
+  }
+
+  private async runEditorReturnsPass(): Promise<{ checked: number; advanced: number }> {
     const drive = this.driveProvider;
     const runs = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review"));
     if (!drive || runs.length === 0) return { checked: runs.length, advanced: 0 };
@@ -870,10 +900,54 @@ export class VidGenService {
         if (!handoff) continue;
 
         const files = await drive.listFiles(handoff.payload.drive_folder_id);
-        const final = files.find((f) => f.name.trim().toLowerCase() === "final.mp4");
-        if (!final) continue;
+        const candidates = files.filter((f) => isEditorCutFilename(f.name));
+
+        if (candidates.length === 0) {
+          // Nothing to import. If the editor has put something of their own in
+          // the folder, they believe they are done -- staying silent here is
+          // how a misnamed upload waits forever with nobody told.
+          const theirs = files.filter((f) => !isPipelineAuthoredFile(f.name));
+          if (theirs.length > 0) await this.reportUnrecognisedEditorUpload(run, theirs.map((f) => f.name));
+          continue;
+        }
+        if (candidates.length > 1) {
+          // Two plausible cuts: publishing the wrong one is not recoverable,
+          // and this codebase skips rather than guesses.
+          await this.reportAmbiguousEditorCut(run, candidates.map((f) => f.name));
+          continue;
+        }
+        const final = candidates[0]!;
+
+        const state = await this.editorReturnState(run.run_id, final.id);
+        if (state === "published") continue;
+        if (state === "uncertain") {
+          // Handed to publish, but no publish record exists. Either the upload
+          // never happened or the process died in the window between YouTube
+          // accepting it and the record being written -- and we cannot tell
+          // which. Re-importing might put the episode on the channel twice,
+          // which is not undoable, so this is the one case a human decides.
+          await this.reportUncertainEditorCut(run, final.name);
+          continue;
+        }
 
         const bytes = await drive.downloadFile(final.id);
+
+        // Drive lists a file the moment it is created, not when the upload
+        // finishes, so a poll (or a creation-triggered webhook) can hand us a
+        // truncated cut. Re-read the listing and require the size Drive now
+        // reports to match what we actually downloaded; a mid-write file will
+        // differ and simply waits for the next pass. Unsized files cannot be
+        // verified, so they are skipped rather than trusted.
+        const after = (await drive.listFiles(handoff.payload.drive_folder_id)).find((f) => f.id === final.id);
+        if (after?.size === undefined) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: Drive reported no size for final.mp4; cannot confirm the upload finished, leaving it for the next pass`);
+          continue;
+        }
+        if (after.size !== bytes.byteLength) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: final.mp4 still changing (${bytes.byteLength} -> ${after.size} bytes); waiting for the upload to settle`);
+          continue;
+        }
+
         assertYouTubeProductionGeometry(bytes);
 
         const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
@@ -881,21 +955,124 @@ export class VidGenService {
           ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
           : null;
 
+        // Optional: the editor may also return a finished thumbnail. Two
+        // candidates are as unresolvable here as two cuts, so neither is used.
+        const thumbs = files.filter((f) => isEditorThumbnailFilename(f.name));
+        let editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
+        if (thumbs.length === 1) {
+          const picked = thumbs[0]!;
+          const thumbBytes = await drive.downloadFile(picked.id);
+          if (picked.size === thumbBytes.byteLength) {
+            editorThumbnail = { bytes: thumbBytes, media_type: picked.mimeType || "image/png" };
+          } else {
+            console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${picked.name} still uploading; publishing with our own thumbnail`);
+          }
+        } else if (thumbs.length > 1) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${thumbs.length} candidate thumbnails; publishing with our own`);
+        }
+
         await this.supplyEditorCut(run.run_id, {
           bytes,
-          media_type: "video/mp4",
+          // Honour what the editor actually exported; .mov and .m4v are valid
+          // YouTube uploads and mislabelling them as mp4 helps nobody.
+          media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
           scene_count: draft?.payload.scene_count ?? 1,
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
           ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
+        }, editorThumbnail);
+        // Written before the approval, not after: a crash between publishing
+        // and recording must not look like a fresh cut on the next pass. The
+        // cost is that a failure in decide() itself makes this run "uncertain"
+        // and needs a human -- the safe side of an irreversible upload.
+        await this.runLog.record({
+          run_id: run.run_id,
+          graph_id: `${this.graph.graph_id}@${this.graph.version}`,
+          node_id: "editor_review",
+          transformation: VidGenService.EDITOR_RETURN_MARKER,
+          transformation_version: "1",
+          inputs: [final.id],
+          output: null,
+          status: "ok",
+          attempt: 1,
+          max_attempts: 1,
+          started_at: new Date().toISOString(),
+          duration_ms: 0,
         });
         await this.decide(run.run_id, "editor_review", { result: "approve" });
         advanced += 1;
         console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
       } catch (err) {
-        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${err instanceof Error ? err.message : String(err)}`);
+        // Same reasoning as the two report* helpers: the run is waiting rather
+        // than failing, so without an alert a cut that throws every pass (bad
+        // geometry, a Drive outage) retries unattended forever and nobody
+        // learns. sendOperatorAlert dedups, so a persistent fault pings once
+        // per cooldown rather than on every poll.
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
+        await sendOperatorAlert({
+          run_id: run.run_id,
+          reason: "the editor's returned cut could not be imported",
+          failures: [{ node_id: "editor_review", error: detail }],
+        });
       }
     }
     return { checked: runs.length, advanced };
+  }
+
+  /**
+   * Whether this exact returned file has already been handed to publish, read
+   * from the durable run log rather than memory -- an in-memory set is empty
+   * again after a deploy, and a run whose approval had not yet been persisted
+   * still reads as `waiting`, so the same cut would be published twice.
+   *
+   * "published" is authoritative: a publish record exists, the episode is on
+   * the channel, leave it alone. "uncertain" means it was handed over but no
+   * publish record followed, which a human has to resolve.
+   */
+  private async editorReturnState(runId: string, fileId: string): Promise<"fresh" | "published" | "uncertain"> {
+    const records = await this.runRecords(runId);
+    const handedOver = records.some(
+      (r) => r.transformation === VidGenService.EDITOR_RETURN_MARKER && r.inputs.includes(fileId),
+    );
+    if (!handedOver) return "fresh";
+    return records.some((r) => r.node_id === "publish" && r.output) ? "published" : "uncertain";
+  }
+
+  private async reportUncertainEditorCut(run: RunView, name: string): Promise<void> {
+    const detail = `${name} was already handed to publish but no publish was recorded; it may or may not be live. Check the channel, then either delete the file or resume the run manually -- it will not be imported again on its own.`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "a returned cut may already have been published",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
+  }
+
+  /**
+   * The editor uploaded something, but nothing this run can import. Alerting
+   * (rather than only logging) is the point: the run is waiting, not failing,
+   * so no other signal would ever reach a human. sendOperatorAlert dedups on
+   * run+reason, so a folder left in this state pings at most once per cooldown
+   * instead of on every poll.
+   */
+  private async reportUnrecognisedEditorUpload(run: RunView, names: string[]): Promise<void> {
+    const detail = `found ${names.map((n) => `"${n}"`).join(", ")}; expected a cut named final.mp4 (.mov/.m4v also accepted)`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "the editor uploaded a file this run cannot import",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
+  }
+
+  private async reportAmbiguousEditorCut(run: RunView, names: string[]): Promise<void> {
+    const detail = `${names.length} possible cuts in the folder (${names.join(", ")}); leave exactly one so the right cut is published`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "more than one candidate cut in the editor folder",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
   }
 
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {

@@ -5,13 +5,60 @@
  * operator can review it without opening Drive.
  *
  * Thumbnail candidates, accepted text-free artwork and prompts are provided
- * for keep/replace decisions. Only final.mp4 is automatically imported;
+ * for keep/replace decisions. Only the editor's returned cut is imported;
  * thumbnail replacement must be coordinated with the operator.
  */
 import type { Artifact } from "../artifact.ts";
 import type { FootageCredit } from "../provider.ts";
 import { createHash } from "node:crypto";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
+
+/**
+ * Everything this worker writes into an episode folder. The return path needs
+ * it to tell the editor's cut apart from the material we put there ourselves
+ * -- `draft.mp4` in particular is a video file that must never be mistaken for
+ * the finished one and published. Kept here, beside the uploads, so the two
+ * lists cannot drift apart.
+ */
+export const PIPELINE_AUTHORED_FILES: ReadonlySet<string> = new Set([
+  "draft.mp4",
+  "captions.srt",
+  "thumbnail.png",
+  "thumbnail.jpg",
+  "thumbnail-prompt.json",
+  "thumbnail-artwork.png",
+  "thumbnail-artwork.jpg",
+  "package.md",
+  "credits.json",
+]);
+
+export function isPipelineAuthoredFile(name: string): boolean {
+  return PIPELINE_AUTHORED_FILES.has(name.trim().toLowerCase());
+}
+
+/**
+ * A finished cut returned by the editor. `final.mp4` is what package.md asks
+ * for, but Drive silently appends " (1)" to a re-uploaded file and editors
+ * reasonably export .mov or add a version suffix, so anything starting with
+ * "final" in a video container counts. Deliberately not "any video file":
+ * that would match our own draft.mp4.
+ */
+export function isEditorCutFilename(name: string): boolean {
+  const clean = name.trim().toLowerCase();
+  if (isPipelineAuthoredFile(clean)) return false;
+  return /^final.*\.(mp4|mov|m4v)$/.test(clean);
+}
+
+/**
+ * An optional finished thumbnail. Same shape of rule as the cut, and likewise
+ * never our own `thumbnail.png`/`thumbnail-artwork.png`: those are what the
+ * editor works *from*.
+ */
+export function isEditorThumbnailFilename(name: string): boolean {
+  const clean = name.trim().toLowerCase();
+  if (isPipelineAuthoredFile(clean)) return false;
+  return /^thumbnail-final.*\.(png|jpg|jpeg|webp)$/.test(clean);
+}
 
 export interface EditorPackageWorkerOptions {
   /** Drive folder id every per-episode subfolder is created under. */
@@ -164,10 +211,11 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
       const packageMd = [
         `# Episode draft — ${folderName}`,
         "",
-        "Export your finished cut as `final.mp4` and upload it into this same folder when done.",
+        "Export your finished cut as `final.mp4` and upload it into this same folder when done. A .mov or .m4v export is fine, and a name like `final_v2.mp4` still works — but leave exactly one `final*` video here, or nothing is imported.",
         "Keep useful stock shots and replace any weak or misleading match with your own images/footage. Stock illustrates a situation; it does not depict the actual narrated people or events. Background-only scenes still need your visual treatment.",
         "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
-        "The title and description below are reference context. Only final.mp4 is automatically imported from this folder.",
+        "Optional: if you want your own thumbnail used, upload it as `thumbnail-final.png` (.jpg/.webp fine). `thumbnail.png` and `thumbnail-artwork.png` here are ours — the composited version and the raw generated artwork to work from. Without a `thumbnail-final`, ours is published.",
+        "The title and description below are reference context. Only your final cut and thumbnail are imported from this folder; everything else here is ours.",
         "Keep or replace the thumbnail candidate. thumbnail-prompt.json records its prompt and status; thumbnail-artwork.png (or .jpg), when available, is the accepted artwork without title text. Coordinate any thumbnail replacement with the operator; it is not automatically imported.",
         thumbnail.background === "gradient"
           ? "THUMBNAIL NEEDS REPLACEMENT: artwork was unavailable or rejected. thumbnail.png is a placeholder; flag it to the operator for replacement before publication. Editing it here does not automatically update the publishing thumbnail."
