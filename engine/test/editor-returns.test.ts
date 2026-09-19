@@ -34,7 +34,12 @@ function makeService(files: FakeFile[], opts: { onDownload?: (id: string) => voi
   const calls: string[] = [];
   const service = Object.create(VidGenService.prototype);
   service.editorReturnsInFlight = null;
-  service.consumedEditorCuts = new Set<string>();
+  // Consumption is read back from the run log, so the fake has to behave like
+  // one: records written during a pass are visible to the next.
+  const records: Array<Record<string, unknown>> = [];
+  service.graph = { graph_id: "illustrated_story", version: "15" };
+  service.runLog = { record: async (r: Record<string, unknown>) => { records.push(r); } };
+  service.runRecords = async () => records;
 
   service.listRuns = () => [{
     run_id: "run_editor01-aaaa",
@@ -64,7 +69,7 @@ function makeService(files: FakeFile[], opts: { onDownload?: (id: string) => voi
   service.supplyEditorCut = async () => { calls.push("supplyEditorCut"); };
   service.decide = async (_runId: string, nodeId: string) => { calls.push(`decide:${nodeId}`); };
 
-  return { service, calls };
+  return { service, calls, records };
 }
 
 // A real (if minimal) 1080p MP4, because checkEditorReturns runs the actual
@@ -222,20 +227,20 @@ test("our own thumbnail.png is never mistaken for a returned one", async () => {
   assert.equal(passedThumbnail, undefined);
 });
 
-test("a failure mid-import leaves the cut retryable and tells a human", async () => {
-  // Regression: the consumed-key used to be marked before decide(), so a
-  // throw anywhere after it stranded the run -- the next pass skipped on that
-  // key with no log and no alert, forever. The run is *waiting*, not failing,
-  // so nothing else would ever surface it.
+test("a cut that was handed over but never recorded as published needs a human", async () => {
+  // The dangerous window: the hand-over is durably marked before the gate is
+  // approved, so a process that dies between YouTube accepting the upload and
+  // the publish record being written leaves no way to tell "never published"
+  // from "already live". Re-importing could put the episode on the channel
+  // twice, which cannot be undone, so this is the one case that stops and asks.
   const { service, calls } = makeService([finalCut(mp4())]);
-  let failNext = true;
   service.decide = async () => {
     calls.push("decide:editor_review");
-    if (failNext) throw new Error("postgres went away");
+    throw new Error("process died mid-resume");
   };
 
   const originalFetch = globalThis.fetch;
-  const posted: Array<{ reason: string }> = [];
+  const posted: Array<{ reason: string; text: string }> = [];
   process.env["OPERATOR_ALERT_WEBHOOK_URL"] = "https://example.test/hook";
   globalThis.fetch = (async (_u: string, init: RequestInit) => {
     posted.push(JSON.parse(String(init.body)));
@@ -244,17 +249,30 @@ test("a failure mid-import leaves the cut retryable and tells a human", async ()
 
   try {
     assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
-    assert.equal(posted.length, 1, "a failed import must reach a human");
-    assert.match(posted[0]!.reason, /could not be imported/);
 
-    // The cut is still retryable: the next pass tries again rather than
-    // skipping it as already consumed.
-    failNext = false;
-    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+    // A later pass -- including one after a restart, since this is read from
+    // the run log and not from memory -- must not silently republish.
+    const second = await service.checkEditorReturns();
+    assert.deepEqual(second, { checked: 1, advanced: 0 });
+    assert.equal(calls.filter((c) => c === "supplyEditorCut").length, 1, "the cut must not be re-imported");
+    assert.ok(
+      posted.some((p) => /may already have been published/.test(p.reason)),
+      "the operator must be asked to check the channel",
+    );
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env["OPERATOR_ALERT_WEBHOOK_URL"];
   }
+});
+
+test("a cut already recorded as published is left alone, silently", async () => {
+  // The normal post-publish state. No alert: nothing is wrong.
+  const { service, calls, records } = makeService([finalCut(mp4())]);
+  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+
+  records.push({ run_id: "run_editor01-aaaa", node_id: "publish", transformation: "publish", inputs: [], output: "sha256:episode" });
+  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.equal(calls.filter((c) => c === "decide:editor_review").length, 1);
 });
 
 test("an upload we cannot import alerts a human instead of waiting forever", async () => {

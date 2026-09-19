@@ -204,8 +204,8 @@ export class VidGenService {
   /** The single in-flight editor-return pass, so a webhook cannot race the poll. */
   private editorReturnsInFlight: Promise<{ checked: number; advanced: number }> | null = null;
 
-  /** `runId:fileId` of every editor cut already consumed, so none publishes twice. */
-  private readonly consumedEditorCuts = new Set<string>();
+  /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
+  private static readonly EDITOR_RETURN_MARKER = "editor_return";
 
   /** Held so measureAll can check live visibility before spending a call. */
   private analyticsProvider: AnalyticsProvider | undefined;
@@ -918,13 +918,17 @@ export class VidGenService {
         }
         const final = candidates[0]!;
 
-        // Marked only once the gate is approved (below), never here: resume is
-        // fire-and-forget, so a later pass can still see the run waiting and
-        // would otherwise consume the same file twice. Marking it up front
-        // instead would strand the run forever if any step before the approval
-        // threw -- the next pass would skip silently on this key.
-        const consumedKey = `${run.run_id}:${final.id}`;
-        if (this.consumedEditorCuts.has(consumedKey)) continue;
+        const state = await this.editorReturnState(run.run_id, final.id);
+        if (state === "published") continue;
+        if (state === "uncertain") {
+          // Handed to publish, but no publish record exists. Either the upload
+          // never happened or the process died in the window between YouTube
+          // accepting it and the record being written -- and we cannot tell
+          // which. Re-importing might put the episode on the channel twice,
+          // which is not undoable, so this is the one case a human decides.
+          await this.reportUncertainEditorCut(run, final.name);
+          continue;
+        }
 
         const bytes = await drive.downloadFile(final.id);
 
@@ -976,8 +980,25 @@ export class VidGenService {
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
           ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
         }, editorThumbnail);
+        // Written before the approval, not after: a crash between publishing
+        // and recording must not look like a fresh cut on the next pass. The
+        // cost is that a failure in decide() itself makes this run "uncertain"
+        // and needs a human -- the safe side of an irreversible upload.
+        await this.runLog.record({
+          run_id: run.run_id,
+          graph_id: `${this.graph.graph_id}@${this.graph.version}`,
+          node_id: "editor_review",
+          transformation: VidGenService.EDITOR_RETURN_MARKER,
+          transformation_version: "1",
+          inputs: [final.id],
+          output: null,
+          status: "ok",
+          attempt: 1,
+          max_attempts: 1,
+          started_at: new Date().toISOString(),
+          duration_ms: 0,
+        });
         await this.decide(run.run_id, "editor_review", { result: "approve" });
-        this.consumedEditorCuts.add(consumedKey);
         advanced += 1;
         console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
       } catch (err) {
@@ -996,6 +1017,35 @@ export class VidGenService {
       }
     }
     return { checked: runs.length, advanced };
+  }
+
+  /**
+   * Whether this exact returned file has already been handed to publish, read
+   * from the durable run log rather than memory -- an in-memory set is empty
+   * again after a deploy, and a run whose approval had not yet been persisted
+   * still reads as `waiting`, so the same cut would be published twice.
+   *
+   * "published" is authoritative: a publish record exists, the episode is on
+   * the channel, leave it alone. "uncertain" means it was handed over but no
+   * publish record followed, which a human has to resolve.
+   */
+  private async editorReturnState(runId: string, fileId: string): Promise<"fresh" | "published" | "uncertain"> {
+    const records = await this.runRecords(runId);
+    const handedOver = records.some(
+      (r) => r.transformation === VidGenService.EDITOR_RETURN_MARKER && r.inputs.includes(fileId),
+    );
+    if (!handedOver) return "fresh";
+    return records.some((r) => r.node_id === "publish" && r.output) ? "published" : "uncertain";
+  }
+
+  private async reportUncertainEditorCut(run: RunView, name: string): Promise<void> {
+    const detail = `${name} was already handed to publish but no publish was recorded; it may or may not be live. Check the channel, then either delete the file or resume the run manually -- it will not be imported again on its own.`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "a returned cut may already have been published",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
   }
 
   /**
