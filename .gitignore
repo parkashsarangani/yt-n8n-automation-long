@@ -18,3 +18,4 @@ engine/config/cast_roster.json
 
 # IDE / reference repos
 .vscode/
+*.stackdump
