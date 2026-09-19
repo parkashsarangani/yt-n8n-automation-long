@@ -7,6 +7,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { socialSeriesCatalog } from "./social-series.ts";
@@ -39,15 +40,32 @@ export function createUiServer(opts: ServerOptions) {
   });
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const route = `${req.method} ${url.pathname}`;
+
+    // The one route reachable from off-box, so an editor's Drive upload can be
+    // picked up immediately instead of waiting for the next poll. It carries no
+    // data, returns no state, and is useless without the shared secret -- the
+    // rest of this server stays loopback-only precisely because it holds API
+    // keys (see the file header, and GET /api/config right below).
+    if (route === "POST /api/editor-returns/check") {
+      const expected = process.env["EDITOR_RETURN_WEBHOOK_TOKEN"]?.trim();
+      // Unset means the webhook was never provisioned. Answer as if the route
+      // does not exist rather than advertising an endpoint with no lock on it.
+      if (!expected) return json(res, 404, { error: "not found" });
+      if (!tokenMatches(req.headers["x-webhook-token"], expected)) {
+        return json(res, 401, { error: "invalid or missing x-webhook-token" });
+      }
+      json(res, 200, await service.checkEditorReturns());
+      return;
+    }
+
     const hostHeader = (req.headers.host ?? "").split(":")[0];
     const allowedHosts = ["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"];
     if (!allowedHosts.includes(hostHeader ?? "")) {
       json(res, 403, { error: "this UI is loopback-only" });
       return;
     }
-
-    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-    const route = `${req.method} ${url.pathname}`;
 
     if (route === "GET /") {
       const html = await readFile(path.join(uiDir, "index.html"), "utf8");
@@ -231,6 +249,18 @@ export function createUiServer(opts: ServerOptions) {
     }),
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
+}
+
+/**
+ * Constant-time comparison, so a caller cannot recover the token one byte at a
+ * time from response timing. timingSafeEqual throws on length mismatch, hence
+ * the explicit length check first -- that leaks only the length, not content.
+ */
+function tokenMatches(supplied: string | string[] | undefined, expected: string): boolean {
+  if (typeof supplied !== "string") return false;
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {

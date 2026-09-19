@@ -287,7 +287,7 @@ export class FakeDriveProvider implements DriveExchange {
   async listFiles(folderId: string): Promise<DriveFile[]> {
     return [...this.files.entries()]
       .filter(([, f]) => f.parent === folderId)
-      .map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType }));
+      .map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType, size: f.bytes.byteLength }));
   }
 
   async downloadFile(fileId: string): Promise<Uint8Array> {

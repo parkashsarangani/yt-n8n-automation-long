@@ -88,6 +88,7 @@ services:
       # Off by default: the editor publishes straight to YouTube today and
       # never returns a final.mp4 to Drive. Set true to resume polling for one.
       EDITOR_RETURN_WATCH_ENABLED: ${EDITOR_RETURN_WATCH_ENABLED:-}
+      EDITOR_RETURN_WEBHOOK_TOKEN: ${EDITOR_RETURN_WEBHOOK_TOKEN:-}
 
       # Operator alerting when driveUnattended() gives up on a blocked run.
       # Both opt-in; unset means no-op.

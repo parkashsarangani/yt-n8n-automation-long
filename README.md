@@ -1,6 +1,6 @@
 # VidGen Long
 
-Audio-first long-form YouTube production pipeline. The engine selects and packages a story, writes and moderates narration, synthesizes timestamped speech, assembles a minimal 1080p MP4, designs a thumbnail, and delivers the draft to a human editor's Google Drive folder. The editor finishes the cut and uploads to YouTube themselves — `editor_review` is where the pipeline's work ends.
+Audio-first long-form YouTube production pipeline. The engine selects and packages a story, writes and moderates narration, synthesizes timestamped speech, assembles a minimal 1080p MP4, designs a thumbnail, and delivers the draft to a human editor's Google Drive folder. The editor returns the finished cut to that folder and the pipeline publishes it to YouTube, then feeds measured performance back into future topic selection.
 
 ## Run locally
 
@@ -27,13 +27,14 @@ Both are published to `127.0.0.1` only — deliberately, since the local Studio 
 | `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` | Stock media sources | Unmatched scenes use the background |
 | Drive OAuth trio + `DRIVE_ROOT_FOLDER_ID` | Editor hand-off | Runs cannot reach the editor |
 | `OPERATOR_ALERT_WEBHOOK_URL` | Alert when a run is abandoned | Failures are only logged |
-| `EDITOR_RETURN_WATCH_ENABLED` | Re-enable the dormant editor-return flow | Runs finish at `editor_review` (current behaviour) |
+| `EDITOR_RETURN_WATCH_ENABLED` | Poll Drive for the editor's returned cut | Runs stop at `editor_review`, nothing publishes |
+| `EDITOR_RETURN_WEBHOOK_TOKEN` | Secret for the off-box pickup webhook | That route 404s; the poll still works |
 | YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
 | `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
 
 Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, visual-director, Remotion, and legacy n8n production paths are intentionally absent. Stock footage is *not* — `FOOTAGE_MODE` defaults to `stock`, and the compositor pulls suggested Pexels/Unsplash media, falling back to a plain background when a key is missing or nothing matches.
 
-Note that the YouTube variables are currently inert: the graph's `finalize_video → qa → publish` tail sits behind `editor_review`, which nothing advances while the editor publishes directly (see below). The nodes and workers are retained deliberately so the self-publishing flow can be restored without rebuilding it.
+The YouTube variables are live: the graph's `finalize_video → qa → publish` tail runs as soon as the editor returns a cut (see below), so `AMOS_ALLOW_PUBLISH` plus the OAuth trio are what stand between a returned file and a public upload.
 
 ## Quiet Confidence — Season 1
 
@@ -45,9 +46,11 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 ## Editor hand-off
 
-`editor_package` uploads the draft, transcript and beat list to a dated Drive subfolder and the run parks at `editor_review`. That wait is the pipeline's **successful terminal state**, not a stall: the editor finishes the cut and uploads to YouTube outside this system.
+`editor_package` uploads the draft, transcript and beat list to a dated Drive subfolder and the run parks at `editor_review`. The editor finishes the cut and drops it back into that same folder as `final.mp4` (a `.mov`/`.m4v` export or a `final_v2.mp4`-style name is also accepted; our own `draft.mp4` never is). `checkEditorReturns()` picks it up, substitutes it as the final video, and the run continues through `qa → publish` — uploading to YouTube with the pipeline's SEO title/description/chapters and designed thumbnail, then emitting the `published_episode` artifact that feeds performance measurement back into topic selection.
 
-The original design expected the editor to drop a `final.mp4` back into Drive, which `checkEditorReturns()` would pick up to drive `finalize_video → qa → publish` and then measure performance. That return trip no longer happens, so the poll is off by default. Set `EDITOR_RETURN_WATCH_ENABLED` to `true`, `1` or `yes` to restore it. One consequence worth knowing: the `measure` job consumes `published_episode` artifacts, which only the `publish` node produces, so episodes handed to the editor are not measured automatically.
+**There is no confirmation step.** A returned cut becomes a live public video, by operator decision; the only automatic brake is `qa`, which downgrades to private on a non-clean report. If the folder holds no importable cut but does hold editor-added files, or holds two possible cuts, the run alerts instead of waiting silently — a misnamed upload would otherwise stall the episode forever with nobody told. Two further guards protect the bytes rather than the decision: a returned file is only consumed once its size is stable between the download and a re-read of the listing (Drive lists a file when it is *created*, not when the upload finishes), and concurrent callers collapse onto one pass so a webhook cannot race the poll into publishing twice.
+
+Pickup is by poll every `SCHEDULE_EDITOR_WATCH_MINUTES`, gated on `EDITOR_RETURN_WATCH_ENABLED` (`true`, `1` or `yes`). For immediate pickup, `POST /api/editor-returns/check` triggers the same check — it is the **only** route reachable from off-box, requires the `EDITOR_RETURN_WEBHOOK_TOKEN` shared secret in an `x-webhook-token` header, and 404s entirely when that secret is unset. The poll stays on as a fallback so publishing never depends on a webhook firing.
 
 ## When a run fails
 

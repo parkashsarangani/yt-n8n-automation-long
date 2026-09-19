@@ -45,19 +45,20 @@ test("new prompt schema accepts empty overlays and rejects legacy query fields",
   const prompt=out.blobs!.find(b=>b.role==="thumbnail_prompt")!;
   assert.equal(JSON.parse(new TextDecoder().decode(await h.blobs.get(prompt.uri))).status,"candidate");
 });
-test("OCR rejection repairs once and exports only accepted artwork",async()=>{
+test("generated artwork is kept for the editor even if the renderer did not composite it",async()=>{
+  // Artwork used to be discarded whenever the renderer reported a gradient,
+  // which its OCR screen did for nearly every photograph. Paying for an image
+  // and then deleting it unseen is the worst of both; the editor gets it now,
+  // and a rejection is not a reason to spend a second generation.
   const renderer=new FakeRenderer();
   const original=renderer.renderThumbnail.bind(renderer);
-  let calls=0;
-  renderer.renderThumbnail=async req=>({...await original(req),background:++calls===1?"gradient":"supplied"});
+  renderer.renderThumbnail=async req=>({...await original(req),background:"gradient" as const});
   const h=await harness({renderer});
   const out=await makeThumbnailWorker().execute({brief:h.brief},{
     blobs:h.blobs,media:{renderer,images:h.images},logger:silent(),progress:async()=>{}
   } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,2);
-  assert.match(h.images!.prompts[1]!,/Repair:/);
-  assert.equal((out.payload as ThumbPayload).background,"supplied");
-  assert.equal(out.blobs!.filter(b=>b.role==="thumbnail_artwork").length,1);
+  assert.equal(h.images!.prompts.length,1,"a composite decision must not trigger a second paid generation");
+  assert.equal(out.blobs!.filter(b=>b.role==="thumbnail_artwork").length,1,"the artwork must reach the editor");
 });
 test("two failed generations export explicit replacement status and no artwork",async()=>{
   const h=await harness({images:new FakeImageProvider(()=>true)});
