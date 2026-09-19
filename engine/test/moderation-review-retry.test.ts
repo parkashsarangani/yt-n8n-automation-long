@@ -50,7 +50,10 @@ test("a moderation-review block regenerates the script instead of retrying the s
   assert.deepEqual(calls, expected);
 });
 
-test("giving up on a moderation review block alerts an operator and persists the terminal failure", async () => {
+test("giving up persists the terminal failure but does not itself alert anyone", async () => {
+  // driveUnattended gives up once per scheduler attempt. Alerting here would
+  // mail out a problem that the next attempt still fixes, so the handoff to a
+  // human belongs to the scheduler's own give-up (see scheduler.test.ts).
   const { service, recorded } = makeService(
     "voice blocked by pre-TTS moderation (review): scene 2: OpenAI moderation flagged review category violence",
   );
@@ -65,18 +68,13 @@ test("giving up on a moderation review block alerts an operator and persists the
 
   try {
     await service.driveUnattended("run-test");
-    // sendOperatorAlert() is fire-and-forget (void) inside driveUnattended;
-    // let its microtask/webhook call land before asserting.
     await new Promise((resolve) => setTimeout(resolve, 10));
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env["OPERATOR_ALERT_WEBHOOK_URL"];
   }
 
-  assert.equal(posted.length, 1);
-  const body = (posted[0] as { body: { run_id: string; reason: string } }).body;
-  assert.equal(body.run_id, "run-test");
-  assert.match(body.reason, /pre-TTS moderation review/);
+  assert.equal(posted.length, 0, "the inner loop must stay silent");
 
   assert.equal(recorded.length, 1);
   assert.equal((recorded[0] as { node_id: string }).node_id, "voice");

@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Scheduler, type Job } from "../src/scheduler.ts";
+import { Scheduler, MAX_ATTEMPTS, type Job } from "../src/scheduler.ts";
 
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 const HOUR = 60 * 60 * 1000;
@@ -316,4 +316,76 @@ test("stop() halts the timer", async () => {
   // Nothing to assert beyond it not throwing and not leaving a handle behind;
   // node:test would hang on an un-cleared interval.
   assert.ok(true);
+});
+
+test("a failing job stops after MAX_ATTEMPTS and hands off exactly once", async () => {
+  // Production incident 2026-09-19: an out-of-funds provider kept the daily
+  // produce job failing, and a flat 15-minute retry ran ~41 times in eleven
+  // hours, re-running paid work every pass.
+  const c = clock();
+  const handoffs: Array<{ error: string; attempts: number }> = [];
+  let runs = 0;
+  const s = new Scheduler({
+    now: c.now,
+    logger: silent(),
+    jobs: [job({
+      id: "produce",
+      retryMinutes: 15,
+      run: async () => { runs++; throw new Error("openai 429"); },
+      onGaveUp: (error, attempts) => { handoffs.push({ error, attempts }); },
+    })],
+  });
+
+  await s.runNow("produce");
+  // Keep ticking well past the point the old flat retry would have kept going.
+  for (let i = 0; i < 40; i++) { c.advance(16 * 60_000); await s.tick(); }
+
+  assert.equal(runs, MAX_ATTEMPTS, `expected ${MAX_ATTEMPTS} attempts, got ${runs}`);
+  assert.equal(handoffs.length, 1, "the human is told once, not once per attempt");
+  assert.equal(handoffs[0]!.attempts, MAX_ATTEMPTS);
+  assert.match(handoffs[0]!.error, /openai 429/);
+});
+
+test("giving up frees the job for its next scheduled run, it is not disabled", async () => {
+  // Abandoning today's episode must not silently end the channel: tomorrow's
+  // slot still has to fire.
+  const c = clock();
+  let runs = 0;
+  let fail = true;
+  const s = new Scheduler({
+    now: c.now,
+    logger: silent(),
+    jobs: [job({
+      id: "produce",
+      everyHours: 24,
+      retryMinutes: 15,
+      run: async () => { runs++; if (fail) throw new Error("provider down"); },
+    })],
+  });
+
+  await s.runNow("produce");
+  for (let i = 0; i < 10; i++) { c.advance(16 * 60_000); await s.tick(); }
+  assert.equal(runs, MAX_ATTEMPTS);
+
+  fail = false;
+  c.advance(24 * HOUR);
+  await s.tick();
+  assert.equal(runs, MAX_ATTEMPTS + 1, "the next day's scheduled run must still fire");
+  assert.equal(s.status().find((j) => j.id === "produce")!.consecutive_failures, 0, "a success clears the counter");
+});
+
+test("a success midway through the retries resets the budget", async () => {
+  const c = clock();
+  let attempt = 0;
+  const s = new Scheduler({
+    now: c.now,
+    logger: silent(),
+    jobs: [job({ id: "produce", retryMinutes: 15, run: async () => { attempt++; if (attempt === 1) throw new Error("blip"); } })],
+  });
+
+  await s.runNow("produce");
+  assert.equal(s.status().find((j) => j.id === "produce")!.consecutive_failures, 1);
+  c.advance(16 * 60_000);
+  await s.tick();
+  assert.equal(s.status().find((j) => j.id === "produce")!.consecutive_failures, 0);
 });

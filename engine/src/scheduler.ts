@@ -59,6 +59,14 @@ export interface Job {
    */
   targetHourUtc?: number;
   run(): Promise<void>;
+  /**
+   * Called once when the job has failed MAX_ATTEMPTS times in a row and is
+   * giving up for this cycle -- the last thing the pipeline does before a
+   * human has to step in. Never called on the intermediate failures, so a
+   * problem that clears on attempt 2 never reaches anyone. Failures here are
+   * logged and swallowed: handing off must not itself break the schedule.
+   */
+  onGaveUp?(error: string, attempts: number): Promise<void> | void;
 }
 
 export interface JobStatus {
@@ -72,6 +80,8 @@ export interface JobStatus {
   last_duration_ms: number | null;
   next_run: string | null;
   runs: number;
+  /** Drives the retry backoff; 0 once a run succeeds. */
+  consecutive_failures: number;
 }
 
 interface JobState {
@@ -81,6 +91,7 @@ interface JobState {
   lastError: string | null;
   lastDurationMs: number | null;
   runs: number;
+  consecutiveFailures: number;
 }
 
 export interface SchedulerOptions {
@@ -93,6 +104,22 @@ export interface SchedulerOptions {
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Total attempts (the first run plus its retries) before a job stops retrying
+ * within the same cycle and hands the problem to a human.
+ *
+ * Production incident 2026-09-19: the OpenAI account ran out of funds and the
+ * daily produce job retried a flat 15 minutes apart for eleven hours -- ~41
+ * passes, each re-running paid script authoring against a provider that could
+ * not serve it. Retrying is for a transient blip; past a few attempts it is
+ * just burning spend on something only a human can clear.
+ *
+ * Giving up clears `retryAt` rather than disabling the job, so the ordinary
+ * schedule still applies: today's episode is abandoned, tomorrow's 03:00 slot
+ * fires normally.
+ */
+export const MAX_ATTEMPTS = 3;
 
 function isSameUtcDay(a: number, b: number): boolean {
   const da = new Date(a), db = new Date(b);
@@ -140,6 +167,7 @@ export class Scheduler {
         lastError: null,
         lastDurationMs: null,
         runs: 0,
+        consecutiveFailures: 0,
       });
     }
   }
@@ -190,11 +218,32 @@ export class Scheduler {
       await job.run();
       st.lastError = null;
       st.retryAt = undefined;
+      st.consecutiveFailures = 0;
     } catch (err) {
       // Recorded, never rethrown: one bad pass must not take down the schedule.
       st.lastError = err instanceof Error ? err.message : String(err);
-      if (job.retryMinutes) st.retryAt = this.now() + job.retryMinutes * 60_000;
-      this.logger.error(`[scheduler] ${job.id} failed: ${st.lastError}`);
+      st.consecutiveFailures += 1;
+      const exhausted = st.consecutiveFailures >= MAX_ATTEMPTS;
+      if (job.retryMinutes && !exhausted) {
+        st.retryAt = this.now() + job.retryMinutes * 60_000;
+        this.logger.error(
+          `[scheduler] ${job.id} failed (attempt ${st.consecutiveFailures}/${MAX_ATTEMPTS}), retrying in ${job.retryMinutes}m: ${st.lastError}`,
+        );
+      } else if (job.retryMinutes) {
+        // Clearing retryAt drops the job back onto its normal schedule instead
+        // of retrying this cycle again.
+        st.retryAt = undefined;
+        this.logger.error(
+          `[scheduler] ${job.id} failed ${st.consecutiveFailures} times, giving up until the next scheduled run: ${st.lastError}`,
+        );
+        try {
+          await job.onGaveUp?.(st.lastError, st.consecutiveFailures);
+        } catch (handoffError) {
+          this.logger.error(`[scheduler] ${job.id} give-up handler failed: ${String(handoffError)}`);
+        }
+      } else {
+        this.logger.error(`[scheduler] ${job.id} failed: ${st.lastError}`);
+      }
     } finally {
       st.running = false;
       // Stamped on completion rather than on start, so a job that takes longer
@@ -222,6 +271,7 @@ export class Scheduler {
             ? null
             : new Date(st.retryAt ?? nextRunAt(j, st.lastRun, this.now())).toISOString(),
         runs: st.runs,
+        consecutive_failures: st.consecutiveFailures,
       };
     });
   }

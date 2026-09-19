@@ -1,5 +1,6 @@
 import type { RunView, VidGenService } from "./service.ts";
 import { Scheduler, type JobStatus } from "./scheduler.ts";
+import { sendOperatorAlert } from "./operator-alerts.ts";
 import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
 import { localHourToUtcHour } from "./timezone-hour.ts";
 import { localParts } from "./delivery-time.ts";
@@ -211,6 +212,17 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       ...(process.env["SCHEDULE_PRODUCE_HOUR_UTC"]?.trim() ? { targetHourUtc } : { localSchedule: { hour: localHour, timeZone } }),
       retryMinutes: 15,
       ...(lastProduction !== undefined ? { seedLastRun: lastProduction } : {}),
+      // The pipeline's last act before a human takes over. Deliberately here
+      // and not inside driveUnattended(): that gives up once per attempt, so
+      // alerting there would mail out a problem that attempt 2 still fixes.
+      async onGaveUp(error: string, attempts: number) {
+        const today = service.listRuns().find((r) => r.kind === "production" && r.status === "blocked");
+        await sendOperatorAlert({
+          run_id: today?.run_id ?? "produce",
+          reason: `daily production gave up after ${attempts} attempts`,
+          failures: today?.failures?.length ? today.failures : [{ node_id: "produce", error }],
+        });
+      },
       async run() {
         const today = localParts(now()).date;
         const existing = service.listRuns().filter(r => r.kind === "production" && localParts(Date.parse(r.created_at)).date === today).sort((a,b) => b.created_at.localeCompare(a.created_at));
