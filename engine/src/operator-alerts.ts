@@ -64,9 +64,46 @@ function shortRunId(runId: string): string {
   return runId.startsWith("run_") ? runId.slice(4, 12) : runId;
 }
 
+/**
+ * Provider errors arrive as multi-line JSON blobs (a 429 body, a stack). Left
+ * raw they turn the email into a wall of braces, so collapse each one to a
+ * single readable line and cap it -- the run log has the full text.
+ */
+function oneLine(error: string, max = 300): string {
+  const collapsed = error.replace(/\s+/g, " ").trim();
+  return collapsed.length <= max ? collapsed : `${collapsed.slice(0, max - 1)}…`;
+}
+
+/**
+ * Includes the run id so Gmail cannot thread unrelated alerts together under
+ * one collapsed conversation, and the failing steps so the subject alone is
+ * usually enough to triage without opening the mail.
+ */
+export function formatOperatorAlertSubject(payload: OperatorAlertPayload): string {
+  const nodes = [...new Set(payload.failures.map((f) => f.node_id))].join(", ");
+  const where = nodes ? ` stuck at ${nodes}` : " needs attention";
+  return `VidGen: run ${shortRunId(payload.run_id)}${where}`;
+}
+
+/** A human reads this in an inbox, so it is laid out as a short report, not a log line. */
 export function formatOperatorAlertText(payload: OperatorAlertPayload): string {
-  const detail = payload.failures.map((f) => `${f.node_id}: ${f.error}`).join("; ") || payload.reason;
-  return `[vidgen] run ${shortRunId(payload.run_id)} needs operator attention -- ${payload.reason}: ${detail}`;
+  const steps = payload.failures.length
+    ? payload.failures.map((f) => `  - ${f.node_id}: ${oneLine(f.error)}`).join("\n")
+    : "  - (none reported)";
+  return [
+    `Run ${shortRunId(payload.run_id)} stopped and needs a human.`,
+    "",
+    "WHY",
+    `  ${payload.reason}`,
+    "",
+    "WHERE IT STOPPED",
+    steps,
+    "",
+    "RUN ID",
+    `  ${payload.run_id}`,
+    "",
+    "The pipeline has already retried what it can and will not try again on its own.",
+  ].join("\n");
 }
 
 async function postJson(
@@ -100,6 +137,10 @@ async function notifyWebhook(
     const response = await postJson(
       webhookUrl,
       {
+        // `subject` and `text` are rendered here rather than in a webhook
+        // consumer's own templating, so the wording stays testable and every
+        // destination (Slack, n8n -> email) shows the same thing.
+        subject: formatOperatorAlertSubject(payload),
         text: formatOperatorAlertText(payload),
         run_id: payload.run_id,
         reason: payload.reason,
@@ -133,7 +174,7 @@ async function notifyEmail(
       {
         from: opts.from,
         to: [opts.to],
-        subject: `[vidgen] run ${shortRunId(payload.run_id)} needs operator attention`,
+        subject: formatOperatorAlertSubject(payload),
         text,
       },
       { authorization: `Bearer ${opts.apiKey}` },

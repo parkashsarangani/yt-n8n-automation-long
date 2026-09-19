@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sendOperatorAlert, formatOperatorAlertText, ALERT_COOLDOWN_MS } from "../src/operator-alerts.ts";
+import {
+  sendOperatorAlert,
+  formatOperatorAlertText,
+  formatOperatorAlertSubject,
+  ALERT_COOLDOWN_MS,
+} from "../src/operator-alerts.ts";
 
 const payload = {
   run_id: "run_b77fcfdc-6723-465f-be82-5c11d7ce1a65",
@@ -8,11 +13,30 @@ const payload = {
   failures: [{ node_id: "voice", error: "voice blocked by pre-TTS moderation (review): scene 2: ..." }],
 };
 
-test("formatOperatorAlertText includes the shortened run id, reason and failure detail", () => {
+test("formatOperatorAlertText reads as a report, not a log line", () => {
   const text = formatOperatorAlertText(payload);
-  assert.match(text, /run b77fcfdc/);
-  assert.match(text, /still blocked by pre-TTS moderation review after 3 script rewrites/);
-  assert.match(text, /voice: voice blocked by pre-TTS moderation \(review\)/);
+  assert.match(text, /^Run b77fcfdc stopped and needs a human\./);
+  assert.match(text, /WHY\n {2}still blocked by pre-TTS moderation review after 3 script rewrites/);
+  assert.match(text, /WHERE IT STOPPED\n {2}- voice: voice blocked by pre-TTS moderation \(review\)/);
+  // The full id is what an operator needs to act on the run.
+  assert.match(text, /RUN ID\n {2}run_b77fcfdc-6723-465f-be82-5c11d7ce1a65/);
+});
+
+test("a multi-line provider error is collapsed instead of filling the email with JSON", () => {
+  const text = formatOperatorAlertText({
+    ...payload,
+    failures: [{ node_id: "draft_script", error: 'openai/gpt-6-astra request failed (429): {\n  "error": {\n    "message": "Too Many Requests"\n  }\n}' }],
+  });
+  const step = text.split("\n").find((line) => line.includes("draft_script"))!;
+  assert.equal(step, '  - draft_script: openai/gpt-6-astra request failed (429): { "error": { "message": "Too Many Requests" } }');
+});
+
+test("the subject carries the run id and failing step so Gmail cannot thread unrelated alerts", () => {
+  assert.equal(formatOperatorAlertSubject(payload), "VidGen: run b77fcfdc stuck at voice");
+  assert.equal(
+    formatOperatorAlertSubject({ ...payload, failures: [] }),
+    "VidGen: run b77fcfdc needs attention",
+  );
 });
 
 test("sendOperatorAlert is a no-op with nothing configured", async () => {
