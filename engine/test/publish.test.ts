@@ -455,9 +455,14 @@ test("a publish failure produces no artifact", async () => {
 
 function youtubeStub(over: { thumbnailOk?: boolean; discloseOk?: boolean } = {}) {
   const calls: string[] = [];
+  /** Request bodies, so a test can assert what YouTube was actually told. */
+  const bodies: Record<string, { url: string; json: any }> = {};
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method ?? "GET"} ${url.replace(/\?.*$/, "")}`);
+    if (typeof init?.body === "string") {
+      bodies[url.includes("/upload/") ? "insert" : "update"] = { url, json: JSON.parse(init.body) };
+    }
     if (url.includes("/upload/youtube/v3/videos")) {
       return new Response("{}", { status: 200, headers: { location: "https://upload.test/session" } });
     }
@@ -472,7 +477,7 @@ function youtubeStub(over: { thumbnailOk?: boolean; discloseOk?: boolean } = {})
     }
     return new Response("nope", { status: 404 });
   }) as unknown as typeof fetch;
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, bodies };
 }
 
 const pubReq = {
@@ -526,4 +531,39 @@ test("youtube declares its own limits; nothing upstream hardcodes them", () => {
   assert.equal(reqs.max_title_chars, 100);
   assert.equal(reqs.requires_synthetic_media_disclosure, true);
   assert.ok(reqs.aspects.includes("16:9"));
+});
+
+test("youtube declares every upload setting rather than letting YouTube guess", async () => {
+  // Language decides who the video is recommended to and whether
+  // auto-translation behaves; category, licence and the paid-promotion
+  // declaration are all silently defaulted if omitted.
+  const { fetchImpl, bodies } = youtubeStub();
+  await new YouTubeTarget({ accessToken: "tok", fetchImpl, categoryId: "27", language: "en" }).publish(pubReq);
+
+  const insert = bodies["insert"]!.json;
+  assert.equal(insert.snippet.defaultLanguage, "en", "title/description language");
+  assert.equal(insert.snippet.defaultAudioLanguage, "en", "spoken language");
+  assert.equal(insert.snippet.categoryId, "27");
+  assert.ok(Array.isArray(insert.snippet.tags) && insert.snippet.tags.length > 0);
+  assert.equal(insert.status.selfDeclaredMadeForKids, false);
+  assert.equal(insert.status.license, "youtube");
+  assert.equal(insert.status.embeddable, true);
+  assert.equal(insert.status.publicStatsViewable, true);
+  assert.equal(insert.paidProductPlacementDetails.hasPaidProductPlacement, false);
+  assert.match(bodies["insert"]!.url, /part=snippet,status,paidProductPlacementDetails/);
+});
+
+test("the AI-label update does not wipe the other status settings", async () => {
+  // videos.update REPLACES the part it is sent. Declaring the AI label with a
+  // bare status object would quietly revert licence, embeddable and
+  // publicStatsViewable to YouTube's defaults moments after upload.
+  const { fetchImpl, bodies } = youtubeStub();
+  await new YouTubeTarget({ accessToken: "tok", fetchImpl, license: "creativeCommon", embeddable: false }).publish(pubReq);
+
+  const status = bodies["update"]!.json.status;
+  assert.equal(status.containsSyntheticMedia, true);
+  assert.equal(status.license, "creativeCommon", "licence must survive the disclosure update");
+  assert.equal(status.embeddable, false, "embeddable must survive the disclosure update");
+  assert.equal(status.selfDeclaredMadeForKids, false);
+  assert.ok(status.privacyStatus, "privacy must be restated or the video reverts to private");
 });

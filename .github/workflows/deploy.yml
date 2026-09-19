@@ -60,6 +60,9 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_ACCESS_TOKEN: ${{ secrets.YOUTUBE_ACCESS_TOKEN }}
           AMOS_ALLOW_PUBLISH: "1"
+          YOUTUBE_CATEGORY_ID: ${{ vars.YOUTUBE_CATEGORY_ID || '27' }}
+          YOUTUBE_LANGUAGE: ${{ vars.YOUTUBE_LANGUAGE || 'en' }}
+          YOUTUBE_PAID_PROMOTION: ${{ vars.YOUTUBE_PAID_PROMOTION || '' }}
 
           # Human editor handoff. The draft package goes to the editor's Drive
           # folder; when they return a final.mp4 the engine picks it up and

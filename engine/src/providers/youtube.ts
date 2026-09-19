@@ -24,6 +24,23 @@ export interface YouTubeOptions {
   accessToken: string | (() => Promise<string>);
   /** YouTube category id. 27 = Education, 22 = People & Blogs. */
   categoryId?: string;
+  /**
+   * BCP-47 tag for both the spoken audio and the title/description. YouTube
+   * treats these as separate fields and guesses when they are absent, which
+   * decides who the video is recommended to and whether auto-translation and
+   * auto-dubbing behave -- too consequential to leave to a guess.
+   */
+  language?: string;
+  /** "youtube" (standard licence) or "creativeCommon". */
+  license?: "youtube" | "creativeCommon";
+  embeddable?: boolean;
+  publicStatsViewable?: boolean;
+  /**
+   * Declared on every upload, not only when true: YouTube's own default is
+   * false, but stating it makes the answer deliberate and visible in the
+   * request rather than inherited.
+   */
+  paidProductPlacement?: boolean;
   defaultPrivacy?: "public" | "unlisted" | "private";
   baseUrl?: string;
   uploadUrl?: string;
@@ -34,6 +51,11 @@ export class YouTubeTarget implements PublishTarget {
   readonly id = "youtube";
   private readonly token: () => Promise<string>;
   private readonly categoryId: string;
+  private readonly language: string;
+  private readonly license: "youtube" | "creativeCommon";
+  private readonly embeddable: boolean;
+  private readonly publicStatsViewable: boolean;
+  private readonly paidProductPlacement: boolean;
   private readonly defaultPrivacy: "public" | "unlisted" | "private";
   private readonly baseUrl: string;
   private readonly uploadUrl: string;
@@ -45,6 +67,11 @@ export class YouTubeTarget implements PublishTarget {
         ? async () => opts.accessToken as string
         : opts.accessToken;
     this.categoryId = opts.categoryId ?? "27";
+    this.language = opts.language ?? "en";
+    this.license = opts.license ?? "youtube";
+    this.embeddable = opts.embeddable ?? true;
+    this.publicStatsViewable = opts.publicStatsViewable ?? true;
+    this.paidProductPlacement = opts.paidProductPlacement ?? false;
     this.defaultPrivacy = opts.defaultPrivacy ?? "private";
     this.baseUrl = opts.baseUrl ?? "https://www.googleapis.com/youtube/v3";
     this.uploadUrl = opts.uploadUrl ?? "https://www.googleapis.com/upload/youtube/v3";
@@ -75,7 +102,7 @@ export class YouTubeTarget implements PublishTarget {
     // 1. Resumable upload: metadata first, bytes second. Simpler to get right
     //    with fetch than a hand-built multipart/related body.
     const start = await this.fetchImpl(
-      `${this.uploadUrl}/videos?uploadType=resumable&part=snippet,status`,
+      `${this.uploadUrl}/videos?uploadType=resumable&part=snippet,status,paidProductPlacementDetails`,
       {
         method: "POST",
         headers: {
@@ -90,11 +117,13 @@ export class YouTubeTarget implements PublishTarget {
             description: req.metadata.description ?? "",
             tags: req.metadata.tags ?? [],
             categoryId: this.categoryId,
+            // Spoken language and metadata language are separate fields, and
+            // YouTube guesses both when they are absent.
+            defaultAudioLanguage: this.language,
+            defaultLanguage: this.language,
           },
-          status: {
-            privacyStatus: req.metadata.privacy ?? this.defaultPrivacy,
-            selfDeclaredMadeForKids: req.metadata.made_for_kids ?? false,
-          },
+          status: this.statusFields(req.metadata),
+          paidProductPlacementDetails: { hasPaidProductPlacement: this.paidProductPlacement },
         }),
       },
     );
@@ -157,6 +186,17 @@ export class YouTubeTarget implements PublishTarget {
     };
   }
 
+  /** Every status field we declare, in one place so insert and update agree. */
+  private statusFields(metadata: PublishRequest["metadata"]): Record<string, unknown> {
+    return {
+      privacyStatus: metadata.privacy ?? this.defaultPrivacy,
+      selfDeclaredMadeForKids: metadata.made_for_kids ?? false,
+      license: this.license,
+      embeddable: this.embeddable,
+      publicStatsViewable: this.publicStatsViewable,
+    };
+  }
+
   private async disclose(
     token: string,
     videoId: string,
@@ -167,11 +207,10 @@ export class YouTubeTarget implements PublishTarget {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         id: videoId,
-        status: {
-          privacyStatus: metadata.privacy ?? this.defaultPrivacy,
-          selfDeclaredMadeForKids: metadata.made_for_kids ?? false,
-          containsSyntheticMedia: true,
-        },
+        // videos.update REPLACES the part it is given, so every status field
+        // set at insert has to be restated here or it silently reverts to
+        // YouTube's default the moment the AI label is applied.
+        status: { ...this.statusFields(metadata), containsSyntheticMedia: true },
       }),
     });
     if (!res.ok) {

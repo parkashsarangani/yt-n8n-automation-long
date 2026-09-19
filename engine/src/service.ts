@@ -153,6 +153,25 @@ interface RunState {
   error: string | null;
 }
 
+/**
+ * Upload settings YouTube would otherwise guess at or default for us. Read
+ * from the environment so the category or language can change without a
+ * deploy of new code.
+ */
+function youtubeUploadOptions(): {
+  categoryId?: string;
+  language?: string;
+  paidProductPlacement?: boolean;
+} {
+  const categoryId = process.env["YOUTUBE_CATEGORY_ID"]?.trim();
+  const language = process.env["YOUTUBE_LANGUAGE"]?.trim();
+  return {
+    ...(categoryId ? { categoryId } : {}),
+    ...(language ? { language } : {}),
+    paidProductPlacement: /^(1|true|yes)$/i.test(process.env["YOUTUBE_PAID_PROMOTION"] ?? ""),
+  };
+}
+
 /** Deterministic guard: an operator gets exactly one re-grade per manual run. */
 export const MAX_MANUAL_WATCHABILITY_RESCORES = 1;
 
@@ -328,8 +347,9 @@ export class VidGenService {
             clientSecret: env("YOUTUBE_CLIENT_SECRET")!,
             refreshToken: env("YOUTUBE_REFRESH_TOKEN")!,
           }),
+          ...youtubeUploadOptions(),
         })
-        : new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")! });
+        : new YouTubeTarget({ accessToken: env("YOUTUBE_ACCESS_TOKEN")!, ...youtubeUploadOptions() });
 
     this.transformations = allTransformations(
       this.agents,
