@@ -32,6 +32,8 @@ Both are published to `127.0.0.1` only — deliberately, since the local Studio 
 | `EDITOR_RETURN_WEBHOOK_TOKEN` | Enables the on-demand pickup route (unset = off) | That route 404s; the daily sweep still runs |
 | YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
 | `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
+| `YOUTUBE_CATEGORY_ID` / `YOUTUBE_LANGUAGE` | Upload category (default 27, Education) and BCP-47 language (default `en`) | YouTube guesses both |
+| `YOUTUBE_PAID_PROMOTION` | Declares paid product placement | Declared `false` on every upload |
 
 Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only when `PAID_TEXT_FALLBACK=true`. Scene-image, generated-video, visual-director, Remotion, and legacy n8n production paths are intentionally absent. Stock footage is *not* — `FOOTAGE_MODE` defaults to `stock`, and the compositor pulls suggested Pexels/Unsplash media, falling back to a plain background when a key is missing or nothing matches.
 

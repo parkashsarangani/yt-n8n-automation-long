@@ -76,6 +76,10 @@ services:
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
       YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
       AMOS_ALLOW_PUBLISH: ${AMOS_ALLOW_PUBLISH:-}
+      # Upload settings YouTube would otherwise guess. 27 = Education.
+      YOUTUBE_CATEGORY_ID: ${YOUTUBE_CATEGORY_ID:-27}
+      YOUTUBE_LANGUAGE: ${YOUTUBE_LANGUAGE:-en}
+      YOUTUBE_PAID_PROMOTION: ${YOUTUBE_PAID_PROMOTION:-}
 
       # Human editor handoff. Each episode's draft + transcript/beat-list
       # package is uploaded to a dated subfolder under this Drive folder; the
