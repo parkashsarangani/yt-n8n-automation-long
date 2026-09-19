@@ -16,7 +16,7 @@
   ],
   "produces": "growth_package",
   "produces_version": "1.2.0",
-  "prompt": "growth_packager@9",
+  "prompt": "growth_packager@10",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 5000,
