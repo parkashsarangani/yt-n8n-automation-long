@@ -183,6 +183,45 @@ test("a folder without final.mp4 advances nothing", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("a returned thumbnail rides along with the cut, and its absence is not an error", async () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const supplied: Array<{ media_type: string } | undefined> = [];
+  const build = (files: FakeFile[]) => {
+    const { service, calls } = makeService(files);
+    service.supplyEditorCut = async (_id: string, _video: unknown, thumb?: { media_type: string }) => {
+      calls.push("supplyEditorCut");
+      supplied.push(thumb);
+    };
+    return service;
+  };
+
+  // With a thumbnail present it is passed through for publish to prefer.
+  await build([
+    finalCut(mp4()),
+    { id: "t", name: "thumbnail-final.png", mimeType: "image/png", size: png.byteLength, bytes: png },
+  ]).checkEditorReturns();
+  assert.equal(supplied[0]?.media_type, "image/png");
+
+  // Without one the cut still publishes -- our own thumbnail is used.
+  await build([finalCut(mp4())]).checkEditorReturns();
+  assert.equal(supplied[1], undefined);
+});
+
+test("our own thumbnail.png is never mistaken for a returned one", async () => {
+  // thumbnail.png and thumbnail-artwork.png are what the editor works *from*.
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const { service } = makeService([
+    finalCut(mp4()),
+    { id: "t1", name: "thumbnail.png", mimeType: "image/png", size: png.byteLength, bytes: png },
+    { id: "t2", name: "thumbnail-artwork.png", mimeType: "image/png", size: png.byteLength, bytes: png },
+  ]);
+  let passedThumbnail: unknown = "untouched";
+  service.supplyEditorCut = async (_id: string, _video: unknown, thumb?: unknown) => { passedThumbnail = thumb; };
+
+  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+  assert.equal(passedThumbnail, undefined);
+});
+
 test("an upload we cannot import alerts a human instead of waiting forever", async () => {
   // The run is *waiting*, not failing, so nothing else would ever surface
   // this: the editor uploads final.mvo, believes they are done, and without

@@ -93,20 +93,16 @@ test("thumbnail endpoint renders gradient and supplied artwork through bundled F
       {input:Buffer.from(blankBody.image_base64,"base64")});
     assert.equal(motif.status,0,String(motif.stderr));
     assert.ok(motif.stdout[1]>70 && motif.stdout[0]<45,"teal channel stripe remains visible");
-    // A finished thumbnail contains real lettering and must not be accepted
-    // as text-free source artwork.
-    const rejected = await fetch(url, {method:"POST",headers:{"content-type":"application/json"},
+    // Supplied artwork is composited as-is, including an image that already
+    // carries lettering. This used to be OCR-screened and swapped for a
+    // gradient, but tesseract in sparse mode hallucinates character runs out
+    // of ordinary photographic texture, so genuine text-free artwork was
+    // rejected most of the time and every episode shipped a gradient. The
+    // human editor reviews the thumbnail in Drive instead.
+    const reused = await fetch(url, {method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({text:"NEW TITLE",image_base64:rendered})});
-    assert.equal(rejected.status,200);
-    assert.equal((await rejected.json()).background,"gradient");
-    const originalPath=process.env.PATH;
-    try {
-      process.env.PATH="/missing-ocr-test";
-      const unavailable=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({text:"NEW TITLE",image_base64:image})});
-      assert.equal(unavailable.status,500);
-      assert.match((await unavailable.json()).error,/OCR screening failed/);
-    } finally {process.env.PATH=originalPath;}
+    assert.equal(reused.status,200);
+    assert.equal((await reused.json()).background,"supplied");
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 

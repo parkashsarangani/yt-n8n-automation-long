@@ -264,17 +264,6 @@ function escapeFilterPath(value) {
   return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-async function artworkHasNoText(input,dir) {
-  try {
-    const image=path.join(dir,"ocr.png");
-    await execFileAsync(ffmpegPath,["-y","-i",input,"-vf","scale=1600:-1","-frames:v","1",image]);
-    const result=await execFileAsync("tesseract",[image,"stdout","-l","eng","--psm","11"],{timeout:20000,env:{...process.env,OMP_THREAD_LIMIT:"1"}});
-    return !/[\p{L}\p{N}]{2,}/u.test(result.stdout);
-  } catch(error) {
-    throw new Error("Artwork OCR screening failed; repair the OCR service before retrying", {cause:error});
-  }
-}
-
 app.post("/thumbnail", async (req, res) => {
   const dir = tmpDir();
   try {
@@ -287,12 +276,16 @@ app.post("/thumbnail", async (req, res) => {
     let input;
     let background;
     if (supplied) {
+      // Generated artwork is used as-is. It was previously OCR-screened and
+      // swapped for a gradient when tesseract saw any 2+ character run, but in
+      // sparse mode tesseract hallucinates those out of ordinary photographic
+      // texture, so real text-free artwork was rejected most of the time and
+      // every episode published a gradient. The human editor reviews the
+      // thumbnail in Drive and can replace it, which is the check that gate
+      // was standing in for.
       input = path.join(dir, "background.img");
       await fsp.writeFile(input, Buffer.from(supplied, "base64"));
       background = "supplied";
-      if(!await artworkHasNoText(input,dir)) {
-        input=path.join(dir,"background.ppm");writeGradientPpm(input);background="gradient";
-      }
     } else {
       input = path.join(dir, "background.ppm");
       writeGradientPpm(input);

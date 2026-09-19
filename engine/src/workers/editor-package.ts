@@ -49,6 +49,17 @@ export function isEditorCutFilename(name: string): boolean {
   return /^final.*\.(mp4|mov|m4v)$/.test(clean);
 }
 
+/**
+ * An optional finished thumbnail. Same shape of rule as the cut, and likewise
+ * never our own `thumbnail.png`/`thumbnail-artwork.png`: those are what the
+ * editor works *from*.
+ */
+export function isEditorThumbnailFilename(name: string): boolean {
+  const clean = name.trim().toLowerCase();
+  if (isPipelineAuthoredFile(clean)) return false;
+  return /^thumbnail-final.*\.(png|jpg|jpeg|webp)$/.test(clean);
+}
+
 export interface EditorPackageWorkerOptions {
   /** Drive folder id every per-episode subfolder is created under. */
   rootFolderId?: string;

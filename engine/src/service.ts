@@ -58,7 +58,7 @@ import {
 } from "./watchability-ledger.ts";
 import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
-import { isEditorCutFilename, isPipelineAuthoredFile } from "./workers/editor-package.ts";
+import { isEditorCutFilename, isEditorThumbnailFilename, isPipelineAuthoredFile } from "./workers/editor-package.ts";
 import { sendOperatorAlert } from "./operator-alerts.ts";
 import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
@@ -834,10 +834,18 @@ export class VidGenService {
   async supplyEditorCut(
     runId: string,
     video: { bytes: Uint8Array; media_type: string; scene_count: number; degraded_scenes: number; duration_sec?: number },
+    thumbnail?: { bytes: Uint8Array; media_type: string },
   ): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
     const videoBlob = await this.blobs.put(video.bytes, { role: "video", media_type: video.media_type });
+    // Carried on this artifact rather than by re-pinning the `thumbnail` node:
+    // editor_package consumes that node, so replacing it would mark the
+    // hand-off stale and re-park the run at editor_review. publish prefers
+    // this one because the renderer below is "editor".
+    const thumbnailBlob = thumbnail
+      ? await this.blobs.put(thumbnail.bytes, { role: "thumbnail", media_type: thumbnail.media_type })
+      : null;
     const draftId = state.completedOutputs.get("render");
     const draft = draftId ? await this.store.get(draftId) : null;
     // The editor may retain suggested stock. Preserve its attribution through
@@ -851,9 +859,10 @@ export class VidGenService {
         scene_count: video.scene_count,
         degraded_scenes: video.degraded_scenes,
         ...(video.duration_sec !== undefined ? { duration_sec: video.duration_sec } : {}),
+        ...(thumbnailBlob ? { thumbnail_uri: thumbnailBlob.uri } : {}),
         renderer: "editor",
       },
-      blobs: [videoBlob, ...credits],
+      blobs: [videoBlob, ...(thumbnailBlob ? [thumbnailBlob] : []), ...credits],
       produced_by: { transformation: "finalize_video", version: "1", run_id: runId, provider: null },
     });
     state.presetOutputs = { ...(state.presetOutputs ?? {}), finalize_video: artifact.artifact.artifact_id };
@@ -940,6 +949,22 @@ export class VidGenService {
           ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
           : null;
 
+        // Optional: the editor may also return a finished thumbnail. Two
+        // candidates are as unresolvable here as two cuts, so neither is used.
+        const thumbs = files.filter((f) => isEditorThumbnailFilename(f.name));
+        let editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
+        if (thumbs.length === 1) {
+          const picked = thumbs[0]!;
+          const thumbBytes = await drive.downloadFile(picked.id);
+          if (picked.size === thumbBytes.byteLength) {
+            editorThumbnail = { bytes: thumbBytes, media_type: picked.mimeType || "image/png" };
+          } else {
+            console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${picked.name} still uploading; publishing with our own thumbnail`);
+          }
+        } else if (thumbs.length > 1) {
+          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${thumbs.length} candidate thumbnails; publishing with our own`);
+        }
+
         await this.supplyEditorCut(run.run_id, {
           bytes,
           // Honour what the editor actually exported; .mov and .m4v are valid
@@ -948,7 +973,7 @@ export class VidGenService {
           scene_count: draft?.payload.scene_count ?? 1,
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
           ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
-        });
+        }, editorThumbnail);
         await this.decide(run.run_id, "editor_review", { result: "approve" });
         advanced += 1;
         console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
