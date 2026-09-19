@@ -4,6 +4,11 @@
  * The watchability critic gets a bounded repair loop. After three failed
  * evaluations, a schema-valid script may continue to the editor handoff;
  * only a structurally unviable premise remains an abandonment outcome.
+ *
+ * Since 2026-09-19 the numeric surface is a crash guard rather than an
+ * editorial bar -- see watchability-policy.ts for why. In practice an ordinary
+ * script now passes on the first attempt and the repair loop is reserved for
+ * genuinely broken output.
  */
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 import {
@@ -128,7 +133,13 @@ export function assessWatchability(payload: unknown, targetDurationSec?: number 
   const abandonReason = typeof report.abandon_reason === "string" && report.abandon_reason.trim()
     ? report.abandon_reason.trim()
     : abandonRecommended ? "package/first-30/youtube-fit is materially below the viable floor" : "";
-  if (report.verdict !== "pass") failures.push(`critic verdict=${String(report.verdict ?? "missing")} (requires pass)`);
+  // A "revise" verdict no longer blocks release. It is the critic's most
+  // subjective output, it fires on almost every draft, and under the crash
+  // guard we do not treat its editorial judgement as evidence -- acting on it
+  // spent two extra paid reasoning calls per episode. An explicit abandonment
+  // is different: it stays a hard stop because publishing is unattended and
+  // public, and a false negative there costs a channel rather than a draft.
+  if (criticSaysAbandon) failures.push(`critic verdict=${String(report.verdict ?? "missing")} (abandonment)`);
   if (report.abandon_recommended === true) failures.push("critic recommends abandoning this premise");
   const passed = failures.length === 0;
   const releaseDeficit = watchabilityReleaseDeficit(scores, rawAverage, profile);

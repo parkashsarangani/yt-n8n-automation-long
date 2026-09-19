@@ -12,17 +12,17 @@ function scoresAt(value = 0.9): Record<string, number> {
 
 test("failed drafts are ordered by distance from the real release surface, not flattened at 0.789", () => {
   const highMeanButBadPayoff = scoresAt(0.90);
-  highMeanButBadPayoff["payoff"] = 0.65; // raw mean stays very high, but misses payoff by 0.10
+  highMeanButBadPayoff["payoff"] = 0.15; // raw mean stays very high, but misses the crash guard by 0.35
 
   const lowerMeanButNearPass = {
-    hook: 0.80,
-    first_30_fidelity: 0.78, // 0.02 below its 0.80 floor
-    package_fidelity: 0.75,
-    suspense: 0.73, // 0.02 below its 0.75 floor
-    watchability: 0.74, // 0.01 below its 0.75 floor
-    entertainment: 0.70,
-    payoff: 0.74, // 0.01 below its 0.75 floor
-    youtube_fit: 0.74, // 0.01 below its 0.75 floor
+    hook: 0.55,
+    first_30_fidelity: 0.48, // 0.02 below the 0.50 crash guard
+    package_fidelity: 0.52,
+    suspense: 0.48, // 0.02 below
+    watchability: 0.49, // 0.01 below
+    entertainment: 0.55,
+    payoff: 0.49, // 0.01 below
+    youtube_fit: 0.49, // 0.01 below
   };
 
   const a = assessWatchability({ verdict: "revise", scores: highMeanButBadPayoff });
@@ -39,7 +39,7 @@ test("failed drafts are ordered by distance from the real release surface, not f
 
 test("a passing draft still outranks every failed draft regardless of raw mean", () => {
   const failed = scoresAt(0.99);
-  failed["payoff"] = 0.74;
+  failed["payoff"] = 0.44;
   const passed = scoresAt(0.85);
 
   const rejected = assessWatchability({ verdict: "revise", scores: failed });

@@ -34,7 +34,7 @@ test("watchability release accepts a schema-valid below-bar script on attempt th
   const scriptPayload = { scenes: [{ scene_index: 0, point: "[scenario]", narration: "A valid spoken beat." }] };
   const inputs = {
     script: { payload: scriptPayload },
-    report: { payload: { verdict: "revise", abandon_recommended: false, scores: { ...scores(), suspense: 0.6 } } },
+    report: { payload: { verdict: "revise", abandon_recommended: false, scores: { ...scores(), suspense: 0.4 } } },
     intent: { payload: { target_duration_sec: 600 } },
   } as never;
   const ctx = { attemptNumber: 3, logger: { warn() {}, log() {}, error() {} } } as never;
@@ -46,7 +46,7 @@ test("watchability release still retries a below-bar script before attempt three
   const worker = makeWatchabilityReleaseWorker();
   const inputs = {
     script: { payload: { scenes: [{ scene_index: 0, point: "[scenario]", narration: "A valid spoken beat." }] } },
-    report: { payload: { verdict: "revise", abandon_recommended: false, scores: { ...scores(), suspense: 0.6 } } },
+    report: { payload: { verdict: "revise", abandon_recommended: false, scores: { ...scores(), suspense: 0.4 } } },
     intent: { payload: { target_duration_sec: 600 } },
   } as never;
   const ctx = { attemptNumber: 2, logger: { warn() {}, log() {}, error() {} } } as never;

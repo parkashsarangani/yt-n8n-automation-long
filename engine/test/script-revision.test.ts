@@ -29,7 +29,7 @@ const weakReport = {
   summary: "Scenes 0-1 spend too long on neutral setup before the concrete warning changes anything.",
   scores: {
     hook: 0.84, first_30_fidelity: 0.82, package_fidelity: 0.86, suspense: 0.76,
-    watchability: 0.71, entertainment: 0.73, payoff: 0.78, youtube_fit: 0.77,
+    watchability: 0.41, entertainment: 0.73, payoff: 0.78, youtube_fit: 0.77,
   },
 };
 
@@ -58,7 +58,7 @@ test("second external draft receives the exact prior script + matching critic as
   assert.deepEqual(result!.parents, [script1, report1]);
   assert.deepEqual(result!.payload.previous_script, priorScript);
   assert.equal(result!.payload.critic.weakest_dimension, "watchability");
-  assert.ok(result!.payload.release_failures.some((f) => f.startsWith("watchability=0.71")));
+  assert.ok(result!.payload.release_failures.some((f) => f.startsWith("watchability=0.41")));
   assert.ok(result!.payload.directives.some((d) => /neutral connective prose|change the situation/i.test(d)));
 });
 
