@@ -84,7 +84,7 @@ services:
       DRIVE_CLIENT_SECRET: ${DRIVE_CLIENT_SECRET:-}
       DRIVE_REFRESH_TOKEN: ${DRIVE_REFRESH_TOKEN:-}
       DRIVE_ROOT_FOLDER_ID: ${DRIVE_ROOT_FOLDER_ID:-}
-      SCHEDULE_EDITOR_WATCH_MINUTES: ${SCHEDULE_EDITOR_WATCH_MINUTES:-20}
+      SCHEDULE_EDITOR_WATCH_LOCAL_HOUR: ${SCHEDULE_EDITOR_WATCH_LOCAL_HOUR:-18}
       # Off by default: the editor publishes straight to YouTube today and
       # never returns a final.mp4 to Drive. Set true to resume polling for one.
       EDITOR_RETURN_WATCH_ENABLED: ${EDITOR_RETURN_WATCH_ENABLED:-}
