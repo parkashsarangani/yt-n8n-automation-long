@@ -23,7 +23,7 @@
     }
   ],
   "produces": "script",
-  "prompt": "narration_script_writer@14",
+  "prompt": "narration_script_writer@15",
   "model": {
     "capability": "reasoning_script",
     "max_output_tokens": 14000,
