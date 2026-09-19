@@ -134,6 +134,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "GET /api/performance/join") {
+      json(res, 200, await service.performanceJoin());
+      return;
+    }
+
     if (route === "GET /api/series") {
       json(res, 200, { episodes: socialSeriesCatalog() });
       return;

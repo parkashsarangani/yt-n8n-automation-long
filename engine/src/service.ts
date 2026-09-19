@@ -38,6 +38,7 @@ import { youtubeTokenFactory } from "./youtube-auth.ts";
 import { DriveProvider, type DriveExchange } from "./providers/drive.ts";
 import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
+import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
 import { assertEditorCutDuration, assertYouTubeProductionGeometry } from "./media/mp4.ts";
 import {
   FakeImageProvider,
@@ -1804,6 +1805,33 @@ export class VidGenService {
         .map(([prompt_ref, counts]) => ({ prompt_ref, ...counts }))
         .sort((a, b) => a.prompt_ref.localeCompare(b.prompt_ref)),
       offenders: offenders.slice(0, 25),
+    };
+  }
+
+  /**
+   * Measured performance joined to what produced it: prompt versions, and
+   * whether a human editor or the pipeline cut the episode.
+   *
+   * This is the feedback loop the project's own definition of done requires
+   * and has never had. It is read-only and calls no provider -- every number
+   * here was already measured and stored, just never put on the same row.
+   */
+  async performanceJoin(): Promise<{
+    episodes: JoinedEpisode[];
+    by_script_prompt: CohortSummary[];
+    by_package_prompt: CohortSummary[];
+  }> {
+    const rows = await this.store.index();
+    const artifacts: JoinArtifact[] = [];
+    for (const row of rows) {
+      const artifact = await this.store.get(row.artifact_id);
+      if (artifact) artifacts.push(artifact as unknown as JoinArtifact);
+    }
+    const episodes = joinPerformance(artifacts);
+    return {
+      episodes,
+      by_script_prompt: cohortByPrompt(episodes, "narration_script_writer"),
+      by_package_prompt: cohortByPrompt(episodes, "growth_packager"),
     };
   }
 
