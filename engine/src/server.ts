@@ -130,7 +130,12 @@ export function createUiServer(opts: ServerOptions) {
     }
 
     if (route === "GET /api/scripts/validation") {
-      json(res, 200, await service.validateArchivedScripts());
+      // ?agent=all widens the scope to every script in the archive, including
+      // those from retired agents that predate the scene-role contract.
+      const requested = url.searchParams.get("agent");
+      json(res, 200, await service.validateArchivedScripts(
+        requested === "all" ? { agent: null } : requested ? { agent: requested } : {},
+      ));
       return;
     }
 

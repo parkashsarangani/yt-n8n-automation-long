@@ -108,11 +108,41 @@ function stubFetch(handler: (url: string) => { status: number; body: unknown }) 
 }
 const ROW = (headers: string[], values: number[]) => ({ columnHeaders: headers.map((name) => ({ name })), rows: [values] });
 
-test("YouTube aggregate provider negotiates thumbnail metrics", async () => {
-  const { impl, calls } = stubFetch(() => ({ status: 200, body: ROW(["views", "videoThumbnailImpressions", "videoThumbnailImpressionsClickRate"], [1000, 50000, 5.8]) }));
+test("thumbnail impressions are not requested by default, and say why", async () => {
+  // They are not YouTube Analytics API metrics at all (Studio only), verified
+  // against the metrics reference 2026-09-20, so the API rejects them for
+  // every channel. Asking anyway cost a wasted round trip and, worse,
+  // reported "not supported by this API for this channel" -- which reads as
+  // a fixable scope or channel problem and sent an investigation after one.
+  const { impl, calls } = stubFetch(() => ({ status: 200, body: ROW(["views", "likes"], [1000, 12]) }));
   const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
   const { metrics } = await p.fetchEpisodeMetrics("vid", { start_date: "2026-07-18", end_date: "2026-08-14" });
-  assert.match(calls[0]!, /videoThumbnailImpressions/); assert.equal(metrics.impressions, 50000); assert.equal(metrics.click_through_rate, 0.058);
+
+  assert.equal(calls.length, 1, "no probe round trip");
+  assert.doesNotMatch(calls[0]!, /videoThumbnailImpressions/);
+  // Unknown, never zero -- a zero CTR would be a measurement, and there is none.
+  assert.equal(metrics.impressions, null);
+  assert.equal(metrics.click_through_rate, null);
+  assert.match(metrics.unavailable.join(" "), /not exposed by the YouTube Analytics API/);
+  assert.doesNotMatch(metrics.unavailable.join(" "), /for this channel/);
+});
+
+test("the impressions probe can be switched back on for the day the API gains them", async () => {
+  // Kept rather than deleted: if Google exposes these, re-enabling is one
+  // environment variable, not a rewrite.
+  const previous = process.env["YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS"];
+  process.env["YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS"] = "1";
+  try {
+    const { impl, calls } = stubFetch(() => ({ status: 200, body: ROW(["views", "videoThumbnailImpressions", "videoThumbnailImpressionsClickRate"], [1000, 50000, 5.8]) }));
+    const p = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: impl });
+    const { metrics } = await p.fetchEpisodeMetrics("vid", { start_date: "2026-07-18", end_date: "2026-08-14" });
+    assert.match(calls[0]!, /videoThumbnailImpressions/);
+    assert.equal(metrics.impressions, 50000);
+    assert.equal(metrics.click_through_rate, 0.058);
+  } finally {
+    if (previous === undefined) delete process.env["YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS"];
+    else process.env["YOUTUBE_ANALYTICS_PROBE_IMPRESSIONS"] = previous;
+  }
 });
 
 test("aggregate report with no rows is unavailable, never synthetic zero performance", async () => {
