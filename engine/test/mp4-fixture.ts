@@ -34,6 +34,26 @@ export function tkhd(width: number, height: number): Uint8Array {
   return box("tkhd", payload);
 }
 
+/** Movie header stating a programme duration, version 0 (32-bit fields). */
+export function mvhd(durationSec: number, timescale = 1000): Uint8Array {
+  const payload = new Uint8Array(100);
+  const view = new DataView(payload.buffer);
+  payload[0] = 0; // version 0
+  view.setUint32(4 + 8, timescale, false);
+  view.setUint32(4 + 12, Math.round(durationSec * timescale), false);
+  return box("mvhd", payload);
+}
+
+/** Version 1 movie header: 64-bit creation/modification and duration. */
+export function mvhd64(durationSec: number, timescale = 1000): Uint8Array {
+  const payload = new Uint8Array(120);
+  const view = new DataView(payload.buffer);
+  payload[0] = 1; // version 1
+  view.setUint32(4 + 16, timescale, false);
+  view.setBigUint64(4 + 20, BigInt(Math.round(durationSec * timescale)), false);
+  return box("mvhd", payload);
+}
+
 /** A zero-sized audio track plus a video track, which is what the reader expects. */
 export function mp4(width: number, height: number): Uint8Array {
   return box("moov", concat(box("trak", tkhd(0, 0)), box("trak", tkhd(width, height))));
@@ -42,4 +62,9 @@ export function mp4(width: number, height: number): Uint8Array {
 /** The production geometry every returned cut has to satisfy. */
 export function mp4_1080p(): Uint8Array {
   return mp4(1920, 1080);
+}
+
+/** Production geometry plus a stated duration, as a real returned cut has. */
+export function mp4_1080p_lasting(durationSec: number): Uint8Array {
+  return box("moov", concat(mvhd(durationSec), box("trak", tkhd(0, 0)), box("trak", tkhd(1920, 1080))));
 }

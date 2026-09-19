@@ -37,7 +37,9 @@ import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
 import { DriveProvider, type DriveExchange } from "./providers/drive.ts";
 import { driveTokenFactory } from "./drive-auth.ts";
-import { assertYouTubeProductionGeometry } from "./media/mp4.ts";
+import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
+import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
+import { assertEditorCutDuration, assertYouTubeProductionGeometry } from "./media/mp4.ts";
 import {
   FakeImageProvider,
   FakePublishTarget,
@@ -992,6 +994,23 @@ export class VidGenService {
           ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
           : null;
 
+        // The size check above proves the upload finished, not that this is
+        // the right episode. A complete 20-second fragment, or a different
+        // export dropped in this folder, passes every check before this one.
+        // Throwing here lands in the catch below: the run stays waiting and
+        // the operator is alerted, rather than the episode going public.
+        const cutDurationSec = assertEditorCutDuration(bytes, draft?.payload.duration_sec);
+        if (cutDurationSec === null) {
+          // Says so out loud, because "we could not verify" and "we verified
+          // and it passed" must not look the same in the logs. The cut still
+          // publishes: some valid containers state no duration, and refusing
+          // those would block real work to catch a rarer fault.
+          console.log(
+            `[editor-watch] run ${run.run_id.slice(4, 12)}: the returned cut states no duration, ` +
+            `so it could not be checked against the ${draft?.payload.duration_sec ?? "unknown"}s draft`,
+          );
+        }
+
         // Optional: the editor may also return a finished thumbnail. Two
         // candidates are as unresolvable here as two cuts, so neither is used.
         const thumbs = files.filter((f) => isEditorThumbnailFilename(f.name));
@@ -1015,7 +1034,14 @@ export class VidGenService {
           media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
           scene_count: draft?.payload.scene_count ?? 1,
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
-          ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
+          // The cut's own duration, or nothing at all. Copying the draft's
+          // made the artifact assert a length the published file did not have
+          // the moment the editor trimmed anything -- and that number is what
+          // downstream measurement reasons about. Falling back to the draft
+          // when the cut states no duration would reintroduce exactly that
+          // bug in the one case where we know least, so an unverifiable
+          // duration is recorded as absent rather than as a confident guess.
+          ...(cutDurationSec !== null ? { duration_sec: cutDurationSec } : {}),
         }, editorThumbnail);
         // Written before the approval, not after: a crash between publishing
         // and recording must not look like a fresh cut on the next pass. The
@@ -1721,6 +1747,101 @@ export class VidGenService {
     }
 
     return { measured, skipped, failed };
+  }
+
+  /**
+   * Run the deterministic structural checks over every script in the archive.
+   *
+   * Read-only and model-free: it answers, for zero cost, how much of the
+   * script prompt the model actually obeys. Grouping by prompt_ref is the
+   * point -- a rule violated at the same rate before and after the section
+   * that introduced it is a rule the model is ignoring, and prose telling it
+   * to try harder has already been shown not to help.
+   */
+  async validateArchivedScripts(): Promise<{
+    scripts: number;
+    clean: number;
+    by_rule: ViolationRate[];
+    by_prompt: Array<{ prompt_ref: string; scripts: number; clean: number }>;
+    offenders: Array<{
+      artifact_id: string;
+      run_id: string | null;
+      prompt_ref: string | null;
+      violations: ScriptViolation[];
+    }>;
+  }> {
+    const rows = (await this.store.index()).filter((r) => r.schema_id === "script");
+    const validations: ScriptValidation[] = [];
+    const byPrompt = new Map<string, { scripts: number; clean: number }>();
+    const offenders: Array<{
+      artifact_id: string;
+      run_id: string | null;
+      prompt_ref: string | null;
+      violations: ScriptViolation[];
+    }> = [];
+    let clean = 0;
+
+    for (const row of rows) {
+      const artifact = await this.store.get(row.artifact_id);
+      if (!artifact) continue;
+      const validation = validateScriptStructure(artifact.payload);
+      validations.push(validation);
+
+      const producedBy = artifact.produced_by as { run_id?: string; prompt_ref?: string } | undefined;
+      const promptRef = producedBy?.prompt_ref ?? "unknown";
+      const bucket = byPrompt.get(promptRef) ?? { scripts: 0, clean: 0 };
+      bucket.scripts += 1;
+      if (validation.ok) bucket.clean += 1;
+      byPrompt.set(promptRef, bucket);
+
+      if (validation.ok) clean += 1;
+      else {
+        offenders.push({
+          artifact_id: row.artifact_id,
+          run_id: producedBy?.run_id ?? null,
+          prompt_ref: producedBy?.prompt_ref ?? null,
+          violations: validation.violations,
+        });
+      }
+    }
+
+    offenders.sort((a, b) => b.violations.length - a.violations.length);
+    return {
+      scripts: validations.length,
+      clean,
+      by_rule: summariseViolations(validations),
+      by_prompt: [...byPrompt.entries()]
+        .map(([prompt_ref, counts]) => ({ prompt_ref, ...counts }))
+        .sort((a, b) => a.prompt_ref.localeCompare(b.prompt_ref)),
+      offenders: offenders.slice(0, 25),
+    };
+  }
+
+  /**
+   * Measured performance joined to what produced it: prompt versions, and
+   * whether a human editor or the pipeline cut the episode.
+   *
+   * This is the feedback loop the project's own definition of done requires
+   * and has never had. It is read-only and calls no provider -- every number
+   * here was already measured and stored, just never put on the same row.
+   */
+  async performanceJoin(): Promise<{
+    episodes: JoinedEpisode[];
+    by_script_prompt: CohortSummary[];
+    by_package_prompt: CohortSummary[];
+  }> {
+    const rows = await this.store.index();
+    const artifacts: JoinArtifact[] = [];
+    for (const row of rows) {
+      const artifact = await this.store.get(row.artifact_id);
+      if (artifact) artifacts.push(artifact as unknown as JoinArtifact);
+    }
+    const episodes = joinPerformance(artifacts);
+    return {
+      episodes,
+      by_script_prompt: cohortByPrompt(episodes, "narration_script_writer"),
+      by_package_prompt: cohortByPrompt(episodes, "growth_packager"),
+    };
   }
 
   /** Propose topics for the next episode. */
