@@ -140,6 +140,40 @@ test("an unsized file is skipped rather than trusted", async () => {
   assert.ok(!calls.includes("supplyEditorCut"));
 });
 
+test("the cut is recognised however the editor named or exported it", async () => {
+  // package.md asks for final.mp4, but Drive appends " (1)" to a re-uploaded
+  // file on its own, and editors reasonably export .mov or add a version.
+  for (const name of ["final.mp4", "Final.MP4", "final (1).mp4", "final_v2.mp4", "final.mov", "final.m4v"]) {
+    const { service, calls } = makeService([
+      { id: "file-final", name, mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
+    ]);
+    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 }, `expected ${name} to be imported`);
+    assert.ok(calls.includes("decide:editor_review"));
+  }
+});
+
+test("our own draft is never mistaken for the editor's cut", async () => {
+  // draft.mp4 is a video file we put in the folder ourselves. Publishing it
+  // would push the unedited draft live.
+  const { service, calls } = makeService([
+    { id: "file-draft", name: "draft.mp4", mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
+    { id: "file-thumb", name: "thumbnail.png", mimeType: "image/png", size: 4, bytes: new Uint8Array(4) },
+  ]);
+
+  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.ok(!calls.includes("decide:editor_review"));
+});
+
+test("two possible cuts are refused rather than guessed between", async () => {
+  const { service, calls } = makeService([
+    { id: "a", name: "final.mp4", mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
+    { id: "b", name: "final_v2.mp4", mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
+  ]);
+
+  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.ok(!calls.includes("decide:editor_review"), "publishing the wrong cut is not recoverable");
+});
+
 test("a folder without final.mp4 advances nothing", async () => {
   const { service, calls } = makeService([
     { id: "file-draft", name: "draft.mp4", mimeType: "video/mp4", size: 10, bytes: new Uint8Array(10) },
@@ -147,6 +181,35 @@ test("a folder without final.mp4 advances nothing", async () => {
 
   assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
   assert.deepEqual(calls, []);
+});
+
+test("an upload we cannot import alerts a human instead of waiting forever", async () => {
+  // The run is *waiting*, not failing, so nothing else would ever surface
+  // this: the editor uploads final.mvo, believes they are done, and without
+  // an alert the episode silently never ships.
+  const { service, calls } = makeService([
+    { id: "x", name: "final.mvo", mimeType: "video/quicktime", size: 10, bytes: new Uint8Array(10) },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  const posted: Array<{ reason: string; text: string }> = [];
+  process.env["OPERATOR_ALERT_WEBHOOK_URL"] = "https://example.test/hook";
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    posted.push(JSON.parse(String(init.body)));
+    return new Response(null, { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env["OPERATOR_ALERT_WEBHOOK_URL"];
+  }
+
+  assert.ok(!calls.includes("decide:editor_review"));
+  assert.equal(posted.length, 1);
+  assert.match(posted[0]!.reason, /cannot import/);
+  assert.match(posted[0]!.text, /final\.mvo/, "the alert must name the file so it can be renamed");
 });
 
 test("a webhook racing the poll collapses onto one pass, downloading once", async () => {

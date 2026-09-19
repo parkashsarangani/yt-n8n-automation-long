@@ -58,6 +58,8 @@ import {
 } from "./watchability-ledger.ts";
 import type { TransformationNode } from "./graph.ts";
 import { isPackageContractFailureMessage } from "./growth-package-contract.ts";
+import { isEditorCutFilename, isPipelineAuthoredFile } from "./workers/editor-package.ts";
+import { sendOperatorAlert } from "./operator-alerts.ts";
 import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
@@ -889,8 +891,23 @@ export class VidGenService {
         if (!handoff) continue;
 
         const files = await drive.listFiles(handoff.payload.drive_folder_id);
-        const final = files.find((f) => f.name.trim().toLowerCase() === "final.mp4");
-        if (!final) continue;
+        const candidates = files.filter((f) => isEditorCutFilename(f.name));
+
+        if (candidates.length === 0) {
+          // Nothing to import. If the editor has put something of their own in
+          // the folder, they believe they are done -- staying silent here is
+          // how a misnamed upload waits forever with nobody told.
+          const theirs = files.filter((f) => !isPipelineAuthoredFile(f.name));
+          if (theirs.length > 0) await this.reportUnrecognisedEditorUpload(run, theirs.map((f) => f.name));
+          continue;
+        }
+        if (candidates.length > 1) {
+          // Two plausible cuts: publishing the wrong one is not recoverable,
+          // and this codebase skips rather than guesses.
+          await this.reportAmbiguousEditorCut(run, candidates.map((f) => f.name));
+          continue;
+        }
+        const final = candidates[0]!;
 
         // A file is only a candidate once, even if a later pass somehow still
         // sees the run waiting -- publishing twice is not recoverable.
@@ -925,7 +942,9 @@ export class VidGenService {
 
         await this.supplyEditorCut(run.run_id, {
           bytes,
-          media_type: "video/mp4",
+          // Honour what the editor actually exported; .mov and .m4v are valid
+          // YouTube uploads and mislabelling them as mp4 helps nobody.
+          media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
           scene_count: draft?.payload.scene_count ?? 1,
           degraded_scenes: draft?.payload.degraded_scenes ?? 0,
           ...(draft?.payload.duration_sec !== undefined ? { duration_sec: draft.payload.duration_sec } : {}),
@@ -938,6 +957,33 @@ export class VidGenService {
       }
     }
     return { checked: runs.length, advanced };
+  }
+
+  /**
+   * The editor uploaded something, but nothing this run can import. Alerting
+   * (rather than only logging) is the point: the run is waiting, not failing,
+   * so no other signal would ever reach a human. sendOperatorAlert dedups on
+   * run+reason, so a folder left in this state pings at most once per cooldown
+   * instead of on every poll.
+   */
+  private async reportUnrecognisedEditorUpload(run: RunView, names: string[]): Promise<void> {
+    const detail = `found ${names.map((n) => `"${n}"`).join(", ")}; expected a cut named final.mp4 (.mov/.m4v also accepted)`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "the editor uploaded a file this run cannot import",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
+  }
+
+  private async reportAmbiguousEditorCut(run: RunView, names: string[]): Promise<void> {
+    const detail = `${names.length} possible cuts in the folder (${names.join(", ")}); leave exactly one so the right cut is published`;
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${detail}`);
+    await sendOperatorAlert({
+      run_id: run.run_id,
+      reason: "more than one candidate cut in the editor folder",
+      failures: [{ node_id: "editor_review", error: detail }],
+    });
   }
 
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {
