@@ -16,6 +16,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { VidGenService } from "../src/service.ts";
+// Real MP4 bytes: checkEditorReturns runs the actual geometry assertion.
+import { mp4_1080p as mp4 } from "./mp4-fixture.ts";
 
 interface FakeFile {
   id: string;
@@ -70,39 +72,6 @@ function makeService(files: FakeFile[], opts: { onDownload?: (id: string) => voi
   service.decide = async (_runId: string, nodeId: string) => { calls.push(`decide:${nodeId}`); };
 
   return { service, calls, records };
-}
-
-// A real (if minimal) 1080p MP4, because checkEditorReturns runs the actual
-// assertYouTubeProductionGeometry on whatever it downloads. Same box builder
-// as mp4-geometry.test.ts.
-function concat(...parts: Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
-function box(type: string, payload: Uint8Array): Uint8Array {
-  const out = new Uint8Array(8 + payload.length);
-  new DataView(out.buffer).setUint32(0, out.length, false);
-  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
-  out.set(payload, 8);
-  return out;
-}
-
-function tkhd(width: number, height: number): Uint8Array {
-  const payload = new Uint8Array(84);
-  const view = new DataView(payload.buffer);
-  view.setUint32(76, Math.round(width * 65536), false);
-  view.setUint32(80, Math.round(height * 65536), false);
-  return box("tkhd", payload);
-}
-
-function mp4(): Uint8Array {
-  return box("moov", concat(box("trak", tkhd(0, 0)), box("trak", tkhd(1920, 1080))));
 }
 
 /**

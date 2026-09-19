@@ -214,7 +214,8 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
         "Export your finished cut as `final.mp4` and upload it into this same folder when done. A .mov or .m4v export is fine, and a name like `final_v2.mp4` still works — but leave exactly one `final*` video here, or nothing is imported.",
         "Keep useful stock shots and replace any weak or misleading match with your own images/footage. Stock illustrates a situation; it does not depict the actual narrated people or events. Background-only scenes still need your visual treatment.",
         "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
-        "The title and description below are reference context. Only your final cut is automatically imported from this folder; everything else here is ours.",
+        "Optional: if you want your own thumbnail used, upload it as `thumbnail-final.png` (.jpg/.webp fine). `thumbnail.png` and `thumbnail-artwork.png` here are ours — the composited version and the raw generated artwork to work from. Without a `thumbnail-final`, ours is published.",
+        "The title and description below are reference context. Only your final cut and thumbnail are imported from this folder; everything else here is ours.",
         "Keep or replace the thumbnail candidate. thumbnail-prompt.json records its prompt and status; thumbnail-artwork.png (or .jpg), when available, is the accepted artwork without title text. Coordinate any thumbnail replacement with the operator; it is not automatically imported.",
         thumbnail.background === "gradient"
           ? "THUMBNAIL NEEDS REPLACEMENT: artwork was unavailable or rejected. thumbnail.png is a placeholder; flag it to the operator for replacement before publication. Editing it here does not automatically update the publishing thumbnail."
