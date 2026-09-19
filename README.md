@@ -27,8 +27,9 @@ Both are published to `127.0.0.1` only — deliberately, since the local Studio 
 | `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` | Stock media sources | Unmatched scenes use the background |
 | Drive OAuth trio + `DRIVE_ROOT_FOLDER_ID` | Editor hand-off | Runs cannot reach the editor |
 | `OPERATOR_ALERT_WEBHOOK_URL` | Alert when a run is abandoned | Failures are only logged |
-| `EDITOR_RETURN_WATCH_ENABLED` | Poll Drive for the editor's returned cut | Runs stop at `editor_review`, nothing publishes |
-| `EDITOR_RETURN_WEBHOOK_TOKEN` | Secret for the off-box pickup webhook | That route 404s; the poll still works |
+| `EDITOR_RETURN_WATCH_ENABLED` | Daily sweep for the editor's returned cut | Runs stop at `editor_review`, nothing publishes |
+| `SCHEDULE_EDITOR_WATCH_LOCAL_HOUR` | Hour of that sweep (default 18) | 18:00 in the produce timezone |
+| `EDITOR_RETURN_WEBHOOK_TOKEN` | Enables the on-demand pickup route (unset = off) | That route 404s; the daily sweep still runs |
 | YouTube OAuth trio | Upload and analytics | Dry-run publishing / no analytics |
 | `AMOS_ALLOW_PUBLISH` | Explicit upload switch | No live upload |
 
@@ -50,7 +51,7 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 **There is no confirmation step.** A returned cut becomes a live public video, by operator decision; the only automatic brake is `qa`, which downgrades to private on a non-clean report. If the folder holds no importable cut but does hold editor-added files, or holds two possible cuts, the run alerts instead of waiting silently — a misnamed upload would otherwise stall the episode forever with nobody told. Two further guards protect the bytes rather than the decision: a returned file is only consumed once its size is stable between the download and a re-read of the listing (Drive lists a file when it is *created*, not when the upload finishes), and concurrent callers collapse onto one pass so a webhook cannot race the poll into publishing twice.
 
-Pickup is by poll every `SCHEDULE_EDITOR_WATCH_MINUTES`, gated on `EDITOR_RETURN_WATCH_ENABLED` (`true`, `1` or `yes`). For immediate pickup, `POST /api/editor-returns/check` triggers the same check — it is the **only** route reachable from off-box, requires the `EDITOR_RETURN_WEBHOOK_TOKEN` shared secret in an `x-webhook-token` header, and 404s entirely when that secret is unset. The poll stays on as a fallback so publishing never depends on a webhook firing.
+Pickup is a single daily sweep at `SCHEDULE_EDITOR_WATCH_LOCAL_HOUR` (default 18:00 Europe/Berlin), gated on `EDITOR_RETURN_WATCH_ENABLED` (`true`, `1` or `yes`). Whatever is in the folder by then is published that evening; anything later waits for the next sweep. `POST /api/editor-returns/check` runs the same check on demand and is the only route reachable from off-box, but it is dormant: it requires `EDITOR_RETURN_WEBHOOK_TOKEN` in an `x-webhook-token` header and 404s entirely while that is unset, which it is. A Drive push trigger was evaluated and dropped — episode folders are subfolders of the root, which folder-scoped Drive triggers do not see, and the latency it bought was not worth a second auth surface that can silently stop firing.
 
 ## When a run fails
 

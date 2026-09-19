@@ -192,7 +192,15 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const maxCandidateAttempts = Math.max(1, Math.min(6, Number(process.env["SCHEDULE_MAX_TOPIC_ATTEMPTS"] ?? 3) || 3));
   const analyticsReal = service.capabilities().some((s) => s.id === "analytics" && s.real);
   const editorHandoffReal = service.capabilities().some((s) => s.id === "editor_handoff" && s.real);
-  const editorWatchMinutes = Math.max(5, Number(process.env["SCHEDULE_EDITOR_WATCH_MINUTES"] ?? 20) || 20);
+  // One sweep a day, in the early evening: the editor works through the day
+  // and an episode is not more valuable for going live fifteen minutes
+  // sooner. Polling Drive every twenty minutes bought nothing and spent API
+  // calls on every parked run each time.
+  const requestedWatchHour = Number(process.env["SCHEDULE_EDITOR_WATCH_LOCAL_HOUR"] ?? 18);
+  const editorWatchHour =
+    Number.isInteger(requestedWatchHour) && requestedWatchHour >= 0 && requestedWatchHour <= 23
+      ? requestedWatchHour
+      : 18;
   // The editor currently publishes straight to YouTube and never drops a
   // final.mp4 back into Drive, so polling for one only wastes Drive API
   // calls and produces "advanced 0" log noise forever. Off by default;
@@ -307,9 +315,10 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       if (result.failed.length) throw new Error(`Measurement failed for ${result.failed.length} episode(s): ${result.failed[0]!.error}`);
     } },
     {
-      id: "editor_watch", everyHours: editorWatchMinutes / 60, enabled: editorHandoffReal && editorReturnWatchEnabled,
+      id: "editor_watch", everyHours: 24, enabled: editorHandoffReal && editorReturnWatchEnabled,
+      localSchedule: { hour: editorWatchHour, timeZone },
       description: editorReturnWatchEnabled
-        ? `check every run parked at editor_review for a returned final.mp4 in its Drive folder (every ${editorWatchMinutes}m)`
+        ? `check every run parked at editor_review for a returned cut in its Drive folder, once daily at ${editorWatchHour}:00 ${timeZone}`
         : "disabled -- editor_review is the pipeline's finish line today; set EDITOR_RETURN_WATCH_ENABLED to resume polling Drive for a returned cut",
       async run() {
         const result = await service.checkEditorReturns();

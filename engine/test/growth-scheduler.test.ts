@@ -81,7 +81,13 @@ test("editor_watch is off by default and only polls Drive when explicitly re-ena
     process.env["EDITOR_RETURN_WATCH_ENABLED"] = "true";
     const on = startGrowthScheduler(service);
     try {
-      assert.equal(on.status().find((j) => j.id === "editor_watch")!.enabled, true);
+      const job = on.status().find((j) => j.id === "editor_watch")!;
+      assert.equal(job.enabled, true);
+      // One sweep a day, not an interval: the editor works through the day and
+      // polling Drive every 20 minutes spent API calls on every parked run for
+      // no gain.
+      assert.match(job.description, /once daily at 18:00 Europe\/Berlin/);
+      assert.equal(job.every_hours, 24);
     } finally { on.stop(); }
   } finally {
     if (previous === undefined) delete process.env["EDITOR_RETURN_WATCH_ENABLED"];
