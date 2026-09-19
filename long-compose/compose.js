@@ -157,7 +157,14 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
-    const safeArtwork=!stock.file && options.image_base64 && await artworkHasNoText(background,dir);
+    // Generated artwork is used whenever there is no stock clip. There used to
+    // be an OCR gate here (artworkHasNoText) that rejected any artwork tesseract
+    // thought contained text; it rejected three of four clean stock photos in
+    // testing, which is why every published episode fell back to a flat
+    // gradient. The gate was removed, and the subtitle band below already
+    // draws over y=810..1080, so text near the caption area cannot collide
+    // with the captions regardless.
+    const safeArtwork=!stock.file && !!options.image_base64;
     let elapsed=0;
     const cardMasks=ordered.map((scene,i)=>{
       const start=elapsed+(stageScenes[i].footage_duration||0);elapsed+=durations[i];
