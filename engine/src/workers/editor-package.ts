@@ -50,6 +50,24 @@ export function isEditorCutFilename(name: string): boolean {
 }
 
 /**
+ * The media types a returned cut may carry, matching the extensions accepted
+ * above. YouTube uploads all three.
+ *
+ * Exported so the QA gate uses the same list rather than its own. It did not:
+ * intake accepted .mov and preserved its real media type, QA hard-failed
+ * anything that was not exactly video/mp4, and the first cut the editor ever
+ * returned was a QuickTime file. It imported cleanly, passed every geometry
+ * and duration check, and then parked at approve_publish on a verdict of
+ * "fail" -- one half of the system permitting what the other half rejected.
+ * Keeping the list in one place is the fix; the widening is incidental.
+ */
+export const EDITOR_CUT_MEDIA_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/x-m4v",
+]);
+
+/**
  * An optional finished thumbnail. Same shape of rule as the cut, and likewise
  * never our own `thumbnail.png`/`thumbnail-artwork.png`: those are what the
  * editor works *from*.
