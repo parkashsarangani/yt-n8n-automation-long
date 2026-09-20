@@ -32,14 +32,30 @@ function soundScript() {
     scenes: [
       scene("[scenario] An idea loses its author", `Do you ever sit in a meeting and hear your own idea repeated back as someone else's? ${words(14)} "That was my plan."`),
       scene("[response_a] The correction becomes a dispute", `You interrupt. ${words(22)} "Actually, that was mine."`),
-      scene("[response_b] Name the work", `You try again. ${words(22)} "I drafted the pilot."`),
       scene("[explanation] Separate the contributions", `What went wrong for you was not the claim. ${words(32)}`),
-      scene("[limitations] Uneven stakes", `You may not have the standing here. ${words(23)}`),
       scene("[exercise] Rehearse one sentence", `Try this with your own last unrecognised contribution. ${words(22)}`),
+      scene("[response_b] Name the work", `You try again. ${words(22)} "I drafted the pilot."`),
+      scene("[limitations] Uneven stakes", `You may not have the standing here. ${words(20)} "We all discussed it."`),
       scene("[payoff] Answer for your design", `You get to explain it. ${words(24)} "Why two days?" she asks. Which would you choose?`),
       scene("[bridge] When the boss takes credit", words(15), { is_outro: true }),
     ],
   };
+}
+
+/** The shape the real @16 run produced: teaching stacked three deep. */
+function lecturedMiddle() {
+  const script = soundScript();
+  script.scenes = [
+    script.scenes[0]!,
+    script.scenes[1]!,
+    scene("[explanation] Separate the contributions", `What went wrong for you was not the claim. ${words(24)}`),
+    scene("[limitations] Uneven stakes", `You may not have the standing here. ${words(18)}`),
+    scene("[exercise] Rehearse one sentence", `Try this with your own contribution. ${words(18)}`),
+    scene("[response_b] Name the work", `You try again. ${words(18)} "I drafted the pilot."`),
+    script.scenes[6]!,
+    script.scenes[7]!,
+  ];
+  return script;
 }
 
 test("a structurally sound script produces no violations", () => {
@@ -69,8 +85,9 @@ test("a first reply arriving past the ceiling is caught", () => {
 });
 
 test("stacked explanation scenes are caught", () => {
+  // Immediately after the [explanation] at index 2, so the two are adjacent.
   const script = soundScript();
-  script.scenes.splice(4, 0, scene("[explanation] More explaining", words(30)));
+  script.scenes.splice(3, 0, scene("[explanation] More explaining", words(30)));
   const result = validateScriptStructure(script);
   assert.ok(result.violations.some((v) => v.rule === "stacked_explanation"));
 });
@@ -237,6 +254,62 @@ test("second-person narration of the listener's own scene is never a diagnosis",
   const result = validateScriptStructure(script);
   assert.ok(!result.violations.some((v) => v.rule === "character_diagnosis"));
   assert.ok(!result.violations.some((v) => v.rule === "protagonist_not_the_listener"));
+});
+
+test("three teaching beats in a row are caught even under three different tags", () => {
+  // The real @16 script (run_8fca1603, 2026-09-20): every rule passed, and
+  // the middle was still [explanation] -> [limitations] -> [exercise]. The
+  // older stacked_explanation rule compares explanation to explanation, so a
+  // run wearing three different labels walked straight through it.
+  const result = validateScriptStructure(lecturedMiddle());
+  const violation = result.violations.find((v) => v.rule === "teaching_run");
+  assert.ok(violation, `expected a teaching run: ${result.violations.map((v) => v.rule).join(", ") || "none"}`);
+  assert.match(violation!.detail, /\[explanation\] -> \[limitations\] -> \[exercise\]/);
+  // The rule it slipped past, to show why the new one was needed.
+  assert.ok(!result.violations.some((v) => v.rule === "stacked_explanation"));
+});
+
+test("two teaching beats in a row are fine; the third is not", () => {
+  const twoInARow = {
+    scenes: [
+      scene("[scenario] An idea loses its author", `Do you ever hear your own idea repeated back? ${words(8)} "That was my plan."`),
+      scene("[response_a] It becomes a dispute", `You interrupt. ${words(12)} "Actually, that was mine."`),
+      scene("[explanation] What went wrong for you", `Your claim was fair. ${words(14)}`),
+      scene("[exercise] Rehearse before you try again", `Try your own version. ${words(14)}`),
+      scene("[response_b] You try again", `You pause. ${words(12)} "I drafted the pilot."`),
+      scene("[limitations] The stakes are uneven for you", `You may not have standing. ${words(12)}`),
+      scene("[payoff] You answer for your design", `You get the floor. ${words(10)} "Why two days?" Which would you try?`),
+      scene("[bridge] When the boss takes credit", words(12), { is_outro: true }),
+    ],
+  };
+  const result = validateScriptStructure(twoInARow);
+  assert.ok(
+    !result.violations.some((v) => v.rule === "teaching_run"),
+    `two adjacent teaching beats must be allowed: ${JSON.stringify(result.violations)}`,
+  );
+});
+
+test("relabelling a teaching run as drama is caught by the dialogue drought", () => {
+  // The tag rule is keyed off labels the model chooses, so it is gameable by
+  // relabelling. A long stretch with nobody speaking is the same flatness
+  // whatever the tags claim.
+  const relabelled = {
+    scenes: [
+      scene("[scenario] An idea loses its author", `Do you ever hear your own idea repeated back? "That was my plan."`),
+      scene("[response_a] You describe what happened", `You interrupt, and the room moves on without you. ${words(12)}`),
+      scene("[response_b] You consider the alternative", `You could have linked it to Tuesday instead. ${words(12)}`),
+      scene("[explanation] What went wrong for you", `Your claim was fair. ${words(12)}`),
+      scene("[payoff] You get the floor", `Your manager turns to you and you explain your draft. ${words(10)} Which would you try?`),
+      scene("[limitations] Uneven stakes for you", `You may not have standing. ${words(10)} "Walk us through it."`),
+      scene("[exercise] Rehearse once", `Try your own version. ${words(10)} "As I suggested Tuesday."`),
+      scene("[bridge] When the boss takes credit", words(12), { is_outro: true }),
+    ],
+  };
+  const result = validateScriptStructure(relabelled);
+  assert.ok(
+    result.violations.some((v) => v.rule === "dialogue_drought"),
+    `expected a drought: ${result.violations.map((v) => v.rule).join(", ")}`,
+  );
 });
 
 test("KNOWN GAP: habitual trait claims are not detected, and that is deliberate", () => {
