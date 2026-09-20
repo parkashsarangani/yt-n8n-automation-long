@@ -1139,6 +1139,33 @@ export class VidGenService {
     });
   }
 
+  /**
+   * Re-drive a parked run without deciding anything at its gate.
+   *
+   * The gap this fills: when a gate's auto-pass predicate fails because of a
+   * bug upstream, fixing the bug is not enough -- something has to re-drive
+   * the run, and the only way to do that was decide(), which supplies a human
+   * decision and so bypasses the predicate entirely. On a gate that guards an
+   * unattended public upload that is exactly the wrong instrument: it
+   * substitutes an operator's approval for the policy's.
+   *
+   * Passing no decisions means every gate re-evaluates its own auto_pass_if
+   * against current artifacts, and a version-stale node re-runs first, so the
+   * run proceeds only if it now genuinely qualifies. Real case: a QA check
+   * rejected the editor's .mov, the check was fixed and its worker version
+   * bumped, and the run needed to re-reach approve_publish on a clean verdict
+   * rather than on someone waving it through.
+   */
+  async reEvaluate(runId: string): Promise<void> {
+    const state = this.runs.get(runId);
+    if (!state) throw new Error(`unknown run ${runId}`);
+    if (!state.finished) throw new Error(`run ${runId} is still executing`);
+    state.finished = false;
+    state.error = null;
+    const graph = this.resolveRunGraph(state.graph);
+    void this.drive(runId, () => this.executor.resume(graph, runId, {}, { presetOutputs: state.presetOutputs }));
+  }
+
   async decide(runId: string, nodeId: string, decision: GateDecision): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);

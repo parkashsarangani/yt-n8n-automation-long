@@ -230,6 +230,16 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // Re-drive a parked run and let its gates re-evaluate their own auto-pass
+    // predicates. Deliberately separate from /decide: this asks whether the
+    // run now qualifies, rather than asserting that a human says it does.
+    const reEvaluateMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)\/re-evaluate$/.exec(url.pathname);
+    if (req.method === "POST" && reEvaluateMatch) {
+      await service.reEvaluate(reEvaluateMatch[1]!);
+      json(res, 202, { ok: true, run_id: reEvaluateMatch[1]! });
+      return;
+    }
+
     const decideMatch = /^\/api\/runs\/([A-Za-z0-9_-]+)\/decide$/.exec(url.pathname);
     if (req.method === "POST" && decideMatch) {
       const body = (await readJson(req)) as {
