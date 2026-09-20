@@ -2,8 +2,8 @@
   "schema_id": "published_episode",
   "version": "1.0.0",
   "status": "active",
-  "description": "The terminal artifact of a production. Records where the video went and under what conditions — including whether the custom thumbnail was actually accepted, because a silent fallback to an auto-selected frame changes CTR and would otherwise be invisible.",
-  "produced_by": ["publish"],
+  "description": "The terminal artifact of a production. Records where the video went and under what conditions — including whether the custom thumbnail was actually accepted, because a silent fallback to an auto-selected frame changes CTR and would otherwise be invisible. Written by the publish worker, or by publish_adopted for an episode a human published by hand and which was later matched back to its run so it can be measured; the producer is the only thing distinguishing the two, so it is recorded rather than flattened.",
+  "produced_by": ["publish", "publish_adopted"],
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "PublishedEpisodeArtifact",

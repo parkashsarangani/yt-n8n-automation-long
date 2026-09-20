@@ -144,6 +144,24 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "GET /api/episodes/adoption") {
+      json(res, 200, await service.proposeEpisodeAdoption());
+      return;
+    }
+
+    if (route === "POST /api/episodes/adopt") {
+      // One explicit pair per call. There is deliberately no "adopt all":
+      // pairing the wrong video to a run misattributes real retention to the
+      // wrong script prompt, permanently and silently.
+      const body = (await readJson(req)) as { run_id?: string; video_id?: string };
+      if (!body.run_id || !body.video_id) {
+        json(res, 400, { error: "run_id and video_id are required" });
+        return;
+      }
+      json(res, 201, await service.adoptEpisode(String(body.run_id), String(body.video_id)));
+      return;
+    }
+
     if (route === "GET /api/series") {
       json(res, 200, { episodes: socialSeriesCatalog() });
       return;

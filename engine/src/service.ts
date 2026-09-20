@@ -39,6 +39,7 @@ import { DriveProvider, type DriveExchange } from "./providers/drive.ts";
 import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
 import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
+import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type ChannelVideo } from "./episode-adoption.ts";
 import { assertEditorCutDuration, assertYouTubeProductionGeometry } from "./media/mp4.ts";
 import {
   FakeImageProvider,
@@ -1860,6 +1861,109 @@ export class VidGenService {
       by_script_prompt: cohortByPrompt(episodes, "narration_script_writer"),
       by_package_prompt: cohortByPrompt(episodes, "growth_packager"),
     };
+  }
+
+  /** The title a run asked YouTube for, from its released growth package. */
+  private async runSelectedTitle(runId: string): Promise<string | null> {
+    const records = await this.runRecords(runId);
+    for (const nodeId of ["package_release", "package"]) {
+      const output = records.filter((r) => r.node_id === nodeId && r.output).pop()?.output;
+      if (!output) continue;
+      const artifact = await this.store.get<{ selected_title?: unknown }>(output);
+      const title = artifact?.payload?.selected_title;
+      if (typeof title === "string" && title.trim()) return title.trim();
+    }
+    return null;
+  }
+
+  /** Runs that finished production but have no published_episode recorded. */
+  private async runsMissingPublishRecord(): Promise<AdoptableRun[]> {
+    const published = new Set<string>();
+    for (const row of (await this.store.index()).filter((r) => r.schema_id === "published_episode")) {
+      const artifact = await this.store.get(row.artifact_id);
+      const runId = (artifact?.produced_by as { run_id?: string } | undefined)?.run_id;
+      if (runId) published.add(runId);
+    }
+
+    const out: AdoptableRun[] = [];
+    for (const run of this.listRuns()) {
+      if (published.has(run.run_id)) continue;
+      const title = await this.runSelectedTitle(run.run_id);
+      if (!title) continue;
+      out.push({ run_id: run.run_id, title });
+    }
+    return out;
+  }
+
+  /**
+   * Propose which channel videos belong to which runs. Read-only: it writes
+   * nothing and applies nothing, because a wrong pairing attributes real
+   * retention to the wrong prompt permanently.
+   */
+  async proposeEpisodeAdoption(): Promise<AdoptionProposal & { channel_videos: number }> {
+    const analytics = this.analyticsProvider;
+    if (!analytics || typeof (analytics as { listChannelUploads?: unknown }).listChannelUploads !== "function") {
+      throw new Error("adoption needs a YouTube analytics provider that can list channel uploads");
+    }
+    const videos = await (analytics as unknown as {
+      listChannelUploads: (limit?: number) => Promise<ChannelVideo[]>;
+    }).listChannelUploads();
+    const runs = await this.runsMissingPublishRecord();
+    return { ...proposeAdoptions(runs, videos), channel_videos: videos.length };
+  }
+
+  /**
+   * Record one hand-published episode against its run, so measurement can
+   * find it. Deliberately one explicit pair at a time rather than "apply all
+   * proposals": the operator confirms each mapping, and an ambiguous title
+   * simply cannot be adopted by accident.
+   */
+  async adoptEpisode(runId: string, videoId: string): Promise<{ artifact_id: string; title: string }> {
+    if (!this.runs.has(runId)) throw new Error(`unknown run ${runId}`);
+
+    for (const row of (await this.store.index()).filter((r) => r.schema_id === "published_episode")) {
+      const artifact = await this.store.get<{ external_id?: string }>(row.artifact_id);
+      const producedRun = (artifact?.produced_by as { run_id?: string } | undefined)?.run_id;
+      if (producedRun === runId) throw new Error(`run ${runId} already has a published_episode`);
+      if (artifact?.payload?.external_id === videoId) {
+        throw new Error(`video ${videoId} is already recorded against run ${producedRun ?? "unknown"}`);
+      }
+    }
+
+    const analytics = this.analyticsProvider;
+    if (!analytics) throw new Error("adoption needs a YouTube analytics provider");
+    const videos = await (analytics as unknown as {
+      listChannelUploads: (limit?: number) => Promise<ChannelVideo[]>;
+    }).listChannelUploads();
+    const video = videos.find((v) => v.video_id === videoId);
+    if (!video) throw new Error(`video ${videoId} is not on this channel`);
+
+    // Visibility is read live rather than assumed: a private or unlisted
+    // episode must not enter the feedback loop, and measureAll would skip it
+    // anyway -- better to refuse here than to write a row that never measures.
+    const visibility = await analytics.fetchVisibility([videoId]);
+    if (visibility[videoId] !== "public") {
+      throw new Error(`video ${videoId} is ${visibility[videoId] ?? "unknown"}, not public; only public episodes are measured`);
+    }
+
+    const artifact = await this.store.put({
+      schema_id: "published_episode",
+      payload: {
+        target: "youtube",
+        external_id: videoId,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        title: video.title,
+        published_at: video.published_at ?? new Date().toISOString(),
+        privacy: "public",
+      },
+      blobs: [],
+      // Not "publish": this episode was uploaded by a human, and flattening
+      // that distinction would make hand-published and pipeline-published
+      // episodes indistinguishable in the very table used to judge the
+      // pipeline.
+      produced_by: { transformation: "publish_adopted", version: "1", run_id: runId, provider: "youtube" },
+    });
+    return { artifact_id: artifact.artifact.artifact_id, title: video.title };
   }
 
   /** Propose topics for the next episode. */

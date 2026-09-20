@@ -128,6 +128,69 @@ export class YouTubeAnalyticsProvider implements AnalyticsProvider {
     return out;
   }
 
+  /**
+   * Every video on the authenticated channel, newest first.
+   *
+   * Needed to adopt episodes that were published by hand: the pipeline knows
+   * the title it asked for but not the video id YouTube assigned. Reads the
+   * channel's uploads playlist rather than the search endpoint, because
+   * search is eventually consistent and omits recent or private uploads --
+   * exactly the ones most likely to need adopting.
+   */
+  async listChannelUploads(limit = 200): Promise<Array<{ video_id: string; title: string; published_at: string | null }>> {
+    const token = await this.token();
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const channelUrl = new URL(`${this.dataApiUrl}/channels`);
+    channelUrl.searchParams.set("part", "contentDetails");
+    channelUrl.searchParams.set("mine", "true");
+    const channelRes = await this.fetchImpl(channelUrl.toString(), { headers });
+    if (!channelRes.ok) {
+      throw new ProviderError(`youtube channel lookup failed (${channelRes.status}): ${(await channelRes.text()).slice(0, 220)}`);
+    }
+    const channelBody = (await channelRes.json()) as {
+      items?: Array<{ contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
+    };
+    const uploads = channelBody.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploads) throw new ProviderError("youtube channel returned no uploads playlist for the authenticated account");
+
+    const out: Array<{ video_id: string; title: string; published_at: string | null }> = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${this.dataApiUrl}/playlistItems`);
+      url.searchParams.set("part", "snippet,contentDetails");
+      url.searchParams.set("playlistId", uploads);
+      url.searchParams.set("maxResults", "50");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+      const res = await this.fetchImpl(url.toString(), { headers });
+      if (!res.ok) {
+        throw new ProviderError(`youtube uploads listing failed (${res.status}): ${(await res.text()).slice(0, 220)}`);
+      }
+      const body = (await res.json()) as {
+        nextPageToken?: string;
+        items?: Array<{
+          snippet?: { title?: string; publishedAt?: string };
+          contentDetails?: { videoId?: string; videoPublishedAt?: string };
+        }>;
+      };
+      for (const item of body.items ?? []) {
+        const videoId = item.contentDetails?.videoId;
+        const title = item.snippet?.title;
+        if (!videoId || !title) continue;
+        out.push({
+          video_id: videoId,
+          title,
+          published_at: item.contentDetails?.videoPublishedAt ?? item.snippet?.publishedAt ?? null,
+        });
+        if (out.length >= limit) return out;
+      }
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+
+    return out;
+  }
+
   async fetchEpisodeMetrics(
     externalId: string,
     window: AnalyticsWindow,
