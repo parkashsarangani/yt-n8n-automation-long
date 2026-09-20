@@ -29,6 +29,13 @@ export const NAVIGATION_LABEL_CHAR_CAP = 48;
 export const PAYOFF_MIN_POSITION_RATIO = 2 / 3;
 /** One opening address plus one closing discussion invitation. */
 export const MAX_NARRATOR_QUESTIONS = 2;
+/**
+ * Share of substantive scenes that must address the listener outside
+ * dialogue. Not 100 percent: an explanation beat may legitimately describe
+ * the mechanism rather than the listener, and demanding a "you" in every
+ * scene would be satisfied with filler.
+ */
+export const SECOND_PERSON_SCENE_COVERAGE = 0.7;
 
 /**
  * Direct address. The episode opens by putting the listener inside a moment
@@ -48,10 +55,11 @@ export const SECOND_PERSON = /\b(you|your|you're|you've|you'd|you'll|yours|yours
  * this channel's audience is by definition people who may already feel
  * inadequate. Situations are shared; character judgements are not.
  *
- * Deliberately narrow: it matches the copular and habitual constructions that
- * assert a trait ("you are shy", "you always freeze", "if you're anxious"),
- * not any sentence containing "you". A broad rule here would reject the
- * situation-naming the prompt now requires.
+ * Deliberately narrow: it matches copular trait claims ("you are shy", "you're
+ * the kind of person who", "if you're anxious"), not any sentence containing
+ * "you". The whole episode is now written with the listener as protagonist, so
+ * a broad rule would reject the second-person narration the prompt requires --
+ * "you said nothing" is the scenario, not a judgement.
  */
 export const CHARACTER_DIAGNOSIS = new RegExp(
   [
@@ -62,8 +70,12 @@ export const CHARACTER_DIAGNOSIS = new RegExp(
     "|\\byou(?:'re| are)\\s+(?:a|an|the)\\s+(?:kind|type|sort)\\s+of\\s+(?:person|people|one)\\b",
     "|\\byou(?:'re| are)\\s+(?:someone|somebody)\\s+who\\b",
     "|\\bif\\s+you(?:'re| are)\\s+(?:shy|anxious|awkward|insecure|timid|nervous|passive|weak|incapable|inadequate|unconfident)",
-    "|\\byou\\s+(?:always|never)\\s+\\w+",
     "|\\byou\\s+(?:lack|can't\\s+seem\\s+to|have\\s+never\\s+been\\s+able\\s+to)\\b",
+    // Deliberately NOT matching "you always/never <verb>". Now that the whole
+    // episode is written with the listener as protagonist, "you never said a
+    // word" is scene narration, not a trait claim, and the two are not
+    // separable by pattern. A rule that rejects correct scripts is worse than
+    // no rule; the copular forms above carry the real signal.
   ].join(""),
   "i",
 );
@@ -105,8 +117,8 @@ export type ViolationRule =
   | "label_too_long"
   | "no_direct_address"
   | "no_opening_question"
-  | "address_dropped_after_hook"
-  | "character_diagnosis";
+  | "character_diagnosis"
+  | "protagonist_not_the_listener";
 
 export interface ScriptViolation {
   /** Stable identifier so violation rates can be counted per rule over time. */
@@ -305,17 +317,29 @@ export function validateScriptStructure(payload: unknown): ScriptValidation {
       detail: "the opening scene asks the listener nothing",
     });
   }
-  // Addressing the listener once and then performing at them for three
-  // minutes is the failure this catches: the hook reads personal, the
-  // episode does not.
-  const addressedAfterHook = substantive
-    .slice(1)
-    .some((s) => SECOND_PERSON.test(stripDialogue(s.narration)));
-  if (substantive.length > 1 && !addressedAfterHook) {
-    violations.push({
-      rule: "address_dropped_after_hook",
-      detail: "the listener is addressed in the opening and never again outside dialogue",
-    });
+  // The episode is the listener's story, not a story told near them, so the
+  // second person has to carry the whole thing rather than decorate the hook.
+  // Two separate failures, because they need different fixes:
+  //
+  //   - dropped entirely after the opening: a personal hook bolted onto a
+  //     third-person demonstration.
+  //   - present but sparse: the drift seen in production, where an episode
+  //     opens on "you" and then follows a named stranger for six scenes.
+  //
+  // Measured outside dialogue: a character saying "you" to another character
+  // is not the narrator addressing the viewer.
+  const addressedScenes = substantive.filter((s) => SECOND_PERSON.test(stripDialogue(s.narration)));
+  if (substantive.length > 0) {
+    const coverage = addressedScenes.length / substantive.length;
+    if (coverage < SECOND_PERSON_SCENE_COVERAGE) {
+      violations.push({
+        rule: "protagonist_not_the_listener",
+        detail:
+          `only ${addressedScenes.length} of ${substantive.length} scenes address the listener ` +
+          `(${Math.round(coverage * 100)}%, floor ${Math.round(SECOND_PERSON_SCENE_COVERAGE * 100)}%) -- ` +
+          `the episode is happening to someone else`,
+      });
+    }
   }
 
   // 9b. Name the situation, never the listener's character. Checked against
