@@ -38,6 +38,14 @@ export const MAX_NARRATOR_QUESTIONS = 2;
 export const SECOND_PERSON_SCENE_COVERAGE = 0.7;
 
 /**
+ * Beats that tell the listener about the situation rather than moving them
+ * through it. Grouped because the register is what flattens an episode, not
+ * the label: a run of these is a lecture whatever the tags say.
+ */
+export const TEACHING_ROLES = new Set(["explanation", "limitations", "exercise"]);
+export const MAX_CONSECUTIVE_TEACHING_SCENES = 2;
+
+/**
  * Direct address. The episode opens by putting the listener inside a moment
  * they recognise, and comes back to them at least once afterwards.
  *
@@ -118,7 +126,9 @@ export type ViolationRule =
   | "no_direct_address"
   | "no_opening_question"
   | "character_diagnosis"
-  | "protagonist_not_the_listener";
+  | "protagonist_not_the_listener"
+  | "teaching_run"
+  | "dialogue_drought";
 
 export interface ScriptViolation {
   /** Stable identifier so violation rates can be counted per rule over time. */
@@ -250,6 +260,52 @@ export function validateScriptStructure(payload: unknown): ScriptValidation {
       });
     }
   }
+
+  // 4b. The same failure wearing three different labels.
+  //
+  // The rule above compares [explanation] to [explanation], so a run of
+  // [explanation] -> [limitations] -> [exercise] slipped past it -- which is
+  // exactly what production produced. All three are the teaching register:
+  // they tell the listener about the situation instead of moving them through
+  // it, and three in a row is a lecture with a story stapled to each end.
+  let run: ParsedScene[] = [];
+  const flushTeachingRun = () => {
+    if (run.length > MAX_CONSECUTIVE_TEACHING_SCENES) {
+      violations.push({
+        rule: "teaching_run",
+        detail:
+          `scenes ${run.map((s) => s.index).join(", ")} are ${run.length} teaching beats in a row ` +
+          `(${run.map((s) => `[${s.role}]`).join(" -> ")}; at most ${MAX_CONSECUTIVE_TEACHING_SCENES})`,
+      });
+    }
+    run = [];
+  };
+  for (const scene of scenes) {
+    if (!scene.isOutro && scene.role !== null && TEACHING_ROLES.has(scene.role)) run.push(scene);
+    else flushTeachingRun();
+  }
+  flushTeachingRun();
+
+  // 4c. Structural cross-check, because the roles above are model-chosen and
+  //     a rule keyed off a label is gameable by relabelling. Quoted speech is
+  //     the cheapest evidence that a scene is happening rather than being
+  //     described; a long stretch without any is the same flatness even if
+  //     every tag says otherwise.
+  let silent: ParsedScene[] = [];
+  const flushSilentRun = () => {
+    if (silent.length > MAX_CONSECUTIVE_TEACHING_SCENES) {
+      violations.push({
+        rule: "dialogue_drought",
+        detail: `scenes ${silent.map((s) => s.index).join(", ")} contain no spoken line between them`,
+      });
+    }
+    silent = [];
+  };
+  for (const scene of substantive) {
+    if (!scene.hasDialogue) silent.push(scene);
+    else flushSilentRun();
+  }
+  flushSilentRun();
 
   // 5. The first usable reply has a mechanical word ceiling.
   const firstReply = scenes.find((s) => s.role === "response_a" || s.role === "response_b");
