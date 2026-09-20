@@ -312,6 +312,18 @@ test("relabelling a teaching run as drama is caught by the dialogue drought", ()
   );
 });
 
+test("the first-reply ceiling measures the END of the reply, not its start", () => {
+  // The real @17 run overran at word 99 because the opener grew to explain
+  // who outranked whom. The ceiling was never about where the reply begins.
+  const script = soundScript();
+  script.scenes[0] = scene("[scenario] An idea loses its author", `Do you ever hear your idea repeated back? ${words(50)}`);
+  script.scenes[1] = scene("[response_a] It becomes a dispute", `You interrupt. ${words(40)} "Actually, that was mine."`);
+  const result = validateScriptStructure(script);
+  const violation = result.violations.find((v) => v.rule === "first_reply_too_late");
+  assert.ok(violation, "a 51-word opener plus a 43-word reply is over the ceiling");
+  assert.match(violation!.detail, /completes at word/);
+});
+
 test("KNOWN GAP: habitual trait claims are not detected, and that is deliberate", () => {
   // "You always go quiet when the room gets loud" IS a trait claim the prompt
   // forbids. It is not caught, because the same shape is ordinary scene

@@ -1759,7 +1759,7 @@ export class VidGenService {
    * that introduced it is a rule the model is ignoring, and prose telling it
    * to try harder has already been shown not to help.
    */
-  async validateArchivedScripts(opts: { agent?: string | null } = {}): Promise<{
+  async validateArchivedScripts(opts: { agent?: string | null; runId?: string; limit?: number } = {}): Promise<{
     scripts: number;
     clean: number;
     scoped_to: string | null;
@@ -1772,6 +1772,8 @@ export class VidGenService {
       prompt_ref: string | null;
       violations: ScriptViolation[];
     }>;
+    /** How many failing scripts the offender list left out. */
+    offenders_truncated: number;
   }> {
     // Scoped by default to the agent whose prompt these rules come from.
     // Without this the report is dominated by scripts from four retired
@@ -1781,6 +1783,12 @@ export class VidGenService {
     // the four loudest rules were simply judging old artifacts against a
     // contract they never had to meet. Pass agent: null to see everything.
     const agent = opts.agent === undefined ? "narration_script_writer" : opts.agent;
+    // The offender list is capped, so on a large archive a script can be
+    // counted as not-clean in the summary while never appearing in the list
+    // that says why -- which is what happened the first time a new rule was
+    // checked against a fresh run. runId answers "why did THIS one fail"
+    // directly, and limit widens the list when the whole picture is wanted.
+    const limit = Number.isFinite(opts.limit) && (opts.limit as number) > 0 ? Math.floor(opts.limit as number) : 25;
     const rows = (await this.store.index()).filter((r) => r.schema_id === "script");
     const validations: ScriptValidation[] = [];
     let skippedOtherAgents = 0;
@@ -1799,6 +1807,9 @@ export class VidGenService {
       const producedByAgent = (artifact.produced_by as { transformation?: string } | undefined)?.transformation;
       if (agent !== null && producedByAgent !== agent) {
         skippedOtherAgents += 1;
+        continue;
+      }
+      if (opts.runId && (artifact.produced_by as { run_id?: string } | undefined)?.run_id !== opts.runId) {
         continue;
       }
       const validation = validateScriptStructure(artifact.payload);
@@ -1832,7 +1843,11 @@ export class VidGenService {
       by_prompt: [...byPrompt.entries()]
         .map(([prompt_ref, counts]) => ({ prompt_ref, ...counts }))
         .sort((a, b) => a.prompt_ref.localeCompare(b.prompt_ref)),
-      offenders: offenders.slice(0, 25),
+      offenders: offenders.slice(0, limit),
+      // Stated rather than implied: a caller comparing `scripts - clean`
+      // against `offenders.length` should be able to see when the list is
+      // hiding failures instead of inferring it from a silent cap.
+      offenders_truncated: Math.max(0, offenders.length - limit),
     };
   }
 

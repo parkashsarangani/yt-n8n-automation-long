@@ -132,10 +132,17 @@ export function createUiServer(opts: ServerOptions) {
     if (route === "GET /api/scripts/validation") {
       // ?agent=all widens the scope to every script in the archive, including
       // those from retired agents that predate the scene-role contract.
+      // ?run_id=… answers "why did this one fail", which the capped offender
+      // list could not: a script counted as not-clean in the summary could be
+      // pushed out of the list explaining why. ?limit=… widens that list.
       const requested = url.searchParams.get("agent");
-      json(res, 200, await service.validateArchivedScripts(
-        requested === "all" ? { agent: null } : requested ? { agent: requested } : {},
-      ));
+      const runId = url.searchParams.get("run_id");
+      const limit = Number(url.searchParams.get("limit"));
+      json(res, 200, await service.validateArchivedScripts({
+        ...(requested === "all" ? { agent: null } : requested ? { agent: requested } : {}),
+        ...(runId ? { runId } : {}),
+        ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+      }));
       return;
     }
 
