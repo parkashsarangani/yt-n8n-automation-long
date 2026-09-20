@@ -26,7 +26,7 @@ function scene(point: string, narration: string, extra: Record<string, unknown> 
 function soundScript() {
   return {
     scenes: [
-      scene("[scenario] An idea loses its author", `${words(20)} "That was my plan."`),
+      scene("[scenario] An idea loses its author", `Do you ever sit in a meeting and hear your own idea repeated back as someone else's? ${words(14)} "That was my plan."`),
       scene("[response_a] The correction becomes a dispute", `${words(25)} "Actually, that was mine."`),
       scene("[response_b] Name the work", `${words(25)} "I drafted the pilot."`),
       scene("[explanation] Separate the contributions", words(40)),
@@ -117,11 +117,97 @@ test("a question in the outro bridge is caught", () => {
   assert.ok(!result.violations.some((v) => v.rule === "multiple_questions"));
 });
 
-test("two discussion questions in substantive narration are caught", () => {
+test("the opening address plus one discussion question is the allowed pair", () => {
+  // Two is now correct, not a violation: the episode opens by addressing the
+  // listener and closes by inviting them to answer.
+  const result = validateScriptStructure(soundScript());
+  assert.ok(!result.violations.some((v) => v.rule === "multiple_questions"));
+  assert.ok(!result.violations.some((v) => v.rule === "no_discussion_question"));
+});
+
+test("a third narrator question is the advert register and is caught", () => {
   const script = soundScript();
   script.scenes[5] = scene("[exercise] Rehearse", `${words(20)} Would you say it aloud?`);
   const result = validateScriptStructure(script);
-  assert.ok(result.violations.some((v) => v.rule === "multiple_questions"));
+  const violation = result.violations.find((v) => v.rule === "multiple_questions");
+  assert.ok(violation, "three narrator questions must be caught");
+  assert.match(violation!.detail, /allowed 2/);
+});
+
+test("an opening that never addresses the listener is caught", () => {
+  const script = soundScript();
+  script.scenes[0] = scene("[scenario] An idea loses its author", `${words(20)} "That was my plan."`);
+  const result = validateScriptStructure(script);
+  const rules = new Set(result.violations.map((v) => v.rule));
+  assert.ok(rules.has("no_direct_address"));
+  assert.ok(rules.has("no_opening_question"));
+});
+
+test("addressing the listener once and then performing at them is caught", () => {
+  // The hook reads personal, the rest of the episode does not. Second-person
+  // words inside dialogue do not rescue it -- a character saying "you" to
+  // another character is not the narrator addressing the viewer.
+  const script = {
+    scenes: [
+      scene("[scenario] Hear your plan become theirs", "Do you ever hear your own plan described as someone else's?"),
+      scene("[response_a] It becomes a dispute", `${words(20)} "Actually, that was your idea?" she asks.`),
+      scene("[response_b] Name the work", `${words(20)} "I drafted the pilot."`),
+      scene("[explanation] Separate contributions", words(20)),
+      scene("[limitations] Uneven stakes", words(20)),
+      scene("[exercise] Rehearse once", words(20)),
+      scene("[payoff] Answer for the design", `${words(20)} "Why two days?" Which would it be?`),
+      scene("[bridge] When the boss takes credit", words(12), { is_outro: true }),
+    ],
+  };
+  const result = validateScriptStructure(script);
+  assert.ok(result.violations.some((v) => v.rule === "address_dropped_after_hook"));
+});
+
+test("telling the listener what they are is caught; naming their situation is not", () => {
+  // The distinction the whole section rests on. A synthetic narrator
+  // diagnosing an anxious listener is the failure mode; describing a room
+  // they recognise is the goal.
+  for (const diagnosis of [
+    "Do you lack confidence in a room full of people?",
+    "If you're shy, this one is for you.",
+    "You're the kind of person who freezes.",
+    "You always go quiet when the room gets loud.",
+    "You are naturally anxious in groups.",
+  ]) {
+    const script = soundScript();
+    script.scenes[0] = scene("[scenario] An idea loses its author", diagnosis);
+    const result = validateScriptStructure(script);
+    assert.ok(
+      result.violations.some((v) => v.rule === "character_diagnosis"),
+      `expected a diagnosis violation for: ${diagnosis}`,
+    );
+  }
+
+  for (const situation of [
+    "Do you ever sit in a meeting and hear your own idea repeated back as someone else's?",
+    "Has this happened to you: the table where everyone already seems to know each other?",
+    "You know the moment when the room goes quiet and you have not said anything yet?",
+  ]) {
+    const script = soundScript();
+    script.scenes[0] = scene("[scenario] An idea loses its author", situation);
+    const result = validateScriptStructure(script);
+    assert.ok(
+      !result.violations.some((v) => v.rule === "character_diagnosis"),
+      `situation-naming must be allowed: ${situation}`,
+    );
+  }
+});
+
+test("a character diagnosing another character in dialogue is drama, not a violation", () => {
+  // "You always do this" said by one character to another is the episode
+  // working. Only the narrator's own sentences are checked.
+  const script = soundScript();
+  script.scenes[1] = scene(
+    "[response_a] The correction becomes a dispute",
+    `${words(15)} "You always do this," she says. "You never let me finish."`,
+  );
+  const result = validateScriptStructure(script);
+  assert.ok(!result.violations.some((v) => v.rule === "character_diagnosis"));
 });
 
 test("a question spoken by a character is not a second discussion invitation", () => {

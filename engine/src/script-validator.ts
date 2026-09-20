@@ -27,6 +27,46 @@ export const POST_PAYOFF_RATIO_CAP = 0.15;
 export const OUTRO_WORD_CAP = 22;
 export const NAVIGATION_LABEL_CHAR_CAP = 48;
 export const PAYOFF_MIN_POSITION_RATIO = 2 / 3;
+/** One opening address plus one closing discussion invitation. */
+export const MAX_NARRATOR_QUESTIONS = 2;
+
+/**
+ * Direct address. The episode opens by putting the listener inside a moment
+ * they recognise, and comes back to them at least once afterwards.
+ *
+ * Only the countable part is checked here. Whether an opening is *relatable*
+ * is not decidable in code, and the last thing that claimed to judge that was
+ * a model scoring another model. What code can settle is whether the second
+ * person is present at all, and whether the address describes a situation or
+ * diagnoses the listener -- and the second of those is the one that matters.
+ */
+export const SECOND_PERSON = /\b(you|your|you're|you've|you'd|you'll|yours|yourself)\b/i;
+
+/**
+ * Character diagnosis, which stays banned. A synthetic narrator telling a
+ * listener what is wrong with them is false intimacy and presumptuous, and
+ * this channel's audience is by definition people who may already feel
+ * inadequate. Situations are shared; character judgements are not.
+ *
+ * Deliberately narrow: it matches the copular and habitual constructions that
+ * assert a trait ("you are shy", "you always freeze", "if you're anxious"),
+ * not any sentence containing "you". A broad rule here would reject the
+ * situation-naming the prompt now requires.
+ */
+export const CHARACTER_DIAGNOSIS = new RegExp(
+  [
+    "\\byou(?:'re| are)\\s+(?:a|an|the\\s+kind\\s+of|the\\s+type\\s+of|someone|somebody|just|too|so|naturally|simply)?\\s*",
+    "(?:shy|anxious|awkward|insecure|timid|nervous|passive|weak|incapable|inadequate|unconfident|introverted)",
+    // "you're the kind of person who…" / "you are someone who…" -- a trait
+    // claim that names no adjective at all, which the list above would miss.
+    "|\\byou(?:'re| are)\\s+(?:a|an|the)\\s+(?:kind|type|sort)\\s+of\\s+(?:person|people|one)\\b",
+    "|\\byou(?:'re| are)\\s+(?:someone|somebody)\\s+who\\b",
+    "|\\bif\\s+you(?:'re| are)\\s+(?:shy|anxious|awkward|insecure|timid|nervous|passive|weak|incapable|inadequate|unconfident)",
+    "|\\byou\\s+(?:always|never)\\s+\\w+",
+    "|\\byou\\s+(?:lack|can't\\s+seem\\s+to|have\\s+never\\s+been\\s+able\\s+to)\\b",
+  ].join(""),
+  "i",
+);
 
 export const REQUIRED_ROLES = [
   "scenario",
@@ -62,7 +102,11 @@ export type ViolationRule =
   | "outro_word_cap"
   | "outro_is_question"
   | "no_outro"
-  | "label_too_long";
+  | "label_too_long"
+  | "no_direct_address"
+  | "no_opening_question"
+  | "address_dropped_after_hook"
+  | "character_diagnosis";
 
 export interface ScriptViolation {
   /** Stable identifier so violation rates can be counted per rule over time. */
@@ -247,20 +291,69 @@ export function validateScriptStructure(payload: unknown): ScriptValidation {
     }
   }
 
-  // 9. Exactly one discussion invitation, and never a second closing question.
+  // 9a. The episode opens by addressing the listener, and keeps doing so.
+  const opener = scenes[0]!;
+  if (!SECOND_PERSON.test(opener.narration)) {
+    violations.push({
+      rule: "no_direct_address",
+      detail: "the opening scene never addresses the listener in the second person",
+    });
+  }
+  if (!opener.narration.includes("?")) {
+    violations.push({
+      rule: "no_opening_question",
+      detail: "the opening scene asks the listener nothing",
+    });
+  }
+  // Addressing the listener once and then performing at them for three
+  // minutes is the failure this catches: the hook reads personal, the
+  // episode does not.
+  const addressedAfterHook = substantive
+    .slice(1)
+    .some((s) => SECOND_PERSON.test(stripDialogue(s.narration)));
+  if (substantive.length > 1 && !addressedAfterHook) {
+    violations.push({
+      rule: "address_dropped_after_hook",
+      detail: "the listener is addressed in the opening and never again outside dialogue",
+    });
+  }
+
+  // 9b. Name the situation, never the listener's character. Checked against
+  //     the narrator's own sentences: a character in the demonstration may
+  //     say "you always do this" to another character, and that is drama,
+  //     not the narrator diagnosing the viewer.
+  for (const scene of scenes) {
+    const narratorVoice = stripDialogue(scene.narration);
+    const match = CHARACTER_DIAGNOSIS.exec(narratorVoice);
+    if (match) {
+      violations.push({
+        rule: "character_diagnosis",
+        detail: `scene ${scene.index} tells the listener what they are ("${match[0].trim()}") instead of naming a situation`,
+      });
+    }
+  }
+
+  // 10. Exactly one discussion invitation, plus the opening address.
   //    Questions inside dialogue do not count: a character asking "Why two
   //    days?" is the episode working, not a second invitation. Counting them
   //    would flag correct scripts, which is worse than not checking at all.
+  //    Two are allowed now, and exactly two: the opening address and the
+  //    closing invitation. Three or more is the advert register the prompt
+  //    warns about -- a script that opens on a run of questions.
   const questionCount = substantive.reduce(
     (sum, s) => sum + (stripDialogue(s.narration).match(/\?/g) ?? []).length,
     0,
   );
-  if (questionCount === 0) {
-    violations.push({ rule: "no_discussion_question", detail: "no discussion invitation found" });
-  } else if (questionCount > 1) {
+  const closingQuestions = substantive
+    .slice(1)
+    .reduce((sum, s) => sum + (stripDialogue(s.narration).match(/\?/g) ?? []).length, 0);
+  if (closingQuestions === 0) {
+    violations.push({ rule: "no_discussion_question", detail: "no discussion invitation after the opening address" });
+  }
+  if (questionCount > MAX_NARRATOR_QUESTIONS) {
     violations.push({
       rule: "multiple_questions",
-      detail: `${questionCount} question marks in substantive narration (expected exactly 1)`,
+      detail: `${questionCount} narrator questions (allowed ${MAX_NARRATOR_QUESTIONS}: one opening address, one discussion invitation)`,
     });
   }
 
