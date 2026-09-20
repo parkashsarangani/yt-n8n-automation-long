@@ -1,6 +1,7 @@
 /** Deterministic pre-publish QA for the audio-first production graph. */
 import { readMp4Geometry } from "../media/mp4.ts";
 import { narrationPace } from "../audio/narration-delivery.ts";
+import { EDITOR_CUT_MEDIA_TYPES } from "./editor-package.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface QaWorkerOptions { version?: string }
@@ -14,7 +15,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "6",
+    version: opts.version ?? "7",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -72,7 +73,14 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
           outliers.length ? `Listen to pace outliers in scenes ${outliers.map(s=>s.scene_index).join(", ")}; the programme average can hide slow or rushed passages.` : "No extreme pace outliers in substantial narration scenes", outliers.length, 0);
       }
 
-      add("render_media_type", render.media_type === "video/mp4" ? "pass" : "fail", render.media_type === "video/mp4" ? "render is video/mp4" : `render media type is ${render.media_type ?? "missing"}`);
+      // The accepted list is shared with the editor-return intake rather than
+      // restated here. When it was restated, the two drifted: intake took the
+      // editor's .mov and QA failed it, so a correct cut parked at
+      // approve_publish instead of publishing.
+      const mediaTypeOk = typeof render.media_type === "string" && EDITOR_CUT_MEDIA_TYPES.has(render.media_type);
+      add("render_media_type", mediaTypeOk ? "pass" : "fail", mediaTypeOk
+        ? `render is ${render.media_type}`
+        : `render media type is ${render.media_type ?? "missing"}; expected one of ${[...EDITOR_CUT_MEDIA_TYPES].join(", ")}`);
       add("render_scene_count", render.scene_count === scenes.length ? "pass" : "fail", render.scene_count === scenes.length ? "render scene count matches approved script" : `render scene count ${render.scene_count ?? "missing"} does not match script ${scenes.length}`, render.scene_count, scenes.length);
       add("render_not_degraded", (render.degraded_scenes ?? 0) === 0 ? "pass" : "fail", (render.degraded_scenes ?? 0) === 0 ? "audio-first render has no degraded scenes" : `render reports ${render.degraded_scenes} degraded scene(s)`, render.degraded_scenes ?? 0, 0);
 
