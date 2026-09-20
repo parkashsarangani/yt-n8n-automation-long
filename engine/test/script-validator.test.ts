@@ -22,17 +22,21 @@ function scene(point: string, narration: string, extra: Record<string, unknown> 
   return { scene_index: 0, point, narration, ...extra };
 }
 
-/** A structurally sound episode: every rule satisfied. */
+/**
+ * A structurally sound episode: every rule satisfied. Since @16 that includes
+ * being the LISTENER'S story — second person carries the whole episode, not
+ * just the hook, so this fixture is written the way a real script now must be.
+ */
 function soundScript() {
   return {
     scenes: [
-      scene("[scenario] An idea loses its author", `${words(20)} "That was my plan."`),
-      scene("[response_a] The correction becomes a dispute", `${words(25)} "Actually, that was mine."`),
-      scene("[response_b] Name the work", `${words(25)} "I drafted the pilot."`),
-      scene("[explanation] Separate the contributions", words(40)),
-      scene("[limitations] Uneven stakes", words(30)),
-      scene("[exercise] Rehearse one sentence", words(30)),
-      scene("[payoff] Answer for your design", `${words(30)} "Why two days?" she asks. Which would you choose?`),
+      scene("[scenario] An idea loses its author", `Do you ever sit in a meeting and hear your own idea repeated back as someone else's? ${words(14)} "That was my plan."`),
+      scene("[response_a] The correction becomes a dispute", `You interrupt. ${words(22)} "Actually, that was mine."`),
+      scene("[response_b] Name the work", `You try again. ${words(22)} "I drafted the pilot."`),
+      scene("[explanation] Separate the contributions", `What went wrong for you was not the claim. ${words(32)}`),
+      scene("[limitations] Uneven stakes", `You may not have the standing here. ${words(23)}`),
+      scene("[exercise] Rehearse one sentence", `Try this with your own last unrecognised contribution. ${words(22)}`),
+      scene("[payoff] Answer for your design", `You get to explain it. ${words(24)} "Why two days?" she asks. Which would you choose?`),
       scene("[bridge] When the boss takes credit", words(15), { is_outro: true }),
     ],
   };
@@ -117,11 +121,150 @@ test("a question in the outro bridge is caught", () => {
   assert.ok(!result.violations.some((v) => v.rule === "multiple_questions"));
 });
 
-test("two discussion questions in substantive narration are caught", () => {
+test("the opening address plus one discussion question is the allowed pair", () => {
+  // Two is now correct, not a violation: the episode opens by addressing the
+  // listener and closes by inviting them to answer.
+  const result = validateScriptStructure(soundScript());
+  assert.ok(!result.violations.some((v) => v.rule === "multiple_questions"));
+  assert.ok(!result.violations.some((v) => v.rule === "no_discussion_question"));
+});
+
+test("a third narrator question is the advert register and is caught", () => {
   const script = soundScript();
   script.scenes[5] = scene("[exercise] Rehearse", `${words(20)} Would you say it aloud?`);
   const result = validateScriptStructure(script);
-  assert.ok(result.violations.some((v) => v.rule === "multiple_questions"));
+  const violation = result.violations.find((v) => v.rule === "multiple_questions");
+  assert.ok(violation, "three narrator questions must be caught");
+  assert.match(violation!.detail, /allowed 2/);
+});
+
+test("an opening that never addresses the listener is caught", () => {
+  const script = soundScript();
+  script.scenes[0] = scene("[scenario] An idea loses its author", `${words(20)} "That was my plan."`);
+  const result = validateScriptStructure(script);
+  const rules = new Set(result.violations.map((v) => v.rule));
+  assert.ok(rules.has("no_direct_address"));
+  assert.ok(rules.has("no_opening_question"));
+});
+
+test("a personal hook bolted onto an impersonal episode is caught", () => {
+  // The hook reads personal, the rest does not. Second-person words inside
+  // dialogue do not rescue it -- a character saying "you" to another
+  // character is not the narrator addressing the viewer.
+  const script = {
+    scenes: [
+      scene("[scenario] Hear your plan become theirs", "Do you ever hear your own plan described as someone else's?"),
+      scene("[response_a] It becomes a dispute", `${words(20)} "Actually, that was your idea?" she asks.`),
+      scene("[response_b] Name the work", `${words(20)} "I drafted the pilot."`),
+      scene("[explanation] Separate contributions", words(20)),
+      scene("[limitations] Uneven stakes", words(20)),
+      scene("[exercise] Rehearse once", words(20)),
+      scene("[payoff] Answer for the design", `${words(20)} "Why two days?" Which would it be?`),
+      scene("[bridge] When the boss takes credit", words(12), { is_outro: true }),
+    ],
+  };
+  const result = validateScriptStructure(script);
+  const violation = result.violations.find((v) => v.rule === "protagonist_not_the_listener");
+  assert.ok(violation, "one addressed scene out of seven is not the listener's story");
+  assert.match(violation!.detail, /1 of 7/);
+});
+
+test("telling the listener what they are is caught; naming their situation is not", () => {
+  // The distinction the whole section rests on. A synthetic narrator
+  // diagnosing an anxious listener is the failure mode; describing a room
+  // they recognise is the goal.
+  for (const diagnosis of [
+    "Do you lack confidence in a room full of people?",
+    "If you're shy, this one is for you.",
+    "You're the kind of person who freezes.",
+    "You are naturally anxious in groups.",
+  ]) {
+    const script = soundScript();
+    script.scenes[0] = scene("[scenario] An idea loses its author", diagnosis);
+    const result = validateScriptStructure(script);
+    assert.ok(
+      result.violations.some((v) => v.rule === "character_diagnosis"),
+      `expected a diagnosis violation for: ${diagnosis}`,
+    );
+  }
+
+  for (const situation of [
+    "Do you ever sit in a meeting and hear your own idea repeated back as someone else's?",
+    "Has this happened to you: the table where everyone already seems to know each other?",
+    "You know the moment when the room goes quiet and you have not said anything yet?",
+  ]) {
+    const script = soundScript();
+    script.scenes[0] = scene("[scenario] An idea loses its author", situation);
+    const result = validateScriptStructure(script);
+    assert.ok(
+      !result.violations.some((v) => v.rule === "character_diagnosis"),
+      `situation-naming must be allowed: ${situation}`,
+    );
+  }
+});
+
+test("an episode that follows a named stranger is caught, not just a missing hook", () => {
+  // The real drift: @13 was second-person throughout, @15 opened on "Imagine
+  // Maya, a senior colleague…" and followed her for the rest of the episode.
+  // The hook alone being personal is not enough — the episode has to happen
+  // to the listener.
+  const script = {
+    scenes: [
+      scene("[scenario] An idea loses its author", "Do you ever hear your own plan described as someone else's?"),
+      scene("[response_a] Maya interrupts", `Maya says it was her approach. ${words(15)} The manager nods at her.`),
+      scene("[response_b] Maya names the work", `Maya tries again. ${words(15)} She explains the rollout.`),
+      scene("[explanation] Separate contributions", `The problem was not credit. ${words(15)}`),
+      scene("[limitations] Uneven stakes", `Maya has no leverage here. ${words(12)}`),
+      scene("[exercise] Rehearse one sentence", `A useful drill: ${words(15)}`),
+      scene("[payoff] She answers for the design", `Maya gets to explain it. "Why two days?" Which would it be?`),
+      scene("[bridge] When the boss takes credit", words(12), { is_outro: true }),
+    ],
+  };
+  const result = validateScriptStructure(script);
+  const violation = result.violations.find((v) => v.rule === "protagonist_not_the_listener");
+  assert.ok(violation, `expected the drift to be caught: ${result.violations.map((v) => v.rule).join(", ")}`);
+  assert.match(violation!.detail, /happening to someone else/);
+});
+
+test("second-person narration of the listener's own scene is never a diagnosis", () => {
+  // The whole episode is now the listener's story, so scene narration is
+  // full of "you". None of it is a trait claim.
+  const script = soundScript();
+  script.scenes[1] = scene(
+    "[response_a] The correction becomes a dispute",
+    "You interrupt. You said nothing for a moment, then you filled the silence, and your face went hot.",
+  );
+  const result = validateScriptStructure(script);
+  assert.ok(!result.violations.some((v) => v.rule === "character_diagnosis"));
+  assert.ok(!result.violations.some((v) => v.rule === "protagonist_not_the_listener"));
+});
+
+test("KNOWN GAP: habitual trait claims are not detected, and that is deliberate", () => {
+  // "You always go quiet when the room gets loud" IS a trait claim the prompt
+  // forbids. It is not caught, because the same shape is ordinary scene
+  // narration now that the listener is the protagonist -- "you never said a
+  // word", "you always meant to speak up" -- and no pattern separates them
+  // without tense analysis. Rejecting correct scripts to catch this would be
+  // the worse trade. The prompt still bans it; only the code is silent.
+  const script = soundScript();
+  script.scenes[0] = scene("[scenario] An idea loses its author", "Do you always go quiet when the room gets loud?");
+  const result = validateScriptStructure(script);
+  assert.ok(
+    !result.violations.some((v) => v.rule === "character_diagnosis"),
+    "documenting the gap: if this starts passing, the rule was tightened and this test should become a positive case",
+  );
+});
+
+test("a character diagnosing another character in dialogue is drama, not a violation", () => {
+  // "You always do this" said by one character to another is the episode
+  // working. Only the narrator's own sentences are checked.
+  const script = soundScript();
+  script.scenes[1] = scene(
+    "[response_a] The correction becomes a dispute",
+    `${words(15)} "You always do this," she says. "You never let me finish."`,
+  );
+  const result = validateScriptStructure(script);
+  assert.ok(!result.violations.some((v) => v.rule === "character_diagnosis"));
 });
 
 test("a question spoken by a character is not a second discussion invitation", () => {

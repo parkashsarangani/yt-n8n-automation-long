@@ -27,6 +27,58 @@ export const POST_PAYOFF_RATIO_CAP = 0.15;
 export const OUTRO_WORD_CAP = 22;
 export const NAVIGATION_LABEL_CHAR_CAP = 48;
 export const PAYOFF_MIN_POSITION_RATIO = 2 / 3;
+/** One opening address plus one closing discussion invitation. */
+export const MAX_NARRATOR_QUESTIONS = 2;
+/**
+ * Share of substantive scenes that must address the listener outside
+ * dialogue. Not 100 percent: an explanation beat may legitimately describe
+ * the mechanism rather than the listener, and demanding a "you" in every
+ * scene would be satisfied with filler.
+ */
+export const SECOND_PERSON_SCENE_COVERAGE = 0.7;
+
+/**
+ * Direct address. The episode opens by putting the listener inside a moment
+ * they recognise, and comes back to them at least once afterwards.
+ *
+ * Only the countable part is checked here. Whether an opening is *relatable*
+ * is not decidable in code, and the last thing that claimed to judge that was
+ * a model scoring another model. What code can settle is whether the second
+ * person is present at all, and whether the address describes a situation or
+ * diagnoses the listener -- and the second of those is the one that matters.
+ */
+export const SECOND_PERSON = /\b(you|your|you're|you've|you'd|you'll|yours|yourself)\b/i;
+
+/**
+ * Character diagnosis, which stays banned. A synthetic narrator telling a
+ * listener what is wrong with them is false intimacy and presumptuous, and
+ * this channel's audience is by definition people who may already feel
+ * inadequate. Situations are shared; character judgements are not.
+ *
+ * Deliberately narrow: it matches copular trait claims ("you are shy", "you're
+ * the kind of person who", "if you're anxious"), not any sentence containing
+ * "you". The whole episode is now written with the listener as protagonist, so
+ * a broad rule would reject the second-person narration the prompt requires --
+ * "you said nothing" is the scenario, not a judgement.
+ */
+export const CHARACTER_DIAGNOSIS = new RegExp(
+  [
+    "\\byou(?:'re| are)\\s+(?:a|an|the\\s+kind\\s+of|the\\s+type\\s+of|someone|somebody|just|too|so|naturally|simply)?\\s*",
+    "(?:shy|anxious|awkward|insecure|timid|nervous|passive|weak|incapable|inadequate|unconfident|introverted)",
+    // "you're the kind of person who…" / "you are someone who…" -- a trait
+    // claim that names no adjective at all, which the list above would miss.
+    "|\\byou(?:'re| are)\\s+(?:a|an|the)\\s+(?:kind|type|sort)\\s+of\\s+(?:person|people|one)\\b",
+    "|\\byou(?:'re| are)\\s+(?:someone|somebody)\\s+who\\b",
+    "|\\bif\\s+you(?:'re| are)\\s+(?:shy|anxious|awkward|insecure|timid|nervous|passive|weak|incapable|inadequate|unconfident)",
+    "|\\byou\\s+(?:lack|can't\\s+seem\\s+to|have\\s+never\\s+been\\s+able\\s+to)\\b",
+    // Deliberately NOT matching "you always/never <verb>". Now that the whole
+    // episode is written with the listener as protagonist, "you never said a
+    // word" is scene narration, not a trait claim, and the two are not
+    // separable by pattern. A rule that rejects correct scripts is worse than
+    // no rule; the copular forms above carry the real signal.
+  ].join(""),
+  "i",
+);
 
 export const REQUIRED_ROLES = [
   "scenario",
@@ -62,7 +114,11 @@ export type ViolationRule =
   | "outro_word_cap"
   | "outro_is_question"
   | "no_outro"
-  | "label_too_long";
+  | "label_too_long"
+  | "no_direct_address"
+  | "no_opening_question"
+  | "character_diagnosis"
+  | "protagonist_not_the_listener";
 
 export interface ScriptViolation {
   /** Stable identifier so violation rates can be counted per rule over time. */
@@ -247,20 +303,81 @@ export function validateScriptStructure(payload: unknown): ScriptValidation {
     }
   }
 
-  // 9. Exactly one discussion invitation, and never a second closing question.
+  // 9a. The episode opens by addressing the listener, and keeps doing so.
+  const opener = scenes[0]!;
+  if (!SECOND_PERSON.test(opener.narration)) {
+    violations.push({
+      rule: "no_direct_address",
+      detail: "the opening scene never addresses the listener in the second person",
+    });
+  }
+  if (!opener.narration.includes("?")) {
+    violations.push({
+      rule: "no_opening_question",
+      detail: "the opening scene asks the listener nothing",
+    });
+  }
+  // The episode is the listener's story, not a story told near them, so the
+  // second person has to carry the whole thing rather than decorate the hook.
+  // Two separate failures, because they need different fixes:
+  //
+  //   - dropped entirely after the opening: a personal hook bolted onto a
+  //     third-person demonstration.
+  //   - present but sparse: the drift seen in production, where an episode
+  //     opens on "you" and then follows a named stranger for six scenes.
+  //
+  // Measured outside dialogue: a character saying "you" to another character
+  // is not the narrator addressing the viewer.
+  const addressedScenes = substantive.filter((s) => SECOND_PERSON.test(stripDialogue(s.narration)));
+  if (substantive.length > 0) {
+    const coverage = addressedScenes.length / substantive.length;
+    if (coverage < SECOND_PERSON_SCENE_COVERAGE) {
+      violations.push({
+        rule: "protagonist_not_the_listener",
+        detail:
+          `only ${addressedScenes.length} of ${substantive.length} scenes address the listener ` +
+          `(${Math.round(coverage * 100)}%, floor ${Math.round(SECOND_PERSON_SCENE_COVERAGE * 100)}%) -- ` +
+          `the episode is happening to someone else`,
+      });
+    }
+  }
+
+  // 9b. Name the situation, never the listener's character. Checked against
+  //     the narrator's own sentences: a character in the demonstration may
+  //     say "you always do this" to another character, and that is drama,
+  //     not the narrator diagnosing the viewer.
+  for (const scene of scenes) {
+    const narratorVoice = stripDialogue(scene.narration);
+    const match = CHARACTER_DIAGNOSIS.exec(narratorVoice);
+    if (match) {
+      violations.push({
+        rule: "character_diagnosis",
+        detail: `scene ${scene.index} tells the listener what they are ("${match[0].trim()}") instead of naming a situation`,
+      });
+    }
+  }
+
+  // 10. Exactly one discussion invitation, plus the opening address.
   //    Questions inside dialogue do not count: a character asking "Why two
   //    days?" is the episode working, not a second invitation. Counting them
   //    would flag correct scripts, which is worse than not checking at all.
+  //    Two are allowed now, and exactly two: the opening address and the
+  //    closing invitation. Three or more is the advert register the prompt
+  //    warns about -- a script that opens on a run of questions.
   const questionCount = substantive.reduce(
     (sum, s) => sum + (stripDialogue(s.narration).match(/\?/g) ?? []).length,
     0,
   );
-  if (questionCount === 0) {
-    violations.push({ rule: "no_discussion_question", detail: "no discussion invitation found" });
-  } else if (questionCount > 1) {
+  const closingQuestions = substantive
+    .slice(1)
+    .reduce((sum, s) => sum + (stripDialogue(s.narration).match(/\?/g) ?? []).length, 0);
+  if (closingQuestions === 0) {
+    violations.push({ rule: "no_discussion_question", detail: "no discussion invitation after the opening address" });
+  }
+  if (questionCount > MAX_NARRATOR_QUESTIONS) {
     violations.push({
       rule: "multiple_questions",
-      detail: `${questionCount} question marks in substantive narration (expected exactly 1)`,
+      detail: `${questionCount} narrator questions (allowed ${MAX_NARRATOR_QUESTIONS}: one opening address, one discussion invitation)`,
     });
   }
 
