@@ -300,3 +300,36 @@ test("resume after a settled human_gate does not re-derive everything downstream
   assert.equal(second.status, "completed");
   assert.equal(second.outputs.scenes, "the_scenes");
 });
+
+test("a freeze_upstream gate keeps a delivered run's upstream when a deploy bumps versions", async () => {
+  // Production 2026-09-24: the script agents were bumped two minutes before the
+  // editor's cut was imported, and the resume rewrote the script under the cut.
+  const frozenGraph: GraphDoc = {
+    graph_id: "test",
+    version: "1",
+    nodes: [
+      ...graph.nodes,
+      { id: "review", type: "human_gate", in: ["scenes"], policy: { freeze_upstream: true } },
+      { id: "publish", transformation: "cartoon_scene_compiler", in: ["review"] },
+    ],
+  };
+  const runLog = new MemoryRunLog();
+  await record(runLog, "intent", "input", "1", "intent_seed");
+  await record(runLog, "script", "dialogue_script_writer", "6", "old_script", ["intent_seed"]);
+  await record(runLog, "scenes", "cartoon_scene_compiler", "13", "old_scenes", ["old_script"]);
+
+  const calls: Array<{ name: string; inputIds: string[] }> = [];
+  const runner = {
+    async run(def: TransformationDef, inputIds: string[]) {
+      calls.push({ name: def.name, inputIds });
+      return { artifact: { artifact_id: "published" }, runId: "run_resume", attempts: 1, deduped: false };
+    },
+  } as unknown as Runner;
+  const executor = new GraphExecutor({ runner, runLog, store: {} as never, registry: {} as never, transformations, maxParallel: 1 });
+
+  const result = await executor.resume(frozenGraph, "run_resume", { review: { result: "approve" } } as never);
+
+  assert.deepEqual(calls, [{ name: "cartoon_scene_compiler", inputIds: ["old_scenes"] }], "only the post-gate node runs");
+  assert.equal(result.outputs.script, "old_script");
+  assert.equal(result.status, "completed");
+});

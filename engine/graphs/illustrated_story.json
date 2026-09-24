@@ -23,7 +23,7 @@
     { "id": "render", "transformation": "render", "in": ["approve_script", "voice", "package_release"] },
     { "id": "editor_delivery", "type": "human_gate", "in": ["render"] },
     { "id": "editor_package", "transformation": "editor_package", "in": ["approve_script", "voice", "editor_delivery", "seo", "thumbnail"] },
-    { "id": "editor_review", "type": "human_gate", "in": ["editor_package"] },
+    { "id": "editor_review", "type": "human_gate", "in": ["editor_package"], "policy": { "freeze_upstream": true } },
     { "id": "finalize_video", "transformation": "finalize_video", "in": ["editor_review", "render"] },
     { "id": "qa", "transformation": "qa", "in": ["intent", "approve_script", "voice", "finalize_video", "thumbnail", "seo"] },
     { "id": "approve_publish", "type": "human_gate", "in": ["qa"], "policy": { "auto_pass_if": "payload.verdict == \"pass\"" } },
