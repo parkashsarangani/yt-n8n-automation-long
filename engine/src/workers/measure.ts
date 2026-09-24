@@ -44,6 +44,20 @@ export function effectiveAnalyticsWindow(
   };
 }
 
+/**
+ * YouTube Analytics reports a new video's first rows 2-3 days after upload.
+ * Before that every query returns no rows, which is not a measurement failure;
+ * production logged exactly the newest three uploads failing every day.
+ */
+export const ANALYTICS_SETTLE_DAYS = 3;
+
+export function analyticsSettled(publishedAt: string | undefined, now: Date): boolean {
+  if (!publishedAt) return true;
+  const published = new Date(publishedAt).getTime();
+  if (!Number.isFinite(published)) return true;
+  return now.getTime() - published >= ANALYTICS_SETTLE_DAYS * DAY_MS;
+}
+
 export function inferDurationSec(averageViewDurationSec: number, averageViewPercentage: number | null): number | null {
   if (!Number.isFinite(averageViewDurationSec) || averageViewDurationSec <= 0) return null;
   if (averageViewPercentage === null || !Number.isFinite(averageViewPercentage) || averageViewPercentage <= 0) return null;

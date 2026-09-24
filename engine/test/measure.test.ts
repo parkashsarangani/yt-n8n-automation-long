@@ -196,3 +196,11 @@ test("visibility is read live and unknown is not guessed public", async () => {
   const real = new YouTubeAnalyticsProvider({ accessToken: "t", fetchImpl: stubFetch(() => ({ status: 200, body: { items: [] } })).impl });
   assert.equal((await real.fetchVisibility(["gone"])).gone, "unknown");
 });
+test("analytics settle window: new uploads wait three days, unknown dates are measured", async () => {
+  const { analyticsSettled } = await import("../src/workers/measure.ts");
+  const now = new Date("2026-09-24T12:00:00.000Z");
+  assert.equal(analyticsSettled("2026-09-22T16:01:27.751Z", now), false);
+  assert.equal(analyticsSettled("2026-09-21T12:00:00.000Z", now), true);
+  assert.equal(analyticsSettled(undefined, now), true);
+  assert.equal(analyticsSettled("not a date", now), true);
+});

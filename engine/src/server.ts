@@ -10,7 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { socialSeriesCatalog } from "./social-series.ts";
+import { SOCIAL_SERIES_ID, socialSeriesCatalog } from "./social-series.ts";
 import type { VidGenService } from "./service.ts";
 import type { GrowthSchedulerHandle } from "./growth-scheduler.ts";
 
@@ -174,13 +174,14 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    if (route === "POST /api/series/quiet-confidence-v1/episodes") {
+    // The legacy path now starts the current season, so old bookmarks keep working.
+    if (route === `POST /api/series/${SOCIAL_SERIES_ID}/episodes` || route === "POST /api/series/quiet-confidence-v1/episodes") {
       const body = await readJson(req) as { episode?: number };
       if (!Number.isInteger(body.episode) || body.episode! < 1 || body.episode! > 8) {
         json(res, 400, { error: "episode must be an integer from 1 to 8" });
         return;
       }
-      const runId = await service.startRun("Quiet Confidence", 600, { seriesEpisode: body.episode! });
+      const runId = await service.startRun("Second Thoughts", 600, { seriesEpisode: body.episode! });
       json(res, 201, { run_id: runId });
       return;
     }

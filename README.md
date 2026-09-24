@@ -39,11 +39,11 @@ Text routing uses the shared FreeLLMAPI network and may fall back to OpenAI only
 
 The YouTube variables are live: the graph's `finalize_video → qa → publish` tail runs as soon as the editor returns a cut (see below), so `AMOS_ALLOW_PUBLISH` plus the OAuth trio are what stand between a returned file and a public upload.
 
-## Quiet Confidence — Season 1
+## Second Thoughts — Season 1
 
-The first editorial series is an eight-episode audio-first course in practical social intelligence. Each episode is self-contained but builds a reusable skill: entering unfamiliar rooms, starting and sustaining conversations, expressing interest without pressure, handling interruptions, setting boundaries, accepting rejection, and having difficult conversations. Fictional scenarios are labelled as examples; scripts must explain limitations and end with a concrete exercise.
+The current editorial series, **Second Thoughts**, is an eight-episode audio-first course in everyday psychology. Each episode is self-contained but builds a reusable habit around one thinking trap: reading silence as rejection, adding tone that is not there, sunk cost, procrastination, the spotlight effect, anchoring, comparison, and changing your mind. Fictional scenarios are labelled as examples; scripts must explain limitations, never invent research, and end with a concrete exercise. (It replaced the earlier Quiet Confidence social-skills series, whose runs remain valid.)
 
-Use the Studio's **Quiet Confidence — Season 1** selector, or start an episode through `POST /api/series/quiet-confidence-v1/episodes` with `{ "episode": 1 }` through `{ "episode": 8 }`. Series runs carry typed episode context in `intent@2.1.0` to keep the selected objective available to the writer and critic. Topic fidelity is editorially reviewed; the schema alone cannot prove it.
+The daily scheduler produces these eight episodes in order, one a day, then stops (`SCHEDULE_PRODUCE_SOURCE=discovery` restores open-ended topic discovery). To start one by hand, use the Studio's **Second Thoughts — Season 1** selector or `POST /api/series/everyday-psychology-v1/episodes` with `{ "episode": 1 }` through `{ "episode": 8 }`. Series runs carry typed episode context in `intent@2.2.0` to keep the selected objective available to the writer and critic. Topic fidelity is editorially reviewed; the schema alone cannot prove it.
 
 The [retention review](docs/quiet-confidence-retention-review.md) describes the reusable packaging, opening, story, critique and revision workflow, its checks and its measurement limits. A critic's revision verdict blocks release even when its numeric scores are high. Existing publishing configuration applies to series runs.
 

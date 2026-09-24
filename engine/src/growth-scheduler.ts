@@ -4,6 +4,7 @@ import { sendOperatorAlert } from "./operator-alerts.ts";
 import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts";
 import { localHourToUtcHour } from "./timezone-hour.ts";
 import { localParts } from "./delivery-time.ts";
+import { socialSeriesCatalog } from "./social-series.ts";
 
 /**
  * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
@@ -180,6 +181,19 @@ function mostRecentProduction(service: VidGenService): number | undefined {
   return service.listRuns().filter((r) => r.kind === "production" && productionReady(r)).map((r) => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => b - a)[0];
 }
 
+/**
+ * The next Second Thoughts episode the daily job should make, or null once all
+ * eight have a run that reached editor delivery. A series run's brief is built
+ * deterministically by startRun() from the catalog title, so the run list alone
+ * says which episodes are done, including after a restart.
+ */
+export function nextSeriesEpisode(runs: RunView[]): number | null {
+  const done = (title: string, seriesTitle: string) =>
+    runs.some((r) => r.kind === "production" && productionReady(r) && r.brief.startsWith(`${seriesTitle}: ${title}.`));
+  const next = socialSeriesCatalog().find((e) => !done(e.title, e.series_title));
+  return next?.episode ?? null;
+}
+
 export function productionReady(view: RunView | null): boolean {
   return !!view && !view.failures.length && (view.status === "completed" || (view.status === "waiting" && view.waiting.some(w => ["editor_delivery", "editor_review"].includes(w.node_id))));
 }
@@ -213,6 +227,9 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   const localHour = Number.isInteger(requestedHour) && requestedHour >= 0 && requestedHour <= 23 ? requestedHour : 3;
   const now = opts.now ?? Date.now;
   const uploadRetries = new Map<string,number>();
+  // "series" works through Second Thoughts in order, then stops; "discovery"
+  // restores the open-ended daily topic tournament.
+  const produceSource = process.env["SCHEDULE_PRODUCE_SOURCE"]?.trim().toLowerCase() === "discovery" ? "discovery" : "series";
   const scheduler = new Scheduler({ now, jobs: [
     {
       id: "produce", everyHours: produceHours > 0 ? produceHours : 24, enabled: Number.isFinite(produceHours) && produceHours > 0,
@@ -243,6 +260,27 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           if (productionReady(recovered)) return;
           throw new Error(`Daily run ${active.run_id} has not reached editor delivery: ${recovered?.failures.map(f => f.error).join("; ") || recovered?.status}`);
         }
+        if (produceSource === "series") {
+          const episode = nextSeriesEpisode(service.listRuns());
+          if (episode === null) {
+            // Deliberately stop rather than fall back to discovery: the
+            // operator picks the next topic once this season is done.
+            console.log("[growth-scheduler] Second Thoughts is complete (8/8); no episode produced. Set SCHEDULE_PRODUCE_SOURCE=discovery or add the next series to resume.");
+            return;
+          }
+          console.log(`[growth-scheduler] producing Second Thoughts episode ${episode}/8`);
+          const runId = await service.startRun("", 180, { seriesEpisode: episode });
+          const final = await waitForTerminal(service, runId, opts);
+          if (productionReady(final)) return;
+          // A series episode cannot switch topic. Settle a creative stop so the
+          // scheduler's retry starts this same episode fresh.
+          if (creativeFailureKind(final) === "creative_viability") {
+            const wait = final?.waiting.find((w) => w.node_id === "creative_viability");
+            await service.decide(runId, "creative_viability", { result: "abandon", reason: wait?.reason ?? "creative viability critic recommended abandoning this draft" });
+            await waitForTerminal(service, runId, opts);
+          }
+          throw new Error(`Second Thoughts episode ${episode} did not reach editor delivery: ${final?.failures.map((f) => `${f.node_id}: ${f.error}`).join("; ") || final?.status || "unknown"}`);
+        }
         const discovered = await service.discoverTopics();
         const candidates = ((discovered.candidates as { candidates?: DiscoveryCandidate[] })?.candidates ?? [])
           .filter(viableCandidate)
@@ -255,7 +293,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           console.log(`[growth-scheduler] candidate ${i + 1}/${candidates.length} score=${candidateOverallScore(candidate).toFixed(3)}: ${candidate.brief}`);
           const seed = packageSeedOf(candidate);
           const runId = await service.startRun(candidate.brief!, 180, {
-            niche: "practical-social-intelligence",
+            niche: "everyday-psychology",
             ...(candidate.genre ? { genre: candidate.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
           });

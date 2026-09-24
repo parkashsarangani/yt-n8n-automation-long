@@ -17,6 +17,7 @@ import { loadAgentDefs } from "../src/catalog.ts";
 import { GraphExecutor } from "../src/executor.ts";
 import { loadGraph, validateGraph } from "../src/graph.ts";
 import { buildTopicHistory } from "../src/topic-history.ts";
+import { pruneInvalidPoolItems } from "../src/schema-repair.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const silent = () => ({ log: () => {}, warn: () => {}, error: () => {} });
@@ -161,4 +162,53 @@ test("historical topic_candidates@1 still rejects a candidate without an angle",
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
   const bad = { basis: "Some basis text that is long enough.", candidates: [{ brief: "Explain the Panama Canal in general terms", why_it_earns_attention: "x".repeat(12), novelty: "new" }] };
   assert.throws(() => registry.validate("topic_candidates", "1.0.0", bad), /angle/);
+});
+
+async function runDiscovery(candidates: unknown[]) {
+  const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
+  const store = await FsArtifactStore.open(await mkdtemp(path.join(tmpdir(), "vidgen-disc-prune-")), registry);
+  const runLog = new MemoryRunLog();
+  const pool = { basis: CANDIDATES.basis, candidates };
+  const provider = new FakeProvider((req) =>
+    req.prompt.includes("complete audience proposition")
+      ? { payload: pool, confidence: { overall: 0.6 } }
+      : { payload: INSIGHTS, confidence: { overall: 0.4 } });
+  const runner = new Runner({ store, registry, prompts: await PromptStore.load(path.join(ROOT, "prompts")), providers: new ProviderRouter({ reasoning_high: provider, reasoning_fast: provider }), runLog, logger: silent(), blobs: new MemoryBlobStore() });
+  const agents = await loadAgentDefs(path.join(ROOT, "agents")) as Map<string, TransformationDef>;
+  const executor = new GraphExecutor({ runner, runLog, store, registry, transformations: agents, logger: silent() });
+  const graph = await loadGraph(path.join(ROOT, "graphs", "discover.json"));
+  const seed = async (schema_id: string, payload: unknown) => (await store.put({ schema_id, payload, produced_by: { transformation: "human", version: "1", run_id: "seed", provider: null } })).artifact.artifact_id;
+  const result = await executor.start(graph, { history: await seed("topic_history", { generated_at: NOW().toISOString(), count: 0, topics: [] }), performance: await seed("performance_window", EMPTY_WINDOW) });
+  return { result, store, provider };
+}
+const overlong = (i: number) => ({ ...candidate(i), brief: "An ordinary worker faces a concrete consequence. ".repeat(10) });
+const noEngine = (i: number) => { const { emotional_engine: _, ...rest } = candidate(i); return rest; };
+
+test("discovery drops the few malformed candidates instead of failing the whole tournament", async () => {
+  // Production 2026-09-24: over-long briefs and a missing emotional_engine on a
+  // handful of candidates burned two of the scheduler's three produce attempts.
+  const pool: unknown[] = Array.from({ length: 24 }, (_, i) => candidate(i + 1));
+  pool[3] = overlong(4); pool[10] = noEngine(11); pool[17] = overlong(18);
+  const { result, store, provider } = await runDiscovery(pool);
+  assert.equal(result.status, "completed");
+  const payload = (await store.get(result.outputs["candidates"]!))!.payload as typeof CANDIDATES;
+  assert.equal(payload.candidates.length, 21);
+  assert.ok(payload.candidates.every((c) => c.brief.length <= 400 && typeof c.emotional_engine === "string"));
+  assert.equal(provider.calls.length, 2, "salvaged on the first discovery call, no retry");
+});
+
+test("discovery still retries when pruning would leave fewer than 20 candidates", async () => {
+  const pool = Array.from({ length: 22 }, (_, i) => (i < 3 ? overlong(i + 1) : candidate(i + 1)));
+  const { result, provider } = await runDiscovery(pool);
+  assert.notEqual(result.status, "completed");
+  assert.equal(provider.calls.length, 1 + 3, "insights once, then every discovery attempt");
+});
+
+test("pool pruning refuses errors that are not scoped to one candidate", () => {
+  const payload = { basis: "b", candidates: Array.from({ length: 21 }, (_, i) => candidate(i)) };
+  assert.equal(pruneInvalidPoolItems("topic_candidates", {}, payload, ["$ must have required property 'basis'"]), undefined);
+  assert.equal(pruneInvalidPoolItems("script", {}, payload, ["/candidates/1/brief too long"]), undefined);
+  const ok = pruneInvalidPoolItems("topic_candidates", {}, payload, ["/candidates/2/brief must NOT have more than 400 characters", "/candidates/2 must have required property 'x'"]);
+  assert.deepEqual(ok?.dropped, [2]);
+  assert.equal((ok!.data as typeof payload).candidates.length, 20);
 });

@@ -11,7 +11,7 @@ import type { BlobStore } from "./blobs.ts";
 import { canonicalize } from "./canonical.ts";
 import { PromptStore } from "./prompts.ts";
 import { agentSemanticValidationErrors, hasHardSemanticError, HARD_ERROR_PREFIX } from "./agent-validators.ts";
-import { repairEnumValues } from "./schema-repair.ts";
+import { pruneInvalidPoolItems, repairEnumValues } from "./schema-repair.ts";
 import { repairMissingOutroFlag } from "./script-repair.ts";
 import { promptInputView } from "./prompt-inputs.ts";
 import { buildScriptRevisionContext } from "./script-revision.ts";
@@ -368,9 +368,10 @@ export class Runner {
         : { data: enumRepaired, repairs: [] };
       // Visual cards are editor-owned presentation metadata. Remove them
       // before schema validation so malformed cards cannot block narration.
-      const payload = def.produces === "script" && version === "1.1.0"
+      const unpruned = def.produces === "script" && version === "1.1.0"
         ? stripEditorVisuals(scriptRepaired)
         : scriptRepaired;
+      const payload = this.pruneInvalidPool(def, version, rawOutputSchema, unpruned, attempt, maxAttempts);
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
           `[${def.name}] attempt ${attempt}/${maxAttempts} auto-repaired the missing outro flag: ` +
@@ -546,6 +547,43 @@ export class Runner {
     }
 
     throw new RunnerError(`${def.name} exhausted ${maxAttempts} attempts`);
+  }
+
+  /**
+   * For pool outputs (discovery's 20-30 candidates), drop the individual items
+   * that fail the schema instead of rejecting the whole pool, as long as the
+   * pruned pool still validates. Anything else is returned unchanged and the
+   * normal validation path reports it.
+   */
+  private pruneInvalidPool(
+    def: AgentDef,
+    version: string,
+    schema: Record<string, unknown>,
+    payload: unknown,
+    attempt: number,
+    maxAttempts: number,
+  ): unknown {
+    let errors: string[];
+    try {
+      this.deps.registry.validate(def.produces, version, payload);
+      return payload;
+    } catch (err) {
+      if (!(err instanceof SchemaValidationError)) throw err;
+      errors = err.errors;
+    }
+    const pruned = pruneInvalidPoolItems(def.produces, schema, payload, errors);
+    if (!pruned) return payload;
+    try {
+      this.deps.registry.validate(def.produces, version, pruned.data);
+    } catch (err) {
+      if (!(err instanceof SchemaValidationError)) throw err;
+      return payload;
+    }
+    this.deps.logger?.warn(
+      `[${def.name}] attempt ${attempt}/${maxAttempts} dropped ${pruned.dropped.length} invalid pool item(s) ` +
+        `[${pruned.dropped.join(", ")}] and kept the rest: ${errors.join("; ")}`,
+    );
+    return pruned.data;
   }
 
   private async runWorker(def: WorkerDef, inputIds: string[], opts: RunOptions): Promise<RunOutcome> {
