@@ -543,7 +543,7 @@ export class GraphExecutor {
     return null;
   }
 
-  private isCurrentCompletion(record: RunRecord, byId: Map<string, GraphNode>): boolean {
+  private isCurrentCompletion(record: RunRecord, byId: Map<string, GraphNode>, frozen: Set<string>): boolean {
     if (!record.node_id) return false;
     const node = byId.get(record.node_id);
     if (!node) return false;
@@ -556,7 +556,38 @@ export class GraphExecutor {
     const def = this.deps.transformations.get(tn.transformation);
     if (!def) return false;
     return record.transformation === tn.transformation
-      && record.transformation_version === (def.version ?? "1");
+      && (frozen.has(tn.id) || record.transformation_version === (def.version ?? "1"));
+  }
+
+  /**
+   * Nodes a freeze_upstream gate has locked for this run: every ancestor of a
+   * gate whose input has completed at any version. Production 2026-09-24: a
+   * deploy bumped the script agents two minutes before the editor's cut was
+   * imported, and the resume regenerated the whole script under the parked
+   * cut, discarding it.
+   */
+  private frozenNodes(graph: GraphDoc, runId: string, ref: string, records: RunRecord[]): Set<string> {
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const reached = new Set(
+      records
+        .filter((r) => r.run_id === runId && r.graph_id === ref && r.node_id && r.output
+          && (r.status === "ok" || r.status === "cache_hit" || r.status === "accepted_below_quality_bar"))
+        .map((r) => r.node_id!),
+    );
+    const frozen = new Set<string>();
+    for (const node of graph.nodes) {
+      if (nodeType(node) !== "human_gate" || !(node as HumanGateNode).policy?.freeze_upstream) continue;
+      if (!inputsOf(node).every((id) => reached.has(id))) continue;
+      const stack = [...inputsOf(node)];
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (frozen.has(id)) continue;
+        frozen.add(id);
+        const upstream = byId.get(id);
+        if (upstream) stack.push(...inputsOf(upstream));
+      }
+    }
+    return frozen;
   }
 
   /**
@@ -626,6 +657,7 @@ export class GraphExecutor {
     const recordInputs = new Map<string, string[]>();
     const retried = new Set<string>();
     const records = await this.deps.runLog.all();
+    const frozen = this.frozenNodes(graph, runId, ref, records);
     // Scan in order: a "retry" record invalidates the prior success for that node.
     // A version-stale success does not count as complete after graph code changes;
     // otherwise resume can keep feeding old artifacts into newly tightened gates.
@@ -647,7 +679,7 @@ export class GraphExecutor {
       // nodes kept their real parentage -- a graph-consistency split that only
       // showed up across a resume boundary.
       if (r.status !== "ok" && r.status !== "cache_hit" && r.status !== "accepted_below_quality_bar") continue;
-      if (!this.isCurrentCompletion(r, byId)) continue;
+      if (!this.isCurrentCompletion(r, byId, frozen)) continue;
       out.set(r.node_id, r.output);
       recordInputs.set(r.node_id, r.inputs);
       retried.delete(r.node_id);

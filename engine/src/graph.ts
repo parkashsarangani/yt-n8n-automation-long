@@ -40,6 +40,14 @@ export interface HumanGateNode {
   policy?: {
     /** Declared predicate, e.g. "confidence.overall >= 0.9" (RFC 0005). */
     auto_pass_if?: string;
+    /**
+     * Once this gate's input has completed in a run, everything upstream of the
+     * gate is final for that run: a later deploy that bumps an upstream
+     * transformation's version must not regenerate it. For editor_review this
+     * is what keeps the editor's returned cut matched to the script, voice and
+     * metadata it was cut from.
+     */
+    freeze_upstream?: boolean;
   };
 }
 
