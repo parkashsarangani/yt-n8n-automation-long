@@ -8,6 +8,7 @@ import {
   creativeFailureKind,
   watchabilityRetryState,
   startGrowthScheduler,
+  nextSeriesEpisode,
   type DiscoveryCandidate,
 } from "../src/growth-scheduler.ts";
 
@@ -227,15 +228,60 @@ test("scheduled production ignores transient watchability blocks, then advances 
     decide: async () => {},
     measureAll: async () => ({ measured: [], skipped: [], failed: [] }),
   } as any;
-
+  process.env["SCHEDULE_PRODUCE_SOURCE"] = "discovery";
   const scheduler = startGrowthScheduler(fakeService, { pollMs: 1, maxWaitMs: 100 });
   try {
     await scheduler.runNow("produce");
   } finally {
     scheduler.stop();
+    delete process.env["SCHEDULE_PRODUCE_SOURCE"];
   }
 
   assert.deepEqual(started, [first.brief, second.brief], "candidate 2 starts exactly once, and only after candidate 1 reaches the bounded final evaluation");
   assert.ok(firstReads >= 6, "the scheduler must observe the bounded final state rather than the earlier transient block");
+  assert.equal(scheduler.status().find((j) => j.id === "produce")?.last_error, null);
+});
+
+const seriesRun = (title: string, status = "completed") => ({
+  run_id: `run_${title}`, graph: "illustrated_story@15", kind: "production", status, created_at: "2026-09-25T01:00:00.000Z",
+  brief: `Second Thoughts: ${title}. Objective. Use the structured series context; do not substitute another topic.`,
+  nodes: [], cost_usd: 0, waiting: [], failures: [],
+}) as any;
+
+test("Second Thoughts advances in catalog order and ignores failed or legacy runs", async () => {
+  const { socialSeriesCatalog } = await import("../src/social-series.ts");
+  const titles = socialSeriesCatalog().map((e) => e.title);
+  assert.equal(nextSeriesEpisode([]), 1);
+  assert.equal(nextSeriesEpisode([seriesRun(titles[0]!), seriesRun(titles[1]!, "blocked")]), 2, "a blocked run does not count as made");
+  assert.equal(nextSeriesEpisode([{ ...seriesRun(titles[0]!), brief: "Quiet Confidence: Entering a Room Where You Know Nobody. x" }]), 1);
+  assert.equal(nextSeriesEpisode([seriesRun(titles[0]!), seriesRun(titles[2]!)]), 2, "a gap is filled before moving on");
+  assert.equal(nextSeriesEpisode(titles.map((t) => seriesRun(t))), null);
+});
+
+test("the daily job produces the next series episode and stops once all eight are made", async () => {
+  const { socialSeriesCatalog } = await import("../src/social-series.ts");
+  const titles = socialSeriesCatalog().map((e) => e.title);
+  let runs: any[] = [seriesRun(titles[0]!)];
+  const started: unknown[] = [];
+  let discovered = 0;
+  const fakeService = {
+    capabilities: () => [],
+    listRuns: () => runs,
+    discoverTopics: async () => { discovered++; return { candidates: { candidates: [] } }; },
+    startRun: async (_brief: string, _sec: number, opts: unknown) => { started.push(opts); return "run_new"; },
+    getRun: () => ({ status: "completed", waiting: [], failures: [], kind: "production", created_at: new Date().toISOString() }),
+    decide: async () => {},
+    measureAll: async () => ({ measured: [], skipped: [], failed: [] }),
+  } as any;
+  let scheduler = startGrowthScheduler(fakeService, { pollMs: 1, maxWaitMs: 100 });
+  try { await scheduler.runNow("produce"); } finally { scheduler.stop(); }
+  assert.deepEqual(started, [{ seriesEpisode: 2 }]);
+
+  runs = titles.map((t) => ({ ...seriesRun(t), created_at: "2026-01-01T01:00:00.000Z" }));
+  started.length = 0;
+  scheduler = startGrowthScheduler(fakeService, { pollMs: 1, maxWaitMs: 100 });
+  try { await scheduler.runNow("produce"); } finally { scheduler.stop(); }
+  assert.deepEqual(started, [], "nothing starts after episode 8");
+  assert.equal(discovered, 0, "a finished season never falls back to discovery");
   assert.equal(scheduler.status().find((j) => j.id === "produce")?.last_error, null);
 });

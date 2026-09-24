@@ -1,8 +1,8 @@
 {
   "schema_id": "intent",
-  "version": "2.1.0",
-  "status": "deprecated",
-  "description": "Adds optional versioned social-intelligence season context. Existing standalone intents remain valid.",
+  "version": "2.2.0",
+  "status": "active",
+  "description": "Series context now accepts the Second Thoughts everyday-psychology season (everyday-psychology-v1) alongside the retired Quiet Confidence season, so runs started under either stay valid.",
   "produced_by": [
     "human",
     "discovery"
@@ -207,7 +207,7 @@
         ],
         "properties": {
           "series_id": {
-            "const": "quiet-confidence-v1"
+            "enum": ["everyday-psychology-v1", "quiet-confidence-v1"]
           },
           "season": {
             "const": 1

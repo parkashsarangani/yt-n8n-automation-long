@@ -41,7 +41,7 @@ The YouTube variables are live: the graph's `finalize_video → qa → publish` 
 
 ## Quiet Confidence — Season 1
 
-The first editorial series is an eight-episode audio-first course in practical social intelligence. Each episode is self-contained but builds a reusable skill: entering unfamiliar rooms, starting and sustaining conversations, expressing interest without pressure, handling interruptions, setting boundaries, accepting rejection, and having difficult conversations. Fictional scenarios are labelled as examples; scripts must explain limitations and end with a concrete exercise.
+The current editorial series, **Second Thoughts**, is an eight-episode audio-first course in everyday psychology. Each episode is self-contained but builds a reusable habit around one thinking trap: reading silence as rejection, adding tone that is not there, sunk cost, procrastination, the spotlight effect, anchoring, comparison, and changing your mind. Fictional scenarios are labelled as examples; scripts must explain limitations, never invent research, and end with a concrete exercise. (It replaced the earlier Quiet Confidence social-skills series, whose runs remain valid.)
 
 Use the Studio's **Quiet Confidence — Season 1** selector, or start an episode through `POST /api/series/quiet-confidence-v1/episodes` with `{ "episode": 1 }` through `{ "episode": 8 }`. Series runs carry typed episode context in `intent@2.1.0` to keep the selected objective available to the writer and critic. Topic fidelity is editorially reviewed; the schema alone cannot prove it.
 

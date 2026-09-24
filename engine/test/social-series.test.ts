@@ -26,3 +26,14 @@ test("script requires all educational functions rather than generic drama", () =
   assert.match(socialSeriesScriptErrors({scenes: scenes.map(s=>({...s,narration:""}))}).join(" "), /spoken content/);
   assert.match(socialSeriesScriptErrors({scenes: scenes.slice(0,-1).map((s,i)=>({...s,is_outro:i===6}))}).join(" "), /overwrite/);
 });
+test("intent@2.2.0 accepts the Second Thoughts season and still accepts Quiet Confidence runs", async () => {
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const { SchemaRegistry } = await import("../src/registry.ts");
+  const registry = await SchemaRegistry.load(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "schemas"));
+  const series = socialSeriesEpisode(1);
+  assert.equal(series.series_id, "everyday-psychology-v1");
+  assert.doesNotThrow(() => registry.validate("intent", "2.2.0", { brief: "Second Thoughts", niche: "everyday-psychology", series }));
+  assert.doesNotThrow(() => registry.validate("intent", "2.2.0", { brief: "Quiet Confidence", series: { ...series, series_id: "quiet-confidence-v1" } }));
+  assert.throws(() => registry.validate("intent", "2.2.0", { brief: "Unknown series", series: { ...series, series_id: "made-up-v1" } }));
+});

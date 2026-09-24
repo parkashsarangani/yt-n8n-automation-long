@@ -1,14 +1,14 @@
 /** Versioned editorial plan. Explicit selection never substitutes a trending topic. */
-export const SOCIAL_SERIES_ID = "quiet-confidence-v1";
+export const SOCIAL_SERIES_ID = "everyday-psychology-v1";
 const episodes = [
-  ["Entering a Room Where You Know Nobody", "Approach one person without performing", "Arriving alone at a gathering", "Ask one context-based opening question"],
-  ["Starting a Conversation Without Sounding Rehearsed", "Use context, curiosity and a little self-disclosure", "Meeting a new colleague", "Try an observation followed by an open question"],
-  ["Keeping a Conversation Interesting Without Interrogating", "Balance questions, listening and sharing", "A conversation becomes a string of questions", "Share one relevant detail before asking another question"],
-  ["Showing Interest Without Applying Pressure", "Express interest and recognise reciprocity without mind-reading", "A friendly conversation might be a romantic connection", "Practise one specific, low-pressure invitation; accept a no"],
-  ["Responding When Someone Interrupts or Dismisses You", "Reclaim a turn without escalating unnecessarily", "A colleague repeatedly talks over you", "Practise a brief request to finish your point"],
-  ["Saying No Without a Long Defence", "Set a clear boundary with context-sensitive alternatives", "Someone asks for another favour you cannot take on", "Write a concise refusal without inventing an excuse"],
-  ["Handling Rejection Without Chasing Approval", "Separate disappointment from entitlement and self-worth", "An invitation is declined", "Practise accepting the answer without bargaining"],
-  ["Having the Conversation You Have Been Avoiding", "Combine clarity, listening, boundaries and a concrete request", "An unresolved disagreement with a friend", "Prepare an observation, its impact, a question and a request"],
+  ["Why One Unanswered Text Ruins Your Evening", "Notice when you fill a silence with the worst explanation", "A friend reads your message and doesn't reply", "List three ordinary explanations before you react"],
+  ["Reading a Tone That Isn't There", "Separate the words someone wrote from the tone you added", "A short work email feels cold", "Reread one message aloud in a neutral voice before replying"],
+  ["Why You Keep Paying for Things You Don't Enjoy", "Decide on what's ahead, not on what's already spent", "Staying at a bad event because the ticket was expensive", "Ask once this week: would I choose this today from scratch?"],
+  ["Putting It Off Isn't Laziness", "Treat procrastination as avoiding a feeling and shrink the first step", "An important form avoided for weeks", "Spend two minutes on one task you've been avoiding"],
+  ["The Spotlight Is Smaller Than You Think", "Estimate how much other people actually noticed", "Stumbling over your words in a meeting", "Afterwards, ask one person what they remember"],
+  ["When the First Number Decides for You", "Set your own reference point before you see someone else's", "Haggling over a secondhand car", "Write down your number before you look at the price"],
+  ["Why Everyone Else Seems to Have It Together", "Compare like with like, not your inside with their outside", "Scrolling past a friend's big news after a bad day", "Name one thing you'd need to know before comparing"],
+  ["Changing Your Mind Without Losing Face", "Update a view when the facts change, and say so", "Defending a choice in a family argument after learning you were wrong", "Practise one sentence: 'I've looked again, and I think I was wrong about...'"],
 ] as const;
 
 export function socialSeriesEpisode(episode: number) {
@@ -21,15 +21,15 @@ export function socialSeriesEpisode(episode: number) {
     season: 1,
     episode,
     total_episodes: episodes.length,
-    series_title: "Quiet Confidence",
+    series_title: "Second Thoughts",
     title: row[0],
     learning_objective: row[1],
     scenario: row[2],
     exercise: row[3],
     prior_skills: episodes.slice(0, episode - 1).map(e => e[1]),
     next_episode_title: episodes[episode]?.[0] ?? null,
-    audience: "English-speaking adults seeking practical social confidence",
-    format: "Audio-first scenario lesson; fictional examples clearly labelled; not therapy or mind-reading",
+    audience: "English-speaking adults curious about why they think and react the way they do",
+    format: "Audio-first scenario lesson; fictional examples clearly labelled; not therapy, diagnosis or invented research",
   };
 }
 

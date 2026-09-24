@@ -174,3 +174,50 @@ export function repairEnumValues(schema: unknown, data: unknown): { data: unknow
     return node;
   }
 }
+
+/**
+ * Pool outputs whose array items are independent alternatives. Dropping one
+ * bad item loses nothing the others depend on, unlike a script scene.
+ */
+const PRUNABLE_POOLS: Record<string, string> = { topic_candidates: "candidates" };
+
+export interface PoolPrune {
+  data: unknown;
+  dropped: number[];
+}
+
+/**
+ * Drop the pool items that schema errors point at, when every error is
+ * item-scoped and at least `minItems` survive. Discovery returns 20-30
+ * candidates; one over-long brief used to fail the whole tournament and burn
+ * a retry. Returns undefined when pruning cannot make the payload valid by
+ * construction -- the caller still re-validates the result.
+ */
+export function pruneInvalidPoolItems(
+  schemaId: string,
+  schema: unknown,
+  payload: unknown,
+  errors: string[],
+): PoolPrune | undefined {
+  const key = PRUNABLE_POOLS[schemaId];
+  if (!key || !payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const items = (payload as Record<string, unknown>)[key];
+  if (!Array.isArray(items)) return undefined;
+
+  const itemError = new RegExp(`^/${key}/(\\d+)(?:/|\\s)`);
+  const bad = new Set<number>();
+  for (const error of errors) {
+    const match = itemError.exec(error);
+    if (!match) return undefined;
+    bad.add(Number(match[1]));
+  }
+  if (bad.size === 0) return undefined;
+
+  const props = schemaProperties((schema ?? {}) as Record<string, unknown>);
+  const pool = (props[key] ?? {}) as Record<string, unknown>;
+  const minItems = typeof pool.minItems === "number" ? pool.minItems : 0;
+  const kept = items.filter((_, i) => !bad.has(i));
+  if (kept.length < minItems) return undefined;
+
+  return { data: { ...(payload as Record<string, unknown>), [key]: kept }, dropped: [...bad].sort((a, b) => a - b) };
+}

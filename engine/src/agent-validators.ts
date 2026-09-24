@@ -50,7 +50,7 @@ export function agentSemanticValidationErrors(
   _inputs: Record<string, Artifact>,
 ): string[] {
   const intent = _inputs.intent?.payload as { series?: unknown; niche?: string } | undefined;
-  if (def.name === "narration_script_writer" && (intent?.series || intent?.niche === "practical-social-intelligence")) {
+  if (def.name === "narration_script_writer" && (intent?.series || (intent?.niche === "everyday-psychology" || intent?.niche === "practical-social-intelligence"))) {
     // Script structure is part of the bounded quality loop. Visual-card
     // correctness is intentionally not checked here: the editor owns the
     // visuals and the draft renderer can safely fall back to the gradient.

@@ -180,7 +180,7 @@ export function createUiServer(opts: ServerOptions) {
         json(res, 400, { error: "episode must be an integer from 1 to 8" });
         return;
       }
-      const runId = await service.startRun("Quiet Confidence", 600, { seriesEpisode: body.episode! });
+      const runId = await service.startRun("Second Thoughts", 600, { seriesEpisode: body.episode! });
       json(res, 201, { run_id: runId });
       return;
     }

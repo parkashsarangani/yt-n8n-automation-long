@@ -1,7 +1,7 @@
 {
   "name": "discovery",
   "kind": "agent",
-  "version": "5",
+  "version": "6",
   "consumes": [
     {
       "schema_id": "topic_history",
@@ -16,7 +16,7 @@
   ],
   "produces": "topic_candidates",
   "produces_version": "2.0.0",
-  "prompt": "discovery@5",
+  "prompt": "discovery@6",
   "model": {
     "capability": "reasoning_fast",
     "max_output_tokens": 12000,

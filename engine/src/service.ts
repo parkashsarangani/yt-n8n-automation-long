@@ -66,6 +66,7 @@ import { sendOperatorAlert } from "./operator-alerts.ts";
 import { isModerationReviewFailureMessage } from "./moderation/tts-policy.ts";
 import { loadGraph, nodeType, inputsOf, type GraphDoc } from "./graph.ts";
 import { buildPerformanceWindow, excludedIds } from "./performance-window.ts";
+import { analyticsSettled } from "./workers/measure.ts";
 import { buildTopicHistory } from "./topic-history.ts";
 import { buildManualEpisode, type ManualScriptInput } from "./manual-script.ts";
 import { Scheduler, type Job, type JobStatus } from "./scheduler.ts";
@@ -197,7 +198,7 @@ type Genre = "moral_story" | "drama" | "true_story" | "short_story";
 
 /** The operator-selectable knobs from the active intent@2.x schema. */
 export interface RunOptions {
-  niche?: "practical-social-intelligence";
+  niche?: "everyday-psychology";
   seriesEpisode?: number;
   genre?: Genre;
   /**
@@ -701,7 +702,7 @@ export class VidGenService {
         brief: trimmed,
         target_duration_sec: durationSec,
         ...(series ? { series } : {}),
-        ...((series || opts.niche || !opts.genre) ? { niche: "practical-social-intelligence" } : {}),
+        ...((series || opts.niche || !opts.genre) ? { niche: "everyday-psychology" } : {}),
         ...(opts.genre ? { genre: opts.genre } : {}),
         ...(opts.packageSeed ? { package_seed: opts.packageSeed } : {}),
       },
@@ -1705,14 +1706,15 @@ export class VidGenService {
     const failed: Array<{ external_id: string; error: string }> = [];
     const seen = new Set<string>();
 
-    const candidates: Array<{ artifactId: string; externalId: string }> = [];
+    const candidates: Array<{ artifactId: string; externalId: string; publishedAt?: string }> = [];
     for (const row of rows) {
       const episode = await this.store.get(row.artifact_id);
       if (!episode) continue;
-      const externalId = (episode.payload as { external_id?: string }).external_id;
+      const { external_id: externalId, published_at: publishedAt } =
+        episode.payload as { external_id?: string; published_at?: string };
       if (!externalId || seen.has(externalId)) continue;
       seen.add(externalId);
-      candidates.push({ artifactId: row.artifact_id, externalId });
+      candidates.push({ artifactId: row.artifact_id, externalId, publishedAt });
     }
 
     const analytics = this.analyticsProvider;
@@ -1731,9 +1733,15 @@ export class VidGenService {
 
     const excluded = excludedIds();
 
-    for (const { artifactId: rowId, externalId } of candidates) {
+    const now = new Date();
+    for (const { artifactId: rowId, externalId, publishedAt } of candidates) {
       if (excluded.has(externalId)) {
         skipped.push({ external_id: externalId, visibility: "excluded" });
+        continue;
+      }
+      // Too new for YouTube Analytics to have rows yet; measured on a later day.
+      if (!analyticsSettled(publishedAt, now)) {
+        skipped.push({ external_id: externalId, visibility: "settling" });
         continue;
       }
       const vis = visibility[externalId] ?? "unknown";
@@ -2138,7 +2146,7 @@ export class VidGenService {
             console.log("[scheduler] winning candidate is missing package fields; running it as a plain brief");
           }
           const runId = await this.startRun(top.brief, undefined, {
-            niche: "practical-social-intelligence",
+            niche: "everyday-psychology",
             ...(top.genre ? { genre: top.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
           });
