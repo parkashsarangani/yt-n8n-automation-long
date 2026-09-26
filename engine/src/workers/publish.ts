@@ -36,9 +36,22 @@ interface QaReport {
   checks: Array<{ id: string; status: string; message: string }>;
 }
 
-/** A clean QA result: the verdict passed AND nothing was even flagged. */
+/**
+ * Warnings that stay in the QA report but never hold an episode back from
+ * going public. Length drift is a target, not a defect: the script writer
+ * routinely overshoots and the editor re-cuts anyway, and episode 1 of
+ * Second Thoughts sat private for a 17% overshoot with every other check clean.
+ */
+const ADVISORY_WARNINGS = new Set(["target_duration"]);
+
+/** A clean QA result: the verdict passed AND nothing beyond an advisory check was flagged. */
 function qaIsClean(qa: QaReport): boolean {
-  return qa.verdict === "pass" && (qa.warned ?? qa.checks.filter((c) => c.status === "warn").length) === 0;
+  if (qa.verdict !== "pass") return false;
+  const warns = (qa.checks ?? []).filter((c) => c.status === "warn");
+  // A report whose warned count disagrees with its checks can't be trusted to
+  // say which warnings were advisory; fall back to treating any as blocking.
+  if ((qa.warned ?? warns.length) !== warns.length) return (qa.warned ?? 0) === 0;
+  return warns.every((c) => ADVISORY_WARNINGS.has(c.id));
 }
 
 interface ThumbnailArtifact {

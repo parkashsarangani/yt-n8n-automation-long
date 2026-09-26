@@ -265,6 +265,55 @@ test("a non-clean QA verdict (pass with warnings) publishes private, never publi
   assert.equal(h.target.published[0]!.metadata.privacy, "private");
 });
 
+test("a length-only QA warning is advisory and still publishes at the configured privacy", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  // Real production evidence: a 17.2% overshoot held an otherwise clean episode private.
+  const qa = await h.seed("qa_report", {
+    verdict: "pass",
+    failed: 0,
+    warned: 1,
+    checks: [{ id: "target_duration", status: "warn", message: "voice duration is 17.2% from requested target" }],
+  }, "qa");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
+  assert.equal(h.target.published[0]!.metadata.privacy, "public");
+});
+
+test("a length warning alongside any other warning still publishes private", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  const qa = await h.seed("qa_report", {
+    verdict: "pass",
+    failed: 0,
+    warned: 2,
+    checks: [
+      { id: "target_duration", status: "warn", message: "voice duration is 17.2% from requested target" },
+      { id: "thumbnail_image", status: "warn", message: "thumbnail background is gradient" },
+    ],
+  }, "qa");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    seo.artifact_id,
+    thumb.artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "private");
+});
+
 test("publish uploads and records where the video went", async () => {
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
