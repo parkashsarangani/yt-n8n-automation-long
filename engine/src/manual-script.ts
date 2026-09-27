@@ -176,9 +176,21 @@ function hardWrap(s: string, maxChars: number): string[] {
   return out;
 }
 
+/**
+ * A working title for a custom episode submitted without one. It only names
+ * the run and seeds the story; the published YouTube title comes from the SEO
+ * stage. First sentence of the hook, cut at a word boundary.
+ */
+export function workingTitleFromHook(hook: string): string {
+  const first = hook.trim().split(/(?<=[.!?])\s/)[0]!.replace(/[.!?]+$/, "").trim();
+  if (first.length <= 80) return first;
+  const cut = first.lastIndexOf(" ", 80);
+  return `${first.slice(0, cut > 20 ? cut : 80).trim()}…`;
+}
+
 export function buildManualEpisode(input: ManualScriptInput): ManualEpisode {
-  const title = input.title.trim();
   const hook = input.hook.trim();
+  const title = (input.title ?? "").trim() || workingTitleFromHook(hook);
   const narration = input.narration.trim();
 
   if (title.length < 5 || title.length > 100) throw new Error("title must be 5-100 characters");

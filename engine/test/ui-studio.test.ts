@@ -10,10 +10,9 @@ test("studio UI reflects the audio-first format, not the retired visual pipeline
   const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
 
   assert.match(html, /Narrated Story Studio/);
-  assert.match(html, /Create episode/);
-  assert.match(html, /Single-narrator voice-over/);
+  assert.match(html, /Season episode/);
+  assert.match(html, /Custom episode/);
   assert.match(html, /\/api\/runs/);
-  assert.match(html, /\/api\/discover/);
 
   // Retired character pipeline.
   assert.doesNotMatch(html, /Cartoon Channel Studio/);
@@ -59,25 +58,32 @@ test("Studio progress mirrors the audio-first production graph", async () => {
   assert.doesNotMatch(html, /episode_director|illustrated_scene_assets|visual_director/);
 });
 
-test("episode idea suggestions unwrap the topic_candidates artifact shape", async () => {
+test("the studio offers exactly two creators: a season episode and a custom script", async () => {
   const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
 
-  // /api/discover returns the topic_candidates artifact payload under
-  // r.candidates. That payload is { basis, candidates: [...] }, not an array.
-  assert.match(html, /Array\.isArray\(set\?\.candidates\)\?set\.candidates/);
-  assert.match(html, /why_it_earns_attention/);
-  assert.match(html, /obj\.novelty/);
-  assert.match(html, /r\.history_count/);
-  assert.match(html, /r\.measured_episodes/);
+  // Season dropdown, driven by the catalog, starting through the series route.
+  assert.match(html, /id="seriesEpisode"/);
+  assert.match(html, /\/api\/series\//);
 
-  // Selecting a suggestion must seed production with the candidate's brief,
-  // while the UI may display its shorter angle/rationale.
-  assert.match(html, /brief=obj\.brief\|\|obj\.topic\|\|obj\.title/);
-  assert.match(html, /data-idea="\$\{esc\(brief\)\}"/);
-  assert.match(html, /\$\("brief"\)\.value=b\.dataset\.idea/);
+  // Custom episode: length, hook and script only. The title is derived from
+  // the hook server-side, so the form must not ask for one.
+  for (const id of ["customLength", "customHook", "customScript", "startCustom"]) {
+    assert.match(html, new RegExp(`id="${id}"`), `missing custom-episode field: ${id}`);
+  }
+  assert.match(html, /\/api\/runs\/manual/);
+  assert.match(html, /duration_sec:Math\.round\(minutes\*60\)/);
+  assert.doesNotMatch(html, /manualTitle/);
 
-  // Discovery can take a while; prevent duplicate requests and restore the
-  // button even when the provider fails.
-  assert.match(html, /btn\.disabled=true/);
-  assert.match(html, /finally\{btn\.disabled=false;btn\.textContent=label\}/);
+  // Retired: free-form idea brief, story types and discovery suggestions.
+  assert.doesNotMatch(html, /\/api\/discover/);
+  assert.doesNotMatch(html, /id="brief"|id="genre"|Suggest episode ideas|The Turning Point/);
+});
+
+test("the editor's-cut gate is never approved by hand from the studio", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  // Approving editor_review would publish the unedited render. The studio
+  // links the Drive folder and triggers a Drive check instead.
+  assert.match(html, /drive_folder_url/);
+  assert.match(html, /\/api\/schedule\/editor_watch\/run/);
+  assert.doesNotMatch(html, /data-node="editor_review"/);
 });
