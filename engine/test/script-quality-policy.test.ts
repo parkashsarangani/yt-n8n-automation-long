@@ -52,3 +52,36 @@ test("watchability release still retries a below-bar script before attempt three
   const ctx = { attemptNumber: 2, logger: { warn() {}, log() {}, error() {} } } as never;
   await assert.rejects(() => worker.execute(inputs, ctx), /REVISE_SCRIPT/);
 });
+
+test("the critic is advisory for a human-authored script: released unchanged on attempt one, with a trace", async () => {
+  // Operator decision 2026-09-27. An editor's script cannot be regenerated, so
+  // blocking it would strand the run; the human editor is the quality gate.
+  const worker = makeWatchabilityReleaseWorker();
+  const scriptPayload = { scenes: [{ scene_index: 0, point: "[scenario]", narration: "The editor's own words." }] };
+  for (const report of [
+    { verdict: "revise", abandon_recommended: false, scores: { ...scores(), suspense: 0.4 } },
+    { verdict: "abandon", abandon_recommended: true, abandon_reason: "premise too thin", scores: { ...scores(), suspense: 0.2 } },
+  ]) {
+    const warnings: string[] = [];
+    const inputs = {
+      script: { payload: scriptPayload, produced_by: { transformation: "human" } },
+      report: { payload: report },
+      intent: { payload: { target_duration_sec: 180 } },
+    } as never;
+    const ctx = { attemptNumber: 1, logger: { warn(m: string) { warnings.push(m); }, log() {}, error() {} } } as never;
+    const result = await worker.execute(inputs, ctx);
+    assert.deepEqual(result.payload, scriptPayload, "an editor's exact words are released, never rewritten");
+    assert.ok(warnings.some((w) => /advisory for a human-authored script/.test(w)), "the override must leave a trace");
+  }
+});
+
+test("a generated script the critic says to abandon is still blocked", async () => {
+  const worker = makeWatchabilityReleaseWorker();
+  const inputs = {
+    script: { payload: { scenes: [{ scene_index: 0, point: "[scenario]", narration: "A generated beat." }] }, produced_by: { transformation: "narration_script_writer" } },
+    report: { payload: { verdict: "abandon", abandon_recommended: true, abandon_reason: "premise too thin", scores: { ...scores(), suspense: 0.2 } } },
+    intent: { payload: { target_duration_sec: 180 } },
+  } as never;
+  const ctx = { attemptNumber: 3, logger: { warn() {}, log() {}, error() {} } } as never;
+  await assert.rejects(() => worker.execute(inputs, ctx), /ABANDON_TOPIC/);
+});
