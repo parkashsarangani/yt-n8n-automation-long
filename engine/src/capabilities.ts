@@ -48,15 +48,6 @@ export const STAGES: StageSpec[] = [
     consequence: "silent placeholder audio when no live speech provider is configured",
   },
   {
-    id: "images",
-    label: "Thumbnail artwork",
-    requires: [["FAL_KEY"]],
-    optional: ["FAL_MODEL", "FAL_PRICE_PER_IMAGE"],
-    real: "fal/${FAL_MODEL:-fal-ai/flux-2}",
-    fallback: "generated gradient",
-    consequence: "thumbnail text is composited over a generated gradient instead of custom artwork",
-  },
-  {
     id: "renderer",
     label: "Audio-first video assembly",
     requires: [["COMPOSE_URL"]],
@@ -172,11 +163,6 @@ function speechProvider(env: NodeJS.ProcessEnv): string {
   return "elevenlabs";
 }
 
-function imageProvider(env: NodeJS.ProcessEnv): string {
-  const model = env["FAL_MODEL"]?.trim() || "fal-ai/flux-2";
-  return `fal/${model}`;
-}
-
 export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.ProcessEnv }): StageStatus[] {
   const env = opts.env ?? process.env;
   return STAGES.map((spec) => {
@@ -187,7 +173,6 @@ export function capabilityReport(opts: { allowPublish: boolean; env?: NodeJS.Pro
     if (!real) provider = spec.fallback;
     else if (spec.id === "reasoning") provider = reasoningProvider(env);
     else if (spec.id === "speech") provider = speechProvider(env);
-    else if (spec.id === "images") provider = imageProvider(env);
     else provider = spec.real;
 
     return {

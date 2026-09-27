@@ -21,7 +21,6 @@ Both are published to `127.0.0.1` only — deliberately, since the local Studio 
 | `OPENAI_API_KEY` | Paid text fallback and pre-TTS moderation | Moderated production cannot proceed |
 | `ELEVENLABS_API_KEY` | Narration | Fake speech in non-production runs |
 | `ELEVENLABS_VOICE_ID` | Narrator voice | Test-only placeholder voice |
-| `FAL_KEY` | Optional thumbnail artwork | Gradient thumbnail background |
 | `COMPOSE_URL` | FFmpeg compositor | Fake renderer in non-production runs |
 | `FOOTAGE_MODE` | Stock footage lookup (default `stock`) | Plain background behind narration |
 | `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` | Stock media sources | Unmatched scenes use the background |
@@ -49,7 +48,7 @@ The [retention review](docs/quiet-confidence-retention-review.md) describes the 
 
 ## Editor hand-off
 
-`editor_package` uploads the draft, transcript and beat list to a dated Drive subfolder and the run parks at `editor_review`. The editor finishes the cut and drops it back into that same folder as `final.mp4` (a `.mov`/`.m4v` export or a `final_v2.mp4`-style name is also accepted; our own `draft.mp4` never is). `checkEditorReturns()` picks it up, substitutes it as the final video, and the run continues through `qa → publish` — uploading to YouTube with the pipeline's SEO title/description/chapters and designed thumbnail, then emitting the `published_episode` artifact that feeds performance measurement back into topic selection.
+`editor_package` uploads the draft, transcript and beat list to a dated Drive subfolder and the run parks at `editor_review`. The editor finishes the cut and drops it back into that same folder as `final.mp4` (a `.mov`/`.m4v` export or a `final_v2.mp4`-style name is also accepted; our own `draft.mp4` never is). `checkEditorReturns()` picks it up, substitutes it as the final video, and the run continues through `qa → publish` — uploading to YouTube with the pipeline's SEO title/description/chapters and the editor's `thumbnail-final` (if none is returned, YouTube auto-picks a frame; generated thumbnails are never published), then emitting the `published_episode` artifact that feeds performance measurement back into topic selection.
 
 **There is no confirmation step.** A returned cut becomes a live public video, by operator decision; the only automatic brake is `qa`, which downgrades to private on a non-clean report. If the folder holds no importable cut but does hold editor-added files, or holds two possible cuts, the run alerts instead of waiting silently — a misnamed upload would otherwise stall the episode forever with nobody told. Two further guards protect the bytes rather than the decision: a returned file is only consumed once its size is stable between the download and a re-read of the listing (Drive lists a file when it is *created*, not when the upload finishes), and concurrent callers collapse onto one pass so a webhook cannot race the poll into publishing twice.
 

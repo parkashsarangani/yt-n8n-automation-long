@@ -21,8 +21,7 @@ is a static shell. AI video generation was evaluated twice and rejected on quali
   self-hosted runner deploys on push to `main`
 - Model agents are prompt-file driven: `engine/prompts/<agent>/<n>.md` selected by a
   `"prompt": "<agent>@<n>"` field in `engine/agents/<agent>.json`
-- Providers: OpenAI (script reasoning, moderation), ElevenLabs (TTS), FAL (thumbnail
-  artwork), YouTube Data API v3, Google Drive, n8n webhook -> Gmail for operator alerts
+- Providers: OpenAI (script reasoning, moderation), ElevenLabs (TTS), YouTube Data API v3, Google Drive, n8n webhook -> Gmail for operator alerts
 
 ## Current phase
 

@@ -5,15 +5,12 @@ import { capabilityReport, credentialsSatisfied, STAGES } from "../src/capabilit
 const stage = (id: string) => STAGES.find((item) => item.id === id)!;
 
 test("audio-first capabilities expose no retired visual QA or media-generation stages", () => {
-  assert.deepEqual(STAGES.map((item) => item.id), ["reasoning", "speech", "images", "renderer", "publish", "editor_handoff", "analytics"]);
-  assert.equal(credentialsSatisfied(stage("images"), { FAL_KEY: "fal" }), true);
-  assert.equal(credentialsSatisfied(stage("images"), { FREELLMAPI_API_KEY: "free" }), false);
+  assert.deepEqual(STAGES.map((item) => item.id), ["reasoning", "speech", "renderer", "publish", "editor_handoff", "analytics"]);
 });
 
-test("thumbnail artwork is optional and reports its gradient fallback", () => {
-  const report = capabilityReport({ allowPublish: false, env: {} });
-  const images = report.find((item) => item.id === "images")!;
-  assert.equal(images.real, false);
-  assert.equal(images.provider, "generated gradient");
-  assert.deepEqual(images.missing, ["FAL_KEY"]);
+test("generated thumbnail artwork is retired: no image stage, and a FAL key enables nothing", () => {
+  // Operator decision 2026-09-27: only the editor's thumbnail is published.
+  const report = capabilityReport({ allowPublish: false, env: { FAL_KEY: "fal" } });
+  assert.equal(report.some((item) => item.id === "images"), false);
+  assert.equal(STAGES.some((item) => JSON.stringify(item).includes("FAL_")), false);
 });

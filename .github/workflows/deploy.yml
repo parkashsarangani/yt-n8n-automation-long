@@ -45,10 +45,6 @@ jobs:
           ELEVENLABS_STABILITY: ${{ vars.ELEVENLABS_STABILITY || '0.45' }}
           ELEVENLABS_STYLE: ${{ vars.ELEVENLABS_STYLE || '0' }}
 
-          # Optional custom thumbnail artwork.
-          FAL_KEY: ${{ secrets.FAL_KEY }}
-          FAL_MODEL: ${{ vars.FAL_MODEL || 'fal-ai/flux-2' }}
-          FAL_PRICE_PER_IMAGE: ${{ vars.FAL_PRICE_PER_IMAGE || '' }}
           FOOTAGE_MODE: ${{ vars.FOOTAGE_MODE || 'stock' }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}

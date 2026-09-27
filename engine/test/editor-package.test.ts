@@ -61,7 +61,11 @@ test("editor package uploads the draft and records a beat per scene", async () =
   const md = new TextDecoder().decode(await drive.downloadFile(files.find(f=>f.name==="package.md")!.id));
   assert.match(md,/A colleague cuts across the point you were making/);
   assert.match(md,/Preserve the narration timing/);
-  assert.match(md,/THUMBNAIL NEEDS REPLACEMENT/);
+  // Only the editor's thumbnail-final is published; the package must say so,
+  // and must no longer promise that ours is published as a fallback.
+  assert.match(md,/thumbnail-final\.png/);
+  assert.match(md,/ONLY thumbnail ever published/);
+  assert.doesNotMatch(md,/ours is published|THUMBNAIL NEEDS REPLACEMENT|not automatically imported/);
   assert.doesNotMatch(md,/already final/);
   assert.deepEqual(await drive.downloadFile(files.find(f=>f.name==="captions.srt")!.id),await blobs.get(captions.uri));
   const again = await worker.execute(inputs,ctx);

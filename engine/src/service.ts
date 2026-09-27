@@ -23,14 +23,12 @@ import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
 import {
   ProviderRouter,
   type AnalyticsProvider,
-  type ImageProvider,
   type MediaRenderer,
   type PublishTarget,
   type SpeechProvider,
 } from "./provider.ts";
 import { OpenAIProvider, scriptAuthoringModel } from "./providers/openai.ts";
 import { ElevenLabsProvider } from "./providers/elevenlabs.ts";
-import { FalImageProvider } from "./providers/fal.ts";
 import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
@@ -42,7 +40,6 @@ import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact,
 import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type ChannelVideo } from "./episode-adoption.ts";
 import { assertEditorCutDuration, assertYouTubeProductionGeometry } from "./media/mp4.ts";
 import {
-  FakeImageProvider,
   FakePublishTarget,
   FakeRenderer,
   FakeSpeechProvider,
@@ -304,13 +301,9 @@ export class VidGenService {
     const speech: SpeechProvider = can("speech")
       ? new ElevenLabsProvider({ apiKey: env("ELEVENLABS_API_KEY")! })
       : new FakeSpeechProvider();
-    const images: ImageProvider = can("images")
-      ? new FalImageProvider({
-        apiKey: env("FAL_KEY")!,
-        ...(env("FAL_MODEL") ? { model: env("FAL_MODEL") } : {}),
-        ...(env("FAL_PRICE_PER_IMAGE") ? { pricePerImage: Number(env("FAL_PRICE_PER_IMAGE")) } : {}),
-      })
-      : new FakeImageProvider();
+    // No image provider: generated thumbnail artwork was retired (operator
+    // decision 2026-09-27). The thumbnail worker composites a text placeholder
+    // for the editor's Drive package; only the editor's thumbnail is published.
     const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
@@ -393,7 +386,7 @@ export class VidGenService {
       providers,
       runLog: this.runLog,
       blobs: this.blobs,
-      media: { speech, images, renderer, drive, ...(analytics ? { analytics } : {}) },
+      media: { speech, renderer, drive, ...(analytics ? { analytics } : {}) },
       logger: console,
     });
 

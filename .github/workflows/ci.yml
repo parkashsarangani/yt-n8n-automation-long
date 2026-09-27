@@ -72,6 +72,7 @@ jobs:
             'engine/src/visual-beat-qa.ts',
             'engine/src/visual-benchmark-judge.ts',
             'engine/src/image-qa.ts',
+            'engine/src/providers/fal.ts',
             'engine/src/providers/fal-video.ts',
             'engine/src/providers/freellm-image.ts',
             'engine/src/providers/freellm-video.ts',
@@ -116,6 +117,7 @@ jobs:
             'PAID_IMAGE_FALLBACK', 'PAID_VIDEO_FALLBACK',
             'FREELLMAPI_IMAGE_MODELS', 'FREELLMAPI_VIDEO_MODELS',
             'FAL_EDIT_MODEL', 'FAL_VIDEO_MODEL', 'FAL_TEXT_TO_VIDEO_MODEL',
+            'FAL_KEY', 'FAL_MODEL', 'FAL_PRICE_PER_IMAGE',
           ]
           found = [name for name in stale if name in operational]
           assert not found, f'stale visual provider/deploy configuration remains: {found}'

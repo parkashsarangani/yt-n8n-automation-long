@@ -15,7 +15,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "7",
+    version: opts.version ?? "8",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -33,7 +33,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       const script = inputs["script"]!.payload as { scenes?: ScriptScene[] };
       const voice = inputs["voice"]!.payload as { clips?: VoiceClip[]; duration_sec?: number };
-      const render = inputs["render"]!.payload as { video_uri?: string; media_type?: string; scene_count?: number; duration_sec?: number; degraded_scenes?: number };
+      const render = inputs["render"]!.payload as { video_uri?: string; media_type?: string; scene_count?: number; duration_sec?: number; degraded_scenes?: number; renderer?: string; thumbnail_uri?: string };
       const thumbnail = inputs["thumbnail"]!.payload as { thumbnail_uri?: string; media_type?: string; width?: number; height?: number; bytes?: number };
       const seo = inputs["seo"]!.payload as { title?: string; description?: string; tags?: string[] };
       const intent = inputs["intent"]!.payload as { target_duration_sec?: number };
@@ -112,6 +112,14 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       const thumbOk = !!thumbnail.thumbnail_uri && (thumbnail.media_type === "image/png" || thumbnail.media_type === "image/jpeg") && (thumbnail.width ?? 0) >= 1280 && (thumbnail.height ?? 0) >= 720;
       add("thumbnail_integrity", thumbOk ? "pass" : "fail", thumbOk ? `thumbnail ${thumbnail.width}x${thumbnail.height} ${thumbnail.media_type}` : "thumbnail is missing, undersized, or has an unsupported media type");
+      // Only the editor's thumbnail-final is published (generated thumbnails are
+      // retired). thumbnail_integrity above checks the Drive placeholder, so it
+      // says nothing about what YouTube will show; this says it plainly.
+      // Advisory: publish still goes public without it (see publish.ts).
+      const editorThumbnail = render.renderer === "editor" && !!render.thumbnail_uri;
+      add("editor_thumbnail", editorThumbnail ? "pass" : "warn", editorThumbnail
+        ? "editor returned thumbnail-final; it will be published"
+        : "no thumbnail-final from the editor; YouTube will auto-pick a frame");
       if (typeof thumbnail.bytes === "number") add("thumbnail_size", thumbnail.bytes <= 2 * 1024 * 1024 ? "pass" : "fail", `thumbnail payload ${thumbnail.bytes} bytes`, thumbnail.bytes, 2 * 1024 * 1024);
 
       const title = seo.title?.trim() ?? "";

@@ -57,11 +57,6 @@ services:
       OPENAI_MODERATION_MODEL: ${OPENAI_MODERATION_MODEL:-omni-moderation-latest}
       TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
 
-      # Optional custom thumbnail artwork. Rendering falls back to a gradient.
-      FAL_KEY: ${FAL_KEY:-}
-      FAL_MODEL: ${FAL_MODEL:-fal-ai/flux-2}
-      FAL_PRICE_PER_IMAGE: ${FAL_PRICE_PER_IMAGE:-}
-
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
       # Daily preparation slot is resolved from a local-time target, not a fixed
       # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC

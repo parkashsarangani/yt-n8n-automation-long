@@ -105,8 +105,8 @@ const seedQa = (h: Awaited<ReturnType<typeof harness>>, verdict: "pass" | "fail"
   );
 
 /**
- * Publish now requires a designed thumbnail (schema `thumbnail`), so every case
- * seeds one. Inputs bind positionally, in the worker's `consumes` order:
+ * Publish still consumes the `thumbnail` artifact (the editor's placeholder),
+ * so every case seeds one -- but only an editor's thumbnail-final is uploaded. Inputs bind positionally, in the worker's `consumes` order:
  * rendered_video, story, thumbnail.
  */
 const seedThumb = (h: Awaited<ReturnType<typeof harness>>) =>
@@ -289,6 +289,29 @@ test("a length-only QA warning is advisory and still publishes at the configured
   assert.equal(h.target.published[0]!.metadata.privacy, "public");
 });
 
+test("a missing editor thumbnail is advisory: the episode still publishes public", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const qa = await h.seed("qa_report", {
+    verdict: "pass",
+    failed: 0,
+    warned: 2,
+    checks: [
+      { id: "editor_thumbnail", status: "warn", message: "no thumbnail-final from the editor; YouTube will auto-pick a frame" },
+      { id: "target_duration", status: "warn", message: "voice duration is 17.2% from requested target" },
+    ],
+  }, "qa");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    (await seedSeo(h)).artifact_id,
+    (await seedThumb(h)).artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
+});
+
 test("a length warning alongside any other warning still publishes private", async () => {
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
@@ -316,7 +339,7 @@ test("a length warning alongside any other warning still publishes private", asy
 
 test("publish uploads and records where the video went", async () => {
   const h = await harness();
-  const video = await h.seed("rendered_video", rendered(h), "render");
+  const video = await seedEditorCut(h);
   const seo = await seedSeo(h);
 
   const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "unlisted" }), [
@@ -347,11 +370,17 @@ test("publish uploads and records where the video went", async () => {
   assert.ok(sent.thumbnail);
 });
 
+/** An editor's returned cut carrying their thumbnail-final, as finalize_video produces it. */
+async function seedEditorCut(h: Awaited<ReturnType<typeof harness>>, thumb = "EDITOR-PNG") {
+  const blob = await h.blobs.put(new TextEncoder().encode(thumb), { role: "thumbnail" });
+  return h.seed("rendered_video", { ...rendered(h, false), thumbnail_uri: blob.uri, renderer: "editor" }, "finalize_video");
+}
+
 test("a refused thumbnail is recorded, not swallowed", async () => {
   // Silently falling back to an auto-selected frame changes CTR, so it has to
   // be visible in the artifact.
   const h = await harness(new FakePublishTarget({ rejectThumbnail: true }));
-  const video = await h.seed("rendered_video", rendered(h), "render");
+  const video = await seedEditorCut(h);
   const seo = await seedSeo(h);
 
   const out = await h.runner.run(makePublishWorker({ target: h.target }), [
@@ -398,7 +427,7 @@ test("a target that cannot take a custom thumbnail is never sent one", async () 
   const h = await harness(
     new FakePublishTarget({ requirements: { supports_custom_thumbnail: false } }),
   );
-  const video = await h.seed("rendered_video", rendered(h), "render");
+  const video = await seedEditorCut(h);
   const seo = await seedSeo(h);
 
   await h.runner.run(makePublishWorker({ target: h.target }), [
@@ -410,43 +439,28 @@ test("a target that cannot take a custom thumbnail is never sent one", async () 
   assert.equal(h.target.published[0]!.thumbnail, undefined);
 });
 
-test("the designed thumbnail wins over the one the render happened to emit", async () => {
-  // render() produces a thumbnail as a by-product; thumbnail_designer produces
-  // one on purpose. If both exist the designed one must be uploaded, otherwise
-  // the whole thumbnail branch is decorative.
+test("without an editor thumbnail, no generated thumbnail is ever uploaded", async () => {
+  // Generated thumbnails were retired (operator decision 2026-09-27): neither
+  // the designed placeholder nor the render's by-product may reach YouTube.
+  // With no thumbnail-final from the editor, YouTube auto-picks a frame.
   const h = await harness();
-  const designedBlob = await h.blobs.put(new TextEncoder().encode("DESIGNED-PNG"), {
-    role: "thumbnail",
-  });
-
-  const video = await h.seed("rendered_video", rendered(h), "render"); // carries h.thumb
-  const seo = await seedSeo(h);
+  const designedBlob = await h.blobs.put(new TextEncoder().encode("DESIGNED-PNG"), { role: "thumbnail" });
+  const video = await h.seed("rendered_video", rendered(h), "render"); // carries the render's own thumbnail
   const designed = await h.seed(
     "thumbnail",
-    {
-      thumbnail_uri: designedBlob.uri,
-      media_type: "image/png",
-      width: 1280,
-      height: 720,
-      text: "It Never Existed",
-      background: "supplied",
-    },
+    { thumbnail_uri: designedBlob.uri, media_type: "image/png", width: 1280, height: 720, text: "Ours", background: "supplied" },
     "thumbnail",
   );
 
-  await h.runner.run(makePublishWorker({ target: h.target }), [
+  const out = await h.runner.run(makePublishWorker({ target: h.target }), [
     video.artifact_id,
-    seo.artifact_id,
+    (await seedSeo(h)).artifact_id,
     designed.artifact_id,
     (await seedQa(h)).artifact_id,
   ]);
 
-  const sent = h.target.published[0]!.thumbnail!;
-  assert.equal(
-    new TextDecoder().decode(sent.bytes),
-    "DESIGNED-PNG",
-    "publish uploaded the render's by-product instead of the designed thumbnail",
-  );
+  assert.equal(h.target.published[0]!.thumbnail, undefined);
+  assert.equal((out.artifact.payload as { thumbnail_set: boolean }).thumbnail_set, false);
 });
 
 test("a thumbnail the human editor returned outranks even the designed one", async () => {

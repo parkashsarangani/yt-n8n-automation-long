@@ -42,7 +42,7 @@ interface QaReport {
  * routinely overshoots and the editor re-cuts anyway, and episode 1 of
  * Second Thoughts sat private for a 17% overshoot with every other check clean.
  */
-const ADVISORY_WARNINGS = new Set(["target_duration"]);
+const ADVISORY_WARNINGS = new Set(["target_duration", "editor_thumbnail"]);
 
 /** A clean QA result: the verdict passed AND nothing beyond an advisory check was flagged. */
 function qaIsClean(qa: QaReport): boolean {
@@ -52,12 +52,6 @@ function qaIsClean(qa: QaReport): boolean {
   // say which warnings were advisory; fall back to treating any as blocking.
   if ((qa.warned ?? warns.length) !== warns.length) return (qa.warned ?? 0) === 0;
   return warns.every((c) => ADVISORY_WARNINGS.has(c.id));
-}
-
-interface ThumbnailArtifact {
-  thumbnail_uri: string;
-  media_type: "image/png" | "image/jpeg";
-  bytes?: number;
 }
 
 interface RenderedVideo {
@@ -164,11 +158,12 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         assertYouTubeProductionGeometry(bytes);
       }
 
-      // The designed thumbnail wins over whatever the video render happened to
-      // emit: it was reasoned about, and the render's is a by-product. The one
-      // exception is a human editor's own thumbnail, returned alongside their
-      // cut -- a person chose that over ours, so it outranks both.
-      const designed = inputs["thumbnail"]?.payload as ThumbnailArtifact | undefined;
+      // Only a human editor's thumbnail (thumbnail-final.* returned with their
+      // cut) is ever uploaded. Generated thumbnails were retired on operator
+      // decision: they looked worse than YouTube's own auto-picked frame, so
+      // with no editor thumbnail we send none. The generated `thumbnail`
+      // artifact is still consumed -- it is the editor's placeholder and text
+      // suggestion in the Drive package -- but never published.
       const editorThumbnail = video.renderer === "editor" ? video.thumbnail_uri : undefined;
       const thumbSource = editorThumbnail
         ? {
@@ -176,11 +171,10 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
             // The real type travels on the blob; the payload has no field for it.
             media_type: inputs["video"]!.blobs?.find((b) => b.uri === editorThumbnail)?.media_type ?? "image/png",
           }
-        : designed?.thumbnail_uri
-          ? { uri: designed.thumbnail_uri, media_type: designed.media_type }
-          : video.thumbnail_uri
-            ? { uri: video.thumbnail_uri, media_type: "image/png" }
-            : null;
+        : null;
+      if (!thumbSource) {
+        ctx.logger.warn(`[publish] no editor thumbnail (thumbnail-final.*) returned; ${target.id} will auto-pick a frame`);
+      }
 
       const thumbnail =
         thumbSource && reqs.supports_custom_thumbnail
