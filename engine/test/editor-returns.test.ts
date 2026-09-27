@@ -94,11 +94,17 @@ function finalCut(bytes: Uint8Array, size: number | undefined = bytes.byteLength
   return { id: "file-final", name: "final.mp4", mimeType: "video/mp4", size, bytes };
 }
 
+/** The counts every case pins; the per-run detail is asserted where it matters. */
+const counts = (r: { checked: number; advanced: number }) => ({ checked: r.checked, advanced: r.advanced });
+
 test("a settled final.mp4 is applied and the gate approved", async () => {
   const { service, calls } = makeService([finalCut(mp4())]);
   const result = await service.checkEditorReturns();
 
-  assert.deepEqual(result, { checked: 1, advanced: 1 });
+  assert.deepEqual(counts(result), { checked: 1, advanced: 1 });
+  assert.equal(result.configured, true);
+  assert.equal(result.advanced_runs.length, 1);
+  assert.deepEqual(result.failed_runs, []);
   assert.deepEqual(calls, ["download:file-final", "supplyEditorCut", "decide:editor_review"]);
 });
 
@@ -110,7 +116,8 @@ test("a cut that is not this episode is refused, not published", async () => {
   const { service, calls } = makeService([finalCut(mp4(20))]);
   const result = await service.checkEditorReturns();
 
-  assert.deepEqual(result, { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(result), { checked: 1, advanced: 0 });
+  assert.equal(result.failed_runs.length, 1, "a refused cut is reported, not silently skipped");
   assert.ok(!calls.includes("supplyEditorCut"), "a fragment must never be applied");
   assert.ok(!calls.includes("decide:editor_review"), "a fragment must never approve the gate");
 });
@@ -119,7 +126,7 @@ test("a cut far longer than the draft -- a different episode -- is refused", asy
   const { service, calls } = makeService([finalCut(mp4(600))]);
   const result = await service.checkEditorReturns();
 
-  assert.deepEqual(result, { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(result), { checked: 1, advanced: 0 });
   assert.ok(!calls.includes("supplyEditorCut"));
 });
 
@@ -151,7 +158,7 @@ test("a file still being uploaded is left alone until it settles", async () => {
   const { service, calls } = makeService([finalCut(mp4(), 4096)]);
   const result = await service.checkEditorReturns();
 
-  assert.deepEqual(result, { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(result), { checked: 1, advanced: 0 });
   assert.ok(!calls.includes("supplyEditorCut"), "a mid-upload cut must never be applied");
   assert.ok(!calls.includes("decide:editor_review"), "a mid-upload cut must never approve the gate");
 });
@@ -165,7 +172,7 @@ test("an unsized file is skipped rather than trusted", async () => {
     { id: "file-final", name: "final.mp4", mimeType: "video/mp4", bytes: mp4() },
   ]);
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.ok(!calls.includes("supplyEditorCut"));
 });
 
@@ -176,7 +183,7 @@ test("the cut is recognised however the editor named or exported it", async () =
     const { service, calls } = makeService([
       { id: "file-final", name, mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
     ]);
-    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 }, `expected ${name} to be imported`);
+    assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 1 }, `expected ${name} to be imported`);
     assert.ok(calls.includes("decide:editor_review"));
   }
 });
@@ -189,7 +196,7 @@ test("our own draft is never mistaken for the editor's cut", async () => {
     { id: "file-thumb", name: "thumbnail.png", mimeType: "image/png", size: 4, bytes: new Uint8Array(4) },
   ]);
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.ok(!calls.includes("decide:editor_review"));
 });
 
@@ -199,7 +206,7 @@ test("two possible cuts are refused rather than guessed between", async () => {
     { id: "b", name: "final_v2.mp4", mimeType: "video/mp4", size: mp4().byteLength, bytes: mp4() },
   ]);
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.ok(!calls.includes("decide:editor_review"), "publishing the wrong cut is not recoverable");
 });
 
@@ -208,7 +215,7 @@ test("a folder without final.mp4 advances nothing", async () => {
     { id: "file-draft", name: "draft.mp4", mimeType: "video/mp4", size: 10, bytes: new Uint8Array(10) },
   ]);
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.deepEqual(calls, []);
 });
 
@@ -247,7 +254,7 @@ test("our own thumbnail.png is never mistaken for a returned one", async () => {
   let passedThumbnail: unknown = "untouched";
   service.supplyEditorCut = async (_id: string, _video: unknown, thumb?: unknown) => { passedThumbnail = thumb; };
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 1 });
   assert.equal(passedThumbnail, undefined);
 });
 
@@ -272,12 +279,12 @@ test("a cut that was handed over but never recorded as published needs a human",
   }) as typeof fetch;
 
   try {
-    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+    assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
 
     // A later pass -- including one after a restart, since this is read from
     // the run log and not from memory -- must not silently republish.
     const second = await service.checkEditorReturns();
-    assert.deepEqual(second, { checked: 1, advanced: 0 });
+    assert.deepEqual(counts(second), { checked: 1, advanced: 0 });
     assert.equal(calls.filter((c) => c === "supplyEditorCut").length, 1, "the cut must not be re-imported");
     assert.ok(
       posted.some((p) => /may already have been published/.test(p.reason)),
@@ -292,10 +299,10 @@ test("a cut that was handed over but never recorded as published needs a human",
 test("a cut already recorded as published is left alone, silently", async () => {
   // The normal post-publish state. No alert: nothing is wrong.
   const { service, calls, records } = makeService([finalCut(mp4())]);
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 1 });
 
   records.push({ run_id: "run_editor01-aaaa", node_id: "publish", transformation: "publish", inputs: [], output: "sha256:episode" });
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.equal(calls.filter((c) => c === "decide:editor_review").length, 1);
 });
 
@@ -316,7 +323,7 @@ test("an upload we cannot import alerts a human instead of waiting forever", asy
   }) as typeof fetch;
 
   try {
-    assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+    assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env["OPERATOR_ALERT_WEBHOOK_URL"];
@@ -337,7 +344,7 @@ test("a webhook racing the poll collapses onto one pass, downloading once", asyn
   const [a, b] = await Promise.all([service.checkEditorReturns(), service.checkEditorReturns()]);
 
   assert.equal(downloads, 1, "the same cut must not be downloaded twice");
-  assert.deepEqual(a, { checked: 1, advanced: 1 });
+  assert.deepEqual(counts(a), { checked: 1, advanced: 1 });
   assert.deepEqual(b, a, "the second caller receives the in-flight pass's result");
 });
 
@@ -346,8 +353,8 @@ test("the same cut is never consumed twice across sequential passes", async () =
   // the file must not be published a second time.
   const { service, calls } = makeService([finalCut(mp4())]);
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 1 });
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 1, advanced: 0 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 1 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 1, advanced: 0 });
   assert.equal(calls.filter((c) => c === "decide:editor_review").length, 1);
 });
 
@@ -362,6 +369,16 @@ test("one run's failure does not stop the others being checked", async () => {
     },
   ];
 
-  assert.deepEqual(await service.checkEditorReturns(), { checked: 2, advanced: 1 });
+  assert.deepEqual(counts(await service.checkEditorReturns()), { checked: 2, advanced: 1 });
   assert.ok(calls.includes("decide:editor_review"));
+});
+
+test("with no Drive configured the pass says so instead of reporting an empty success", async () => {
+  // The studio's 'Check for my cut now' shows this result to the editor; a
+  // bare {checked:0, advanced:0} read as "looked, found nothing".
+  const { service } = makeService([finalCut(mp4())]);
+  service.driveProvider = undefined;
+  const result = await service.checkEditorReturns();
+  assert.equal(result.configured, false);
+  assert.equal(result.advanced, 0);
 });

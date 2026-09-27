@@ -10,14 +10,12 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   ProviderError,
   ProviderRefusal,
-  type Aspect,
   type CompletionRequest,
   type CompletionResult,
   type AnalyticsProvider,
   type Visibility,
   type AnalyticsWindow,
   type EpisodeMetrics,
-  type ImageProvider,
   type MediaRenderer,
   type ModelProvider,
   type ProviderCapabilities,
@@ -120,35 +118,6 @@ export class FakeSpeechProvider implements SpeechProvider {
       },
     };
   }
-}
-
-export class FakeImageProvider implements ImageProvider {
-  readonly id = "fake/image";
-  readonly prompts: string[] = [];
-  constructor(
-    private readonly failOn: (prompt: string) => boolean = () => false,
-  ) {}
-
-  async generate(req: { prompt: string; aspect: Aspect; count?: number }) {
-    this.prompts.push(req.prompt);
-    if (this.failOn(req.prompt)) throw new ProviderError(`fake image failed for: ${req.prompt}`);
-    const n = req.count ?? 1;
-    return {
-      images: Array.from({ length: n }, (_, i) => ({
-        bytes: fakeBytes(`image:${req.aspect}:${req.prompt}:${i}`, 128),
-        media_type: "image/png",
-      })),
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        units: n,
-        cost_usd: 0,
-        provider: "fake",
-        model: this.id,
-      },
-    };
-  }
-
 }
 
 export class FakeRenderer implements MediaRenderer {
