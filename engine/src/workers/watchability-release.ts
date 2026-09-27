@@ -154,7 +154,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "9",
+    version: "10",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
@@ -178,8 +178,20 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       // evaluations, continue with the best schema-valid script so a noisy
       // critic cannot prevent an editor handoff forever. Premise/package
       // contract failures remain hard safety boundaries.
+      // An operator/editor-authored script cannot be regenerated -- blocking
+      // it only strands the run, and a person already chose those words. The
+      // critic is advisory for it (operator decision 2026-09-27): recorded and
+      // logged, never a stop. The human editor is the quality gate.
+      const script = inputs["script"]!;
+      const isOperatorAuthored = script.produced_by?.transformation === "human";
+      if (!result.passed && isOperatorAuthored) {
+        ctx.logger.warn(
+          `[watchability_release] critic is advisory for a human-authored script; releasing it despite: ` +
+          `${result.abandonRecommended ? `ABANDON_TOPIC: ${result.abandonReason}; ` : ""}${result.failures.join("; ")}`,
+        );
+      }
       const autoAccept = !result.passed && !result.abandonRecommended && ctx.attemptNumber >= MAX_ATTEMPTS_BEFORE_ACCEPTING;
-      if (!result.passed && !autoAccept) {
+      if (!result.passed && !autoAccept && !isOperatorAuthored) {
         const disposition = result.abandonRecommended ? `ABANDON_TOPIC: ${result.abandonReason}` : "REVISE_SCRIPT";
         throw new Error(
           `watchability release blocked (${disposition}; attempt ${ctx.attemptNumber}; profile ${result.profile.mode}` +
@@ -198,7 +210,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
           `released this draft -- editor_review is the remaining quality gate`,
         );
       }
-      if (autoAccept) {
+      if (autoAccept && !isOperatorAuthored) {
         ctx.logger.warn(
           `[watchability_release] accepting attempt ${ctx.attemptNumber} below the watchability bar after ` +
           `${MAX_ATTEMPTS_BEFORE_ACCEPTING} attempts -- editor_review is the remaining quality gate: ${result.failures.join("; ")}`,
@@ -212,8 +224,6 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
       // Manual-script mode is a promise to use the operator's exact words.
       // Evaluate the script against the same production watchability/package
       // gates, but never inject/replace an outro behind the operator's back.
-      const script = inputs["script"]!;
-      const isOperatorAuthored = script.produced_by?.transformation === "human";
       return {
         payload: isOperatorAuthored
           ? script.payload

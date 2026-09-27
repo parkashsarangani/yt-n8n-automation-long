@@ -1370,6 +1370,18 @@ export class VidGenService {
           console.log(`[run ${runId.slice(4, 12)}] unattended: delivered to the editor -- pipeline work for this run is complete`);
           return;
         }
+        // The critic is advisory for a human-authored script (operator
+        // decision 2026-09-27): its "abandon this topic" recommendation parks
+        // creative_viability, but an editor's own script cannot be swapped
+        // for another topic, so approve and carry on rather than strand it.
+        if (
+          view.waiting.some((w) => w.node_id === "creative_viability") &&
+          (await this.isManualScriptRun(view))
+        ) {
+          console.log(`[run ${runId.slice(4, 12)}] unattended: critic recommended abandoning a human-authored script -- advisory, continuing`);
+          await this.decide(runId, "creative_viability", { result: "approve" });
+          continue;
+        }
         console.log(`[run ${runId.slice(4, 12)}] unattended: parked on a human gate that did not auto-pass -- needs an operator`);
         return;
       }
