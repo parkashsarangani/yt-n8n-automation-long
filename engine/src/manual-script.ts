@@ -17,7 +17,8 @@
  */
 
 export interface ManualScriptInput {
-  title: string;
+  /** Optional: empty or absent derives a working title from the hook. */
+  title?: string;
   hook: string;
   narration: string;
   topic?: string;
@@ -176,13 +177,37 @@ function hardWrap(s: string, maxChars: number): string[] {
   return out;
 }
 
+/**
+ * A working title for a custom episode submitted without one. It only names
+ * the run and seeds the story; the published YouTube title comes from the SEO
+ * stage. First sentence of the hook, cut at a word boundary.
+ */
+export function workingTitleFromHook(hook: string): string {
+  // Hooks often open with an ellipsis or a one-word beat ("Wait."), so take
+  // whole sentences until the title clears the 5-character floor rather than
+  // trusting the first one.
+  const text = hook.trim().replace(/^[\s.!?…,;:"'“”‘’-]+/, "");
+  let title = "";
+  for (const sentence of text.split(/(?<=[.!?…])\s+/)) {
+    title = title ? `${title} ${sentence}` : sentence;
+    if (title.replace(/[\s.!?…]+$/, "").length >= 5) break;
+  }
+  title = title.replace(/[\s.!?…]+$/, "").trim();
+  if (title.length < 5) title = hook.trim();
+  if (title.length <= 80) return title;
+  const cut = title.lastIndexOf(" ", 80);
+  return `${title.slice(0, cut > 20 ? cut : 80).trim()}…`;
+}
+
 export function buildManualEpisode(input: ManualScriptInput): ManualEpisode {
-  const title = input.title.trim();
   const hook = input.hook.trim();
   const narration = input.narration.trim();
+  // Hook first: the title may be derived from it, and a bad hook must be
+  // reported as a bad hook, not as a title the operator never typed.
+  if (hook.length < 10 || hook.length > 600) throw new Error("hook must be 10-600 characters");
+  const title = (input.title ?? "").trim() || workingTitleFromHook(hook);
 
   if (title.length < 5 || title.length > 100) throw new Error("title must be 5-100 characters");
-  if (hook.length < 10 || hook.length > 600) throw new Error("hook must be 10-600 characters");
   if (narration.length < 5) throw new Error("narration is too short");
 
   const bodyScenes = mergeShortFragments(splitIntoScenes(narration), 5);

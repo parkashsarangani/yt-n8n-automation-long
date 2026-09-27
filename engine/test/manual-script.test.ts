@@ -11,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SchemaRegistry } from "../src/registry.ts";
-import { buildManualEpisode } from "../src/manual-script.ts";
+import { buildManualEpisode, workingTitleFromHook } from "../src/manual-script.ts";
 import { validateGrowthPackageSelection, validateGrowthPackageReleaseability } from "../src/growth-package-contract.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -151,6 +151,38 @@ test("a title, hook, or narration outside the schema's bounds is rejected before
   assert.throws(() => buildManualEpisode({ ...base, title: "Hi" }), /title/);
   assert.throws(() => buildManualEpisode({ ...base, hook: "too short" }), /hook/);
   assert.throws(() => buildManualEpisode({ ...base, narration: "hi" }), /narration/);
+});
+
+test("a custom episode submitted without a title takes a valid working title from its hook", async () => {
+  const reg = await registry();
+  const hook = "Chile is over 2,600 miles long. Almost nobody agrees on why it stayed that shape.";
+  const episode = buildManualEpisode({ title: "", hook, narration: PARAGRAPHED_NARRATION });
+  assert.equal(episode.story.title, "Chile is over 2,600 miles long");
+  assert.doesNotThrow(() => reg.validate("story", reg.resolveVersion("story"), episode.story));
+
+  // A long first sentence is cut at a word boundary, inside the 100-char bound.
+  const long = workingTitleFromHook(`${"Every single time somebody leaves you on read ".repeat(4)}you invent a reason. Then more.`);
+  assert.ok(long.length <= 81 && long.endsWith("…"), long);
+  assert.ok(!/\s…$/.test(long));
+});
+
+test("hooks opening with a one-word beat or punctuation still yield a valid title, never a title error", async () => {
+  const reg = await registry();
+  const cases: Array<[string, string]> = [
+    ["Wait. You read it three times.", "Wait. You read it three times"],
+    ["Ha. It is true that nobody saw it coming.", "Ha. It is true that nobody saw it coming"],
+    ["... then it happened. The rest is unbelievable.", "then it happened"],
+    ["?!? Nobody expected this. It changed everything.", "Nobody expected this"],
+  ];
+  for (const [hook, expected] of cases) {
+    assert.equal(workingTitleFromHook(hook), expected, hook);
+    const episode = buildManualEpisode({ hook, narration: PARAGRAPHED_NARRATION });
+    assert.doesNotThrow(() => reg.validate("story", reg.resolveVersion("story"), episode.story), hook);
+  }
+  // Nothing but punctuation still clears the floor by falling back to the hook itself.
+  assert.ok(workingTitleFromHook("?!?!?!?!?!?!").length >= 5);
+  // A bad hook is reported as the hook, not as a title the operator never typed.
+  assert.throws(() => buildManualEpisode({ hook: "Wait.", narration: PARAGRAPHED_NARRATION }), /hook must be/);
 });
 
 test("the payoff is drawn verbatim from the operator's own closing line, never invented", () => {
