@@ -166,6 +166,25 @@ test("a custom episode submitted without a title takes a valid working title fro
   assert.ok(!/\s…$/.test(long));
 });
 
+test("hooks opening with a one-word beat or punctuation still yield a valid title, never a title error", async () => {
+  const reg = await registry();
+  const cases: Array<[string, string]> = [
+    ["Wait. You read it three times.", "Wait. You read it three times"],
+    ["Ha. It is true that nobody saw it coming.", "Ha. It is true that nobody saw it coming"],
+    ["... then it happened. The rest is unbelievable.", "then it happened"],
+    ["?!? Nobody expected this. It changed everything.", "Nobody expected this"],
+  ];
+  for (const [hook, expected] of cases) {
+    assert.equal(workingTitleFromHook(hook), expected, hook);
+    const episode = buildManualEpisode({ hook, narration: PARAGRAPHED_NARRATION });
+    assert.doesNotThrow(() => reg.validate("story", reg.resolveVersion("story"), episode.story), hook);
+  }
+  // Nothing but punctuation still clears the floor by falling back to the hook itself.
+  assert.ok(workingTitleFromHook("?!?!?!?!?!?!").length >= 5);
+  // A bad hook is reported as the hook, not as a title the operator never typed.
+  assert.throws(() => buildManualEpisode({ hook: "Wait.", narration: PARAGRAPHED_NARRATION }), /hook must be/);
+});
+
 test("the payoff is drawn verbatim from the operator's own closing line, never invented", () => {
   const episode = buildManualEpisode({
     title: "Why Chile Is So Incredibly Long",
