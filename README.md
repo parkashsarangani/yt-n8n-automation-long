@@ -21,7 +21,6 @@ Both are published to `127.0.0.1` only — deliberately, since the local Studio 
 | `OPENAI_API_KEY` | Paid text fallback and pre-TTS moderation | Moderated production cannot proceed |
 | `ELEVENLABS_API_KEY` | Narration | Fake speech in non-production runs |
 | `ELEVENLABS_VOICE_ID` | Narrator voice | Test-only placeholder voice |
-| `FAL_KEY` | Optional thumbnail artwork | Gradient thumbnail background |
 | `COMPOSE_URL` | FFmpeg compositor | Fake renderer in non-production runs |
 | `FOOTAGE_MODE` | Stock footage lookup (default `stock`) | Plain background behind narration |
 | `PEXELS_API_KEY` / `UNSPLASH_ACCESS_KEY` | Stock media sources | Unmatched scenes use the background |
