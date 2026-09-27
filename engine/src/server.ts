@@ -1,9 +1,10 @@
 /**
  * Local control UI (HTTP).
  *
- * Deliberately loopback-only and unauthenticated: it is a single-operator tool
- * that holds API keys, so it must not be exposed to a network. Requests whose
- * Host header is not localhost are refused rather than served.
+ * Loopback-only and unauthenticated for the operator on the box. The one
+ * exception is the editor: hostnames in UI_PUBLIC_HOSTS are served through a
+ * Cloudflare Tunnel, and only with a verified Cloudflare Access login
+ * (cf-access.ts). Any other Host header is refused rather than served.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -13,6 +14,7 @@ import path from "node:path";
 import { SOCIAL_SERIES_ID, socialSeriesCatalog } from "./social-series.ts";
 import type { VidGenService } from "./service.ts";
 import type { GrowthSchedulerHandle } from "./growth-scheduler.ts";
+import { accessVerifierFromEnv, publicUiHosts, type CloudflareAccessVerifier } from "./cf-access.ts";
 
 const MAX_BODY_BYTES = 1_000_000;
 
@@ -23,10 +25,16 @@ export interface ServerOptions {
   uiDir: string;
   port?: number;
   host?: string;
+  /** Hostnames served through the Cloudflare Tunnel. Defaults to UI_PUBLIC_HOSTS. */
+  publicHosts?: string[];
+  /** Checks the Cloudflare Access JWT on public-host requests. Defaults to CF_ACCESS_* env; null refuses them all. */
+  accessVerifier?: Pick<CloudflareAccessVerifier, "verify"> | null;
 }
 
 export function createUiServer(opts: ServerOptions) {
   const { service, uiDir } = opts;
+  const publicHosts = opts.publicHosts ?? publicUiHosts();
+  const accessVerifier = opts.accessVerifier !== undefined ? opts.accessVerifier : accessVerifierFromEnv();
   const scheduler = opts.scheduler;
   const scheduleStatus = () => scheduler ? scheduler.status() : service.scheduleStatus();
   const runJobNow = (id: string) => scheduler ? scheduler.runNow(id) : service.runJobNow(id);
@@ -60,11 +68,36 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
-    const hostHeader = (req.headers.host ?? "").split(":")[0];
+    const hostHeader = ((req.headers.host ?? "").split(":")[0] ?? "").toLowerCase();
     const allowedHosts = ["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"];
-    if (!allowedHosts.includes(hostHeader ?? "")) {
-      json(res, 403, { error: "this UI is loopback-only" });
-      return;
+    if (!allowedHosts.includes(hostHeader)) {
+      // Off-box access exists only for the editor, through the Cloudflare
+      // Tunnel, and only with a verified Access login -- never on the Host
+      // header alone, which any client can set.
+      if (!publicHosts.includes(hostHeader) || !accessVerifier) {
+        json(res, 403, { error: "this UI is loopback-only" });
+        return;
+      }
+      const identity = await accessVerifier.verify(req.headers["cf-access-jwt-assertion"]);
+      if (!identity) {
+        json(res, 401, { error: "Cloudflare Access login required" });
+        return;
+      }
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        // The Access cookie rides along on cross-site requests too; only a
+        // page served from this hostname may change anything.
+        if (req.headers.origin !== `https://${hostHeader}`) {
+          json(res, 403, { error: "cross-site request refused" });
+          return;
+        }
+        console.log(`[ui] ${identity.email}: ${route}`);
+      }
+      // Credentials stay a server-side job: whoever can rewrite the YouTube
+      // or OpenAI keys can take over the channel or the bill.
+      if (route === "POST /api/config") {
+        json(res, 403, { error: "credentials can only be changed from the server itself" });
+        return;
+      }
     }
 
     if (route === "GET /") {

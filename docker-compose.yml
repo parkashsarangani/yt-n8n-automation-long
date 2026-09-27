@@ -93,6 +93,13 @@ services:
       # never returns a final.mp4 to Drive. Set true to resume polling for one.
       EDITOR_RETURN_WATCH_ENABLED: ${EDITOR_RETURN_WATCH_ENABLED:-}
       EDITOR_RETURN_WEBHOOK_TOKEN: ${EDITOR_RETURN_WEBHOOK_TOKEN:-}
+      # Remote editor UI through the cloudflared service below. Requests on
+      # these hostnames are served only with a verified Cloudflare Access
+      # login (engine/src/cf-access.ts); all three unset keeps the UI
+      # loopback-only.
+      UI_PUBLIC_HOSTS: ${UI_PUBLIC_HOSTS:-}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
 
       # Operator alerting when driveUnattended() gives up on a blocked run.
       # Both opt-in; unset means no-op.
@@ -141,6 +148,21 @@ services:
           memory: 6G
         reservations:
           memory: 2G
+
+  # Outbound-only Cloudflare Tunnel that gives the editor the UI at
+  # UI_PUBLIC_HOSTS; no port is opened on the host or router. The public
+  # hostname -> http://engine:4321 route and the Access login policy live in
+  # the Cloudflare dashboard. Opt-in profile: deploy starts it only when
+  # CLOUDFLARE_TUNNEL_TOKEN is set.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - engine
 
 volumes:
   pg_data:
