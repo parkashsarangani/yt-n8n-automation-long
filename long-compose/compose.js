@@ -283,13 +283,10 @@ app.post("/thumbnail", async (req, res) => {
     let input;
     let background;
     if (supplied) {
-      // Generated artwork is used as-is. It was previously OCR-screened and
-      // swapped for a gradient when tesseract saw any 2+ character run, but in
-      // sparse mode tesseract hallucinates those out of ordinary photographic
-      // texture, so real text-free artwork was rejected most of the time and
-      // every episode published a gradient. The human editor reviews the
-      // thumbnail in Drive and can replace it, which is the check that gate
-      // was standing in for.
+      // Supplied artwork is used as-is (no OCR screen: tesseract hallucinated
+      // text in photographic texture and rejected most real artwork). The
+      // engine no longer generates artwork, so this path is normally the
+      // gradient placeholder; only the editor's thumbnail-final is published.
       input = path.join(dir, "background.img");
       await fsp.writeFile(input, Buffer.from(supplied, "base64"));
       background = "supplied";

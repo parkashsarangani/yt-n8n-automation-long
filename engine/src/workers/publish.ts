@@ -42,7 +42,7 @@ interface QaReport {
  * routinely overshoots and the editor re-cuts anyway, and episode 1 of
  * Second Thoughts sat private for a 17% overshoot with every other check clean.
  */
-const ADVISORY_WARNINGS = new Set(["target_duration"]);
+const ADVISORY_WARNINGS = new Set(["target_duration", "editor_thumbnail"]);
 
 /** A clean QA result: the verdict passed AND nothing beyond an advisory check was flagged. */
 function qaIsClean(qa: QaReport): boolean {

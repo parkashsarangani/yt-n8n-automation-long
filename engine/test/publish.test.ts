@@ -105,8 +105,8 @@ const seedQa = (h: Awaited<ReturnType<typeof harness>>, verdict: "pass" | "fail"
   );
 
 /**
- * Publish now requires a designed thumbnail (schema `thumbnail`), so every case
- * seeds one. Inputs bind positionally, in the worker's `consumes` order:
+ * Publish still consumes the `thumbnail` artifact (the editor's placeholder),
+ * so every case seeds one -- but only an editor's thumbnail-final is uploaded. Inputs bind positionally, in the worker's `consumes` order:
  * rendered_video, story, thumbnail.
  */
 const seedThumb = (h: Awaited<ReturnType<typeof harness>>) =>
@@ -287,6 +287,29 @@ test("a length-only QA warning is advisory and still publishes at the configured
 
   assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
   assert.equal(h.target.published[0]!.metadata.privacy, "public");
+});
+
+test("a missing editor thumbnail is advisory: the episode still publishes public", async () => {
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const qa = await h.seed("qa_report", {
+    verdict: "pass",
+    failed: 0,
+    warned: 2,
+    checks: [
+      { id: "editor_thumbnail", status: "warn", message: "no thumbnail-final from the editor; YouTube will auto-pick a frame" },
+      { id: "target_duration", status: "warn", message: "voice duration is 17.2% from requested target" },
+    ],
+  }, "qa");
+
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id,
+    (await seedSeo(h)).artifact_id,
+    (await seedThumb(h)).artifact_id,
+    qa.artifact_id,
+  ]);
+
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
 });
 
 test("a length warning alongside any other warning still publishes private", async () => {
