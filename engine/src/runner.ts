@@ -21,7 +21,6 @@ import {
   ProviderRouter,
   wrapWithConfidence,
   type AnalyticsProvider,
-  type ImageProvider,
   type MediaRenderer,
   type SpeechProvider,
   type Usage,
@@ -72,7 +71,6 @@ export interface WorkerContext {
   blobs: BlobStore;
   media: {
     speech?: SpeechProvider;
-    images?: ImageProvider;
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
     drive?: DriveExchange;
@@ -149,7 +147,6 @@ export interface RunnerDeps {
   blobs?: BlobStore;
   media?: {
     speech?: SpeechProvider;
-    images?: ImageProvider;
     renderer?: MediaRenderer;
     analytics?: AnalyticsProvider;
     drive?: DriveExchange;

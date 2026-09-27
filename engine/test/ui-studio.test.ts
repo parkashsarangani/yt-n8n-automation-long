@@ -84,6 +84,17 @@ test("the editor's-cut gate is never approved by hand from the studio", async ()
   // Approving editor_review would publish the unedited render. The studio
   // links the Drive folder and triggers a Drive check instead.
   assert.match(html, /drive_folder_url/);
-  assert.match(html, /\/api\/schedule\/editor_watch\/run/);
+  // An awaited check whose real outcome is shown -- not the fire-and-forget
+  // scheduler job, which swallows the result and any error.
+  assert.match(html, /\/api\/editor-returns\/check-now/);
+  assert.match(html, /r\.configured/);
+  assert.doesNotMatch(html, /\/api\/schedule\/editor_watch\/run/);
   assert.doesNotMatch(html, /data-node="editor_review"/);
+});
+
+test("the season dropdown shows the server's episode status, not a second copy of the rule", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  // "Made" is defined once, server-side (seriesEpisodeStatuses); the page only renders it.
+  assert.match(html, /e\.status/);
+  assert.doesNotMatch(html, /seriesProgress|madeOk|editor_delivery"\|\|w\.node_id==="editor_review/);
 });

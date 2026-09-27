@@ -188,10 +188,27 @@ function mostRecentProduction(service: VidGenService): number | undefined {
  * says which episodes are done, including after a restart.
  */
 export function nextSeriesEpisode(runs: RunView[]): number | null {
-  const done = (title: string, seriesTitle: string) =>
-    runs.some((r) => r.kind === "production" && productionReady(r) && r.brief.startsWith(`${seriesTitle}: ${title}.`));
-  const next = socialSeriesCatalog().find((e) => !done(e.title, e.series_title));
+  const statuses = seriesEpisodeStatuses(runs);
+  const next = socialSeriesCatalog().find((_, i) => !SERIES_MADE.has(statuses[i]!));
   return next?.episode ?? null;
+}
+
+export type SeriesEpisodeStatus = "published" | "with editor" | "in progress" | "";
+const SERIES_MADE = new Set<SeriesEpisodeStatus>(["published", "with editor"]);
+
+/**
+ * Per-episode progress, in catalog order -- the single definition of "made"
+ * shared by the daily job (nextSeriesEpisode) and the studio's dropdown, so
+ * the two can never disagree about which episode is next.
+ */
+export function seriesEpisodeStatuses(runs: RunView[]): SeriesEpisodeStatus[] {
+  return socialSeriesCatalog().map((e) => {
+    const mine = runs.filter((r) => r.kind === "production" && r.brief.startsWith(`${e.series_title}: ${e.title}.`));
+    if (mine.some((r) => r.status === "completed" && productionReady(r))) return "published";
+    if (mine.some(productionReady)) return "with editor";
+    if (mine.some((r) => r.status === "running" || r.status === "waiting")) return "in progress";
+    return "";
+  });
 }
 
 export function productionReady(view: RunView | null): boolean {

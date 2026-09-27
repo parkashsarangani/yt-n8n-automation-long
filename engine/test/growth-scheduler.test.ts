@@ -9,6 +9,7 @@ import {
   watchabilityRetryState,
   startGrowthScheduler,
   nextSeriesEpisode,
+  seriesEpisodeStatuses,
   type DiscoveryCandidate,
 } from "../src/growth-scheduler.ts";
 
@@ -284,4 +285,16 @@ test("the daily job produces the next series episode and stops once all eight ar
   assert.deepEqual(started, [], "nothing starts after episode 8");
   assert.equal(discovered, 0, "a finished season never falls back to discovery");
   assert.equal(scheduler.status().find((j) => j.id === "produce")?.last_error, null);
+});
+
+test("episode status is the one definition of made, shared by the daily job and the studio", async () => {
+  const { socialSeriesCatalog } = await import("../src/social-series.ts");
+  const titles = socialSeriesCatalog().map((e) => e.title);
+  const withEditor = { ...seriesRun(titles[1]!, "waiting"), waiting: [{ node_id: "editor_review", artifact_id: "x", reason: "" }] };
+  const rendering = { ...seriesRun(titles[2]!, "running") };
+  const blocked = seriesRun(titles[3]!, "blocked");
+  const statuses = seriesEpisodeStatuses([seriesRun(titles[0]!), withEditor, rendering, blocked]);
+  assert.deepEqual(statuses.slice(0, 5), ["published", "with editor", "in progress", "", ""]);
+  // The daily job's next episode is exactly the first one the studio shows as not made.
+  assert.equal(nextSeriesEpisode([seriesRun(titles[0]!), withEditor, rendering, blocked]), 3);
 });

@@ -1,10 +1,7 @@
 /**
- * Thumbnail worker: best-effort artwork, gradient fallback.
- *
- * Typography comes from long-compose; artwork comes from the image model
- * when one is configured and the brief has a usable prompt. Neither a failed
- * generation nor a missing provider blocks the run — they degrade to the
- * renderer's gradient background with a warning, so a thumbnail always ships.
+ * Thumbnail worker: a text-on-gradient placeholder for the editor's Drive
+ * package. Generated artwork was retired (2026-09-27); only the editor's
+ * thumbnail-final is published. Typography comes from long-compose.
  */
 
 import test from "node:test";
@@ -20,7 +17,7 @@ import { FsArtifactStore } from "../src/store.ts";
 import { MemoryBlobStore } from "../src/blobs.ts";
 import { MemoryRunLog } from "../src/runlog.ts";
 import { ProviderRouter } from "../src/provider.ts";
-import { FakeRenderer, FakeImageProvider } from "../src/providers/fake.ts";
+import { FakeRenderer } from "../src/providers/fake.ts";
 import { Runner } from "../src/runner.ts";
 import { makeThumbnailWorker } from "../src/workers/index.ts";
 import type { Artifact } from "../src/artifact.ts";
@@ -37,39 +34,14 @@ test("new prompt schema accepts empty overlays and rejects legacy query fields",
   const throughRunner=await h.runner.run(makeThumbnailWorker(),[saved.artifact.artifact_id]);
   assert.equal((throughRunner.artifact.payload as ThumbPayload).text,"");
   const out=await makeThumbnailWorker().execute({brief:{payload:brief} as Artifact},{
-    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
+    blobs:h.blobs,media:{renderer:h.renderer},logger:silent(),progress:async()=>{}
   } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts[0],brief.image_prompt);
-  assert.equal(h.renderer.thumbnailRequests[0]!.text,"");
-  assert.ok(out.blobs?.some(b=>b.role==="thumbnail_artwork"));
-  const prompt=out.blobs!.find(b=>b.role==="thumbnail_prompt")!;
-  assert.equal(JSON.parse(new TextDecoder().decode(await h.blobs.get(prompt.uri))).status,"candidate");
-});
-test("generated artwork is kept for the editor even if the renderer did not composite it",async()=>{
-  // Artwork used to be discarded whenever the renderer reported a gradient,
-  // which its OCR screen did for nearly every photograph. Paying for an image
-  // and then deleting it unseen is the worst of both; the editor gets it now,
-  // and a rejection is not a reason to spend a second generation.
-  const renderer=new FakeRenderer();
-  const original=renderer.renderThumbnail.bind(renderer);
-  renderer.renderThumbnail=async req=>({...await original(req),background:"gradient" as const});
-  const h=await harness({renderer});
-  const out=await makeThumbnailWorker().execute({brief:h.brief},{
-    blobs:h.blobs,media:{renderer,images:h.images},logger:silent(),progress:async()=>{}
-  } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,1,"a composite decision must not trigger a second paid generation");
-  assert.equal(out.blobs!.filter(b=>b.role==="thumbnail_artwork").length,1,"the artwork must reach the editor");
-});
-test("two failed generations export explicit replacement status and no artwork",async()=>{
-  const h=await harness({images:new FakeImageProvider(()=>true)});
-  const out=await makeThumbnailWorker().execute({brief:h.brief},{
-    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
-  } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,2);
-  assert.equal(out.blobs!.some(b=>b.role==="thumbnail_artwork"),false);
-  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
-  assert.equal(manifest.status,"needs_editor_replacement");
-  assert.equal(manifest.attempts.length,2);
+  assert.equal(h.renderer.thumbnailRequests.at(-1)!.text,"");
+  assert.equal(h.renderer.thumbnailRequests.at(-1)!.image,undefined,"no artwork is generated any more");
+  const notes=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
+  assert.equal(notes.status,"placeholder");
+  assert.equal(notes.art_direction,brief.image_prompt,"the designer's idea is kept as a note for the editor");
+  assert.match(notes.note,/thumbnail-final[.]png/);
 });
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
@@ -96,7 +68,6 @@ interface ThumbPayload {
 
 async function harness(opts: {
   renderer?: FakeRenderer;
-  images?: FakeImageProvider | null;
   brief?: Partial<typeof BRIEF>;
 } = {}) {
   const registry = await SchemaRegistry.load(path.join(ROOT, "schemas"));
@@ -106,7 +77,6 @@ async function harness(opts: {
   );
   const blobs = new MemoryBlobStore();
   const renderer = opts.renderer ?? new FakeRenderer();
-  const images = opts.images === null ? undefined : (opts.images ?? new FakeImageProvider());
 
   const runner = new Runner({
     store,
@@ -116,7 +86,7 @@ async function harness(opts: {
     runLog: new MemoryRunLog(),
     logger: silent(),
     blobs,
-    media: { renderer, ...(images ? { images } : {}) },
+    media: { renderer },
   });
 
   const brief = (
@@ -133,56 +103,12 @@ async function harness(opts: {
     })
   ).artifact;
 
-  return { registry, store, blobs, runner, renderer, images, brief };
+  return { registry, store, blobs, runner, renderer, brief };
 }
 
 const run = async (h: Awaited<ReturnType<typeof harness>>) =>
   (await h.runner.run(makeThumbnailWorker(), [h.brief.artifact_id])).artifact
     .payload as ThumbPayload;
-
-test("a gradient episode does not suppress thumbnail artwork generation", async () => {
-  const h = await harness();
-  const out = await makeThumbnailWorker().execute({
-    brief: h.brief,
-    episode: { payload: { video_uri: "draft" }, blobs: [] } as unknown as Artifact,
-  }, { blobs: h.blobs, media: { renderer: h.renderer, images: h.images },
-    logger: silent(), progress: async () => {} } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length, 1);
-  assert.ok(h.renderer.thumbnailRequests[0]!.image);
-  assert.equal((out.payload as ThumbPayload).background, "supplied");
-});
-
-test("episode artwork never overrides the standalone thumbnail prompt", async () => {
-  const h = await harness();
-  const bytes = new Uint8Array([1,2,3]);
-  const background = await h.blobs.put(bytes, {role:"episode_background",media_type:"image/png"});
-  await makeThumbnailWorker().execute({brief:h.brief,
-    episode:{payload:{video_uri:"draft"},blobs:[background]} as unknown as Artifact,
-  }, {blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}} as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,1);
-  assert.notDeepEqual(h.renderer.thumbnailRequests[0]!.image,bytes);
-});
-
-test("composites deterministic text over generated artwork", async () => {
-  const h = await harness();
-  const out = await run(h);
-
-  assert.equal(h.images!.prompts.length, 1);
-  assert.ok(h.images!.prompts[0]!.includes(BRIEF.background_query));
-  assert.equal(h.images!.prompts[0],BRIEF.background_query,"no inherited style wrapper");
-
-  const sent = h.renderer.thumbnailRequests[0]!;
-  assert.equal(sent.text, BRIEF.text);
-  assert.equal(sent.accent, BRIEF.accent);
-  assert.equal(sent.emphasis, BRIEF.emphasis);
-  assert.ok(sent.image, "the generated artwork should reach the renderer");
-
-  assert.equal(out.background, "supplied");
-  assert.equal(out.text, BRIEF.text);
-  assert.equal(out.width, 1280);
-  assert.equal(out.height, 720);
-  assert.match(out.thumbnail_uri, /^blob:\/\/sha256:[0-9a-f]{64}$/);
-});
 
 test("the rendered bytes are actually stored and retrievable", async () => {
   const h = await harness();
@@ -193,16 +119,8 @@ test("the rendered bytes are actually stored and retrievable", async () => {
   assert.equal(bytes.byteLength, out.bytes);
 });
 
-test("artwork generation failure degrades to a gradient instead of blocking the run", async () => {
-  const h = await harness({ images: new FakeImageProvider(() => true) });
-  const out = await run(h);
-
-  assert.equal(out.background, "gradient");
-  assert.equal(h.renderer.thumbnailRequests[0]!.image, undefined);
-});
-
-test("no image provider degrades to a gradient instead of blocking the run", async () => {
-  const h = await harness({ images: null });
+test("the placeholder is a gradient: no artwork is ever generated", async () => {
+  const h = await harness();
   const out = await run(h);
 
   assert.equal(out.background, "gradient");
@@ -251,38 +169,4 @@ test("a brief without emphasis still renders", async () => {
 
   assert.equal(out.text, BRIEF.text);
   assert.equal(h.renderer.thumbnailRequests[0]!.emphasis, undefined);
-});
-
-test("generation errors retain actionable detail without credentials",async()=>{
-  const {thumbnailErrorDetail}=await import("../src/workers/thumbnail.ts");
-  assert.equal(thumbnailErrorDetail(new Error("provider 401 api_key=secret Bearer abc")),"provider 401 api_key=[REDACTED] Bearer [REDACTED]");
-  const h=await harness({images:new FakeImageProvider(()=>true)});
-  const out=await makeThumbnailWorker().execute({brief:h.brief},{
-    blobs:h.blobs,media:{renderer:h.renderer,images:h.images},logger:silent(),progress:async()=>{}
-  } as unknown as WorkerContext);
-  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
-  assert.equal(manifest.attempts[0].outcome,"generation_failure");
-  assert.match(manifest.attempts[0].error,/fake image failed/);
-});
-test("OCR service failure survives HTTP fallback and avoids a second image charge",async()=>{
-  const {ComposeRenderer}=await import("../src/providers/compose.ts");
-  const h=await harness();
-  let calls=0;
-  const renderer=new ComposeRenderer({baseUrl:"http://fixture",fetchImpl:(async()=>{
-    calls++;
-    return calls===1
-      ? new Response(JSON.stringify({error:"Artwork OCR screening failed; repair the OCR service before retrying"}),{status:500})
-      : Response.json({success:true,image_base64:Buffer.from("png").toString("base64"),background:"gradient"});
-  }) as typeof fetch});
-  const warnings:string[]=[];
-  const out=await makeThumbnailWorker().execute({brief:h.brief},{
-    blobs:h.blobs,media:{renderer,images:h.images},logger:{...silent(),warn:(s:string)=>warnings.push(s)},progress:async()=>{}
-  } as unknown as WorkerContext);
-  assert.equal(h.images!.prompts.length,1);
-  assert.equal(calls,2);
-  const manifest=JSON.parse(new TextDecoder().decode(await h.blobs.get(out.blobs!.find(b=>b.role==="thumbnail_prompt")!.uri)));
-  assert.equal(manifest.status,"needs_editor_replacement");
-  assert.equal(manifest.attempts[0].outcome,"render_service_failure");
-  assert.match(manifest.attempts[0].error,/500.*OCR screening failed/);
-  assert.ok(warnings.some(s=>s.includes("OCR screening failed")));
 });

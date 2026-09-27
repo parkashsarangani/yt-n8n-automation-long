@@ -75,26 +75,8 @@ export interface SpeechProvider {
   }>;
 }
 
-/** Image generation, for the asset collector worker (RFC 0004). */
+/** Video aspect ratios a publish target accepts. */
 export type Aspect = "9:16" | "16:9" | "1:1";
-
-/**
- * Scene context for the persistent image bank. Carried through generation calls
- * so a cached image can be traced back to the exact narration beat / visual
- * requirement it was produced for, and a future semantic-reuse layer has
- * something to match on. Real generation providers ignore it.
- */
-export interface ImageProvider {
-  readonly id: string;
-  generate(req: {
-    prompt: string;
-    aspect: Aspect;
-    count?: number;
-  }): Promise<{
-    images: Array<{ bytes: Uint8Array; media_type: string }>;
-    usage: Usage;
-  }>;
-}
 
 /** One scene as the audio-first renderer needs it. */
 export interface RenderScene {

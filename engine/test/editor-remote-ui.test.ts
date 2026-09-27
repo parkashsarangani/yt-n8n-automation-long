@@ -121,6 +121,7 @@ async function withServer(
     measureAll: async () => { calls.measure++; return { measured: [], failed: [] }; },
     saveCredentials: async () => { calls.config++; return { applied: [], rejected: [] }; },
     credentials: () => [],
+    checkEditorReturns: async () => ({ configured: true, checked: 1, advanced: 1, advanced_runs: ["run_x"], failed_runs: [] }),
     providerSummary: () => ({}),
     capabilities: () => [],
   } as never;
@@ -187,5 +188,24 @@ test("loopback access for the operator is unchanged", async () => {
     const config = await request(port, "POST", "/api/config", { host: "localhost", "content-type": "application/json" });
     assert.equal(config.status, 200);
     assert.equal(calls.config, 1);
+  });
+});
+
+test("the editor's 'check for my cut' returns the real outcome, and only to a logged-in editor", async () => {
+  const k = keypair("k1");
+  await withServer(verifierServing([k]).verifier, async (port) => {
+    const auth = { host: HOST, "cf-access-jwt-assertion": jwt(k, goodClaims()), origin: `https://${HOST}`, "content-type": "application/json" };
+    const ok = await request(port, "POST", "/api/editor-returns/check-now", auth);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(JSON.parse(ok.body).advanced_runs, ["run_x"]);
+
+    const anon = await request(port, "POST", "/api/editor-returns/check-now", { host: HOST, origin: `https://${HOST}` });
+    assert.equal(anon.status, 401);
+
+    const series = await request(port, "GET", "/api/series", { host: HOST, "cf-access-jwt-assertion": jwt(k, goodClaims()) });
+    assert.equal(series.status, 200);
+    const eps = JSON.parse(series.body).episodes as Array<{ status: string }>;
+    assert.equal(eps.length, 8);
+    assert.ok(eps.every((e) => e.status === ""), "every episode reports a status field");
   });
 });

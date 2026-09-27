@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { SOCIAL_SERIES_ID, socialSeriesCatalog } from "./social-series.ts";
 import type { VidGenService } from "./service.ts";
-import type { GrowthSchedulerHandle } from "./growth-scheduler.ts";
+import { seriesEpisodeStatuses, type GrowthSchedulerHandle } from "./growth-scheduler.ts";
 import { accessVerifierFromEnv, publicUiHosts, type CloudflareAccessVerifier } from "./cf-access.ts";
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -135,6 +135,14 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // The studio's "Check for my cut now": one awaited pass whose outcome is
+    // returned, so the editor is told what actually happened -- the generic
+    // /api/schedule/:job/run swallows both the result and any error.
+    if (route === "POST /api/editor-returns/check-now") {
+      json(res, 200, await service.checkEditorReturns());
+      return;
+    }
+
     if (route === "POST /api/measure") {
       json(res, 200, await service.measureAll());
       return;
@@ -203,7 +211,8 @@ export function createUiServer(opts: ServerOptions) {
     }
 
     if (route === "GET /api/series") {
-      json(res, 200, { episodes: socialSeriesCatalog() });
+      const statuses = seriesEpisodeStatuses(service.listRuns());
+      json(res, 200, { episodes: socialSeriesCatalog().map((e, i) => ({ ...e, status: statuses[i] })) });
       return;
     }
 

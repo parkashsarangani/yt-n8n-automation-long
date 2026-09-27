@@ -208,6 +208,17 @@ export interface RunOptions {
   packageSeed?: PackageSeed;
 }
 
+/** One pass over runs parked at editor_review, looking for a returned cut in Drive. */
+export interface EditorReturnsResult {
+  /** False when no Drive provider is configured: nothing was looked at. */
+  configured: boolean;
+  checked: number;
+  advanced: number;
+  advanced_runs: string[];
+  /** A cut was found but could not be imported; the run stays waiting. */
+  failed_runs: Array<{ run_id: string; error: string }>;
+}
+
 export class VidGenService {
   private registry!: SchemaRegistry;
   private prompts!: PromptStore;
@@ -222,7 +233,7 @@ export class VidGenService {
   private executor!: GraphExecutor;
   private transformations!: Map<string, TransformationDef>;
   /** The single in-flight editor-return pass, so a webhook cannot race the poll. */
-  private editorReturnsInFlight: Promise<{ checked: number; advanced: number }> | null = null;
+  private editorReturnsInFlight: Promise<EditorReturnsResult> | null = null;
 
   /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
   private static readonly EDITOR_RETURN_MARKER = "editor_return";
@@ -908,7 +919,7 @@ export class VidGenService {
    * error) is logged and left waiting for the next poll -- it must never
    * crash the run or the scheduler.
    */
-  async checkEditorReturns(): Promise<{ checked: number; advanced: number }> {
+  async checkEditorReturns(): Promise<EditorReturnsResult> {
     // The scheduler refuses to overlap its own jobs, but a webhook calling
     // this directly bypasses that guard entirely: two passes could download
     // the same final.mp4 and both approve the gate. Collapse concurrent
@@ -921,12 +932,17 @@ export class VidGenService {
     return pass;
   }
 
-  private async runEditorReturnsPass(): Promise<{ checked: number; advanced: number }> {
+  private async runEditorReturnsPass(): Promise<EditorReturnsResult> {
     const drive = this.driveProvider;
     const runs = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review"));
-    if (!drive || runs.length === 0) return { checked: runs.length, advanced: 0 };
+    // Report "not configured" rather than a bare zero: a caller showing the
+    // result to a person must not imply Drive was actually looked at.
+    if (!drive) return { configured: false, checked: 0, advanced: 0, advanced_runs: [], failed_runs: [] };
+    if (runs.length === 0) return { configured: true, checked: 0, advanced: 0, advanced_runs: [], failed_runs: [] };
 
     let advanced = 0;
+    const advancedRuns: string[] = [];
+    const failedRuns: Array<{ run_id: string; error: string }> = [];
     for (const run of runs) {
       try {
         const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
@@ -1058,6 +1074,7 @@ export class VidGenService {
         });
         await this.decide(run.run_id, "editor_review", { result: "approve" });
         advanced += 1;
+        advancedRuns.push(run.run_id);
         console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
       } catch (err) {
         // Same reasoning as the two report* helpers: the run is waiting rather
@@ -1066,6 +1083,7 @@ export class VidGenService {
         // learns. sendOperatorAlert dedups, so a persistent fault pings once
         // per cooldown rather than on every poll.
         const detail = err instanceof Error ? err.message : String(err);
+        failedRuns.push({ run_id: run.run_id, error: detail });
         console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
         await sendOperatorAlert({
           run_id: run.run_id,
@@ -1074,7 +1092,7 @@ export class VidGenService {
         });
       }
     }
-    return { checked: runs.length, advanced };
+    return { configured: true, checked: runs.length, advanced, advanced_runs: advancedRuns, failed_runs: failedRuns };
   }
 
   /**
