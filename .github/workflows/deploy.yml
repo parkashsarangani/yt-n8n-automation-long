@@ -77,7 +77,11 @@ jobs:
           UI_PUBLIC_HOSTS: ${{ vars.UI_PUBLIC_HOSTS || '' }}
           CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN || '' }}
           CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD || '' }}
-          SCHEDULE_PRODUCE_HOURS: "24"
+          # Paused 2026-09-28 (operator): the editor now makes custom episodes
+          # only, so no scheduled daily draft. "0" disables just the produce job;
+          # Drive delivery, cut pickup (editor_watch) and measurement keep
+          # running for custom episodes. Set back to "24" to resume the season.
+          SCHEDULE_PRODUCE_HOURS: "0"
           SCHEDULE_PRODUCE_TIMEZONE: Europe/Berlin
           SCHEDULE_PRODUCE_LOCAL_HOUR: "3"
           SCHEDULE_PRODUCE_HOUR_UTC: ""
