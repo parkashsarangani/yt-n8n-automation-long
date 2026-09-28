@@ -1,3 +1,4 @@
+import { DESCRIPTION_CTA, SPOKEN_CTA } from "../src/cta.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -171,7 +172,8 @@ test("publish uses the SEO metadata verbatim and substitutes nothing", async () 
 
   const sent = h.target.published[0]!.metadata;
   assert.equal(sent.title, SEO.title);
-  assert.equal(sent.description, SEO.description);
+  // Verbatim SEO text; the only addition is the channel CTA after it.
+  assert.equal(sent.description, `${SEO.description}\n\n${DESCRIPTION_CTA}`);
   assert.deepEqual(sent.tags, SEO.tags);
 });
 
@@ -365,7 +367,7 @@ test("publish uploads and records where the video went", async () => {
   assert.match(payload.url, /^https:\/\/example\.test\//);
 
   const sent = h.target.published[0]!;
-  assert.equal(sent.metadata.description, SEO.description);
+  assert.equal(sent.metadata.description, `${SEO.description}\n\n${DESCRIPTION_CTA}`);
   assert.deepEqual(sent.metadata.tags, SEO.tags);
   assert.ok(sent.thumbnail);
 });

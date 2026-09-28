@@ -10,6 +10,7 @@
  * script now passes on the first attempt and the repair loop is reserved for
  * genuinely broken output.
  */
+import { appendSpokenCta } from "../cta.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 import {
   MATERIAL_WEAKNESS_FLOOR,
@@ -154,7 +155,7 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
   return {
     name: "watchability_release",
     kind: "worker",
-    version: "10",
+    version: "11",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "watchability_report", range: "^2", as: "report" },
@@ -221,13 +222,15 @@ export function makeWatchabilityReleaseWorker(): WorkerDef {
         throw new Error(`watchability release blocked (${PACKAGE_CONTRACT_MARKER}): ${packageErrors.join("; ")}`);
       }
 
-      // Manual-script mode is a promise to use the operator's exact words.
-      // Evaluate the script against the same production watchability/package
-      // gates, but never inject/replace an outro behind the operator's back.
+      // Manual-script mode is a promise to use the operator's exact words:
+      // never inject/replace an outro in them. The one addition is the
+      // channel's spoken CTA, as its own final scene after everything else
+      // (operator decision 2026-09-28, see cta.ts) -- the editor's scenes are
+      // untouched, and it can be cut in the edit like any other scene.
       return {
-        payload: isOperatorAuthored
+        payload: appendSpokenCta(isOperatorAuthored
           ? script.payload
-          : enforceContinuationBridge(script.payload, inputs["package"]?.payload),
+          : enforceContinuationBridge(script.payload, inputs["package"]?.payload)),
       };
     },
   };

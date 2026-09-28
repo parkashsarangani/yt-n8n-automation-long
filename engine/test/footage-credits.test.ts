@@ -1,3 +1,4 @@
+import { DESCRIPTION_CTA, SPOKEN_CTA } from "../src/cta.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {MemoryBlobStore} from "../src/blobs.ts";
@@ -30,7 +31,7 @@ test("footage attribution survives publishing and cannot be silently truncated",
   const chapterTarget=new FakePublishTarget();
   await makePublishWorker({target:chapterTarget}).execute(inputs,ctx);
   const published=chapterTarget.published[0]!.metadata.description!;
-  assert.ok(published.startsWith("A description\n\nChapters\n00:00 Chapter 0"));
+  assert.ok(published.startsWith(`A description\n\n${DESCRIPTION_CTA}\n\nChapters\n00:00 Chapter 0`));
   assert.match(published,/00:40 Chapter 2/);
   const wouldTruncate=new FakePublishTarget({requirements:{max_description_chars:published.length-1}});
   const warnings:string[]=[];
