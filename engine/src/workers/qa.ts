@@ -1,5 +1,5 @@
 /** Deterministic pre-publish QA for the audio-first production graph. */
-import { readMp4Geometry } from "../media/mp4.ts";
+import { EDITOR_CUT_MAX_RATIO, EDITOR_CUT_MIN_RATIO, readMp4Geometry } from "../media/mp4.ts";
 import { narrationPace } from "../audio/narration-delivery.ts";
 import { EDITOR_CUT_MEDIA_TYPES } from "./editor-package.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
@@ -15,7 +15,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "8",
+    version: opts.version ?? "9",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -97,7 +97,21 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
         }
       }
 
-      if (typeof render.duration_sec === "number" && render.duration_sec > 0 && voiceDuration > 0) {
+      if (typeof render.duration_sec === "number" && render.duration_sec > 0 && voiceDuration > 0 && render.renderer === "editor") {
+        // A human editor trims pauses and adds intro/outro cards, so their cut
+        // is never the narration's exact length. Production 2026-09-28: a cut
+        // 8.5s (3.7%) shorter than its narration was accepted by the Drive
+        // intake and then failed here on the 3% renderer tolerance, parking a
+        // finished episode unpublished. Judge an editor cut by the intake's own
+        // bounds (which already reject partial exports and wrong episodes), so
+        // the two halves can never disagree again.
+        const ratio = render.duration_sec / voiceDuration;
+        const ok = ratio >= EDITOR_CUT_MIN_RATIO && ratio <= EDITOR_CUT_MAX_RATIO;
+        const delta = render.duration_sec - voiceDuration;
+        add("render_audio_duration", ok ? "pass" : "fail",
+          `editor cut is ${Math.abs(delta).toFixed(1)}s ${delta < 0 ? "shorter" : "longer"} than the narration (${ratio.toFixed(2)}x; allowed ${EDITOR_CUT_MIN_RATIO}-${EDITOR_CUT_MAX_RATIO}x)`,
+          ratio);
+      } else if (typeof render.duration_sec === "number" && render.duration_sec > 0 && voiceDuration > 0) {
         const delta = Math.abs(render.duration_sec - voiceDuration);
         const tolerance = Math.max(4, voiceDuration * 0.03);
         add("render_audio_duration", delta <= tolerance ? "pass" : "fail", `render/voice duration delta ${delta.toFixed(2)}s (tolerance ${tolerance.toFixed(2)}s)`, delta, tolerance);
