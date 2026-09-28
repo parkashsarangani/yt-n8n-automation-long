@@ -1,3 +1,4 @@
+import { DESCRIPTION_CTA, SPOKEN_CTA } from "../src/cta.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { agentSemanticValidationErrors, HARD_ERROR_PREFIX } from "../src/agent-validators.ts";
@@ -39,7 +40,9 @@ test("watchability release accepts a schema-valid below-bar script on attempt th
   } as never;
   const ctx = { attemptNumber: 3, logger: { warn() {}, log() {}, error() {} } } as never;
   const result = await worker.execute(inputs, ctx);
-  assert.deepEqual(result.payload, scriptPayload);
+  const scenes = (result.payload as { scenes: Array<{ narration: string }> }).scenes;
+  assert.deepEqual(scenes.slice(0, -1), scriptPayload.scenes);
+  assert.equal(scenes.at(-1)!.narration, SPOKEN_CTA);
 });
 
 test("watchability release still retries a below-bar script before attempt three", async () => {
@@ -70,7 +73,9 @@ test("the critic is advisory for a human-authored script: released unchanged on 
     } as never;
     const ctx = { attemptNumber: 1, logger: { warn(m: string) { warnings.push(m); }, log() {}, error() {} } } as never;
     const result = await worker.execute(inputs, ctx);
-    assert.deepEqual(result.payload, scriptPayload, "an editor's exact words are released, never rewritten");
+    const scenes = (result.payload as { scenes: Array<{ narration: string }> }).scenes;
+    assert.deepEqual(scenes.slice(0, -1), scriptPayload.scenes, "an editor's exact words are released, never rewritten");
+    assert.equal(scenes.at(-1)!.narration, SPOKEN_CTA, "the only addition is the channel CTA, as its own final scene");
     assert.ok(warnings.some((w) => /advisory for a human-authored script/.test(w)), "the override must leave a trace");
   }
 });

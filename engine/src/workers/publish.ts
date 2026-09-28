@@ -10,6 +10,7 @@
  * than being quietly truncated into something the story never meant.
  */
 
+import { withDescriptionCta } from "../cta.ts";
 import type { PublishMetadata, PublishTarget } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
@@ -69,7 +70,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
   return {
     name: "publish",
     kind: "worker",
-    version: opts.version ?? "5",
+    version: opts.version ?? "6",
     consumes: [
       { schema_id: "rendered_video", range: "^1", as: "video" },
       { schema_id: "seo_metadata", range: "^1", as: "seo" },
@@ -106,7 +107,9 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       // belong to an agent (RFC 0003 rule 1 — workers never think).
       const metadata: PublishMetadata = {
         title: seo.title,
-        description: seo.description,
+        // The one deterministic addition: the channel CTA (cta.ts), placed
+        // ahead of chapters and credits. Not a fallback -- the SEO text stays.
+        description: withDescriptionCta(seo.description),
         tags: seo.tags,
         privacy,
         made_for_kids: opts.madeForKids ?? false,
