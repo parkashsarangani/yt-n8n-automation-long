@@ -367,7 +367,9 @@ export class Runner {
       // before schema validation so malformed cards cannot block narration.
       const unpruned = def.produces === "script" && version === "1.1.0"
         ? stripEditorVisuals(scriptRepaired)
-        : scriptRepaired;
+        : def.produces === "seo_metadata"
+          ? lockHumanAuthoredTitle(scriptRepaired, inputs["story"])
+          : scriptRepaired;
       const payload = this.pruneInvalidPool(def, version, rawOutputSchema, unpruned, attempt, maxAttempts);
       if (outroRepairs.length > 0) {
         this.deps.logger?.warn(
@@ -725,6 +727,21 @@ function classifyRetryReason(errors: string[]): "natural_dialogue" | "story_cont
   if (/natural dialogue|robotic|duplicate dialogue|short lines|human moment|definition\/explainer/.test(text)) return "natural_dialogue";
   if (/contract violated|payoff|resolution|midpoint|engagement beat|function order|teach-back/.test(text)) return "story_contract";
   return "other_semantic";
+}
+
+/**
+ * A custom episode's title is the editor's, typed in the studio: it must reach
+ * YouTube exactly as written. seo_optimizer is told to keep the selected title
+ * but may "correct" it, and an LLM's small correction is still a change the
+ * editor never approved. So when the story is human-authored, its title
+ * overwrites whatever title the SEO model returned; description, tags and
+ * alternatives stay the model's work.
+ */
+export function lockHumanAuthoredTitle(payload: unknown, story: { payload: unknown; produced_by?: { transformation?: string } } | undefined): unknown {
+  if (story?.produced_by?.transformation !== "human") return payload;
+  const title = (story.payload as { title?: unknown } | null)?.title;
+  if (typeof title !== "string" || !title.trim() || !payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  return { ...(payload as Record<string, unknown>), title: title.trim() };
 }
 
 /**

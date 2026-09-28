@@ -65,13 +65,13 @@ test("the studio offers exactly two creators: a season episode and a custom scri
   assert.match(html, /id="seriesEpisode"/);
   assert.match(html, /\/api\/series\//);
 
-  // Custom episode: length, hook and script only. The title is derived from
-  // the hook server-side, so the form must not ask for one.
-  for (const id of ["customLength", "customHook", "customScript", "startCustom"]) {
+  // Custom episode: the editor's YouTube title (published verbatim), length,
+  // hook and script.
+  for (const id of ["customTitle", "customLength", "customHook", "customScript", "startCustom"]) {
     assert.match(html, new RegExp(`id="${id}"`), `missing custom-episode field: ${id}`);
   }
   assert.match(html, /\/api\/runs\/manual/);
-  assert.match(html, /duration_sec:Math\.round\(minutes\*60\)/);
+  assert.match(html, /\{title,hook,narration,duration_sec:Math\.round\(minutes\*60\)\}/);
   assert.doesNotMatch(html, /manualTitle/);
 
   // Retired: free-form idea brief, story types and discovery suggestions.
