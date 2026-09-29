@@ -66,6 +66,8 @@ services:
       META_PAGE_ACCESS_TOKEN: ${META_PAGE_ACCESS_TOKEN:-}
       META_PAGE_ID: ${META_PAGE_ID:-}
       META_IG_USER_ID: ${META_IG_USER_ID:-}
+      # Instagram-login token (graph.instagram.com); renewed automatically, kept on /data.
+      META_IG_ACCESS_TOKEN: ${META_IG_ACCESS_TOKEN:-}
       META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
       # Daily preparation slot is resolved from a local-time target, not a fixed
       # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC

@@ -40,7 +40,10 @@ export interface ReelsTarget {
 export class MetaApiError extends Error {}
 
 export interface MetaOptions {
-  accessToken: string;
+  /** A token, or a function returning the current one (auto-renewed Instagram login tokens). */
+  accessToken: string | (() => Promise<string>);
+  /** graph.facebook.com (Page token, default) or graph.instagram.com (Instagram login token). */
+  graphBase?: string;
   version?: string;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
@@ -51,7 +54,8 @@ export interface MetaOptions {
 const GRAPH = "https://graph.facebook.com";
 
 abstract class MetaClient {
-  protected readonly token: string;
+  private readonly tokenSource: string | (() => Promise<string>);
+  protected readonly graphBase: string;
   protected readonly version: string;
   protected readonly fetchImpl: typeof fetch;
   protected readonly sleep: (ms: number) => Promise<void>;
@@ -59,7 +63,8 @@ abstract class MetaClient {
   protected readonly maxPolls: number;
 
   constructor(opts: MetaOptions) {
-    this.token = opts.accessToken;
+    this.tokenSource = opts.accessToken;
+    this.graphBase = opts.graphBase ?? GRAPH;
     this.version = opts.version ?? "v25.0";
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -68,36 +73,42 @@ abstract class MetaClient {
   }
 
   /** A Graph call. POST sends a form body carrying the token; GET sends it as an OAuth header. Never in the URL. */
+  protected async token(): Promise<string> {
+    return typeof this.tokenSource === "string" ? this.tokenSource : this.tokenSource();
+  }
+
   protected async graph(method: "GET" | "POST", path: string, params: Record<string, string> = {}): Promise<Record<string, unknown>> {
-    const url = `${GRAPH}/${this.version}/${path}`;
+    const token = await this.token();
+    const url = `${this.graphBase}/${this.version}/${path}`;
     const res = method === "GET"
-      ? await this.fetchImpl(`${url}?${new URLSearchParams(params)}`, { headers: { Authorization: `OAuth ${this.token}` } })
+      ? await this.fetchImpl(`${url}?${new URLSearchParams(params)}`, { headers: { Authorization: `OAuth ${token}` } })
       : await this.fetchImpl(url, {
           method,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ ...params, access_token: this.token }),
+          body: new URLSearchParams({ ...params, access_token: token }),
         });
-    return this.read(res, `${method} ${path}`);
+    return this.read(res, `${method} ${path}`, token);
   }
 
   protected async upload(url: string, video: Uint8Array): Promise<void> {
+    const token = await this.token();
     const res = await this.fetchImpl(url, {
       method: "POST",
-      headers: { Authorization: `OAuth ${this.token}`, offset: "0", file_size: String(video.byteLength) },
+      headers: { Authorization: `OAuth ${token}`, offset: "0", file_size: String(video.byteLength) },
       body: video,
     });
-    const body = await this.read(res, "upload");
+    const body = await this.read(res, "upload", token);
     if (body["success"] === false) throw new MetaApiError(`upload was not accepted: ${JSON.stringify(body).slice(0, 300)}`);
   }
 
-  private async read(res: Response, what: string): Promise<Record<string, unknown>> {
+  private async read(res: Response, what: string, token: string): Promise<Record<string, unknown>> {
     const text = await res.text();
     let body: Record<string, unknown> = {};
     try { body = text ? JSON.parse(text) : {}; } catch { /* non-JSON error page */ }
     const err = body["error"] as { message?: string; code?: number } | undefined;
     if (!res.ok || err) {
       const detail = err?.message ?? text.slice(0, 300);
-      throw new MetaApiError(`${what} failed (${res.status}${err?.code ? `, code ${err.code}` : ""}): ${redact(detail, this.token)}`);
+      throw new MetaApiError(`${what} failed (${res.status}${err?.code ? `, code ${err.code}` : ""}): ${redact(detail, token)}`);
     }
     return body;
   }

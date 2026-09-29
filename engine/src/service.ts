@@ -43,6 +43,7 @@ import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type Channe
 import { assertEditorCutDuration, assertYouTubeProductionGeometry, readMp4Geometry } from "./media/mp4.ts";
 import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./providers/meta-reels.ts";
 import { crosspostRun, CROSSPOST_MAX_ATTEMPTS, type CrosspostOutcome } from "./crosspost.ts";
+import { IgTokenStore } from "./ig-token.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -243,6 +244,8 @@ export class VidGenService {
   private shortDraftProvider: ModelProvider | null = null;
   /** Facebook/Instagram Reels targets; empty until META_* credentials are set (dormant). */
   private reelsTargets: ReelsTarget[] = [];
+  /** Auto-renewing Instagram-login token, when META_IG_ACCESS_TOKEN is set. */
+  private igToken: IgTokenStore | null = null;
 
   /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
   private static readonly EDITOR_RETURN_MARKER = "editor_return";
@@ -403,12 +406,20 @@ export class VidGenService {
     // at least one of the Page / Instagram ids are configured.
     const metaToken = env("META_PAGE_ACCESS_TOKEN");
     const metaVersion = env("META_GRAPH_VERSION") || "v25.0";
-    this.reelsTargets = metaToken
-      ? [
-          ...(env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
-          ...(env("META_IG_USER_ID") ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
-        ]
-      : [];
+    // Instagram: preferably the Instagram-login token (graph.instagram.com,
+    // addressed as "me", renewed automatically -- ig-token.ts); otherwise the
+    // Page token with META_IG_USER_ID on graph.facebook.com.
+    const igLoginToken = env("META_IG_ACCESS_TOKEN");
+    this.igToken = igLoginToken ? new IgTokenStore(igLoginToken, path.join(this.dataDir, "meta", "ig-token.json")) : null;
+    const igStore = this.igToken;
+    this.reelsTargets = [
+      ...(metaToken && env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
+      ...(igStore
+        ? [new InstagramReelsTarget("me", { accessToken: () => igStore.get(), graphBase: "https://graph.instagram.com", version: metaVersion })]
+        : metaToken && env("META_IG_USER_ID")
+          ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })]
+          : []),
+    ];
 
     const runner = new Runner({
       store: this.store,
@@ -962,6 +973,11 @@ export class VidGenService {
   async draftShort(topic: string, shape: HookShape = "list"): Promise<ShortDraftResult> {
     if (!this.shortDraftProvider) throw new Error("no script model is configured");
     return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts }, shape);
+  }
+
+  /** Renew the Instagram-login token when due; null when none is configured. */
+  async igTokenRefresh(): Promise<"refreshed" | "not_due" | null> {
+    return this.igToken ? this.igToken.refreshIfDue() : null;
   }
 
   /** Which Reels platforms are configured (for the scheduler and studio). */

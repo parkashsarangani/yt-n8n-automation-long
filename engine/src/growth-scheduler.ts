@@ -391,6 +391,15 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
         await service.crosspostPending();
       },
     },
+    {
+      // The Instagram-login token lasts 60 days; renew it well before that.
+      id: "ig_token_refresh", everyHours: 24, enabled: typeof service.igTokenRefresh === "function" && reelsPlatforms.includes("instagram"),
+      description: "renew the Instagram access token when it is a week old (it lasts 60 days)",
+      async run() {
+        const result = await service.igTokenRefresh();
+        if (result === "refreshed") console.log("[growth-scheduler] Instagram access token renewed");
+      },
+    },
   ] });
   scheduler.start();
   return { status: () => scheduler.status(), runNow: (id) => scheduler.runNow(id), stop: () => scheduler.stop() };
