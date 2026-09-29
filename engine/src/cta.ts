@@ -1,5 +1,7 @@
 /**
  * Channel call to action (operator decision 2026-09-28: both spoken and in
+ * the description; 2026-09-29: the channel is Quiet Signal, covering
+ * psychology AND philosophy, so the CTA names it and both subjects --
  * the description, on every episode -- season and custom alike).
  *
  * Deterministic on purpose. Before this, the only CTA was whatever the SEO
@@ -14,18 +16,18 @@ import { videoFormat, type VideoFormat } from "./video-format.ts";
 
 /** Narrated as its own closing scene, after the story and any next-episode teaser. */
 export const SPOKEN_CTA =
-  "If this was useful, subscribe for more everyday psychology — and tell me in the comments where you've noticed this in your own life.";
+  "If this was useful, subscribe to Quiet Signal for more psychology and philosophy — and tell me in the comments where you've noticed this in your own life.";
 
 /**
  * The ~2 s spoken close for a Short/Reel (operator decision 2026-09-29):
  * the full CTA above would eat a tenth of a 60-75 s video. "Follow" reads right
  * on every platform the Short goes to.
  */
-export const SPOKEN_CTA_SHORT = "Follow for more everyday psychology.";
+export const SPOKEN_CTA_SHORT = "Follow Quiet Signal for more psychology and philosophy.";
 
 /** Appended to every YouTube description, ahead of chapters and credits. */
 export const DESCRIPTION_CTA =
-  "Subscribe for more everyday psychology, and tell us in the comments where you've noticed this in your own life.";
+  "Follow Quiet Signal for more psychology and philosophy, and tell us in the comments where you've noticed this in your own life.";
 
 const CTA_POINT = "[cta] Subscribe";
 

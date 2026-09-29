@@ -53,7 +53,8 @@ test("the description ends with exactly one CTA: ours", () => {
 test("a Short closes on the ~2 s line, long-form on the full CTA", () => {
   const short = appendSpokenCta(script, "short") as { scenes: Array<{ narration: string }> };
   assert.equal(short.scenes.at(-1)!.narration, SPOKEN_CTA_SHORT);
-  assert.ok(SPOKEN_CTA_SHORT.split(/\s+/).length <= 6, "must stay about two seconds spoken");
+  assert.ok(SPOKEN_CTA_SHORT.split(/\s+/).length <= 8, "must stay under about three seconds spoken");
+  assert.match(SPOKEN_CTA_SHORT, /Quiet Signal/);
   const long = appendSpokenCta(script, "long") as { scenes: Array<{ narration: string }> };
   assert.equal(long.scenes.at(-1)!.narration, SPOKEN_CTA);
 });
