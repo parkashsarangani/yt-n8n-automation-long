@@ -14,6 +14,7 @@ import path from "node:path";
 import { SOCIAL_SERIES_ID, socialSeriesCatalog } from "./social-series.ts";
 import type { VidGenService } from "./service.ts";
 import { seriesEpisodeStatuses, type GrowthSchedulerHandle } from "./growth-scheduler.ts";
+import { formatSpec } from "./video-format.ts";
 import { accessVerifierFromEnv, publicUiHosts, type CloudflareAccessVerifier } from "./cf-access.ts";
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -114,6 +115,9 @@ export function createUiServer(opts: ServerOptions) {
         capabilities: service.capabilities(),
         env_file: service.envFile,
         graph: `${service.graphDoc.graph_id}@${service.graphDoc.version}`,
+        // Drives the studio's form: Shorts take seconds (<= 60) and hide the
+        // long-form season panel; long-form is unchanged.
+        format: formatSpec(),
       });
       return;
     }

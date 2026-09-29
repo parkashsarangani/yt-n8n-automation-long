@@ -68,20 +68,22 @@ async function request(raw, provider, {fetchImpl = fetch, headers = {}, limit = 
   }
   throw Error('Too many stock redirects');
 }
-function normalize(provider, kind, data) {
+function normalize(provider, kind, data, orientation = 'landscape') {
+  // Long-form wants landscape clips; a vertical Short wants portrait ones.
+  const shaped = v => orientation === 'portrait' ? v.height > v.width && v.height >= 960 && v.height <= 1920 : v.width >= 960 && v.width <= 1920 && v.width > v.height;
   const results = provider === 'pexels' ? (kind === 'video' ? data.videos : data.photos)
     : provider === 'pixabay' ? data.hits : data.results;
   return (Array.isArray(results) ? results : []).flatMap(a => {
     let media, width, height, source, creator, description, download;
     if (provider === 'pexels') {
-      media = kind === 'video' ? (a.video_files || []).filter(v => v.file_type === 'video/mp4' && v.width >= 960 && v.width <= 1920 && v.width > v.height)
-        .sort((a,b) => Math.abs(a.width-1280)-Math.abs(b.width-1280))[0] : null;
+      media = kind === 'video' ? (a.video_files || []).filter(v => v.file_type === 'video/mp4' && shaped(v))
+        .sort((a,b) => orientation === 'portrait' ? Math.abs(a.height-1920)-Math.abs(b.height-1920) : Math.abs(a.width-1280)-Math.abs(b.width-1280))[0] : null;
       width = media?.width || a.width; height = media?.height || a.height;
       media = kind === 'video' ? media?.link : a.src?.large2x;
       source = a.url; creator = a.photographer || a.user?.name;
       description = `${a.alt || ''} ${String(a.url || '').split('/').at(-2)?.replace(/-/g,' ') || ''}`;
     } else if (provider === 'pixabay') {
-      media = kind === 'video' ? [a.videos?.medium,a.videos?.small,a.videos?.large].find(v => v?.width >= 960 && v.width <= 1920 && v.width > v.height) : null;
+      media = kind === 'video' ? [a.videos?.medium,a.videos?.small,a.videos?.large].find(v => v && shaped(v)) : null;
       width = media?.width || a.imageWidth; height = media?.height || a.imageHeight;
       media = kind === 'video' ? media?.url : a.largeImageURL;
       source = a.pageURL; creator = a.user; description = a.tags;
@@ -93,7 +95,8 @@ function normalize(provider, kind, data) {
       if (!download) return [];
       if (source) source += `${source.includes('?')?'&':'?'}utm_source=vidgen&utm_medium=referral`;
     }
-    if (!media || !source || !creator || width < 960 || width <= height || (kind === 'video' && !(a.duration >= 3))) return [];
+    const wrongShape = orientation === 'portrait' ? height < 960 || height <= width : width < 960 || width <= height;
+    if (!media || !source || !creator || wrongShape || (kind === 'video' && !(a.duration >= 3))) return [];
     try { allowedUrl(media,provider); allowedUrl(source,provider,true); } catch { return []; }
     const license = provider === 'pexels' ? 'https://www.pexels.com/license/' : provider === 'pixabay' ? 'https://pixabay.com/service/license-summary/' : 'https://unsplash.com/license';
     return [{id:`${provider}-${kind}-${a.id}`,provider,kind,url:media,description,download,duration:a.duration,
@@ -104,7 +107,7 @@ function relevance(asset, query) {
   const terms = new Set(tokens(asset.description).filter(w => !stop.has(w)));
   return tokens(query).filter(w => terms.has(w)).length;
 }
-function searchUrl(provider, kind, query, key) {
+function searchUrl(provider, kind, query, key, orientation = 'landscape') {
   const base = provider === 'pexels' ? `https://api.pexels.com/v1/${kind === 'video' ? 'videos/search' : 'search'}`
     : provider === 'pixabay' ? `https://pixabay.com/api/${kind === 'video' ? 'videos/' : ''}` : 'https://api.unsplash.com/search/photos';
   const url = new URL(base);
@@ -113,20 +116,23 @@ function searchUrl(provider, kind, query, key) {
   if (provider === 'pixabay') {
     url.searchParams.set('key',key); url.searchParams.set('safesearch','true');
     url.searchParams.set(kind === 'video' ? 'video_type' : 'image_type',kind === 'video' ? 'film' : 'photo');
-    if (kind === 'photo') url.searchParams.set('orientation','horizontal');
-  } else url.searchParams.set('orientation','landscape');
+    if (kind === 'photo') url.searchParams.set('orientation',orientation === 'portrait' ? 'vertical' : 'horizontal');
+  } else url.searchParams.set('orientation',orientation);
   if (provider === 'unsplash') url.searchParams.set('content_filter','high');
   return url.toString();
 }
 async function search(provider, kind, query, key, options) {
-  const file = path.join(options.cacheDir,hash(`${provider}:${kind}:${query}`)+'.json');
-  try { const cache = JSON.parse(await fs.readFile(file,'utf8')); if (Date.now()-cache.time < 86400_000) return normalize(provider,kind,cache.data); } catch {}
+  const orientation = options.orientation || 'landscape';
+  // Orientation is part of the cache key only when it is not the long-form
+  // default, so existing landscape cache entries stay valid.
+  const file = path.join(options.cacheDir,hash(`${provider}:${kind}:${query}${orientation === 'landscape' ? '' : ':'+orientation}`)+'.json');
+  try { const cache = JSON.parse(await fs.readFile(file,'utf8')); if (Date.now()-cache.time < 86400_000) return normalize(provider,kind,cache.data,orientation); } catch {}
   const headers = provider === 'pexels' ? {Authorization:key} : provider === 'unsplash' ? {Authorization:`Client-ID ${key}`,'Accept-Version':'v1'} : {};
-  const data = JSON.parse((await request(searchUrl(provider,kind,query,key),provider,{...options,headers})).toString());
+  const data = JSON.parse((await request(searchUrl(provider,kind,query,key,orientation),provider,{...options,headers})).toString());
   // Atomic 24-hour metadata cache. Keys never appear in filenames or cached data.
   const temp = file+'.'+randomUUID();
   await fs.writeFile(temp,JSON.stringify({time:Date.now(),data})); await fs.rename(temp,file);
-  return normalize(provider,kind,data);
+  return normalize(provider,kind,data,orientation);
 }
 async function planStock(scenes, durations, directory, options = {}) {
   const env = options.env || process.env;

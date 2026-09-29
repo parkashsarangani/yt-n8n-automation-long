@@ -104,3 +104,30 @@ test("editor package fails clearly when Drive is not configured", async () => {
     /requires a Drive provider/,
   );
 });
+
+test("in short format the package tells the editor: vertical 1080x1920, 60 s max, a cover", async () => {
+  const previous = process.env["VIDEO_FORMAT"];
+  process.env["VIDEO_FORMAT"] = "short";
+  try {
+    const ctx = ctxWith();
+    const video = await ctx.blobs.put(new Uint8Array([1]), { role: "video", media_type: "video/mp4" });
+    const thumb = await ctx.blobs.put(new Uint8Array([4]), { role: "thumbnail", media_type: "image/png" });
+    const inputs = {
+      script: { payload: { scenes: [{ scene_index: 0, point: "[scenario] beat", narration: "A short vertical beat." }] } } as Artifact,
+      voice: { payload: { clips: [{ scene_index: 0, duration_sec: 20 }] } } as Artifact,
+      render: { payload: { video_uri: video.uri, media_type: "video/mp4" }, blobs: [video] } as Artifact,
+      seo: { payload: { title: "A short", description: "A vertical short about a message.", tags: ["a", "b"] } } as Artifact,
+      thumbnail: { payload: { thumbnail_uri: thumb.uri, media_type: "image/png", background: "gradient" }, blobs: [thumb] } as Artifact,
+    };
+    const out = await makeEditorPackageWorker({ rootFolderId: "root" }).execute(inputs, ctx);
+    const drive = ctx.media.drive as FakeDriveProvider;
+    const files = await drive.listFiles((out.payload as { drive_folder_id: string }).drive_folder_id);
+    const md = new TextDecoder().decode(await drive.downloadFile(files.find((f) => f.name === "package.md")!.id));
+    assert.match(md, /VERTICAL 1080x1920, 60 seconds or less/);
+    assert.match(md, /^# Short draft/m);
+    assert.match(md, /Cover: upload your cover image as `thumbnail-final\.png`/);
+  } finally {
+    if (previous === undefined) delete process.env["VIDEO_FORMAT"];
+    else process.env["VIDEO_FORMAT"] = previous;
+  }
+});

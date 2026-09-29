@@ -25,3 +25,13 @@ test("production YouTube guard rejects malformed MP4 bytes rather than guessing"
     /could not read MP4 display geometry/,
   );
 });
+
+test("production guard also accepts vertical 1080x1920 Shorts/Reels", () => {
+  // Both formats are always accepted: an episode drafted before a format
+  // switch must still publish after it (video-format.ts).
+  assert.deepEqual(assertYouTubeProductionGeometry(mp4(1080, 1920)), { width: 1080, height: 1920 });
+});
+
+test("production guard rejects a vertical 720p regression too", () => {
+  assert.throws(() => assertYouTubeProductionGeometry(mp4(720, 1280)), /video is 720x1280/);
+});

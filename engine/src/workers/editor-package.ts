@@ -10,6 +10,7 @@
  */
 import type { Artifact } from "../artifact.ts";
 import type { FootageCredit } from "../provider.ts";
+import { formatSpec } from "../video-format.ts";
 import { createHash } from "node:crypto";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 
@@ -152,7 +153,7 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
   return {
     name: "editor_package",
     kind: "worker",
-    version: opts.version ?? "5",
+    version: opts.version ?? "6",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -226,13 +227,19 @@ export function makeEditorPackageWorker(opts: EditorPackageWorkerOptions = {}): 
           await ctx.blobs.get(asset.uri), asset.media_type || "image/png");
       }
 
+      const spec = formatSpec();
+      const short = spec.format === "short";
       const packageMd = [
-        `# Episode draft — ${folderName}`,
+        `# ${short ? "Short" : "Episode"} draft — ${folderName}`,
         "",
-        "Export your finished cut as `final.mp4` and upload it into this same folder when done. A .mov or .m4v export is fine, and a name like `final_v2.mp4` still works — but leave exactly one `final*` video here, or nothing is imported.",
+        short
+          ? `Export your finished cut as \`final.mp4\`, VERTICAL ${spec.width}x${spec.height}, ${spec.maxDurationSec} seconds or less — it goes out as a YouTube Short, Instagram/Facebook Reel and TikTok, and a longer or horizontal cut is refused before publishing. Keep captions and faces clear of the bottom fifth and the right edge, where the apps draw their buttons. Upload it into this same folder when done. A .mov or .m4v export is fine, and a name like \`final_v2.mp4\` still works — but leave exactly one \`final*\` video here, or nothing is imported.`
+          : "Export your finished cut as `final.mp4` and upload it into this same folder when done. A .mov or .m4v export is fine, and a name like `final_v2.mp4` still works — but leave exactly one `final*` video here, or nothing is imported.",
         "Keep useful stock shots and replace any weak or misleading match with your own images/footage. Stock illustrates a situation; it does not depict the actual narrated people or events. Background-only scenes still need your visual treatment.",
         "Preserve the narration timing and readable captions. captions.srt matches the draft captions; if you retime the cut, retime the captions too.",
-        "Thumbnail: upload your finished thumbnail as `thumbnail-final.png` (.jpg/.webp fine), 1280x720 or larger. It is the ONLY thumbnail ever published — without it YouTube auto-picks a frame from the video. `thumbnail.png` here is a text placeholder to start from, never published.",
+        short
+          ? "Cover: upload your cover image as `thumbnail-final.png` (.jpg/.webp fine), vertical 1080x1920 works best. It is used as the cover wherever the platform allows a custom one; otherwise the platform picks a frame. `thumbnail.png` here is a text placeholder to start from, never published."
+          : "Thumbnail: upload your finished thumbnail as `thumbnail-final.png` (.jpg/.webp fine), 1280x720 or larger. It is the ONLY thumbnail ever published — without it YouTube auto-picks a frame from the video. `thumbnail.png` here is a text placeholder to start from, never published.",
         "The title and description below are reference context. Only your final cut and thumbnail are imported from this folder; everything else here is ours.",
         "",
         "## Title, thumbnail and description (for context)",

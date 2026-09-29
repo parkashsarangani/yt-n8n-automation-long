@@ -1,3 +1,5 @@
+import { formatOfGeometry } from "../video-format.ts";
+
 export interface Mp4Geometry {
   width: number;
   height: number;
@@ -181,15 +183,22 @@ export function assertEditorCutDuration(bytes: Uint8Array, expectedSec: number |
   return actual;
 }
 
-/** Long-form production invariant for this repository's YouTube target. */
+/**
+ * Production geometry invariant: exactly one of the channel's two formats --
+ * 1920x1080 long-form (dormant) or 1080x1920 vertical Shorts/Reels (see
+ * video-format.ts). Both are always accepted, whatever VIDEO_FORMAT says, so
+ * an episode drafted before a format switch still publishes after it. A 720p
+ * regression, or any off-spec size, is still refused.
+ */
 export function assertYouTubeProductionGeometry(bytes: Uint8Array): Mp4Geometry {
   const geometry = readMp4Geometry(bytes);
   if (!geometry) {
     throw new Error("publish to youtube rejected before upload: could not read MP4 display geometry");
   }
-  if (geometry.width !== 1920 || geometry.height !== 1080) {
+  if (!formatOfGeometry(geometry.width, geometry.height)) {
     throw new Error(
-      `publish to youtube rejected before upload: video is ${geometry.width}x${geometry.height}; production requires 1920x1080`,
+      `publish to youtube rejected before upload: video is ${geometry.width}x${geometry.height}; ` +
+        `production requires 1920x1080 (long-form) or 1080x1920 (vertical)`,
     );
   }
   return geometry;

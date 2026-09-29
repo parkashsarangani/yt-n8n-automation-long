@@ -8,7 +8,7 @@ const ffmpeg = require("fluent-ffmpeg");
 const bundledFfmpegPath = require("ffmpeg-static");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { buildStage, buildTitleCard, buildSrt } = require("./conversation-stage");
+const { buildStage, buildVerticalStage, buildTitleCard, buildSrt } = require("./conversation-stage");
 const { channelFrame } = require("./channel-frame");
 const {visualCard}=require("./visual-cards");
 const {loadLibrary,planFootage}=require("./footage-library");
@@ -85,9 +85,16 @@ async function probeDuration(file) {
 
 async function buildAudioFirstVideo(data, outputPath, options = {}) {
   if (!Array.isArray(data) || data.length === 0) throw new Error("compose requires at least one audio scene");
+  // Vertical Shorts/Reels (2026-09-29) when the engine asks for 9:16; absent
+  // or "16:9" is the long-form path, unchanged (long-form is dormant, kept).
+  if (options.aspect !== undefined && !["16:9","9:16"].includes(options.aspect)) throw new Error("aspect must be 16:9 or 9:16");
+  const vertical = options.aspect === "9:16";
+  const W = vertical ? 1080 : 1920, H = vertical ? 1920 : 1080;
   const mode=process.env.FOOTAGE_MODE||"graphics";
   if(!["graphics","hybrid","stock"].includes(mode))throw Error("FOOTAGE_MODE must be graphics, hybrid or stock");
-  if(mode==="hybrid"){
+  // The reviewed hybrid library is landscape-only; a vertical draft uses stock
+  // or the plain background, and the editor supplies the rest.
+  if(mode==="hybrid" && !vertical){
     if(!process.env.FOOTAGE_LIBRARY)throw Error("Hybrid footage requires FOOTAGE_LIBRARY and a reviewed manifest.json");
     await loadLibrary(process.env.FOOTAGE_LIBRARY);
   }
@@ -132,12 +139,12 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       ? `loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=${values[0]}:measured_TP=${values[1]}:measured_LRA=${values[2]}:measured_thresh=${values[3]}:offset=${values[4]}:linear=true`
       : "anull";
 
-    const shots=mode==="hybrid"?await planFootage(ordered,durations,process.env.FOOTAGE_LIBRARY):[];
+    const shots=mode==="hybrid" && !vertical?await planFootage(ordered,durations,process.env.FOOTAGE_LIBRARY):[];
     let stock = {file:null,shots:[]};
     if(mode==="stock") {
       try {
-        const suggestions=await planStock(ordered,durations,dir,{warn:console.warn});
-        stock=await buildStockTrack(ordered,durations,suggestions,dir,{ffmpeg:ffmpegPath,exec:execFileAsync});
+        const suggestions=await planStock(ordered,durations,dir,{warn:console.warn,orientation:vertical?'portrait':'landscape'});
+        stock=await buildStockTrack(ordered,durations,suggestions,dir,{ffmpeg:ffmpegPath,exec:execFileAsync,vertical});
       } catch {
         console.warn("Stock assembly unavailable; preserving narration and captions over background");
       }
@@ -154,7 +161,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
     if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations));
-    if (hasStage) await fsp.writeFile(stageFile, buildStage(stageScenes, durations, options.lesson_title));
+    if (hasStage) await fsp.writeFile(stageFile, vertical ? buildVerticalStage(ordered, durations) : buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
     // Generated artwork is used whenever there is no stock clip. There used to
@@ -168,10 +175,14 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     let elapsed=0;
     const cardMasks=ordered.map((scene,i)=>{
       const start=elapsed+(stageScenes[i].footage_duration||0);elapsed+=durations[i];
-      return visualCard(scene)?`,drawbox=x=0:y=180:w=iw:h=630:color=0x101217:t=fill:enable='between(t,${start},${elapsed})'`:"";
+      return !vertical && visualCard(scene)?`,drawbox=x=0:y=180:w=iw:h=630:color=0x101217:t=fill:enable='between(t,${start},${elapsed})'`:"";
     }).join("");
 
-    const visualFilters=`scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${cardMasks}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`;
+    // Vertical: full-frame footage with a soft band behind the captions in the
+    // safe zone (y 1240-1490; the apps draw over the bottom fifth).
+    const visualFilters=vertical
+      ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1${hasStage ? `,drawbox=x=0:y=1240:w=iw:h=250:color=black@0.45:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`
+      : `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,${channelFrame(1920,1080)}${cardMasks}${hasStage ? `,drawbox=x=0:y=810:w=iw:h=270:color=0x101217:t=fill,ass='${escapeFilterPath(stageFile)}'` : ""}`;
     const shotInputs=shots.flatMap(s=>s.kind==="photo"
       ?["-loop","1","-framerate","30","-t",String(s.duration),"-i",s.file]
       :["-ss",String(s.start_sec),"-t",String(s.duration),"-i",s.file]);
@@ -184,7 +195,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
     if(shots.length)shotFilters.push(`[base${shots.length-1}]${visualFilters}[video]`);
     await execFileAsync(ffmpegPath, [
       "-y",
-      ...(stock.file ? ["-i",stock.file] : safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", "color=c=0x101217:s=1920x1080:r=30"]),
+      ...(stock.file ? ["-i",stock.file] : safeArtwork ? ["-loop", "1", "-framerate", "30", "-i", background] : ["-f", "lavfi", "-i", `color=c=0x101217:s=${W}x${H}:r=30`]),
       "-i", programme,
       ...shotInputs,
       "-map", shots.length?"[video]":"0:v:0", "-map", "1:a:0",

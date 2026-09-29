@@ -92,6 +92,8 @@ export interface RenderScene {
 }
 
 export interface RenderRequest {
+  /** Frame shape of the draft; absent = the compositor's long-form 16:9. */
+  aspect?: "16:9" | "9:16";
   background_image?: Uint8Array;
   lesson_title?: string;
   scenes: RenderScene[];

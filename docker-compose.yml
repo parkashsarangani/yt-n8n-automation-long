@@ -58,6 +58,9 @@ services:
       TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
+      # long (16:9, dormant) | short (vertical 9:16 Shorts/Reels, <=60 s).
+      # Unset = long. See engine/src/video-format.ts.
+      VIDEO_FORMAT: ${VIDEO_FORMAT:-}
       # Daily preparation slot is resolved from a local-time target, not a fixed
       # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC
       # pins a literal UTC hour instead when set, overriding both of these.
