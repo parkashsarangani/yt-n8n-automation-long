@@ -131,8 +131,30 @@ test(`after ${CROSSPOST_MAX_ATTEMPTS} failures a human is alerted once, then it 
   assert.equal(h.alerts.length, 1, "no repeat alerts");
 });
 
-test("the Reel caption is title, description and up to five hashtags, within Instagram's limit", () => {
+test("the fallback Reel caption is the title and up to five hashtags -- never the long description", () => {
   const c = reelCaption({ title: "T", description: "D", tags: ["self improvement", "psychology", "a", "habits", "mind", "focus", "extra"] });
-  assert.equal(c, "T\n\nD\n\n#selfimprovement #psychology #habits #mind #focus");
-  assert.ok(reelCaption({ title: "T", description: "x".repeat(5000) }).length <= REEL_CAPTION_MAX);
+  assert.equal(c, "T\n\n#selfimprovement #psychology #habits #mind #focus");
+  assert.ok(reelCaption({ title: "x".repeat(5000), description: "D" }).length <= REEL_CAPTION_MAX);
+});
+
+const capturing = (id: "facebook" | "instagram", seen: Record<string, string>) =>
+  ({ id, post: async (p: { caption: string }) => { seen[id] = p.caption; return { external_id: id, url: id }; } }) as unknown as ReelsTarget;
+
+test("each platform gets its own caption, generated once per pass", async () => {
+  const seen: Record<string, string> = {};
+  const h = harness([capturing("facebook", seen), capturing("instagram", seen)]);
+  let generated = 0;
+  const captions = async () => { generated++; return { facebook: "You do this every day.\n\n#psychology #mind", instagram: "Why your brain replays it" }; };
+  await crosspostRun({ ...h.candidate, captions }, h.deps);
+  assert.equal(generated, 1);
+  assert.equal(seen.facebook, "You do this every day.\n\n#psychology #mind");
+  assert.equal(seen.instagram, "Why your brain replays it");
+});
+
+test("a caption generator failure falls back to the short title caption and still posts", async () => {
+  const seen: Record<string, string> = {};
+  const h = harness([capturing("facebook", seen)]);
+  const out = await crosspostRun({ ...h.candidate, captions: async () => { throw new Error("model down"); } }, h.deps);
+  assert.deepEqual(out, { facebook: "posted" });
+  assert.equal(seen.facebook, "Why You Replay Awkward Moments\n\n#psychology #selfimprovement");
 });

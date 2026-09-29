@@ -11,13 +11,16 @@
  * Reel URL) or "failed". A run whose last record is "running" crashed
  * mid-upload: it is never retried automatically -- a second upload could
  * double-post -- and a human is alerted instead.
+ *
+ * Captions are per platform (reel-captions.ts, operator 2026-09-29): short
+ * clickbait lines, never the long YouTube description.
  */
 
 import type { RunRecord } from "./runlog.ts";
 import type { ReelsTarget } from "./providers/meta-reels.ts";
 
 export const CROSSPOST_MAX_ATTEMPTS = 3;
-/** Instagram's caption limit; Facebook allows more, one caption serves both. */
+/** Instagram's caption limit. */
 export const REEL_CAPTION_MAX = 2200;
 
 export interface CrosspostCandidate {
@@ -25,17 +28,20 @@ export interface CrosspostCandidate {
   video: () => Promise<Uint8Array>;
   media_type: string;
   seo: { title: string; description: string; tags?: string[] };
+  /** Per-platform captions, fetched once and only when something is posted. */
+  captions?: () => Promise<Partial<Record<string, string>>>;
 }
 
 export type CrosspostOutcome = "posted" | "failed" | "gave_up" | "uncertain" | "done";
 
+/** Last-resort caption: the title and a few hashtags -- never the description. */
 export function reelCaption(seo: CrosspostCandidate["seo"]): string {
   const tags = (seo.tags ?? [])
     .map((t) => t.replace(/[^\p{L}\p{N}]+/gu, ""))
     .filter((t) => t.length > 1)
     .slice(0, 5)
     .map((t) => `#${t}`);
-  const text = `${seo.title}\n\n${seo.description}${tags.length ? `\n\n${tags.join(" ")}` : ""}`.trim();
+  const text = `${seo.title}${tags.length ? `\n\n${tags.join(" ")}` : ""}`.trim();
   return text.length <= REEL_CAPTION_MAX ? text : `${text.slice(0, REEL_CAPTION_MAX - 1).trimEnd()}…`;
 }
 
@@ -52,6 +58,7 @@ export async function crosspostRun(c: CrosspostCandidate, deps: CrosspostDeps): 
   const out: Record<string, CrosspostOutcome> = {};
   const history = await deps.records(c.run_id);
   let video: Uint8Array | undefined;
+  let captions: Partial<Record<string, string>> | undefined;
   for (const target of deps.targets) {
     const node = `crosspost_${target.id}`;
     const mine = history.filter((r) => r.node_id === node);
@@ -68,7 +75,9 @@ export async function crosspostRun(c: CrosspostCandidate, deps: CrosspostDeps): 
     await deps.record({ ...base, output: null, status: "running", started_at: started.toISOString() });
     try {
       video ??= await c.video();
-      const result = await target.post({ video, media_type: c.media_type, caption: reelCaption(c.seo), title: c.seo.title });
+      captions ??= c.captions ? await c.captions().catch(() => ({})) : {};
+      const caption = captions[target.id]?.trim() || reelCaption(c.seo);
+      const result = await target.post({ video, media_type: c.media_type, caption, title: c.seo.title });
       await deps.record({ ...base, output: result.url, status: "ok", started_at: started.toISOString(),
         duration_ms: Date.now() - started.getTime(), provider: target.id, model: result.external_id });
       out[target.id] = "posted";
