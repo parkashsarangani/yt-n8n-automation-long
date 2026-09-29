@@ -142,6 +142,14 @@ export function createUiServer(opts: ServerOptions) {
     // The studio's "Check for my cut now": one awaited pass whose outcome is
     // returned, so the editor is told what actually happened -- the generic
     // /api/schedule/:job/run swallows both the result and any error.
+    // Studio "Write it for me" on the New Short form: a draft only -- the
+    // editor reviews it and submits it through POST /api/runs/manual.
+    if (route === "POST /api/shorts/draft") {
+      const body = (await readJson(req)) as { topic?: unknown };
+      json(res, 200, await service.draftShort(String(body.topic ?? "")));
+      return;
+    }
+
     if (route === "POST /api/editor-returns/check-now") {
       json(res, 200, await service.checkEditorReturns());
       return;

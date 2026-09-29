@@ -17,6 +17,7 @@ import { PromptStore } from "./prompts.ts";
 import { FsArtifactStore, type ArtifactStore } from "./store.ts";
 import { FsBlobStore, type BlobStore } from "./blobs.ts";
 import { JsonlRunLog, rollup, type RunLog, type RunRecord } from "./runlog.ts";
+import { draftShort, type ShortDraftResult } from "./short-draft.ts";
 import { hasDatabase, getPool, migrate } from "./db.ts";
 import { PgRunLog } from "./pg-runlog.ts";
 import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
@@ -24,6 +25,7 @@ import {
   ProviderRouter,
   type AnalyticsProvider,
   type MediaRenderer,
+  type ModelProvider,
   type PublishTarget,
   type SpeechProvider,
 } from "./provider.ts";
@@ -234,6 +236,8 @@ export class VidGenService {
   private transformations!: Map<string, TransformationDef>;
   /** The single in-flight editor-return pass, so a webhook cannot race the poll. */
   private editorReturnsInFlight: Promise<EditorReturnsResult> | null = null;
+  /** The script-authoring model, kept for the studio's Short draft writer. */
+  private shortDraftProvider: ModelProvider | null = null;
 
   /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
   private static readonly EDITOR_RETURN_MARKER = "editor_return";
@@ -389,6 +393,7 @@ export class VidGenService {
       // instead of walking the free chain first.
       reasoning_script: new OpenAIProvider({ effort: "high", model: scriptAuthoringModel() }),
     });
+    this.shortDraftProvider = providers.forCapability("reasoning_script");
 
     const runner = new Runner({
       store: this.store,
@@ -919,6 +924,15 @@ export class VidGenService {
    * error) is logged and left waiting for the next poll -- it must never
    * crash the run or the scheduler.
    */
+  /**
+   * Studio "Write it for me": a viral-structure Short draft for the editor to
+   * review. Writes nothing to the store and starts no run (short-draft.ts).
+   */
+  async draftShort(topic: string): Promise<ShortDraftResult> {
+    if (!this.shortDraftProvider) throw new Error("no script model is configured");
+    return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts });
+  }
+
   async checkEditorReturns(): Promise<EditorReturnsResult> {
     // The scheduler refuses to overlap its own jobs, but a webhook calling
     // this directly bypasses that guard entirely: two passes could download

@@ -102,3 +102,13 @@ test("the season dropdown shows the server's episode status, not a second copy o
   assert.match(html, /e\.status/);
   assert.doesNotMatch(html, /seriesProgress|madeOk|editor_delivery"\|\|w\.node_id==="editor_review/);
 });
+
+test("the New Short form has 'Write it for me', which only fills the form -- it never creates a run", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  assert.match(html, /id="draftShort"/);
+  assert.match(html, /\/api\/shorts\/draft/);
+  // Shown only in short format; the draft lands in the editable fields.
+  assert.match(html, /\$\("draftBox"\)\.hidden=false/);
+  assert.match(html, /\$\("customTitle"\)\.value=d\.title/);
+  assert.match(html, /\$\("customScript"\)\.value=d\.script/);
+});
