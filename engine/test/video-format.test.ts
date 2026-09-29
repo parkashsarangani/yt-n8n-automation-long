@@ -9,9 +9,9 @@ test("unset VIDEO_FORMAT keeps long-form, so nothing changes until it is switche
   assert.throws(() => videoFormat({ VIDEO_FORMAT: "square" }), /VIDEO_FORMAT/);
 });
 
-test("short is vertical 1080x1920 capped at 60 s; long is uncapped 1920x1080", () => {
-  assert.deepEqual([FORMATS.short.width, FORMATS.short.height, FORMATS.short.maxDurationSec], [1080, 1920, 60]);
-  assert.deepEqual([FORMATS.long.width, FORMATS.long.height, FORMATS.long.maxDurationSec], [1920, 1080, null]);
+test("short is vertical 1080x1920, 60-75 s; long is uncapped 1920x1080", () => {
+  assert.deepEqual([FORMATS.short.width, FORMATS.short.height, FORMATS.short.minDurationSec, FORMATS.short.maxDurationSec], [1080, 1920, 60, 75]);
+  assert.deepEqual([FORMATS.long.width, FORMATS.long.height, FORMATS.long.minDurationSec, FORMATS.long.maxDurationSec], [1920, 1080, null, null]);
 });
 
 test("a video's format comes from its own geometry", () => {

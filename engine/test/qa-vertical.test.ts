@@ -1,6 +1,6 @@
 /**
  * Shorts/Reels (2026-09-29): QA accepts vertical 1080x1920 as a production
- * geometry and holds a vertical video to the 60 s cap every target platform
+ * geometry and holds a vertical video to the 75 s cap every target platform
  * can take. The format is read from the video itself, never VIDEO_FORMAT, so
  * a long-form cut returned after the switch still passes.
  */
@@ -28,15 +28,15 @@ async function checks(width: number, height: number, durationSec: number) {
   return (id: string) => qa.checks.find((c) => c.id === id);
 }
 
-test("a vertical 1080x1920 cut within 60 s passes geometry and the length cap", async () => {
-  const c = await checks(1080, 1920, 45);
+test("a vertical 1080x1920 cut of 60-75 s passes geometry and the length cap", async () => {
+  const c = await checks(1080, 1920, 75);
   assert.equal(c("render_geometry")!.status, "pass", c("render_geometry")!.message);
   assert.match(c("render_geometry")!.message, /\(short\)/);
   assert.equal(c("format_max_duration")!.status, "pass");
 });
 
-test("a vertical cut over 60 s fails QA instead of reaching the platforms", async () => {
-  const c = await checks(1080, 1920, 75);
+test("a vertical cut over 75 s fails QA instead of reaching the platforms", async () => {
+  const c = await checks(1080, 1920, 76);
   assert.equal(c("format_max_duration")!.status, "fail", c("format_max_duration")!.message);
 });
 

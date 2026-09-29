@@ -17,15 +17,17 @@ export interface FormatSpec {
   aspect: "16:9" | "9:16";
   width: number;
   height: number;
-  /** Hard ceiling on the final video's length; null = no cap (long-form). */
+  /** Shortest length the studio asks for; null = no floor (long-form). A target, not a QA gate. */
+  minDurationSec: number | null;
+  /** Hard ceiling on the final video's length, enforced by QA; null = no cap (long-form). */
   maxDurationSec: number | null;
 }
 
 export const FORMATS: Record<VideoFormat, FormatSpec> = {
-  long: { format: "long", aspect: "16:9", width: 1920, height: 1080, maxDurationSec: null },
-  // 60 s fits every target platform with room (Facebook Reels is the tightest
-  // at 90 s); operator decision 2026-09-29.
-  short: { format: "short", aspect: "9:16", width: 1080, height: 1920, maxDurationSec: 60 },
+  long: { format: "long", aspect: "16:9", width: 1920, height: 1080, minDurationSec: null, maxDurationSec: null },
+  // 60-75 s (operator decision 2026-09-29). 75 s still fits every target
+  // platform with room: Facebook Reels, the tightest, allows 90 s.
+  short: { format: "short", aspect: "9:16", width: 1080, height: 1920, minDurationSec: 60, maxDurationSec: 75 },
 };
 
 export function videoFormat(env: NodeJS.ProcessEnv = process.env): VideoFormat {

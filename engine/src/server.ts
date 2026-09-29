@@ -115,7 +115,7 @@ export function createUiServer(opts: ServerOptions) {
         capabilities: service.capabilities(),
         env_file: service.envFile,
         graph: `${service.graphDoc.graph_id}@${service.graphDoc.version}`,
-        // Drives the studio's form: Shorts take seconds (<= 60) and hide the
+        // Drives the studio's form: Shorts take seconds (60-75) and hide the
         // long-form season panel; long-form is unchanged.
         format: formatSpec(),
       });

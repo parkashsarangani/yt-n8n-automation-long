@@ -75,6 +75,7 @@ test("the studio offers exactly two creators: a season episode and a custom scri
   // Shorts: the form takes seconds, capped by the server's format spec.
   assert.match(html, /applyFormat\(cfg\.format\)/);
   assert.match(html, /FORMAT\.maxDurationSec/);
+  assert.match(html, /FORMAT\.minDurationSec/);
   assert.doesNotMatch(html, /manualTitle/);
 
   // Retired: free-form idea brief, story types and discovery suggestions.

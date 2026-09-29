@@ -18,7 +18,7 @@ export const SPOKEN_CTA =
 
 /**
  * The ~2 s spoken close for a Short/Reel (operator decision 2026-09-29):
- * the full CTA above would eat a tenth of a 60 s video. "Follow" reads right
+ * the full CTA above would eat a tenth of a 60-75 s video. "Follow" reads right
  * on every platform the Short goes to.
  */
 export const SPOKEN_CTA_SHORT = "Follow for more everyday psychology.";

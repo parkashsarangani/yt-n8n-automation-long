@@ -105,7 +105,7 @@ test("editor package fails clearly when Drive is not configured", async () => {
   );
 });
 
-test("in short format the package tells the editor: vertical 1080x1920, 60 s max, a cover", async () => {
+test("in short format the package tells the editor: vertical 1080x1920, 60-75 s, a cover", async () => {
   const previous = process.env["VIDEO_FORMAT"];
   process.env["VIDEO_FORMAT"] = "short";
   try {
@@ -123,7 +123,7 @@ test("in short format the package tells the editor: vertical 1080x1920, 60 s max
     const drive = ctx.media.drive as FakeDriveProvider;
     const files = await drive.listFiles((out.payload as { drive_folder_id: string }).drive_folder_id);
     const md = new TextDecoder().decode(await drive.downloadFile(files.find((f) => f.name === "package.md")!.id));
-    assert.match(md, /VERTICAL 1080x1920, 60 seconds or less/);
+    assert.match(md, /VERTICAL 1080x1920, 60-75 seconds \(never more than 75\)/);
     assert.match(md, /^# Short draft/m);
     assert.match(md, /Cover: upload your cover image as `thumbnail-final\.png`/);
   } finally {
