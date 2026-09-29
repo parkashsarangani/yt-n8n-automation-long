@@ -89,6 +89,7 @@ jobs:
           META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
           META_PAGE_ID: ${{ vars.META_PAGE_ID || '' }}
           META_IG_USER_ID: ${{ vars.META_IG_USER_ID || '' }}
+          META_IG_ACCESS_TOKEN: ${{ secrets.META_IG_ACCESS_TOKEN }}
           META_GRAPH_VERSION: ${{ vars.META_GRAPH_VERSION || 'v25.0' }}
           SCHEDULE_PRODUCE_TIMEZONE: Europe/Berlin
           SCHEDULE_PRODUCE_LOCAL_HOUR: "3"

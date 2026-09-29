@@ -43,6 +43,8 @@ import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type Channe
 import { assertEditorCutDuration, assertYouTubeProductionGeometry, readMp4Geometry } from "./media/mp4.ts";
 import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./providers/meta-reels.ts";
 import { crosspostRun, CROSSPOST_MAX_ATTEMPTS, type CrosspostOutcome } from "./crosspost.ts";
+import { IgTokenStore } from "./ig-token.ts";
+import { reelCaptions } from "./reel-captions.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -241,8 +243,12 @@ export class VidGenService {
   private editorReturnsInFlight: Promise<EditorReturnsResult> | null = null;
   /** The script-authoring model, kept for the studio's Short draft writer. */
   private shortDraftProvider: ModelProvider | null = null;
+  /** Writes the per-platform Reel captions (reel-captions.ts). */
+  private captionProvider: ModelProvider | null = null;
   /** Facebook/Instagram Reels targets; empty until META_* credentials are set (dormant). */
   private reelsTargets: ReelsTarget[] = [];
+  /** Auto-renewing Instagram-login token, when META_IG_ACCESS_TOKEN is set. */
+  private igToken: IgTokenStore | null = null;
 
   /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
   private static readonly EDITOR_RETURN_MARKER = "editor_return";
@@ -399,16 +405,25 @@ export class VidGenService {
       reasoning_script: new OpenAIProvider({ effort: "high", model: scriptAuthoringModel() }),
     });
     this.shortDraftProvider = providers.forCapability("reasoning_script");
+    this.captionProvider = providers.forCapability("reasoning_fast");
     // Shorts phase 2: Reels cross-posting is dormant until the Page token and
     // at least one of the Page / Instagram ids are configured.
     const metaToken = env("META_PAGE_ACCESS_TOKEN");
     const metaVersion = env("META_GRAPH_VERSION") || "v25.0";
-    this.reelsTargets = metaToken
-      ? [
-          ...(env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
-          ...(env("META_IG_USER_ID") ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
-        ]
-      : [];
+    // Instagram: preferably the Instagram-login token (graph.instagram.com,
+    // addressed as "me", renewed automatically -- ig-token.ts); otherwise the
+    // Page token with META_IG_USER_ID on graph.facebook.com.
+    const igLoginToken = env("META_IG_ACCESS_TOKEN");
+    this.igToken = igLoginToken ? new IgTokenStore(igLoginToken, path.join(this.dataDir, "meta", "ig-token.json")) : null;
+    const igStore = this.igToken;
+    this.reelsTargets = [
+      ...(metaToken && env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
+      ...(igStore
+        ? [new InstagramReelsTarget("me", { accessToken: () => igStore.get(), graphBase: "https://graph.instagram.com", version: metaVersion })]
+        : metaToken && env("META_IG_USER_ID")
+          ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })]
+          : []),
+    ];
 
     const runner = new Runner({
       store: this.store,
@@ -964,6 +979,11 @@ export class VidGenService {
     return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts }, shape);
   }
 
+  /** Renew the Instagram-login token when due; null when none is configured. */
+  async igTokenRefresh(): Promise<"refreshed" | "not_due" | null> {
+    return this.igToken ? this.igToken.refreshIfDue() : null;
+  }
+
   /** Which Reels platforms are configured (for the scheduler and studio). */
   reelsPlatforms(): string[] {
     return this.reelsTargets.map((t) => t.id);
@@ -1003,8 +1023,19 @@ export class VidGenService {
       const seo = (await this.store.get<{ title: string; description: string; tags?: string[] }>(seoId))?.payload;
       if (!seo) continue;
       checked++;
+      const scriptId = nodeArtifact("draft_script");
+      const captions = async () => {
+        const scenes = scriptId ? (await this.store.get<{ scenes?: Array<{ narration?: string }> }>(scriptId))?.payload?.scenes ?? [] : [];
+        const lines = scenes.map((s) => String(s.narration ?? "").trim()).filter(Boolean);
+        const provider = this.captionProvider;
+        if (!provider) return {};
+        return reelCaptions(
+          { title: seo.title, hook: lines[0] ?? seo.title, script: lines.slice(1).join("\n\n"), seoTags: seo.tags },
+          { provider, prompts: this.prompts, log: (m) => console.log(m) },
+        );
+      };
       outcomes[view.run_id] = await crosspostRun(
-        { run_id: view.run_id, video: async () => bytes, media_type: video.media_type ?? "video/mp4", seo },
+        { run_id: view.run_id, video: async () => bytes, media_type: video.media_type ?? "video/mp4", seo, captions },
         {
           targets,
           records: (id) => this.runRecords(id),
