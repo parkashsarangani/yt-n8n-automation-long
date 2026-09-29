@@ -71,7 +71,7 @@ test("the studio offers exactly two creators: a season episode and a custom scri
     assert.match(html, new RegExp(`id="${id}"`), `missing custom-episode field: ${id}`);
   }
   assert.match(html, /\/api\/runs\/manual/);
-  assert.match(html, /\{title,hook,narration,duration_sec:Math\.round\(seconds\)\}/);
+  assert.match(html, /\{title,hook,narration,duration_sec:Math\.round\(seconds\)/);
   // Shorts: the form takes seconds, capped by the server's format spec.
   assert.match(html, /applyFormat\(cfg\.format\)/);
   assert.match(html, /FORMAT\.maxDurationSec/);
@@ -101,4 +101,22 @@ test("the season dropdown shows the server's episode status, not a second copy o
   // "Made" is defined once, server-side (seriesEpisodeStatuses); the page only renders it.
   assert.match(html, /e\.status/);
   assert.doesNotMatch(html, /seriesProgress|madeOk|editor_delivery"\|\|w\.node_id==="editor_review/);
+});
+
+test("the New Short form has 'Write it for me', which only fills the form -- it never creates a run", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  assert.match(html, /id="draftShort"/);
+  assert.match(html, /\/api\/shorts\/draft/);
+  // Shown only in short format; the draft lands in the editable fields.
+  assert.match(html, /\$\("draftBox"\)\.hidden=false/);
+  assert.match(html, /\$\("customTitle"\)\.value=d\.title/);
+  assert.match(html, /\$\("customScript"\)\.value=d\.script/);
+});
+
+test("drafted Shorts: a hook-style picker, a required fact-check tick, and a source tag for retention comparison", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  assert.match(html, /id="draftShape"[\s\S]*value="list"[\s\S]*value="myth"[\s\S]*value="moment"/);
+  assert.match(html, /shape:\$\("draftShape"\)\.value/);
+  assert.match(html, /draftUsed&&!\$\("factCheck"\)\.checked/);
+  assert.match(html, /script_source:draftUsed\?"writer_draft":"hand_written"/);
 });
