@@ -47,7 +47,13 @@ function buildTitleCard(text, accent) {
   ].join("\n");
 }
 
-function captionCues(scene, duration, maxChars = 68) {
+// Words a vertical caption must not END on: they belong to what follows.
+// Long-form keeps its original, shorter list (captionCues' own `hanging`) so
+// its output is unchanged; tidy=true (vertical) adds these.
+const WEAK_END=/^(as|if|than|so|because|who|which|when|where|while|is|are|was|were|be|been|it|its|i|you|we|they|he|she|from|by|about|into|not|no|can|will|would|just|then|what|how|why)$/i;
+const LINE_HANG=/^(a|an|the|to|of|in|on|at|for|with|and|or|but|their|your|our|my|this|that|one|very|more|most|as|if|than|so|because|who|which|when|where|while|is|are|was|were|be|been|from|by|about|into|not|no|can|will|would|just|then|it|i|you|we|they|he|she)$/i;
+const TERMINAL=/[.!?][”"']?$/;
+function captionCues(scene, duration, maxChars = 68, tidy = false) {
   const text=String(scene.narration||"").trim();
   const tokens=[...text.matchAll(/\S+/g)];
   const a=scene.audio?.alignment || scene.alignment;
@@ -81,6 +87,17 @@ function captionCues(scene, duration, maxChars = 68) {
       const count=end-cursor+1;
       let score=count- Math.abs(count-6)*0.7;
       if(hanging.test(clean))score-=20;
+      if(tidy){
+        // Production 2026-09-30 (vertical): phrases ended on "...hands it to
+        // you as" and left "meant." stranded on its own. Penalise a weak last
+        // word, and a one- or two-word tail of the same sentence left behind.
+        if(!terminal && !punctuation && WEAK_END.test(clean))score-=20;
+        if(!terminal){
+          let rest=0;
+          for(let k=end+1;k<tokens.length;k++){rest++;if(TERMINAL.test(tokens[k][0]))break;}
+          if(rest>0 && rest<=2)score-=25;
+        }
+      }
       if(punctuation)score+=8;
       if(terminal)score+=30;
       if(end===tokens.length-1)score+=15;
@@ -152,6 +169,20 @@ const VERTICAL_LINE = 22;
 // 36 characters and wrapped greedily -- never shrunk onto a single line.
 const VERTICAL_CUE = 36;
 function verticalLines(text) {
+  const words=String(text).split(/\s+/).filter(Boolean);
+  const joined=words.join(" ");
+  if(joined.length<=VERTICAL_LINE)return [joined];
+  let best=null, score=Infinity;
+  for(let i=1;i<words.length;i++){
+    const a=words.slice(0,i).join(" "), b=words.slice(i).join(" ");
+    if(a.length>VERTICAL_LINE||b.length>VERTICAL_LINE)continue;
+    const last=words[i-1], clean=last.replace(/[“”"'.,!?;:—…]/g,"");
+    const hangs=LINE_HANG.test(clean) && !/[,;:.!?—]["”']?$/.test(last);
+    const cost=Math.abs(a.length-b.length)+(hangs?30:0)+(i===1||i===words.length-1?20:0);
+    if(cost<score){best=[a,b];score=cost;}
+  }
+  if(best)return best;
+  // No two-line split fits (unusually long words): wrap greedily.
   const lines=[]; let line="";
   for(const word of String(text).split(/\s+/).filter(Boolean)){
     if(line && line.length+1+word.length>VERTICAL_LINE){lines.push(line);line="";}
@@ -171,7 +202,7 @@ function buildVerticalStage(scenes, durations) {
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    for(const cue of captionCues(scene,duration,VERTICAL_CUE)) {
+    for(const cue of captionCues(scene,duration,VERTICAL_CUE,true)) {
       const lines=verticalLines(cue.text);
       // Three lines only happen with unusually long words; step down a little
       // so the block still fits the safe band.
@@ -191,9 +222,9 @@ function buildSrt(scenes, durations, options = {}) {
   };
   let offset=0, count=0;
   return scenes.map((scene,i)=>{
-    const cues=captionCues(scene,durations[i],vertical?VERTICAL_CUE:68).map(c=>`${++count}\n${stamp(offset+c.start)} --> ${stamp(offset+c.end)}\n${(vertical?verticalLines(c.text):captionLines(c.text)).join("\n")}\n`);
+    const cues=captionCues(scene,durations[i],vertical?VERTICAL_CUE:68,vertical).map(c=>`${++count}\n${stamp(offset+c.start)} --> ${stamp(offset+c.end)}\n${(vertical?verticalLines(c.text):captionLines(c.text)).join("\n")}\n`);
     offset+=durations[i];
     return cues.join("\n");
   }).join("\n");
 }
-module.exports={buildStage,buildVerticalStage,buildTitleCard,pages,captionCues,captionLines,verticalLines,buildSrt,VERTICAL_LINE,VERTICAL_CUE};
+module.exports={buildStage,buildVerticalStage,buildTitleCard,pages,captionCues,captionLines,verticalLines,buildSrt,VERTICAL_LINE,VERTICAL_CUE,WEAK_END,LINE_HANG};
