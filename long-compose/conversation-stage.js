@@ -47,7 +47,7 @@ function buildTitleCard(text, accent) {
   ].join("\n");
 }
 
-function captionCues(scene, duration) {
+function captionCues(scene, duration, maxChars = 68) {
   const text=String(scene.narration||"").trim();
   const tokens=[...text.matchAll(/\S+/g)];
   const a=scene.audio?.alignment || scene.alignment;
@@ -73,7 +73,7 @@ function captionCues(scene, duration) {
     let best=cursor+1, bestScore=-Infinity, length=0;
     for(let end=cursor;end<Math.min(tokens.length,cursor+10);end++) {
       length+=tokens[end][0].length+(end>cursor?1:0);
-      if(length>68 && end>cursor)break;
+      if(length>maxChars && end>cursor)break;
       const word=tokens[end][0];
       const clean=word.replace(/[“”"'.,!?;:—…]/g,"");
       const terminal=/[.!?][”"']?$/.test(word) && !/\.{2,}|…/.test(word);
@@ -146,6 +146,20 @@ function buildStage(scenes, durations, lessonTitle) {
 // the bottom fifth (captions/buttons of every app) and clear of the right
 // edge (like/share rail). Long-form keeps buildStage unchanged.
 const VERTICAL_LINE = 22;
+// Production 2026-09-30: with long-form's 68-character phrases a vertical cue
+// that could not split into two 22-character lines fell back to ONE shrunken
+// line, which ran off both edges of the frame. Vertical phrases are capped at
+// 36 characters and wrapped greedily -- never shrunk onto a single line.
+const VERTICAL_CUE = 36;
+function verticalLines(text) {
+  const lines=[]; let line="";
+  for(const word of String(text).split(/\s+/).filter(Boolean)){
+    if(line && line.length+1+word.length>VERTICAL_LINE){lines.push(line);line="";}
+    line+=(line?" ":"")+word;
+  }
+  if(line)lines.push(line);
+  return lines;
+}
 function buildVerticalStage(scenes, durations) {
   let script=buildTitleCard("").replace("PlayResX: 1280","PlayResX: 1080").replace("PlayResY: 720","PlayResY: 1920");
   script=script.slice(0,script.indexOf("Dialogue:"));
@@ -157,25 +171,29 @@ function buildVerticalStage(scenes, durations) {
   scenes.forEach((scene,i)=>{
     const duration=durations[i];
     if(!(duration>0))throw Error("stage requires measured scene durations");
-    for(const cue of captionCues(scene,duration)) {
-      const lines=captionLines(cue.text, VERTICAL_LINE);
-      const fit=lines.length===1 && cue.text.length>VERTICAL_LINE ? "{\\fs"+Math.max(40,Math.floor(70*VERTICAL_LINE/cue.text.length))+"}" : "";
+    for(const cue of captionCues(scene,duration,VERTICAL_CUE)) {
+      const lines=verticalLines(cue.text);
+      // Three lines only happen with unusually long words; step down a little
+      // so the block still fits the safe band.
+      const fit=lines.length>2 ? "{\\fs60}" : "";
       add(offset+cue.start,offset+cue.end,fit+lines.map(safe).join("\\N"));
     }
     offset+=duration;
   });
   return script;
 }
-function buildSrt(scenes, durations) {
+function buildSrt(scenes, durations, options = {}) {
+  // The editor's captions.srt matches what the draft shows: vertical phrasing for a Short.
+  const vertical = options.vertical === true;
   const stamp = sec => {
     const ms=Math.round(sec*1000);
     return `${String(Math.floor(ms/3600000)).padStart(2,"0")}:${String(Math.floor(ms/60000)%60).padStart(2,"0")}:${String(Math.floor(ms/1000)%60).padStart(2,"0")},${String(ms%1000).padStart(3,"0")}`;
   };
   let offset=0, count=0;
   return scenes.map((scene,i)=>{
-    const cues=captionCues(scene,durations[i]).map(c=>`${++count}\n${stamp(offset+c.start)} --> ${stamp(offset+c.end)}\n${captionLines(c.text).join("\n")}\n`);
+    const cues=captionCues(scene,durations[i],vertical?VERTICAL_CUE:68).map(c=>`${++count}\n${stamp(offset+c.start)} --> ${stamp(offset+c.end)}\n${(vertical?verticalLines(c.text):captionLines(c.text)).join("\n")}\n`);
     offset+=durations[i];
     return cues.join("\n");
   }).join("\n");
 }
-module.exports={buildStage,buildVerticalStage,buildTitleCard,pages,captionCues,captionLines,buildSrt};
+module.exports={buildStage,buildVerticalStage,buildTitleCard,pages,captionCues,captionLines,verticalLines,buildSrt,VERTICAL_LINE,VERTICAL_CUE};

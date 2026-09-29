@@ -160,7 +160,7 @@ async function buildAudioFirstVideo(data, outputPath, options = {}) {
       footage_duration:shots.find(s=>s.scene_index===scene.scene_index)?.duration||0}));
     const hasStage = ordered.some(scene => scene.narration?.trim());
     const stageFile = path.join(dir, "stage.ass");
-    if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations));
+    if (options.onCaptions) options.onCaptions(buildSrt(ordered, durations, {vertical}));
     if (hasStage) await fsp.writeFile(stageFile, vertical ? buildVerticalStage(ordered, durations) : buildStage(stageScenes, durations, options.lesson_title));
     const background = path.join(dir, "background.img");
     if (options.image_base64) await fsp.writeFile(background, Buffer.from(options.image_base64, "base64"));
