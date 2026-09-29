@@ -1,9 +1,8 @@
 /**
- * Studio "Write it for me" (2026-09-29): drafts a Short in the viral list
- * structure -- number promise + open loop in the hook, one item per paragraph,
- * a comment-bait close, 60-75 s -- with clickbait framing but no invented
- * statistics. The rules are checked deterministically and a failing draft is
- * sent back with the exact problems.
+ * Studio "Write it for me" (2026-09-29, revised after council review):
+ * honesty and length are HARD rules (a breaking draft is rewritten), the
+ * viral structure is SOFT (returned as warnings, no extra model call), and
+ * three hook shapes keep every Short from being the same list formula.
  */
 
 import test from "node:test";
@@ -11,7 +10,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PromptStore } from "../src/prompts.ts";
-import { draftShort, estimateSeconds, shortDraftProblems, type ShortDraft } from "../src/short-draft.ts";
+import { draftShort, estimateSeconds, shortDraftChecks, type ShortDraft } from "../src/short-draft.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -28,25 +27,44 @@ const GOOD: ShortDraft = {
   ].join("\n\n"),
 };
 
-test("the approved reference Short passes every rule and lands inside 60-75 s", () => {
-  assert.deepEqual(shortDraftProblems(GOOD), []);
+test("the approved reference Short passes every hard rule and every list suggestion, inside 60-75 s", () => {
+  assert.deepEqual(shortDraftChecks(GOOD, "list"), { blocking: [], warnings: [] });
   const seconds = estimateSeconds(GOOD.hook, GOOD.script);
   assert.ok(seconds >= 60 && seconds <= 75, `${seconds}s`);
 });
 
-test("each viral-structure and honesty rule is enforced", () => {
+test("honesty and length are hard rules", () => {
   const cases: Array<[string, Partial<ShortDraft>, RegExp]> = [
-    ["no number promise", { hook: "Your brain isn't lazy. It's scared. These psychology tricks make starting automatic, and the last one feels like cheating." }, /promise a number/],
-    ["no open loop", { hook: "Your brain isn't lazy. It's scared. These three psychology tricks make starting almost automatic for anyone." }, /open loop/],
     ["invented statistic", { script: GOOD.script.replace("Suddenly your brain cares.", "It makes you 80% faster.") }, /percentage/],
     ["subscribe ask", { script: GOOD.script.replace("Tell me in the comments.", "Like and subscribe for more.") }, /like, subscribe or follow/],
-    ["no closing question", { script: GOOD.script.replace("Which one are you trying first? Tell me in the comments.", "Try them all today.") }, /comment-bait question/],
-    ["too long", { script: `${GOOD.script.split("\n\n").slice(0, 3).map((p) => `${p} ${p}`).join("\n\n")}\n\nWhich one first?` }, /spoken length/],
     ["dark psychology framing", { title: "Dark Psychology Tricks to Control Your Brain Today" }, /dark psychology/],
+    ["too long", { script: `${GOOD.script.split("\n\n").slice(0, 3).map((p) => `${p} ${p}`).join("\n\n")}\n\nWhich one first?` }, /spoken length/],
   ];
   for (const [label, change, expected] of cases) {
-    const problems = shortDraftProblems({ ...GOOD, ...change });
-    assert.ok(problems.some((p) => expected.test(p)), `${label}: ${JSON.stringify(problems)}`);
+    const { blocking } = shortDraftChecks({ ...GOOD, ...change });
+    assert.ok(blocking.some((p) => expected.test(p)), `${label}: ${JSON.stringify(blocking)}`);
+  }
+});
+
+test("the viral structure is only a suggestion: warnings, never a rewrite", () => {
+  const cases: Array<[string, Partial<ShortDraft>, RegExp]> = [
+    ["no number promise", { hook: "Your brain isn't lazy. It's scared. These psychology tricks make starting automatic, and the last one feels like cheating." }, /promises a number/],
+    ["no open loop", { hook: "Your brain isn't lazy. It's scared. These three psychology tricks make starting almost automatic for anyone." }, /teases the last item/],
+    ["no closing question", { script: GOOD.script.replace("Which one are you trying first? Tell me in the comments.", "Try them all today and see.") }, /question/],
+  ];
+  for (const [label, change, expected] of cases) {
+    const { blocking, warnings } = shortDraftChecks({ ...GOOD, ...change }, "list");
+    assert.deepEqual(blocking, [], `${label} must not block`);
+    assert.ok(warnings.some((w) => expected.test(w)), `${label}: ${JSON.stringify(warnings)}`);
+  }
+});
+
+test("a myth-bust or everyday-moment hook is not held to the list formula", () => {
+  const myth = { ...GOOD, hook: "You've been told procrastination is laziness. It isn't. Here's what's really happening in your brain." };
+  for (const shape of ["myth", "moment"] as const) {
+    const { blocking, warnings } = shortDraftChecks(myth, shape);
+    assert.deepEqual(blocking, []);
+    assert.ok(!warnings.some((w) => /number|last item/.test(w)), `${shape}: ${JSON.stringify(warnings)}`);
   }
 });
 
@@ -65,33 +83,39 @@ function fakeProvider(responses: ShortDraft[]) {
   };
 }
 
-test("a draft that breaks a rule is sent back with the exact problems, then accepted", async () => {
+test("a hard-rule failure is sent back with the exact problems, then accepted", async () => {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const bad = { ...GOOD, script: GOOD.script.replace("Suddenly your brain cares.", "It makes you 80% faster.") };
   const fake = fakeProvider([bad, GOOD]);
   const result = await draftShort("why you procrastinate", { provider: fake.provider as never, prompts });
   assert.equal(fake.prompts.length, 2);
   assert.match(fake.prompts[0]!, /why you procrastinate/);
+  assert.match(fake.prompts[0]!, /LIST SHORT/);
   assert.doesNotMatch(fake.prompts[0]!, /BROKE THESE RULES/);
   assert.match(fake.prompts[1]!, /BROKE THESE RULES[\s\S]*percentage/);
   assert.deepEqual(result.problems, []);
   assert.equal(result.attempts, 2);
-  assert.equal(result.title, GOOD.title);
+  assert.equal(result.shape, "list");
 });
 
-test("after three failed attempts the best draft comes back with its problems listed for the editor", async () => {
+test("a structure-only miss costs no extra model call; the editor just sees the suggestion", async () => {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const bad = { ...GOOD, script: GOOD.script.replace("Suddenly your brain cares.", "It makes you 80% faster.") };
-  const fake = fakeProvider([bad]);
+  const noLoop = { ...GOOD, hook: "Your brain isn't lazy. It's scared. These three psychology tricks make starting almost automatic for anyone." };
+  const fake = fakeProvider([noLoop]);
   const result = await draftShort("why you procrastinate", { provider: fake.provider as never, prompts });
-  assert.equal(fake.prompts.length, 3);
-  assert.equal(result.attempts, 3);
-  assert.ok(result.problems.some((p) => /percentage/.test(p)));
+  assert.equal(fake.prompts.length, 1);
+  assert.deepEqual(result.problems, []);
+  assert.ok(result.warnings.some((w) => /teases the last item/.test(w)));
 });
 
-test("a missing or absurd topic is refused before any model call", async () => {
+test("the chosen hook shape reaches the prompt; an unknown one is refused before any model call", async () => {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const fake = fakeProvider([GOOD]);
-  await assert.rejects(draftShort("  ", { provider: fake.provider as never, prompts }), /topic must be/);
-  assert.equal(fake.prompts.length, 0);
+  await draftShort("replaying awkward moments at night", { provider: fake.provider as never, prompts }, "moment");
+  assert.match(fake.prompts[0]!, /EVERYDAY-MOMENT SHORT/);
+  assert.doesNotMatch(fake.prompts[0]!, /LIST SHORT/);
+  const none = fakeProvider([GOOD]);
+  await assert.rejects(draftShort("topic", { provider: none.provider as never, prompts }, "rant" as never), /shape must be/);
+  await assert.rejects(draftShort("  ", { provider: none.provider as never, prompts }), /topic must be/);
+  assert.equal(none.prompts.length, 0);
 });

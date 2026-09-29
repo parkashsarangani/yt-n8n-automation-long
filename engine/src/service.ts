@@ -17,7 +17,7 @@ import { PromptStore } from "./prompts.ts";
 import { FsArtifactStore, type ArtifactStore } from "./store.ts";
 import { FsBlobStore, type BlobStore } from "./blobs.ts";
 import { JsonlRunLog, rollup, type RunLog, type RunRecord } from "./runlog.ts";
-import { draftShort, type ShortDraftResult } from "./short-draft.ts";
+import { draftShort, SHORT_DRAFT_PROMPT, type HookShape, type ShortDraftResult } from "./short-draft.ts";
 import { hasDatabase, getPool, migrate } from "./db.ts";
 import { PgRunLog } from "./pg-runlog.ts";
 import { markRunForCleanup, sweepBlobs } from "./cleanup.ts";
@@ -777,6 +777,12 @@ export class VidGenService {
        * spent TTS quota during a diagnostic rerun of an unchanged script.
        */
       reuseVoiceArtifactId?: string;
+      /**
+       * Where the script came from, recorded so Shorts retention can be
+       * compared by source before any drafting rule is hardened (council
+       * review 2026-09-29). Absent = not recorded (API callers).
+       */
+      scriptSource?: "writer_draft" | "hand_written";
     } = {},
   ): Promise<string> {
     const episode = buildManualEpisode(input); // throws with a clear message on bad input
@@ -790,6 +796,16 @@ export class VidGenService {
 
     if (this.runLog instanceof PgRunLog) {
       await this.runLog.createRun(runId, brief, `${this.graph.graph_id}@${this.graph.version}`);
+    }
+    if (opts.scriptSource) {
+      // A tag, not a graph node: no graph_id and no output, so the executor's
+      // run reconstruction skips it (deriveCompleted ignores such records).
+      await this.runLog.record({
+        run_id: runId, graph_id: null, node_id: "script_source", transformation: opts.scriptSource,
+        transformation_version: "1", inputs: [], output: null, status: "ok", attempt: 1, max_attempts: 1,
+        prompt_ref: opts.scriptSource === "writer_draft" ? SHORT_DRAFT_PROMPT : null,
+        started_at: new Date().toISOString(), duration_ms: 0,
+      });
     }
 
     const intent = await this.store.put({
@@ -928,9 +944,9 @@ export class VidGenService {
    * Studio "Write it for me": a viral-structure Short draft for the editor to
    * review. Writes nothing to the store and starts no run (short-draft.ts).
    */
-  async draftShort(topic: string): Promise<ShortDraftResult> {
+  async draftShort(topic: string, shape: HookShape = "list"): Promise<ShortDraftResult> {
     if (!this.shortDraftProvider) throw new Error("no script model is configured");
-    return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts });
+    return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts }, shape);
   }
 
   async checkEditorReturns(): Promise<EditorReturnsResult> {

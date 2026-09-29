@@ -145,8 +145,9 @@ export function createUiServer(opts: ServerOptions) {
     // Studio "Write it for me" on the New Short form: a draft only -- the
     // editor reviews it and submits it through POST /api/runs/manual.
     if (route === "POST /api/shorts/draft") {
-      const body = (await readJson(req)) as { topic?: unknown };
-      json(res, 200, await service.draftShort(String(body.topic ?? "")));
+      const body = (await readJson(req)) as { topic?: unknown; shape?: unknown };
+      const shape = body.shape === "myth" || body.shape === "moment" ? body.shape : "list";
+      json(res, 200, await service.draftShort(String(body.topic ?? ""), shape));
       return;
     }
 
@@ -261,6 +262,7 @@ export function createUiServer(opts: ServerOptions) {
         topic?: string;
         duration_sec?: number;
         reuse_voice_artifact_id?: string;
+        script_source?: string;
       };
       const runId = await service.startManualRun(
         {
@@ -270,7 +272,10 @@ export function createUiServer(opts: ServerOptions) {
           topic: body.topic,
         },
         body.duration_sec ?? 540,
-        body.reuse_voice_artifact_id ? { reuseVoiceArtifactId: String(body.reuse_voice_artifact_id) } : {},
+        {
+          ...(body.reuse_voice_artifact_id ? { reuseVoiceArtifactId: String(body.reuse_voice_artifact_id) } : {}),
+          ...(body.script_source === "writer_draft" || body.script_source === "hand_written" ? { scriptSource: body.script_source } : {}),
+        },
       );
       json(res, 201, { run_id: runId });
       return;
