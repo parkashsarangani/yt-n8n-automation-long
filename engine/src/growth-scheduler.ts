@@ -380,6 +380,15 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
         console.log(`[growth-scheduler] editor-watch: checked ${result.checked} run(s) parked at editor_review, advanced ${result.advanced}`);
       },
     },
+    {
+      // Shorts phase 2: post Shorts YouTube published public to Facebook and
+      // Instagram Reels. Dormant until META_* credentials are configured.
+      id: "crosspost", everyHours: 10 / 60, enabled: service.reelsPlatforms().length > 0,
+      description: `post public Shorts to ${service.reelsPlatforms().join(" + ") || "Reels (not configured)"} every 10 minutes`,
+      async run() {
+        await service.crosspostPending();
+      },
+    },
   ] });
   scheduler.start();
   return { status: () => scheduler.status(), runNow: (id) => scheduler.runNow(id), stop: () => scheduler.stop() };

@@ -61,6 +61,12 @@ services:
       # long (16:9, dormant) | short (vertical 9:16 Shorts/Reels, <=60 s).
       # Unset = long. See engine/src/video-format.ts.
       VIDEO_FORMAT: ${VIDEO_FORMAT:-}
+      # Shorts phase 2: Facebook/Instagram Reels cross-posting (crosspost.ts).
+      # Dormant until the Page token and a Page and/or Instagram id are set.
+      META_PAGE_ACCESS_TOKEN: ${META_PAGE_ACCESS_TOKEN:-}
+      META_PAGE_ID: ${META_PAGE_ID:-}
+      META_IG_USER_ID: ${META_IG_USER_ID:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
       # Daily preparation slot is resolved from a local-time target, not a fixed
       # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC
       # pins a literal UTC hour instead when set, overriding both of these.

@@ -85,6 +85,11 @@ jobs:
           # Shorts/Reels since 2026-09-29: new drafts are vertical 1080x1920,
           # <=60 s. Long-form is dormant, not deleted -- set "long" to go back.
           VIDEO_FORMAT: "short"
+          # Reels cross-posting (Shorts phase 2); unset = dormant.
+          META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+          META_PAGE_ID: ${{ vars.META_PAGE_ID || '' }}
+          META_IG_USER_ID: ${{ vars.META_IG_USER_ID || '' }}
+          META_GRAPH_VERSION: ${{ vars.META_GRAPH_VERSION || 'v25.0' }}
           SCHEDULE_PRODUCE_TIMEZONE: Europe/Berlin
           SCHEDULE_PRODUCE_LOCAL_HOUR: "3"
           SCHEDULE_PRODUCE_HOUR_UTC: ""
