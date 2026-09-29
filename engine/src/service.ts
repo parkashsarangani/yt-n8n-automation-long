@@ -40,7 +40,10 @@ import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
 import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
 import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type ChannelVideo } from "./episode-adoption.ts";
-import { assertEditorCutDuration, assertYouTubeProductionGeometry } from "./media/mp4.ts";
+import { assertEditorCutDuration, assertYouTubeProductionGeometry, readMp4Geometry } from "./media/mp4.ts";
+import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./providers/meta-reels.ts";
+import { crosspostRun, CROSSPOST_MAX_ATTEMPTS, type CrosspostOutcome } from "./crosspost.ts";
+import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
   FakeRenderer,
@@ -238,6 +241,8 @@ export class VidGenService {
   private editorReturnsInFlight: Promise<EditorReturnsResult> | null = null;
   /** The script-authoring model, kept for the studio's Short draft writer. */
   private shortDraftProvider: ModelProvider | null = null;
+  /** Facebook/Instagram Reels targets; empty until META_* credentials are set (dormant). */
+  private reelsTargets: ReelsTarget[] = [];
 
   /** Marks a returned cut as handed to publish, durably. See editorReturnState(). */
   private static readonly EDITOR_RETURN_MARKER = "editor_return";
@@ -394,6 +399,16 @@ export class VidGenService {
       reasoning_script: new OpenAIProvider({ effort: "high", model: scriptAuthoringModel() }),
     });
     this.shortDraftProvider = providers.forCapability("reasoning_script");
+    // Shorts phase 2: Reels cross-posting is dormant until the Page token and
+    // at least one of the Page / Instagram ids are configured.
+    const metaToken = env("META_PAGE_ACCESS_TOKEN");
+    const metaVersion = env("META_GRAPH_VERSION") || "v25.0";
+    this.reelsTargets = metaToken
+      ? [
+          ...(env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
+          ...(env("META_IG_USER_ID") ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
+        ]
+      : [];
 
     const runner = new Runner({
       store: this.store,
@@ -947,6 +962,59 @@ export class VidGenService {
   async draftShort(topic: string, shape: HookShape = "list"): Promise<ShortDraftResult> {
     if (!this.shortDraftProvider) throw new Error("no script model is configured");
     return draftShort(topic, { provider: this.shortDraftProvider, prompts: this.prompts }, shape);
+  }
+
+  /** Which Reels platforms are configured (for the scheduler and studio). */
+  reelsPlatforms(): string[] {
+    return this.reelsTargets.map((t) => t.id);
+  }
+
+  /**
+   * Shorts phase 2: post every Short that YouTube published PUBLIC to the
+   * configured Reels platforms (crosspost.ts). Only vertical 1080x1920 cuts
+   * within the Short length cap qualify, read from the video itself -- a
+   * long-form or private episode is never cross-posted.
+   */
+  async crosspostPending(opts: { targets?: ReelsTarget[] } = {}): Promise<{ checked: number; outcomes: Record<string, Record<string, CrosspostOutcome>> }> {
+    const targets = opts.targets ?? this.reelsTargets;
+    const outcomes: Record<string, Record<string, CrosspostOutcome>> = {};
+    if (targets.length === 0) return { checked: 0, outcomes };
+    let checked = 0;
+    const cap = FORMATS.short.maxDurationSec!;
+    for (const view of this.listRuns().filter((r) => r.status === "completed")) {
+      const nodeArtifact = (id: string) => view.nodes.find((n) => n.node_id === id)?.artifact_id;
+      const pubId = nodeArtifact("publish"), videoId = nodeArtifact("finalize_video"), seoId = nodeArtifact("seo");
+      if (!pubId || !videoId || !seoId) continue;
+      // Cheap filters first: finished everywhere, not public, or too long.
+      const history = await this.runRecords(view.run_id);
+      const settled = targets.every((t) => {
+        const mine = history.filter((r) => r.node_id === `crosspost_${t.id}`);
+        return mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running"
+          || mine.filter((r) => r.status === "failed").length >= CROSSPOST_MAX_ATTEMPTS;
+      });
+      if (settled) continue;
+      const published = (await this.store.get<{ privacy?: string }>(pubId))?.payload;
+      if (published?.privacy !== "public") continue;
+      const video = (await this.store.get<{ video_uri?: string; media_type?: string; duration_sec?: number }>(videoId))?.payload;
+      if (!video?.video_uri || !(typeof video.duration_sec === "number" && video.duration_sec <= cap)) continue;
+      const bytes = await this.blobs.get(video.video_uri);
+      const geometry = readMp4Geometry(bytes);
+      if (!geometry || formatOfGeometry(geometry.width, geometry.height) !== "short") continue;
+      const seo = (await this.store.get<{ title: string; description: string; tags?: string[] }>(seoId))?.payload;
+      if (!seo) continue;
+      checked++;
+      outcomes[view.run_id] = await crosspostRun(
+        { run_id: view.run_id, video: async () => bytes, media_type: video.media_type ?? "video/mp4", seo },
+        {
+          targets,
+          records: (id) => this.runRecords(id),
+          record: (r) => this.runLog.record(r),
+          alert: (runId, reason, error) => sendOperatorAlert({ run_id: runId, reason, failures: [{ node_id: "crosspost", error }] }),
+        },
+      );
+      console.log(`[crosspost] run ${view.run_id.slice(4, 12)}: ${JSON.stringify(outcomes[view.run_id])}`);
+    }
+    return { checked, outcomes };
   }
 
   async checkEditorReturns(): Promise<EditorReturnsResult> {

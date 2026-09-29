@@ -247,6 +247,8 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   // "series" works through Second Thoughts in order, then stops; "discovery"
   // restores the open-ended daily topic tournament.
   const produceSource = process.env["SCHEDULE_PRODUCE_SOURCE"]?.trim().toLowerCase() === "discovery" ? "discovery" : "series";
+  // Absent on minimal/embedded services (and in tests): no Reels platforms.
+  const reelsPlatforms = typeof service.reelsPlatforms === "function" ? service.reelsPlatforms() : [];
   const scheduler = new Scheduler({ now, jobs: [
     {
       id: "produce", everyHours: produceHours > 0 ? produceHours : 24, enabled: Number.isFinite(produceHours) && produceHours > 0,
@@ -378,6 +380,15 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       async run() {
         const result = await service.checkEditorReturns();
         console.log(`[growth-scheduler] editor-watch: checked ${result.checked} run(s) parked at editor_review, advanced ${result.advanced}`);
+      },
+    },
+    {
+      // Shorts phase 2: post Shorts YouTube published public to Facebook and
+      // Instagram Reels. Dormant until META_* credentials are configured.
+      id: "crosspost", everyHours: 10 / 60, enabled: reelsPlatforms.length > 0,
+      description: `post public Shorts to ${reelsPlatforms.join(" + ") || "Reels (not configured)"} every 10 minutes`,
+      async run() {
+        await service.crosspostPending();
       },
     },
   ] });
