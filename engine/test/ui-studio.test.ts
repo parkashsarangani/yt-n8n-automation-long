@@ -71,7 +71,11 @@ test("the studio offers exactly two creators: a season episode and a custom scri
     assert.match(html, new RegExp(`id="${id}"`), `missing custom-episode field: ${id}`);
   }
   assert.match(html, /\/api\/runs\/manual/);
-  assert.match(html, /\{title,hook,narration,duration_sec:Math\.round\(minutes\*60\)\}/);
+  assert.match(html, /\{title,hook,narration,duration_sec:Math\.round\(seconds\)\}/);
+  // Shorts: the form takes seconds, capped by the server's format spec.
+  assert.match(html, /applyFormat\(cfg\.format\)/);
+  assert.match(html, /FORMAT\.maxDurationSec/);
+  assert.match(html, /FORMAT\.minDurationSec/);
   assert.doesNotMatch(html, /manualTitle/);
 
   // Retired: free-form idea brief, story types and discovery suggestions.

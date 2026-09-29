@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendSpokenCta, DESCRIPTION_CTA, SPOKEN_CTA, withDescriptionCta } from "../src/cta.ts";
+import { appendSpokenCta, DESCRIPTION_CTA, SPOKEN_CTA, SPOKEN_CTA_SHORT, withDescriptionCta } from "../src/cta.ts";
 
 const script = {
   scenes: [
@@ -48,4 +48,12 @@ test("the description ends with exactly one CTA: ours", () => {
   // "Subscribe" in the middle of real content is not a CTA and stays.
   const content = "Why we subscribe to services we never use.\n\nThe sunk cost trap, explained.";
   assert.equal(withDescriptionCta(content), `${content}\n\n${DESCRIPTION_CTA}`);
+});
+
+test("a Short closes on the ~2 s line, long-form on the full CTA", () => {
+  const short = appendSpokenCta(script, "short") as { scenes: Array<{ narration: string }> };
+  assert.equal(short.scenes.at(-1)!.narration, SPOKEN_CTA_SHORT);
+  assert.ok(SPOKEN_CTA_SHORT.split(/\s+/).length <= 6, "must stay about two seconds spoken");
+  const long = appendSpokenCta(script, "long") as { scenes: Array<{ narration: string }> };
+  assert.equal(long.scenes.at(-1)!.narration, SPOKEN_CTA);
 });

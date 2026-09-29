@@ -82,6 +82,9 @@ jobs:
           # Drive delivery, cut pickup (editor_watch) and measurement keep
           # running for custom episodes. Set back to "24" to resume the season.
           SCHEDULE_PRODUCE_HOURS: "0"
+          # Shorts/Reels since 2026-09-29: new drafts are vertical 1080x1920,
+          # <=60 s. Long-form is dormant, not deleted -- set "long" to go back.
+          VIDEO_FORMAT: "short"
           SCHEDULE_PRODUCE_TIMEZONE: Europe/Berlin
           SCHEDULE_PRODUCE_LOCAL_HOUR: "3"
           SCHEDULE_PRODUCE_HOUR_UTC: ""

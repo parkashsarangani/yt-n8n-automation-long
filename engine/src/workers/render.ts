@@ -1,4 +1,5 @@
 /** Audio-first render worker: approved script + voice -> YouTube-compatible MP4 shell. */
+import { formatSpec } from "../video-format.ts";
 import type { Artifact, BlobRef } from "../artifact.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import type { RenderRequest, RenderScene } from "../provider.ts";
@@ -75,7 +76,7 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
   return {
     name: "render",
     kind: "worker",
-    version: opts.version ?? "20",
+    version: opts.version ?? "21",
     consumes: [
       { schema_id: "script", range: "^1", as: "script" },
       { schema_id: "voice", range: "^1", as: "voice" },
@@ -91,7 +92,11 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
       const bridge = (inputs["package"]?.payload as GrowthPackage | undefined)?.next_video_bridge?.trim();
       // The compositor chooses optional stock suggestions; no generative
       // scene artwork or additional script gate is needed here.
+      // New drafts follow VIDEO_FORMAT; long-form (dormant) sends no aspect,
+      // so its request is byte-for-byte what it always was.
+      const spec = formatSpec();
       const request: ContinuationRenderRequest = {
+        ...(spec.format === "short" ? { aspect: spec.aspect } : {}),
         scenes,
         ...((inputs["package"]?.payload as GrowthPackage | undefined)?.selected_title ? { lesson_title: (inputs["package"]!.payload as GrowthPackage).selected_title! } : {}),
         caption_style: opts.captionStyle ?? "neutral",
@@ -106,7 +111,12 @@ export function makeRenderWorker(opts: RenderWorkerOptions = {}): WorkerDef {
         },
       });
       if (renderer.id === "long-compose" && result.media_type === "video/mp4") {
-        assertYouTubeProductionGeometry(result.video);
+        const geometry = assertYouTubeProductionGeometry(result.video);
+        if (geometry.width !== spec.width || geometry.height !== spec.height) {
+          throw new Error(
+            `render returned ${geometry.width}x${geometry.height} but a ${spec.format} draft must be ${spec.width}x${spec.height}`,
+          );
+        }
       }
 
       const blobs: BlobRef[] = [];

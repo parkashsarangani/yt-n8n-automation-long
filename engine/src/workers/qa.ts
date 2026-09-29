@@ -1,5 +1,6 @@
 /** Deterministic pre-publish QA for the audio-first production graph. */
 import { EDITOR_CUT_MAX_RATIO, EDITOR_CUT_MIN_RATIO, readMp4Geometry } from "../media/mp4.ts";
+import { FORMATS, formatOfGeometry } from "../video-format.ts";
 import { narrationPace } from "../audio/narration-delivery.ts";
 import { EDITOR_CUT_MEDIA_TYPES } from "./editor-package.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
@@ -15,7 +16,7 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
   return {
     name: "qa",
     kind: "worker",
-    version: opts.version ?? "9",
+    version: opts.version ?? "10",
     consumes: [
       { schema_id: "intent", range: "^2", as: "intent" },
       { schema_id: "script", range: "^1", as: "script" },
@@ -91,7 +92,16 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
           const bytes = await ctx.blobs.get(render.video_uri);
           const geometry = readMp4Geometry(bytes);
           add("render_blob", bytes.length > 0 ? "pass" : "fail", bytes.length > 0 ? `rendered MP4 is ${bytes.length} bytes` : "rendered MP4 is empty", bytes.length, 1);
-          add("render_geometry", geometry?.width === 1920 && geometry?.height === 1080 ? "pass" : "fail", geometry ? `render geometry ${geometry.width}x${geometry.height}` : "could not read MP4 display geometry");
+          const format = geometry ? formatOfGeometry(geometry.width, geometry.height) : null;
+          add("render_geometry", format ? "pass" : "fail", geometry ? `render geometry ${geometry.width}x${geometry.height}${format ? ` (${format})` : ""}` : "could not read MP4 display geometry");
+          // A vertical video is a Short/Reel: every target platform caps its
+          // length, so an over-long cut must stop here rather than be refused
+          // (or silently published as a regular video) by the platform.
+          const cap = format ? FORMATS[format].maxDurationSec : null;
+          if (cap !== null && typeof render.duration_sec === "number") {
+            add("format_max_duration", render.duration_sec <= cap ? "pass" : "fail",
+              `${format} video runs ${render.duration_sec.toFixed(1)}s (max ${cap}s)`, render.duration_sec, cap);
+          }
         } catch (err) {
           add("render_blob", "fail", `rendered video blob cannot be read: ${String(err)}`);
         }

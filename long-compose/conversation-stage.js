@@ -91,13 +91,13 @@ function captionCues(scene, duration) {
   }
   return cues;
 }
-function captionLines(text) {
+function captionLines(text, max = 38) {
   const words=text.split(/\s+/);
-  if(text.length<=38)return [text];
+  if(text.length<=max)return [text];
   let best=null, score=Infinity;
   for(let i=1;i<words.length;i++) {
     const a=words.slice(0,i).join(" "), b=words.slice(i).join(" ");
-    if(a.length>38||b.length>38)continue;
+    if(a.length>max||b.length>max)continue;
     const cost=Math.abs(a.length-b.length)+(i===1||i===words.length-1?25:0);
     if(cost<score){best=[a,b];score=cost;}
   }
@@ -141,6 +141,31 @@ function buildStage(scenes, durations, lessonTitle) {
   });
   return script;
 }
+// Vertical Shorts/Reels (2026-09-29). Captions only -- no headings or cards:
+// the editor dresses the Short. Bold, large and placed in the safe zone: above
+// the bottom fifth (captions/buttons of every app) and clear of the right
+// edge (like/share rail). Long-form keeps buildStage unchanged.
+const VERTICAL_LINE = 22;
+function buildVerticalStage(scenes, durations) {
+  let script=buildTitleCard("").replace("PlayResX: 1280","PlayResX: 1080").replace("PlayResY: 720","PlayResY: 1920");
+  script=script.slice(0,script.indexOf("Dialogue:"));
+  // Alignment 2 (bottom-centre) with MarginV 460: the caption block ends at
+  // y=1460, inside the safe band the compositor darkens behind it.
+  script=script.replace(/Style: Title,[^\n]+/, "Style: Caption,DejaVu Sans,70,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,140,460,1");
+  const add=(start,end,text)=>{script+="Dialogue: 0,"+clock(start)+","+clock(end)+",Caption,,0,0,0,,"+text+"\n";};
+  let offset=0;
+  scenes.forEach((scene,i)=>{
+    const duration=durations[i];
+    if(!(duration>0))throw Error("stage requires measured scene durations");
+    for(const cue of captionCues(scene,duration)) {
+      const lines=captionLines(cue.text, VERTICAL_LINE);
+      const fit=lines.length===1 && cue.text.length>VERTICAL_LINE ? "{\\fs"+Math.max(40,Math.floor(70*VERTICAL_LINE/cue.text.length))+"}" : "";
+      add(offset+cue.start,offset+cue.end,fit+lines.map(safe).join("\\N"));
+    }
+    offset+=duration;
+  });
+  return script;
+}
 function buildSrt(scenes, durations) {
   const stamp = sec => {
     const ms=Math.round(sec*1000);
@@ -153,4 +178,4 @@ function buildSrt(scenes, durations) {
     return cues.join("\n");
   }).join("\n");
 }
-module.exports={buildStage,buildTitleCard,pages,captionCues,captionLines,buildSrt};
+module.exports={buildStage,buildVerticalStage,buildTitleCard,pages,captionCues,captionLines,buildSrt};

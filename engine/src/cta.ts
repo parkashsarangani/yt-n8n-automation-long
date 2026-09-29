@@ -10,9 +10,18 @@
  * Change the wording here; nothing else hard-codes it.
  */
 
+import { videoFormat, type VideoFormat } from "./video-format.ts";
+
 /** Narrated as its own closing scene, after the story and any next-episode teaser. */
 export const SPOKEN_CTA =
   "If this was useful, subscribe for more everyday psychology — and tell me in the comments where you've noticed this in your own life.";
+
+/**
+ * The ~2 s spoken close for a Short/Reel (operator decision 2026-09-29):
+ * the full CTA above would eat a tenth of a 60-75 s video. "Follow" reads right
+ * on every platform the Short goes to.
+ */
+export const SPOKEN_CTA_SHORT = "Follow for more everyday psychology.";
 
 /** Appended to every YouTube description, ahead of chapters and credits. */
 export const DESCRIPTION_CTA =
@@ -22,8 +31,11 @@ const CTA_POINT = "[cta] Subscribe";
 
 interface Scene { scene_index?: number; act_index?: number; point?: string; narration?: string; is_outro?: boolean }
 
-/** Append the spoken CTA as the final scene. Idempotent: never adds a second one. */
-export function appendSpokenCta(scriptPayload: unknown): unknown {
+/**
+ * Append the spoken CTA as the final scene -- the short line for a Short,
+ * the full one for long-form. Idempotent: never adds a second one.
+ */
+export function appendSpokenCta(scriptPayload: unknown, format: VideoFormat = videoFormat()): unknown {
   const script = scriptPayload as { scenes?: Scene[] } | null;
   if (!script || typeof script !== "object" || !Array.isArray(script.scenes) || script.scenes.length === 0) return scriptPayload;
   const last = script.scenes[script.scenes.length - 1]!;
@@ -33,7 +45,7 @@ export function appendSpokenCta(scriptPayload: unknown): unknown {
     scene_index: maxIndex + 1,
     ...(typeof last.act_index === "number" ? { act_index: last.act_index } : {}),
     point: CTA_POINT,
-    narration: SPOKEN_CTA,
+    narration: format === "short" ? SPOKEN_CTA_SHORT : SPOKEN_CTA,
   };
   const scenes = [...script.scenes, scene];
   const wordCount = scenes.reduce((n, s) => n + (s.narration ?? "").trim().split(/\s+/).filter(Boolean).length, 0);

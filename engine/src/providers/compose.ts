@@ -104,6 +104,7 @@ export class ComposeRenderer implements MediaRenderer {
   ): Promise<RenderResult> {
     const continuation = req as ContinuationRenderRequest;
     const body = {
+      ...(req.aspect ? { aspect: req.aspect } : {}),
       caption_style: req.caption_style ?? "neutral",
       ...(req.background_image ? { image_base64: toBase64(req.background_image) } : {}),
       ...(req.lesson_title ? { lesson_title: req.lesson_title } : {}),

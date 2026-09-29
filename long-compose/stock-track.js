@@ -4,7 +4,13 @@ const {concatPath} = require('./concat-path');
 
 // Render one scene at a time, then concatenate. Resource use does not grow
 // with the number of simultaneous video decoders in the final compositor.
-async function buildStockTrack(scenes, durations, shots, directory, {ffmpeg, exec, warn = console.warn}) {
+async function buildStockTrack(scenes, durations, shots, directory, {ffmpeg, exec, warn = console.warn, vertical = false}) {
+  // Long-form: fit the whole clip above the caption band. Vertical (Shorts):
+  // portrait clips fill the full 1080x1920 frame; captions sit over them.
+  const fit = vertical
+    ? 'fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1'
+    : 'fps=30,scale=1920:810:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1920:1080:(ow-iw)/2:floor((810-ih)/4)*2:color=0x101217,setsar=1';
+  const size = vertical ? '1080x1920' : '1920x1080';
   if (!shots.length) return {file:null,shots:[]};
   const segments = [], accepted = [];
   let elapsed = 0;
@@ -25,12 +31,12 @@ async function buildStockTrack(scenes, durations, shots, directory, {ffmpeg, exe
       try {
         await exec(ffmpeg,['-y','-v','error','-threads','2',
           ...(shot.kind==='photo'?['-loop','1','-framerate','30']:[]),'-i',shot.file,
-          '-vf','fps=30,scale=1920:810:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1920:1080:(ow-iw)/2:floor((810-ih)/4)*2:color=0x101217,setsar=1,tpad=stop_mode=clone:stop_duration='+frames/30,
+          '-vf',fit+',tpad=stop_mode=clone:stop_duration='+frames/30,
           ...output],{timeout:120_000});
         rendered = true; accepted.push(shot);
       } catch { warn(`Stock scene ${sceneIndex} could not be decoded; using background`); }
     }
-    if (!rendered) await exec(ffmpeg,['-y','-v','error','-f','lavfi','-i','color=c=0x101217:s=1920x1080:r=30',...output],{timeout:120_000});
+    if (!rendered) await exec(ffmpeg,['-y','-v','error','-f','lavfi','-i',`color=c=0x101217:s=${size}:r=30`,...output],{timeout:120_000});
     segments.push(file);
   }
   const list = path.join(directory,'stock-concat.txt');
