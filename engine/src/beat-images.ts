@@ -11,6 +11,9 @@
  * One image per beat rather than one grid sheet: a grid tile is ~512 px,
  * far below a 1080x1920 frame. Each prompt is written to prompts.md so the
  * editor can regenerate a single beat by hand.
+ *
+ * Style (operator 2026-09-30): stickman figures with clear, expressive
+ * facial expressions -- the emotion of each beat carried by the face.
  */
 
 import type { DriveExchange } from "./providers/drive.ts";
@@ -29,9 +32,11 @@ export const BEATS_FOLDER = "beats";
 
 /** Fixed art direction, prepended to every beat so the Short looks like one piece. */
 export const STYLE =
-  "Vertical 9:16 cinematic editorial illustration, painterly but realistic, muted warm palette, soft natural light, " +
-  "shallow depth of field, one clear focal subject in the middle third, calm empty space at the top and bottom for captions. " +
-  "Absolutely no text, letters, numbers, signage, logos or watermarks. No close-up faces or hands.";
+  "Vertical 9:16 stickman illustration: simple black stick figures with round heads and clean, bold line work on a plain off-white background, " +
+  "minimal props drawn in the same simple line style, one soft accent colour at most. " +
+  "Every stick figure has a clear, expressive face (eyes, eyebrows and mouth) whose emotion reads instantly -- worried, embarrassed, relieved, surprised, calm -- " +
+  "and body language that matches it. Keep the figures in the middle third, with empty space at the top and bottom for captions. " +
+  "Absolutely no text, letters, numbers, speech bubbles, signage, logos or watermarks.";
 
 export interface BeatScene {
   scene_index: number;
@@ -82,7 +87,7 @@ function firstSentence(text: string): string {
 
 /** Without a usable planner answer, draw the beat's own words as a scene. */
 export function fallbackDescription(scene: BeatScene): string {
-  return `A quiet, relatable everyday scene that shows this idea: "${firstSentence(scene.point || scene.narration)}"`;
+  return `A stick figure acting out this everyday moment, its facial expression and body language clearly showing how it feels: "${firstSentence(scene.point || scene.narration)}"`;
 }
 
 /** One image description per beat, from the fast model, with a per-beat fallback. */

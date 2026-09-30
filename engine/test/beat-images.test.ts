@@ -125,6 +125,15 @@ test("the Images API request: mini, portrait, medium; the key never leaks into a
   await assert.rejects(generateBeatImage("p", { apiKey: "sk-test", fetchImpl: bad }), (e: Error) => /\(401 invalid_api_key\)/.test(e.message) && !e.message.includes("sk-test"));
 });
 
+test("the style is stickman with expressive faces, and never asks for text", async () => {
+  assert.match(STYLE, /stick ?(man|figures)/i);
+  assert.match(STYLE, /facial|expressive face/i);
+  assert.match(STYLE, /no text/i);
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const [plan] = await planBeats("T", SCENES, { provider: null, prompts });
+  assert.match(plan!.description, /stick figure.*facial expression/i, "the fallback keeps the style too");
+});
+
 test("our beats/ folder is never reported as an unrecognised editor upload", () => {
   assert.equal(isPipelineAuthoredFile("beats"), true);
 });
