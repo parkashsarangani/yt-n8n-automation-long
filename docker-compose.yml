@@ -68,6 +68,9 @@ services:
       META_IG_USER_ID: ${META_IG_USER_ID:-}
       # Instagram-login token (graph.instagram.com); renewed automatically, kept on /data.
       META_IG_ACCESS_TOKEN: ${META_IG_ACCESS_TOKEN:-}
+      # Per-beat editor images (gpt-image-1-mini, ~$0.10/Short). 1 = on. Optional own key with its own spend cap.
+      BEAT_IMAGES: ${BEAT_IMAGES:-0}
+      OPENAI_IMAGES_API_KEY: ${OPENAI_IMAGES_API_KEY:-}
       META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
       # Daily preparation slot is resolved from a local-time target, not a fixed
       # UTC hour, so it doesn't drift across a DST change. SCHEDULE_PRODUCE_HOUR_UTC

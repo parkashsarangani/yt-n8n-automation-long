@@ -392,6 +392,16 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       },
     },
     {
+      // Per-beat images for the editor (beat-images.ts): best-effort, after
+      // the package is uploaded. Off unless BEAT_IMAGES=1.
+      id: "beat_images", everyHours: 10 / 60,
+      enabled: typeof service.beatImagesEnabled === "function" && service.beatImagesEnabled(),
+      description: "generate one image per beat into the editor's Drive folder (beats/) every 10 minutes",
+      async run() {
+        await service.beatImagesPending();
+      },
+    },
+    {
       // The Instagram-login token lasts 60 days; renew it well before that.
       id: "ig_token_refresh", everyHours: 24, enabled: typeof service.igTokenRefresh === "function" && reelsPlatforms.includes("instagram"),
       description: "renew the Instagram access token when it is a week old (it lasts 60 days)",
