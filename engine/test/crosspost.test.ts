@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "../src/providers/meta-reels.ts";
-import { crosspostRun, reelCaption, CROSSPOST_MAX_ATTEMPTS, REEL_CAPTION_MAX } from "../src/crosspost.ts";
+import { crosspostRun, crosspostSettled, reelCaption, CROSSPOST_MAX_ATTEMPTS, REEL_CAPTION_MAX } from "../src/crosspost.ts";
 import type { RunRecord } from "../src/runlog.ts";
 
 const TOKEN = "EAAtest-secret-token";
@@ -76,6 +76,33 @@ test("Instagram Reel: resumable container, upload, wait for FINISHED, publish, p
   assert.match(g.calls.find((c) => c.url.endsWith("/media_publish"))!.body, /creation_id=c9/);
 });
 
+test("Instagram-login token: the container takes a public video_url, nothing is uploaded (prod: 'video_url is required')", async () => {
+  const g = fakeGraph((url) => {
+    if (url.endsWith("/me/media")) return { id: "c9" };
+    if (url.includes("/c9?")) return { status_code: "FINISHED" };
+    if (url.endsWith("/me/media_publish")) return { id: "m77" };
+    if (url.includes("/m77?")) return { permalink: "https://www.instagram.com/reel/ABC/" };
+    throw new Error(`unexpected ${url}`);
+  });
+  const ig = new InstagramReelsTarget("me", { accessToken: TOKEN, graphBase: "https://graph.instagram.com", fetchImpl: g.fetchImpl, sleep: noSleep });
+  assert.equal(ig.needsVideoUrl, true);
+  await assert.rejects(ig.post({ video: VIDEO, media_type: "video/mp4", caption: "c", title: "t" }), /needs a public video_url/);
+  const r = await ig.post({ video: VIDEO, media_type: "video/mp4", caption: "Caption", title: "t", video_url: "https://video.xx.fbcdn.net/v/reel.mp4?sig=1" });
+  assert.equal(r.external_id, "m77");
+  const create = g.calls.find((c) => c.url.endsWith("/me/media"))!;
+  assert.match(create.body, /video_url=https%3A%2F%2Fvideo\.xx\.fbcdn\.net/);
+  assert.doesNotMatch(create.body, /upload_type/);
+  assert.ok(!g.calls.some((c) => c.url.startsWith("https://rupload")), "no byte upload");
+  assert.equal(new InstagramReelsTarget("ig1", { accessToken: TOKEN }).needsVideoUrl, false, "Page-token route keeps resumable upload");
+});
+
+test("Facebook: a published Reel's public source URL", async () => {
+  const g = fakeGraph((url) => url.includes("/v123?") ? { source: "https://video.xx.fbcdn.net/v/reel.mp4?sig=1" } : { error: { message: "x" } });
+  const fb = new FacebookReelsTarget("page1", { accessToken: TOKEN, fetchImpl: g.fetchImpl, sleep: noSleep });
+  assert.equal(await fb.sourceUrl("v123"), "https://video.xx.fbcdn.net/v/reel.mp4?sig=1");
+  assert.match(g.calls[0]!.url, /fields=source/);
+});
+
 test("Instagram: a container that errors is reported, never published", async () => {
   const g = fakeGraph((url) => url.endsWith("/ig1/media") ? { id: "c9" } : url.startsWith("https://rupload") ? { success: true } : { status_code: "ERROR" });
   const ig = new InstagramReelsTarget("ig1", { accessToken: TOKEN, fetchImpl: g.fetchImpl, sleep: noSleep });
@@ -139,6 +166,33 @@ test("the fallback Reel caption is the title and up to five hashtags -- never th
 
 const capturing = (id: "facebook" | "instagram", seen: Record<string, string>) =>
   ({ id, post: async (p: { caption: string }) => { seen[id] = p.caption; return { external_id: id, url: id }; } }) as unknown as ReelsTarget;
+
+test("Instagram-login posts after Facebook, from the Facebook Reel's public URL, in the same pass", async () => {
+  const urls: Array<string | undefined> = [];
+  const fb = target("facebook", async () => ({ external_id: "v1", url: "https://www.facebook.com/reel/v1" }));
+  const ig = { id: "instagram", needsVideoUrl: true, post: async (p: { video_url?: string }) => { urls.push(p.video_url); return { external_id: "m", url: "m" }; } } as unknown as ReelsTarget;
+  const h = harness([fb, ig]);
+  const out = await crosspostRun(h.candidate, {
+    ...h.deps,
+    videoUrl: async (records) => records.find((r) => r.node_id === "crosspost_facebook" && r.status === "ok")?.model === "v1" ? "https://cdn/v1.mp4" : undefined,
+  });
+  assert.deepEqual(out, { facebook: "posted", instagram: "posted" });
+  assert.deepEqual(urls, ["https://cdn/v1.mp4"]);
+});
+
+test("without a public URL yet, Instagram waits -- no attempt recorded, no alert; it gives up only when Facebook did", async () => {
+  const igPost = async () => { throw new Error("must not post"); };
+  const ig = { id: "instagram", needsVideoUrl: true, post: igPost } as unknown as ReelsTarget;
+  const fbDown = target("facebook", async () => { throw new Error("FB down"); });
+  const h = harness([fbDown, ig]);
+  const deps = { ...h.deps, videoUrl: async () => undefined };
+  assert.deepEqual(await crosspostRun(h.candidate, deps), { facebook: "failed", instagram: "waiting" });
+  assert.equal(h.log.filter((r) => r.node_id === "crosspost_instagram").length, 0, "waiting is not an attempt");
+  for (let i = 1; i < CROSSPOST_MAX_ATTEMPTS; i++) await crosspostRun(h.candidate, deps);
+  assert.deepEqual(await crosspostRun(h.candidate, deps), { facebook: "gave_up", instagram: "gave_up" });
+  assert.equal(h.alerts.length, 1, "only Facebook's own give-up alerts");
+  assert.equal(crosspostSettled(h.log, ig, [fbDown, ig]), true, "the pre-filter stops re-checking the run");
+});
 
 test("each platform gets its own caption, generated once per pass", async () => {
   const seen: Record<string, string> = {};

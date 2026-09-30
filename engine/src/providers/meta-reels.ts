@@ -16,8 +16,10 @@
  *   100 posts / 24 h.
  *
  * Bytes are uploaded directly, so no public video URL is needed (the server
- * is LAN-only). The token travels in request bodies/headers, never in a URL,
- * so it cannot leak into logs.
+ * is LAN-only) -- EXCEPT with an Instagram-login token on graph.instagram.com,
+ * where Meta only accepts `video_url`: crosspost.ts then passes the public
+ * CDN URL of the same Short's Facebook Reel. The token travels in request
+ * bodies/headers, never in a URL, so it cannot leak into logs.
  */
 
 export interface ReelPost {
@@ -25,6 +27,8 @@ export interface ReelPost {
   media_type: string;
   caption: string;
   title: string;
+  /** A public URL of the same video, for targets that fetch instead of accepting bytes. */
+  video_url?: string;
 }
 
 export interface ReelResult {
@@ -34,6 +38,8 @@ export interface ReelResult {
 
 export interface ReelsTarget {
   readonly id: "facebook" | "instagram";
+  /** True when post() needs ReelPost.video_url (it cannot take uploaded bytes). */
+  readonly needsVideoUrl?: boolean;
   post(p: ReelPost): Promise<ReelResult>;
 }
 
@@ -144,20 +150,41 @@ export class FacebookReelsTarget extends MetaClient implements ReelsTarget {
     }
     return { external_id: videoId, url: `https://www.facebook.com/reel/${videoId}` };
   }
+
+  /** The public CDN URL of a published Reel's video file, once Facebook has one. */
+  async sourceUrl(videoId: string): Promise<string | undefined> {
+    const source = (await this.graph("GET", videoId, { fields: "source" }))["source"];
+    return typeof source === "string" && source.startsWith("https://") ? source : undefined;
+  }
 }
 
 export class InstagramReelsTarget extends MetaClient implements ReelsTarget {
   readonly id = "instagram" as const;
-  constructor(private readonly igUserId: string, opts: MetaOptions) { super(opts); }
+  /**
+   * Resumable (byte) upload is only for Facebook-login tokens on
+   * graph.facebook.com. With an Instagram-login token (graph.instagram.com)
+   * Meta requires `video_url` -- a public URL Instagram downloads the video
+   * from (docs checked 2026-09-30, after "The parameter video_url is
+   * required" in production).
+   */
+  readonly needsVideoUrl: boolean;
+  constructor(private readonly igUserId: string, opts: MetaOptions) {
+    super(opts);
+    this.needsVideoUrl = this.graphBase.includes("graph.instagram.com");
+  }
 
   async post(p: ReelPost): Promise<ReelResult> {
+    if (this.needsVideoUrl && !p.video_url) throw new MetaApiError("Instagram (Instagram-login token) needs a public video_url for the Reel");
     const container = await this.graph("POST", `${this.igUserId}/media`, {
-      media_type: "REELS", upload_type: "resumable", caption: p.caption, share_to_feed: "true",
+      media_type: "REELS", caption: p.caption, share_to_feed: "true",
+      ...(this.needsVideoUrl ? { video_url: p.video_url! } : { upload_type: "resumable" }),
     });
     const containerId = String(container["id"] ?? "");
     if (!containerId) throw new MetaApiError("Instagram did not return a media container id");
-    const uploadUrl = String(container["uri"] ?? `https://rupload.facebook.com/ig-api-upload/${this.version}/${containerId}`);
-    await this.upload(uploadUrl, p.video);
+    if (!this.needsVideoUrl) {
+      const uploadUrl = String(container["uri"] ?? `https://rupload.facebook.com/ig-api-upload/${this.version}/${containerId}`);
+      await this.upload(uploadUrl, p.video);
+    }
     for (let i = 0; ; i++) {
       const code = String((await this.graph("GET", containerId, { fields: "status_code" }))["status_code"] ?? "");
       if (code === "FINISHED") break;
