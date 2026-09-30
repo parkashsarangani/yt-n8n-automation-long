@@ -45,6 +45,7 @@ import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./p
 import { crosspostRun, CROSSPOST_MAX_ATTEMPTS, type CrosspostOutcome } from "./crosspost.ts";
 import { IgTokenStore } from "./ig-token.ts";
 import { reelCaptions } from "./reel-captions.ts";
+import { BEAT_IMAGE_MODEL, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -243,7 +244,7 @@ export class VidGenService {
   private editorReturnsInFlight: Promise<EditorReturnsResult> | null = null;
   /** The script-authoring model, kept for the studio's Short draft writer. */
   private shortDraftProvider: ModelProvider | null = null;
-  /** Writes the per-platform Reel captions (reel-captions.ts). */
+  /** Fast model: per-platform Reel captions and per-beat image descriptions. */
   private captionProvider: ModelProvider | null = null;
   /** Facebook/Instagram Reels targets; empty until META_* credentials are set (dormant). */
   private reelsTargets: ReelsTarget[] = [];
@@ -1046,6 +1047,73 @@ export class VidGenService {
       console.log(`[crosspost] run ${view.run_id.slice(4, 12)}: ${JSON.stringify(outcomes[view.run_id])}`);
     }
     return { checked, outcomes };
+  }
+
+  private beatImagesKey(): string | undefined {
+    return process.env["OPENAI_IMAGES_API_KEY"]?.trim() || process.env["OPENAI_API_KEY"]?.trim() || undefined;
+  }
+
+  /** Per-beat images for the editor: on with BEAT_IMAGES=1, an OpenAI key and Drive. */
+  beatImagesEnabled(): boolean {
+    return /^(1|true|on|yes)$/i.test(process.env["BEAT_IMAGES"]?.trim() ?? "") && !!this.beatImagesKey() && !!this.driveProvider;
+  }
+
+  /**
+   * For every run parked at editor_review (package uploaded, cut not yet
+   * back), generate one image per beat into <episode folder>/beats/
+   * (beat-images.ts). Best-effort and off the critical path: outcomes are
+   * run-log tag records (node_id "beat_images", graph_id null); a pass that
+   * crashed mid-way ("running" last) is never retried -- it may already have
+   * paid -- and after BEAT_IMAGES_MAX_ATTEMPTS failures the run is left alone.
+   * Only runs from the last 3 days, so switching it on never backfills.
+   */
+  async beatImagesPending(opts: { generate?: (prompt: string) => Promise<Uint8Array> } = {}): Promise<{ checked: number; delivered: number }> {
+    const drive = this.driveProvider;
+    const apiKey = this.beatImagesKey();
+    if (!drive || (!opts.generate && !apiKey)) return { checked: 0, delivered: 0 };
+    const generate = opts.generate ?? ((prompt: string) => generateBeatImage(prompt, { apiKey: apiKey! }));
+    const node = "beat_images";
+    const maxAttempts = 2;
+    const cutoff = Date.now() - 3 * 24 * 3600_000;
+    let checked = 0, delivered = 0;
+    const parked = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review") && Date.parse(r.created_at) >= cutoff);
+    for (const run of parked) {
+      const mine = (await this.runRecords(run.run_id)).filter((r) => r.node_id === node);
+      if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
+      const failures = mine.filter((r) => r.status === "failed").length;
+      if (failures >= maxAttempts) continue;
+      const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
+      const folderId = (await this.store.get<{ drive_folder_id?: string }>(handoffId))?.payload?.drive_folder_id;
+      const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
+      const scriptId = artifactOf("draft_script"), seoId = artifactOf("seo");
+      const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
+      if (!folderId || selectBeats(scenes).length === 0) continue;
+      const title = (seoId ? (await this.store.get<{ title?: string }>(seoId))?.payload?.title : undefined) ?? "";
+      checked++;
+      const base = {
+        run_id: run.run_id, graph_id: null, node_id: node, transformation: node, transformation_version: "1",
+        inputs: [], attempt: failures + 1, max_attempts: maxAttempts, duration_ms: 0,
+      };
+      const started = new Date();
+      await this.runLog.record({ ...base, output: null, status: "running", started_at: started.toISOString() });
+      const log = (m: string) => console.log(m);
+      try {
+        const plans = await planBeats(title, scenes, { provider: this.captionProvider, prompts: this.prompts, log });
+        const result = await deliverBeatImages({ episodeFolderId: folderId, title, plans }, { drive, generate, log });
+        await this.runLog.record({
+          ...base, output: drive.folderUrl(result.folder_id), status: "ok", started_at: started.toISOString(),
+          duration_ms: Date.now() - started.getTime(), provider: "openai", model: BEAT_IMAGE_MODEL,
+          usage: { input_tokens: 0, output_tokens: 0, cost_usd: result.estimated_cost_usd, provider: "openai", model: BEAT_IMAGE_MODEL },
+        });
+        delivered++;
+        console.log(`[beat-images] run ${run.run_id.slice(4, 12)}: ${result.generated} image(s), ~$${result.estimated_cost_usd}${result.failed.length ? `, missing ${result.failed.join(", ")}` : ""}`);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        await this.runLog.record({ ...base, output: null, status: "failed", error: detail.slice(0, 1000), started_at: started.toISOString() });
+        console.log(`[beat-images] run ${run.run_id.slice(4, 12)} failed: ${detail}`);
+      }
+    }
+    return { checked, delivered };
   }
 
   async checkEditorReturns(): Promise<EditorReturnsResult> {
