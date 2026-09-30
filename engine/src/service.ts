@@ -44,6 +44,7 @@ import { assertEditorCutDuration, assertYouTubeProductionGeometry, readMp4Geomet
 import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./providers/meta-reels.ts";
 import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspost.ts";
 import { IgTokenStore } from "./ig-token.ts";
+import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { reelCaptions } from "./reel-captions.ts";
 import { BEAT_IMAGE_MODEL, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
@@ -248,6 +249,8 @@ export class VidGenService {
   private captionProvider: ModelProvider | null = null;
   /** Facebook/Instagram Reels targets; empty until META_* credentials are set (dormant). */
   private reelsTargets: ReelsTarget[] = [];
+  /** Temporary public copies of Shorts for Instagram (Drive); null without Drive. */
+  private publicVideoHost: DrivePublicVideoHost | null = null;
   /** Auto-renewing Instagram-login token, when META_IG_ACCESS_TOKEN is set. */
   private igToken: IgTokenStore | null = null;
 
@@ -334,15 +337,19 @@ export class VidGenService {
     const renderer: MediaRenderer = can("renderer")
       ? new ComposeRenderer({ baseUrl: env("COMPOSE_URL")! })
       : new FakeRenderer();
-    const drive: DriveExchange = can("editor_handoff")
-      ? new DriveProvider({
-        accessToken: driveTokenFactory({
-          clientId: env("DRIVE_CLIENT_ID")!,
-          clientSecret: env("DRIVE_CLIENT_SECRET")!,
-          refreshToken: env("DRIVE_REFRESH_TOKEN")!,
-        }),
+    const driveToken = can("editor_handoff")
+      ? driveTokenFactory({
+        clientId: env("DRIVE_CLIENT_ID")!,
+        clientSecret: env("DRIVE_CLIENT_SECRET")!,
+        refreshToken: env("DRIVE_REFRESH_TOKEN")!,
       })
-      : new FakeDriveProvider();
+      : null;
+    const drive: DriveExchange = driveToken ? new DriveProvider({ accessToken: driveToken }) : new FakeDriveProvider();
+    // Instagram publishes only from a public URL: a temporary copy on the
+    // engine's Drive (reel-public-video.ts).
+    this.publicVideoHost = driveToken && env("DRIVE_ROOT_FOLDER_ID")
+      ? new DrivePublicVideoHost({ token: driveToken, parentFolderId: env("DRIVE_ROOT_FOLDER_ID")! })
+      : null;
     this.driveProvider = drive;
 
     // The OAuth trio is preferred: it refreshes itself. The bare access token
@@ -417,13 +424,15 @@ export class VidGenService {
     const igLoginToken = env("META_IG_ACCESS_TOKEN");
     this.igToken = igLoginToken ? new IgTokenStore(igLoginToken, path.join(this.dataDir, "meta", "ig-token.json")) : null;
     const igStore = this.igToken;
+    const instagram = igStore
+      ? [new InstagramReelsTarget("me", { accessToken: () => igStore.get(), graphBase: "https://graph.instagram.com", version: metaVersion })]
+      : metaToken && env("META_IG_USER_ID")
+        ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })]
+        : [];
+    if (instagram.length && !this.publicVideoHost) console.log("[crosspost] Instagram is configured but has no public video host (Drive) -- Instagram stays off");
     this.reelsTargets = [
       ...(metaToken && env("META_PAGE_ID") ? [new FacebookReelsTarget(env("META_PAGE_ID")!, { accessToken: metaToken, version: metaVersion })] : []),
-      ...(igStore
-        ? [new InstagramReelsTarget("me", { accessToken: () => igStore.get(), graphBase: "https://graph.instagram.com", version: metaVersion })]
-        : metaToken && env("META_IG_USER_ID")
-          ? [new InstagramReelsTarget(env("META_IG_USER_ID")!, { accessToken: metaToken, version: metaVersion })]
-          : []),
+      ...(this.publicVideoHost ? instagram : []),
     ];
 
     const runner = new Runner({
@@ -1008,7 +1017,7 @@ export class VidGenService {
       if (!pubId || !videoId || !seoId) continue;
       // Cheap filters first: finished everywhere, not public, or too long.
       const history = await this.runRecords(view.run_id);
-      if (targets.every((t) => crosspostSettled(history, t, targets))) continue;
+      if (targets.every((t) => crosspostSettled(history, t))) continue;
       const published = (await this.store.get<{ privacy?: string }>(pubId))?.payload;
       if (published?.privacy !== "public") continue;
       const video = (await this.store.get<{ video_uri?: string; media_type?: string; duration_sec?: number }>(videoId))?.payload;
@@ -1037,13 +1046,10 @@ export class VidGenService {
           records: (id) => this.runRecords(id),
           record: (r) => this.runLog.record(r),
           alert: (runId, reason, error) => sendOperatorAlert({ run_id: runId, reason, failures: [{ node_id: "crosspost", error }] }),
-          // Instagram-login uploads fetch the video from a public URL: the
-          // Facebook Reel of the same Short, via its CDN source link.
-          videoUrl: async (records) => {
-            const fbVideoId = records.find((r) => r.node_id === "crosspost_facebook" && r.status === "ok")?.model;
-            const fb = targets.find((t): t is FacebookReelsTarget => t instanceof FacebookReelsTarget);
-            return fbVideoId && fb ? fb.sourceUrl(fbVideoId) : undefined;
-          },
+          ...(this.publicVideoHost ? {
+            publicVideo: async (video: Uint8Array) =>
+              this.publicVideoHost!.publish(`reel-tmp-${view.run_id.slice(4, 12)}.mp4`, await reelSafeMp4(video)),
+          } : {}),
         },
       );
       console.log(`[crosspost] run ${view.run_id.slice(4, 12)}: ${JSON.stringify(outcomes[view.run_id])}`);
