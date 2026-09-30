@@ -42,7 +42,7 @@ import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact,
 import { proposeAdoptions, type AdoptableRun, type AdoptionProposal, type ChannelVideo } from "./episode-adoption.ts";
 import { assertEditorCutDuration, assertYouTubeProductionGeometry, readMp4Geometry } from "./media/mp4.ts";
 import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./providers/meta-reels.ts";
-import { crosspostRun, CROSSPOST_MAX_ATTEMPTS, type CrosspostOutcome } from "./crosspost.ts";
+import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspost.ts";
 import { IgTokenStore } from "./ig-token.ts";
 import { reelCaptions } from "./reel-captions.ts";
 import { BEAT_IMAGE_MODEL, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
@@ -1008,12 +1008,7 @@ export class VidGenService {
       if (!pubId || !videoId || !seoId) continue;
       // Cheap filters first: finished everywhere, not public, or too long.
       const history = await this.runRecords(view.run_id);
-      const settled = targets.every((t) => {
-        const mine = history.filter((r) => r.node_id === `crosspost_${t.id}`);
-        return mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running"
-          || mine.filter((r) => r.status === "failed").length >= CROSSPOST_MAX_ATTEMPTS;
-      });
-      if (settled) continue;
+      if (targets.every((t) => crosspostSettled(history, t, targets))) continue;
       const published = (await this.store.get<{ privacy?: string }>(pubId))?.payload;
       if (published?.privacy !== "public") continue;
       const video = (await this.store.get<{ video_uri?: string; media_type?: string; duration_sec?: number }>(videoId))?.payload;
@@ -1042,6 +1037,13 @@ export class VidGenService {
           records: (id) => this.runRecords(id),
           record: (r) => this.runLog.record(r),
           alert: (runId, reason, error) => sendOperatorAlert({ run_id: runId, reason, failures: [{ node_id: "crosspost", error }] }),
+          // Instagram-login uploads fetch the video from a public URL: the
+          // Facebook Reel of the same Short, via its CDN source link.
+          videoUrl: async (records) => {
+            const fbVideoId = records.find((r) => r.node_id === "crosspost_facebook" && r.status === "ok")?.model;
+            const fb = targets.find((t): t is FacebookReelsTarget => t instanceof FacebookReelsTarget);
+            return fbVideoId && fb ? fb.sourceUrl(fbVideoId) : undefined;
+          },
         },
       );
       console.log(`[crosspost] run ${view.run_id.slice(4, 12)}: ${JSON.stringify(outcomes[view.run_id])}`);
