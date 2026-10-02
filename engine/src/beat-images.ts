@@ -21,7 +21,7 @@ import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
 import { ffmpegTransform } from "./ffmpeg-file.ts";
 
-export const BEAT_IMAGES_PROMPT = "beat_images@1";
+export const BEAT_IMAGES_PROMPT = "beat_images@2";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
 /** What the model can make: its tallest size is 2:3, there is no 9:16. */
 export const BEAT_IMAGE_SIZE = "1024x1536";
@@ -35,17 +35,40 @@ export const BEAT_IMAGE_QUALITY = "medium";
 /** Hard cap per run -- the cost bound, whatever the script length. */
 export const MAX_BEAT_IMAGES = 8;
 /** OpenAI list price for one medium 1024x1536 gpt-image-1-mini image (2026-09). */
-export const EST_COST_PER_IMAGE_USD = 0.015;
+export const EST_COST_PER_IMAGE_USD = 0.017; // + two small reference images as input
 export const BEATS_FOLDER = "beats";
 
 /** Fixed art direction, prepended to every beat so the Short looks like one piece. */
+/**
+ * The Quiet Signal series look (operator 2026-10-02: "make this repeated so
+ * the channel has a known pattern and people recognize it"). Fixed for every
+ * image of every Short: one main character, one supporting-cast look, one
+ * palette, one line style. The two reference images in assets/series are
+ * sent with every request -- a text description alone drifted (hoodie shade,
+ * other people sometimes drawn as realistic humans).
+ */
+export const YOU =
+  "a white stick figure with a perfectly round white head, thick black outline, simple black dot eyes and expressive eyebrows, " +
+  "wearing a mustard-yellow (#F2B630) hoodie with the hood down and a small white emblem of three curved signal arcs on the chest, dark charcoal trousers and dark shoes";
+export const OTHERS =
+  "stick figures with a perfectly round LIGHT-GREY head (no hair, no ears, no nose), simple dot eyes and eyebrows, in plain teal or navy clothing";
 export const STYLE =
-  "Vertical 9:16 stickman illustration: simple black stick figures with round heads and clean, bold line work on a plain off-white background, " +
-  "minimal props drawn in the same simple line style, one soft accent colour at most. " +
-  "Every stick figure has a clear, expressive face (eyes, eyebrows and mouth) whose emotion reads instantly -- worried, embarrassed, relieved, surprised, calm -- " +
-  "and body language that matches it. Keep the figures in the middle third, with empty space at the top and bottom for captions, " +
-  "and well away from the left and right edges (the sides are cropped). " +
+  "Vertical illustration in the Quiet Signal series style: polished comic-stickman, thick clean black outlines, flat bright high-contrast colours " +
+  "from one palette (mustard #F2B630, teal #2EC4B6, coral #FF6B6B, soft cream #FFF4E0, deep navy #22313F, light grey #D9DEE3). " +
+  `"You" is ALWAYS ${YOU} -- exactly the first reference image. Every other person is one of the ${OTHERS} -- exactly like the second reference image, never a realistic human. ` +
+  "Readable cartoon faces with clear eyebrows, eyes and mouth, and natural expressive body language; small emotion marks (sweat drops, blush, motion lines) only where they fit. " +
+  "Keep each emotion exactly as described -- subtle means subtle, not angry. " +
+  "A detailed, recognisable setting full of the specific props described, drawn in the same flat style. " +
+  "Characters large and central, framed from the knees up, well away from the left and right edges (the sides are cropped). " +
   "Absolutely no text, letters, numbers, speech bubbles, signage, logos or watermarks.";
+
+/** The series' fixed character references, shipped with the engine. */
+export const SERIES_REFERENCE_FILES = ["you.png", "others.png"] as const;
+
+export async function loadSeriesReferences(dir = new URL("../assets/series/", import.meta.url)): Promise<Uint8Array[]> {
+  const { readFile } = await import("node:fs/promises");
+  return Promise.all(SERIES_REFERENCE_FILES.map(async (f) => new Uint8Array(await readFile(new URL(f, dir)))));
+}
 
 export interface BeatScene {
   scene_index: number;
@@ -113,10 +136,10 @@ export async function planBeats(
         title,
         beats: beats.map((b) => `${b.scene_index}: ${b.narration.trim()}`).join("\n"),
       });
-      const res = await deps.provider.complete({ prompt, outputSchema: SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 2500, effort: "low" });
+      const res = await deps.provider.complete({ prompt, outputSchema: SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 6000, effort: "low" });
       for (const item of (res.value as { images?: Array<{ scene_index?: unknown; description?: unknown }> })?.images ?? []) {
         const d = String(item.description ?? "").trim();
-        if (typeof item.scene_index === "number" && d.length >= 20 && d.length <= 800) byIndex.set(item.scene_index, d);
+        if (typeof item.scene_index === "number" && d.length >= 20 && d.length <= 2000) byIndex.set(item.scene_index, d);
       }
     } catch (err) {
       deps.log?.(`[beat-images] planner failed (${err instanceof Error ? err.message : String(err)}); using the narration`);
@@ -131,19 +154,39 @@ export async function planBeats(
 }
 
 export function fullPrompt(description: string): string {
-  return `${STYLE}\n\nScene: ${description}`;
+  return `${STYLE}\n\nReference images: the first is "you", the second is how every other person looks.\n\nScene: ${description}`;
 }
 
 /** One image from the OpenAI Images API. The key never appears in an error. */
 export async function generateBeatImage(
   prompt: string,
-  opts: { apiKey: string; fetchImpl?: typeof fetch; baseUrl?: string },
+  opts: { apiKey: string; fetchImpl?: typeof fetch; baseUrl?: string; references?: Uint8Array[] },
 ): Promise<Uint8Array> {
-  const res = await (opts.fetchImpl ?? fetch)(`${opts.baseUrl ?? "https://api.openai.com/v1"}/images/generations`, {
-    method: "POST",
+  const base = opts.baseUrl ?? "https://api.openai.com/v1";
+  const refs = opts.references ?? [];
+  // With references: /images/edits draws the scene using them as the
+  // character sheet (verified with gpt-image-1-mini 2026-10-02). Without:
+  // plain generation.
+  let request: RequestInit;
+  if (refs.length > 0) {
+    const form = new FormData();
+    form.append("model", BEAT_IMAGE_MODEL);
+    form.append("prompt", prompt);
+    refs.forEach((r, i) => form.append("image[]", new Blob([r], { type: "image/png" }), `reference-${i + 1}.png`));
+    form.append("size", BEAT_IMAGE_SIZE);
+    form.append("quality", BEAT_IMAGE_QUALITY);
+    form.append("n", "1");
+    request = { method: "POST", headers: { Authorization: `Bearer ${opts.apiKey}` }, body: form };
+  } else {
+    request = {
+      method: "POST",
+      headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: BEAT_IMAGE_MODEL, prompt, size: BEAT_IMAGE_SIZE, quality: BEAT_IMAGE_QUALITY, n: 1, output_format: "png" }),
+    };
+  }
+  const res = await (opts.fetchImpl ?? fetch)(`${base}/images/${refs.length > 0 ? "edits" : "generations"}`, {
+    ...request,
     signal: AbortSignal.timeout(240_000),
-    headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: BEAT_IMAGE_MODEL, prompt, size: BEAT_IMAGE_SIZE, quality: BEAT_IMAGE_QUALITY, n: 1, output_format: "png" }),
   });
   const body = (await res.json().catch(() => ({}))) as { data?: Array<{ b64_json?: string }>; error?: { message?: string; code?: string } };
   if (!res.ok || !body.data?.[0]?.b64_json) {
