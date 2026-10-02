@@ -81,6 +81,7 @@ test("editor_watch is off by default and only polls Drive when explicitly re-ena
     } finally { off.stop(); }
 
     process.env["EDITOR_RETURN_WATCH_ENABLED"] = "true";
+    process.env["DAILY_RELEASE_HOUR"] = "off";
     const on = startGrowthScheduler(service);
     try {
       const job = on.status().find((j) => j.id === "editor_watch")!;
@@ -92,6 +93,27 @@ test("editor_watch is off by default and only polls Drive when explicitly re-ena
       assert.equal(job.every_hours, 24);
     } finally { on.stop(); }
   } finally {
+    delete process.env["DAILY_RELEASE_HOUR"];
+    if (previous === undefined) delete process.env["EDITOR_RETURN_WATCH_ENABLED"];
+    else process.env["EDITOR_RETURN_WATCH_ENABLED"] = previous;
+  }
+});
+
+test("with the one-a-day queue on, the daily sweep runs at the release hour -- it is the release", () => {
+  const service = { listRuns: () => [], capabilities: () => [{ id: "editor_handoff", real: true }] } as any;
+  const previous = process.env["EDITOR_RETURN_WATCH_ENABLED"];
+  try {
+    process.env["EDITOR_RETURN_WATCH_ENABLED"] = "true";
+    for (const [setting, expected] of [[undefined, "12:00"], ["9", "9:00"]] as const) {
+      if (setting === undefined) delete process.env["DAILY_RELEASE_HOUR"]; else process.env["DAILY_RELEASE_HOUR"] = setting;
+      const s = startGrowthScheduler(service);
+      try {
+        const job = s.status().find((j) => j.id === "editor_watch")!;
+        assert.match(job.description, new RegExp(`publish the next queued Short .* once daily at ${expected} Europe/Berlin`));
+      } finally { s.stop(); }
+    }
+  } finally {
+    delete process.env["DAILY_RELEASE_HOUR"];
     if (previous === undefined) delete process.env["EDITOR_RETURN_WATCH_ENABLED"];
     else process.env["EDITOR_RETURN_WATCH_ENABLED"] = previous;
   }
