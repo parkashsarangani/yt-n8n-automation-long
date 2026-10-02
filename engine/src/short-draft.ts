@@ -23,7 +23,18 @@ import type { PromptStore } from "./prompts.ts";
 import { FORMATS } from "./video-format.ts";
 import { SPOKEN_CTA_SHORT } from "./cta.ts";
 
-export const SHORT_DRAFT_PROMPT = "short_script_writer@1";
+/**
+ * v2 (operator 2026-10-02: "the sole focus is on views ... solid beats that
+ * translate into views and watch time"): 6-9 short beats of 15-30 words,
+ * each one drawable moment (one beat = one illustrated scene), a <=12-word
+ * scroll-stopping first sentence, re-hooks, escalation, and a closing line
+ * that loops back to the hook. v1 wrote 3-5 paragraphs of ~20 s each.
+ */
+export const SHORT_DRAFT_PROMPT = "short_script_writer@2";
+/** Beats after the hook, not counting the closing line. */
+export const MIN_BEATS = 6, MAX_BEATS = 9;
+/** Words per beat: the target range, and the point a beat must be split. */
+export const BEAT_WORDS_TARGET = 30, BEAT_WORDS_MAX = 45;
 export const MAX_ATTEMPTS = 3;
 /** Measured on this narrator in production: ~200 words rendered at 70.8 s (~170 wpm). */
 export const WORDS_PER_SECOND = 170 / 60;
@@ -32,9 +43,9 @@ export type HookShape = "list" | "myth" | "moment";
 export const HOOK_SHAPES: HookShape[] = ["list", "myth", "moment"];
 
 const SHAPE_RULES: Record<HookShape, string> = {
-  list: `LIST SHORT. Hook: a pattern break -- a short, surprising claim that reframes the viewer's problem ("Your brain isn't lazy. It's scared.") -- then promise a NUMBER of tricks/signs/reasons (three is best) and plant an OPEN LOOP on the last one ("the third one feels like cheating"). Body: exactly that many items, one per paragraph, in order, each starting by naming the item plainly ("Trick one: the two-minute start."), 45-65 words each. The last item pays off the open loop and should feel strongest.`,
-  myth: `MYTH-BUST SHORT. Hook: state the common belief the viewer holds about the topic, then flatly say it's wrong ("You've been told procrastination is laziness. It isn't.") and promise what is really going on. Body: 2-3 paragraphs -- what actually happens and why (the real effect behind it), then what to do instead, each paragraph 45-70 words, building to the most useful point last.`,
-  moment: `EVERYDAY-MOMENT SHORT. Hook: drop the viewer into a specific, familiar moment in second person, present tense ("It's 11 p.m. You're replaying something you said at lunch.") and promise to explain why it happens. Body: 2-3 paragraphs -- name what is going on in their head (the real effect behind it), why the brain does it, and one concrete thing to do next time, each paragraph 45-70 words.`,
+  list: `LIST SHORT. Hook: a pattern break -- a short, surprising claim that reframes the viewer's problem ("Your brain isn't lazy. It's scared.") -- then promise a NUMBER of tricks/signs/reasons (three is best) and plant an OPEN LOOP on the last one ("the third one feels like cheating"). Beats: each item gets TWO beats -- first the moment it fixes, shown concretely ("You open the laptop. Then the phone. Then the fridge."), then the trick itself, named plainly ("Trick one: the two-minute start.") with exactly what to do. Re-hook between items. The last item pays off the open loop and is the strongest.`,
+  myth: `MYTH-BUST SHORT. Hook: state the common belief the viewer holds, then flatly say it's wrong ("You've been told procrastination is laziness. It isn't.") and promise what is really going on. Beats: show the belief in action (1-2 beats) -> the twist: what actually happens and the real effect behind it (2-3 beats, with a re-hook) -> what to do instead, concretely (2-3 beats), building to the most useful point last.`,
+  moment: `EVERYDAY-MOMENT SHORT. Hook: drop the viewer into a specific, familiar moment in second person, present tense ("It's 11 p.m. You're replaying something you said at lunch.") and promise to explain why it happens. Beats: play the moment out step by step (2-3 beats) -> what is going on in their head and the real effect behind it (2-3 beats, with a re-hook) -> one concrete thing to do next time, shown in the same setting (2 beats).`,
 };
 
 export interface ShortDraft {
@@ -98,7 +109,14 @@ export function shortDraftChecks(draft: ShortDraft, shape: HookShape = "list"): 
   // Length and basic form (hard).
   if (title.length < 20 || title.length > 100) blocking.push(`title must be 20-100 characters (is ${title.length})`);
   if (words(hook) < 8 || words(hook) > 35) blocking.push(`hook must be 8-35 words (is ${words(hook)})`);
-  if (paragraphs.length < 2 || paragraphs.length > 6) blocking.push(`script must be 1-5 body paragraphs plus a closing question, separated by blank lines (has ${paragraphs.length})`);
+  // Each paragraph is one illustrated scene: a few long ones mean few, slow
+  // picture changes -- the pacing that loses a Short's viewers.
+  if (paragraphs.length < MIN_BEATS + 1 || paragraphs.length > MAX_BEATS + 1) {
+    blocking.push(`script must be ${MIN_BEATS}-${MAX_BEATS} short beats plus a closing line, separated by blank lines (has ${paragraphs.length} paragraphs)`);
+  }
+  paragraphs.forEach((p, i) => {
+    if (words(p) > BEAT_WORDS_MAX) blocking.push(`beat ${i + 1} is ${words(p)} words -- split it into beats of 15-${BEAT_WORDS_TARGET} words`);
+  });
   const seconds = estimateSeconds(hook, script);
   const spec = FORMATS.short;
   if (seconds < spec.minDurationSec! || seconds > spec.maxDurationSec!) {
@@ -109,6 +127,10 @@ export function shortDraftChecks(draft: ShortDraft, shape: HookShape = "list"): 
   // Structure (soft) -- a first guess from one viral Short, not a proven formula.
   const close = paragraphs.at(-1) ?? "";
   if (!/\?/.test(close) || words(close) > 20) warnings.push("the last paragraph is usually one short question viewers can answer in the comments");
+  const firstSentence = hook.split(/(?<=[.!?])\s+/)[0] ?? "";
+  if (words(firstSentence) > 12) warnings.push(`the hook's first sentence is ${words(firstSentence)} words -- 12 or fewer stops the scroll`);
+  const long = paragraphs.slice(0, -1).map((p, i) => [i + 1, words(p)] as const).filter(([, n]) => n > BEAT_WORDS_TARGET && n <= BEAT_WORDS_MAX);
+  if (long.length) warnings.push(`beat${long.length > 1 ? "s" : ""} ${long.map(([i]) => i).join(", ")} run past ${BEAT_WORDS_TARGET} words -- shorter beats keep the pictures changing`);
   if (shape === "list") {
     if (!NUMBER_PROMISE.test(hook)) warnings.push("a list hook usually promises a number (e.g. 'three tricks')");
     if (!OPEN_LOOP.test(hook)) warnings.push("a list hook usually teases the last item (e.g. 'the third one feels like cheating')");

@@ -14,15 +14,24 @@ import { draftShort, estimateSeconds, shortDraftChecks, type ShortDraft } from "
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The hand-written reference Short the operator approved as the target style. */
+/**
+ * The operator-approved reference Short, in v2 beat form (2026-10-02): the
+ * same content as the original, split into short drawable beats with a
+ * re-hook -- one beat per illustrated scene.
+ */
 const GOOD: ShortDraft = {
   title: "Your Brain Wants You to Procrastinate. Here's How to Beat It.",
   alternative_titles: ["3 Psychology Tricks That Make You Start Anything", "Why Do You Procrastinate on Things You Want?"],
   hook: "Your brain isn't lazy. It's scared. These three psychology tricks make starting almost automatic — and the third one feels like cheating.",
   script: [
-    "Trick one: the two-minute start. Your brain treats an unfinished task like an open tab it can't close. Psychologists call it the Zeigarnik effect. So don't commit to finishing. Commit to two minutes. Open the file, write one ugly sentence, and let that open tab pull you back in.",
-    "Trick two: the if-then plan. \"I'll do it tomorrow\" fails because your brain has nothing to react to. Say this instead: if it's nine a.m. and my coffee is made, then I open the report. It's been tested in nearly a hundred studies, because the decision is made before the moment arrives.",
-    "Trick three feels like cheating: borrow an audience. On boring tasks, people work harder when someone can see them. It's called the audience effect. Work in a café, sit on a video call with a friend, or tell someone you'll send it by five. Suddenly your brain cares.",
+    "You sit down to work. You open the laptop. Then your phone. Then the fridge. Twenty minutes gone, nothing started.",
+    "Trick one: the two-minute start. Don't commit to finishing. Commit to two minutes. Open the file and write one ugly sentence.",
+    "Your brain treats an unfinished task like an open tab. Psychologists call it the Zeigarnik effect. That open tab pulls you back in.",
+    "But starting is only half the trap. The real enemy is the word tomorrow.",
+    "Trick two: the if-then plan. Say this instead: if it's nine a.m. and my coffee is made, then I open the report.",
+    "It's been tested in nearly a hundred studies, because the decision is already made before the moment arrives.",
+    "And now the one that feels like cheating. On boring tasks, people work harder when someone can see them.",
+    "Trick three: borrow an audience. Work in a café, sit on a video call with a friend, or promise to send it by five. Suddenly your brain cares.",
     "Which one are you trying first? Tell me in the comments.",
   ].join("\n\n"),
 };
@@ -38,12 +47,40 @@ test("honesty and length are hard rules", () => {
     ["invented statistic", { script: GOOD.script.replace("Suddenly your brain cares.", "It makes you 80% faster.") }, /percentage/],
     ["subscribe ask", { script: GOOD.script.replace("Tell me in the comments.", "Like and subscribe for more.") }, /like, subscribe or follow/],
     ["dark psychology framing", { title: "Dark Psychology Tricks to Control Your Brain Today" }, /dark psychology/],
-    ["too long", { script: `${GOOD.script.split("\n\n").slice(0, 3).map((p) => `${p} ${p}`).join("\n\n")}\n\nWhich one first?` }, /spoken length/],
+    ["too long", { script: GOOD.script.split("\n\n").map((p) => `${p} ${p}`).join("\n\n") }, /spoken length/],
   ];
   for (const [label, change, expected] of cases) {
     const { blocking } = shortDraftChecks({ ...GOOD, ...change });
     assert.ok(blocking.some((p) => expected.test(p)), `${label}: ${JSON.stringify(blocking)}`);
   }
+});
+
+test("v2 beats are a hard rule: a few long paragraphs (the v1 shape) or one giant beat is rewritten", () => {
+  const v1Shape = GOOD.script.split("\n\n");
+  const fewLong = [v1Shape.slice(0, 3).join(" "), v1Shape.slice(3, 6).join(" "), v1Shape.slice(6, 8).join(" "), v1Shape[8]!].join("\n\n");
+  assert.ok(shortDraftChecks({ ...GOOD, script: fewLong }).blocking.some((p) => /6-9 short beats plus a closing line/.test(p)));
+  const giant = [...v1Shape.slice(0, 6), `${v1Shape[6]} ${v1Shape[7]} Then you finally close the laptop and notice how easy it felt.`, v1Shape[8]!].join("\n\n");
+  assert.ok(shortDraftChecks({ ...GOOD, script: giant }).blocking.some((p) => /beat 7 is \d+ words -- split it/.test(p)));
+});
+
+test("retention suggestions: a slow first sentence and long beats are flagged, never rewritten", () => {
+  const slowHook = { ...GOOD, hook: "If you ever wondered why starting feels impossible, try these three tricks, and the third feels like cheating." };
+  const s = shortDraftChecks(slowHook, "list");
+  assert.deepEqual(s.blocking, []);
+  assert.ok(s.warnings.some((w) => /first sentence is \d+ words -- 12 or fewer/.test(w)));
+  // Same words, one beat fewer: beat 1 absorbs beat 4 and runs long.
+  const beats = GOOD.script.split("\n\n");
+  beats[0] = `${beats[0]} ${beats[3]}`;
+  beats.splice(3, 1);
+  const l = shortDraftChecks({ ...GOOD, script: beats.join("\n\n") }, "list");
+  assert.deepEqual(l.blocking, []);
+  assert.ok(l.warnings.some((w) => /beat 1 run past 30 words/.test(w)), JSON.stringify(l.warnings));
+});
+
+test("the v2 prompt asks for views and watch time: drawable beats, re-hooks, escalation, a loop ending", async () => {
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const text = prompts.render("short_script_writer@2", { topic: "t", shape_rules: "s", feedback: "" });
+  for (const needle of [/views and watch time/, /6-9 beats/, /RE-HOOK/, /ESCALATE/, /LOOPS back to the hook/, /could be drawn/]) assert.match(text, needle);
 });
 
 test("the viral structure is only a suggestion: warnings, never a rewrite", () => {

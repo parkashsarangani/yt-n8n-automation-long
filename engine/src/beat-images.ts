@@ -33,7 +33,7 @@ export const BEAT_IMAGE_SIZE = "1024x1536";
 export const BEAT_FRAME = { width: 1080, height: 1920 } as const;
 export const BEAT_IMAGE_QUALITY = "medium";
 /** Hard cap per run -- the cost bound, whatever the script length. */
-export const MAX_BEAT_IMAGES = 8;
+export const MAX_BEAT_IMAGES = 10; // hook + up to 9 beats (short_script_writer@2); ~$0.17 per Short
 /** OpenAI list price for one medium 1024x1536 gpt-image-1-mini image (2026-09). */
 export const EST_COST_PER_IMAGE_USD = 0.017; // + two small reference images as input
 export const BEATS_FOLDER = "beats";
