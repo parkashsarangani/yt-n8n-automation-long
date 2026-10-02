@@ -235,28 +235,28 @@ export class FakePublishTarget implements PublishTarget {
  */
 export class FakeDriveProvider implements DriveExchange {
   readonly id = "fake/drive";
-  private readonly files = new Map<string, { name: string; mimeType: string; bytes: Uint8Array; parent: string }>();
+  private readonly files = new Map<string, { name: string; mimeType: string; bytes: Uint8Array; parent: string; createdTime: string }>();
   private readonly folders = new Set<string>(["root"]);
 
   async createFolder(name: string, parentId: string): Promise<string> {
     if (!this.folders.has(parentId)) throw new ProviderError(`fake drive: unknown parent folder ${parentId}`);
     const id = `folder_${randomUUID()}`;
     this.folders.add(id);
-    this.files.set(id, { name, mimeType: "application/vnd.google-apps.folder", bytes: new Uint8Array(), parent: parentId });
+    this.files.set(id, { name, mimeType: "application/vnd.google-apps.folder", bytes: new Uint8Array(), parent: parentId, createdTime: new Date().toISOString() });
     return id;
   }
 
   async uploadFile(folderId: string, name: string, bytes: Uint8Array, mimeType: string): Promise<string> {
     if (!this.folders.has(folderId)) throw new ProviderError(`fake drive: unknown folder ${folderId}`);
     const id = `file_${randomUUID()}`;
-    this.files.set(id, { name, mimeType, bytes, parent: folderId });
+    this.files.set(id, { name, mimeType, bytes, parent: folderId, createdTime: new Date().toISOString() });
     return id;
   }
 
   async listFiles(folderId: string): Promise<DriveFile[]> {
     return [...this.files.entries()]
       .filter(([, f]) => f.parent === folderId)
-      .map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType, size: f.bytes.byteLength }));
+      .map(([id, f]) => ({ id, name: f.name, mimeType: f.mimeType, size: f.bytes.byteLength, createdTime: f.createdTime }));
   }
 
   async downloadFile(fileId: string): Promise<Uint8Array> {

@@ -12,7 +12,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FakeDriveProvider } from "../src/providers/fake.ts";
 import { isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
-  BEAT_IMAGE_MODEL, MAX_BEAT_IMAGES, STYLE, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
+  BEAT_FRAME, BEAT_IMAGE_MODEL, MAX_BEAT_IMAGES, STYLE, shortFrameArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
 } from "../src/beat-images.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -93,6 +93,17 @@ test("an empty balance stops at the first failure and the pass reports failure",
   assert.equal(calls, 1);
 });
 
+test("a broken crop stops at the first beat instead of paying for images that would be thrown away", async () => {
+  const drive = new FakeDriveProvider();
+  const episode = await drive.createFolder("ep", "root");
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const plans = await planBeats("T", SCENES, { provider: null, prompts });
+  let calls = 0;
+  const generate = async () => { calls++; throw new Error("frame crop failed: spawn ffmpeg ENOENT"); };
+  await assert.rejects(deliverBeatImages({ episodeFolderId: episode, title: "T", plans }, { drive, generate }), /frame crop failed/);
+  assert.equal(calls, 1);
+});
+
 test("one failed beat does not stop the rest, and prompts.md names it", async () => {
   const drive = new FakeDriveProvider();
   const episode = await drive.createFolder("ep", "root");
@@ -132,6 +143,15 @@ test("the style is stickman with expressive faces, and never asks for text", asy
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const [plan] = await planBeats("T", SCENES, { provider: null, prompts });
   assert.match(plan!.description, /stick figure.*facial expression/i, "the fallback keeps the style too");
+});
+
+test("images are delivered at the Short's exact 1080x1920 frame (operator: 'wrong size')", () => {
+  const args = shortFrameArgs("in.png", "out.png");
+  const vf = args[args.indexOf("-vf") + 1]!;
+  // 1024x1536 scaled to height 1920 is 1280 wide; the centre 1080 is kept.
+  assert.equal(vf, "scale=-2:1920:flags=lanczos,crop=1080:1920");
+  assert.deepEqual(BEAT_FRAME, { width: 1080, height: 1920 });
+  assert.match(STYLE, /away from the left and right edges/, "figures stay inside the crop");
 });
 
 test("our beats/ folder is never reported as an unrecognised editor upload", () => {

@@ -70,6 +70,8 @@ services:
       META_IG_ACCESS_TOKEN: ${META_IG_ACCESS_TOKEN:-}
       # Per-beat editor images (gpt-image-1-mini, ~$0.10/Short). 1 = on. Optional own key with its own spend cap.
       BEAT_IMAGES: ${BEAT_IMAGES:-0}
+      # Returned cuts publish one per day at this hour (Berlin), in upload order; "off" = immediately.
+      DAILY_RELEASE_HOUR: ${DAILY_RELEASE_HOUR:-12}
       OPENAI_IMAGES_API_KEY: ${OPENAI_IMAGES_API_KEY:-}
       META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v25.0}
       # Daily preparation slot is resolved from a local-time target, not a fixed

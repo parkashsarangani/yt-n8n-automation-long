@@ -21,6 +21,12 @@ export interface DriveFile {
    * as "cannot verify", not as zero.
    */
   size?: number;
+  /**
+   * When the file was uploaded (RFC 3339, from Drive). Returned Shorts are
+   * published in this order (release-schedule.ts), not in the order a poll
+   * happened to notice them.
+   */
+  createdTime?: string;
 }
 
 export interface DriveExchange {
@@ -100,7 +106,7 @@ export class DriveProvider implements DriveExchange {
     const files: DriveFile[] = [];
     let page: string | undefined;
     do {
-      const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=100${page ? "&pageToken="+encodeURIComponent(page) : ""}`, {
+      const res = await this.fetchImpl(`${this.baseUrl}/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,createdTime)&pageSize=100${page ? "&pageToken="+encodeURIComponent(page) : ""}`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(120_000),
       });

@@ -19,10 +19,18 @@
 import type { DriveExchange } from "./providers/drive.ts";
 import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
+import { ffmpegTransform } from "./ffmpeg-file.ts";
 
 export const BEAT_IMAGES_PROMPT = "beat_images@1";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
+/** What the model can make: its tallest size is 2:3, there is no 9:16. */
 export const BEAT_IMAGE_SIZE = "1024x1536";
+/**
+ * What the editor gets (operator 2026-10-02: "wrong size"): exactly the
+ * Short's 1080x1920 frame -- scaled to 1280x1920, centre-cropped to 1080
+ * wide, so ~8% of each side is lost and STYLE keeps figures away from it.
+ */
+export const BEAT_FRAME = { width: 1080, height: 1920 } as const;
 export const BEAT_IMAGE_QUALITY = "medium";
 /** Hard cap per run -- the cost bound, whatever the script length. */
 export const MAX_BEAT_IMAGES = 8;
@@ -35,7 +43,8 @@ export const STYLE =
   "Vertical 9:16 stickman illustration: simple black stick figures with round heads and clean, bold line work on a plain off-white background, " +
   "minimal props drawn in the same simple line style, one soft accent colour at most. " +
   "Every stick figure has a clear, expressive face (eyes, eyebrows and mouth) whose emotion reads instantly -- worried, embarrassed, relieved, surprised, calm -- " +
-  "and body language that matches it. Keep the figures in the middle third, with empty space at the top and bottom for captions. " +
+  "and body language that matches it. Keep the figures in the middle third, with empty space at the top and bottom for captions, " +
+  "and well away from the left and right edges (the sides are cropped). " +
   "Absolutely no text, letters, numbers, speech bubbles, signage, logos or watermarks.";
 
 export interface BeatScene {
@@ -144,11 +153,27 @@ export async function generateBeatImage(
   return new Uint8Array(Buffer.from(body.data[0].b64_json, "base64"));
 }
 
+/** ffmpeg arguments: model image (2:3) -> exactly the Short's 1080x1920 frame. */
+export function shortFrameArgs(input: string, output: string): string[] {
+  const { width, height } = BEAT_FRAME;
+  // Scale to the frame's height, then centre-crop the width.
+  return ["-v", "error", "-y", "-i", input, "-vf", `scale=-2:${height}:flags=lanczos,crop=${width}:${height}`, "-frames:v", "1", output];
+}
+
+/** Fit one generated image to the Short's frame; a failure says so plainly. */
+export async function fitToShortFrame(png: Uint8Array, ffmpeg?: string): Promise<Uint8Array> {
+  try {
+    return await ffmpegTransform(png, { inName: "in.png", outName: "out.png", args: shortFrameArgs, timeoutMs: 60_000, ...(ffmpeg ? { ffmpeg } : {}) });
+  } catch (err) {
+    throw new Error(`frame crop failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export function promptsMarkdown(title: string, plans: BeatPlan[], failed: string[]): string {
   return [
     `# Beat images — ${title}`,
     "",
-    `One image per beat, generated with ${BEAT_IMAGE_MODEL} (${BEAT_IMAGE_SIZE}, ${BEAT_IMAGE_QUALITY} quality). Use, crop or ignore any of them.`,
+    `One image per beat, ${BEAT_FRAME.width}x${BEAT_FRAME.height} (9:16, the Short's frame), generated with ${BEAT_IMAGE_MODEL} (${BEAT_IMAGE_QUALITY} quality). Use or ignore any of them.`,
     "To redo one: paste its full prompt below into ChatGPT (or ask the operator) and change the Scene line.",
     ...(failed.length ? ["", `Not generated this time: ${failed.join(", ")}`] : []),
     "",
@@ -204,8 +229,9 @@ export async function deliverBeatImages(
       lastError = err instanceof Error ? err.message : String(err);
       failed.push(plan.file);
       deps.log?.(`[beat-images] ${plan.file}: ${lastError}`);
-      // A bad key or an empty balance fails every further call the same way.
-      if (/\((401|429)\b|insufficient_quota|billing/i.test(lastError)) break;
+      // A bad key, an empty balance or a broken crop fails every further
+      // beat the same way -- stop before paying for images that would be lost.
+      if (/\((401|429)\b|insufficient_quota|billing|frame crop failed/i.test(lastError)) break;
     }
   }
   if (generated === 0 && skipped === 0) throw new Error(`no beat image could be generated: ${lastError || "nothing planned"}`);
