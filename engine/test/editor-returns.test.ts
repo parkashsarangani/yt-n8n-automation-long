@@ -16,6 +16,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { VidGenService } from "../src/service.ts";
+
+// These cases pin the import itself, published as soon as it validates; the
+// one-per-day queue in front of it is covered in release-schedule.test.ts.
+process.env["DAILY_RELEASE_HOUR"] = "off";
 // Real MP4 bytes: checkEditorReturns runs the actual geometry assertion AND
 // the duration check, so the default fixture has to state a duration. With a
 // duration-less fixture the duration guard short-circuits and every test below

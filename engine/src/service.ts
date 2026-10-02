@@ -35,7 +35,18 @@ import { ComposeRenderer } from "./providers/compose.ts";
 import { YouTubeTarget } from "./providers/youtube.ts";
 import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
-import { DriveProvider, type DriveExchange } from "./providers/drive.ts";
+import { DriveProvider, type DriveExchange, type DriveFile } from "./providers/drive.ts";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { berlinClock, pickRelease, queuePositions, releaseHour, RELEASE_QUEUE_NODE, type QueuedCut } from "./release-schedule.ts";
+
+/** A returned cut that passed every check, ready to hand to publish. */
+interface ValidatedCut {
+  bytes: Uint8Array;
+  media_type: string;
+  draft: { scene_count?: number; degraded_scenes?: number; duration_sec?: number } | undefined;
+  cutDurationSec: number | null;
+  editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
+}
 import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
 import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
@@ -46,7 +57,7 @@ import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspo
 import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { reelCaptions } from "./reel-captions.ts";
-import { BEAT_IMAGE_MODEL, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
+import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -1079,7 +1090,8 @@ export class VidGenService {
     const drive = this.driveProvider;
     const apiKey = this.beatImagesKey();
     if (!drive || (!opts.generate && !apiKey)) return { checked: 0, delivered: 0 };
-    const generate = opts.generate ?? ((prompt: string) => generateBeatImage(prompt, { apiKey: apiKey! }));
+    // Generated at the model's 2:3, delivered at the Short's exact 1080x1920.
+    const generate = opts.generate ?? (async (prompt: string) => fitToShortFrame(await generateBeatImage(prompt, { apiKey: apiKey! })));
     const node = "beat_images";
     const maxAttempts = 2;
     const cutoff = Date.now() - 3 * 24 * 3600_000;
@@ -1148,13 +1160,35 @@ export class VidGenService {
     let advanced = 0;
     const advancedRuns: string[] = [];
     const failedRuns: Array<{ run_id: string; error: string }> = [];
+    const fail = async (run: RunView, err: unknown) => {
+      // Same reasoning as the two report* helpers: the run is waiting rather
+      // than failing, so without an alert a cut that throws every pass (bad
+      // geometry, a Drive outage) retries unattended forever and nobody
+      // learns. sendOperatorAlert dedups, so a persistent fault pings once
+      // per cooldown rather than on every poll.
+      const detail = err instanceof Error ? err.message : String(err);
+      failedRuns.push({ run_id: run.run_id, error: detail });
+      console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
+      await sendOperatorAlert({
+        run_id: run.run_id,
+        reason: "the editor's returned cut could not be imported",
+        failures: [{ node_id: "editor_review", error: detail }],
+      });
+    };
+    // One Short per day at DAILY_RELEASE_HOUR (release-schedule.ts); null =
+    // the old behaviour, each cut published as soon as it is validated.
+    const hour = releaseHour(process.env["DAILY_RELEASE_HOUR"]);
+    const queue: Array<QueuedCut & { run: RunView; folderId: string; files: DriveFile[]; final: DriveFile }> = [];
+    const newlyQueued = new Set<string>();
+
     for (const run of runs) {
       try {
         const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
         const handoff = await this.store.get<{ drive_folder_id: string }>(handoffId);
         if (!handoff) continue;
+        const folderId = handoff.payload.drive_folder_id;
 
-        const files = await drive.listFiles(handoff.payload.drive_folder_id);
+        const files = await drive.listFiles(folderId);
         const candidates = files.filter((f) => isEditorCutFilename(f.name));
 
         if (candidates.length === 0) {
@@ -1185,119 +1219,200 @@ export class VidGenService {
           continue;
         }
 
-        const bytes = await drive.downloadFile(final.id);
-
-        // Drive lists a file the moment it is created, not when the upload
-        // finishes, so a poll (or a creation-triggered webhook) can hand us a
-        // truncated cut. Re-read the listing and require the size Drive now
-        // reports to match what we actually downloaded; a mid-write file will
-        // differ and simply waits for the next pass. Unsized files cannot be
-        // verified, so they are skipped rather than trusted.
-        const after = (await drive.listFiles(handoff.payload.drive_folder_id)).find((f) => f.id === final.id);
-        if (after?.size === undefined) {
-          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: Drive reported no size for final.mp4; cannot confirm the upload finished, leaving it for the next pass`);
-          continue;
-        }
-        if (after.size !== bytes.byteLength) {
-          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: final.mp4 still changing (${bytes.byteLength} -> ${after.size} bytes); waiting for the upload to settle`);
+        if (hour === null) {
+          const cut = await this.validateEditorCut(run, folderId, files, final);
+          if (!cut) continue;
+          await this.releaseEditorCut(run, final, cut);
+          advanced += 1;
+          advancedRuns.push(run.run_id);
           continue;
         }
 
-        assertYouTubeProductionGeometry(bytes);
-
-        const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
-        const draft = renderId
-          ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
-          : null;
-
-        // The size check above proves the upload finished, not that this is
-        // the right episode. A complete 20-second fragment, or a different
-        // export dropped in this folder, passes every check before this one.
-        // Throwing here lands in the catch below: the run stays waiting and
-        // the operator is alerted, rather than the episode going public.
-        const cutDurationSec = assertEditorCutDuration(bytes, draft?.payload.duration_sec);
-        if (cutDurationSec === null) {
-          // Says so out loud, because "we could not verify" and "we verified
-          // and it passed" must not look the same in the logs. The cut still
-          // publishes: some valid containers state no duration, and refusing
-          // those would block real work to catch a rarer fault.
-          console.log(
-            `[editor-watch] run ${run.run_id.slice(4, 12)}: the returned cut states no duration, ` +
-            `so it could not be checked against the ${draft?.payload.duration_sec ?? "unknown"}s draft`,
-          );
+        // Queued once, when it first validates: a queued cut is not
+        // downloaded again on every poll, only when its day comes. A
+        // replaced file (new Drive id) is a new cut and queues afresh.
+        let queuedAt = (await this.runRecords(run.run_id))
+          .find((r) => r.node_id === RELEASE_QUEUE_NODE && r.inputs.includes(final.id))?.started_at;
+        if (!queuedAt) {
+          const cut = await this.validateEditorCut(run, folderId, files, final);
+          if (!cut) continue;
+          queuedAt = this.releaseNow().toISOString();
+          await this.runLog.record({
+            run_id: run.run_id, graph_id: null, node_id: RELEASE_QUEUE_NODE, transformation: "daily_release", transformation_version: "1",
+            inputs: [final.id], output: null, status: "ok", attempt: 1, max_attempts: 1, started_at: queuedAt, duration_ms: 0,
+          });
+          newlyQueued.add(run.run_id);
         }
-
-        // Optional: the editor may also return a finished thumbnail. Two
-        // candidates are as unresolvable here as two cuts, so neither is used.
-        const thumbs = files.filter((f) => isEditorThumbnailFilename(f.name));
-        let editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
-        if (thumbs.length === 1) {
-          const picked = thumbs[0]!;
-          const thumbBytes = await drive.downloadFile(picked.id);
-          if (picked.size === thumbBytes.byteLength) {
-            editorThumbnail = { bytes: thumbBytes, media_type: picked.mimeType || "image/png" };
-          } else {
-            console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${picked.name} still uploading; publishing with our own thumbnail`);
-          }
-        } else if (thumbs.length > 1) {
-          console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${thumbs.length} candidate thumbnails; publishing with our own`);
-        }
-
-        await this.supplyEditorCut(run.run_id, {
-          bytes,
-          // Honour what the editor actually exported; .mov and .m4v are valid
-          // YouTube uploads and mislabelling them as mp4 helps nobody.
-          media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
-          scene_count: draft?.payload.scene_count ?? 1,
-          degraded_scenes: draft?.payload.degraded_scenes ?? 0,
-          // The cut's own duration, or nothing at all. Copying the draft's
-          // made the artifact assert a length the published file did not have
-          // the moment the editor trimmed anything -- and that number is what
-          // downstream measurement reasons about. Falling back to the draft
-          // when the cut states no duration would reintroduce exactly that
-          // bug in the one case where we know least, so an unverifiable
-          // duration is recorded as absent rather than as a confident guess.
-          ...(cutDurationSec !== null ? { duration_sec: cutDurationSec } : {}),
-        }, editorThumbnail);
-        // Written before the approval, not after: a crash between publishing
-        // and recording must not look like a fresh cut on the next pass. The
-        // cost is that a failure in decide() itself makes this run "uncertain"
-        // and needs a human -- the safe side of an irreversible upload.
-        await this.runLog.record({
-          run_id: run.run_id,
-          graph_id: `${this.graph.graph_id}@${this.graph.version}`,
-          node_id: "editor_review",
-          transformation: VidGenService.EDITOR_RETURN_MARKER,
-          transformation_version: "1",
-          inputs: [final.id],
-          output: null,
-          status: "ok",
-          attempt: 1,
-          max_attempts: 1,
-          started_at: new Date().toISOString(),
-          duration_ms: 0,
-        });
-        await this.decide(run.run_id, "editor_review", { result: "approve" });
-        advanced += 1;
-        advancedRuns.push(run.run_id);
-        console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
+        queue.push({ run_id: run.run_id, queued_at: queuedAt, run, folderId, files, final });
       } catch (err) {
-        // Same reasoning as the two report* helpers: the run is waiting rather
-        // than failing, so without an alert a cut that throws every pass (bad
-        // geometry, a Drive outage) retries unattended forever and nobody
-        // learns. sendOperatorAlert dedups, so a persistent fault pings once
-        // per cooldown rather than on every poll.
-        const detail = err instanceof Error ? err.message : String(err);
-        failedRuns.push({ run_id: run.run_id, error: detail });
-        console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
-        await sendOperatorAlert({
-          run_id: run.run_id,
-          reason: "the editor's returned cut could not be imported",
-          failures: [{ node_id: "editor_review", error: detail }],
-        });
+        await fail(run, err);
+      }
+    }
+
+    if (hour !== null && queue.length > 0) {
+      const positions = queuePositions(queue);
+      for (const id of newlyQueued) {
+        console.log(`[release] run ${id.slice(4, 12)}: cut validated and queued, #${positions.get(id)} of ${queue.length} -- one Short goes out daily at ${hour}:00 Berlin`);
+      }
+      const now = this.releaseNow();
+      const pick = pickRelease(now, hour, (await this.readReleaseState()).last_release_date, queue);
+      const item = pick ? queue.find((q) => q.run_id === pick.run_id)! : undefined;
+      if (item) {
+        try {
+          // Checked again on its day: the file may have changed since it queued.
+          const cut = await this.validateEditorCut(item.run, item.folderId, item.files, item.final);
+          if (cut) {
+            // Today's slot is spent BEFORE the hand-off: a crash in between
+            // delays a Short by a day rather than publishing two at once.
+            await this.writeReleaseState({ last_release_date: berlinClock(now).date, run_id: item.run_id, released_at: now.toISOString() });
+            await this.releaseEditorCut(item.run, item.final, cut);
+            advanced += 1;
+            advancedRuns.push(item.run_id);
+            console.log(`[release] run ${item.run_id.slice(4, 12)}: today's Short released (${queue.length - 1} more queued)`);
+          }
+        } catch (err) {
+          await fail(item.run, err);
+        }
       }
     }
     return { configured: true, checked: runs.length, advanced, advanced_runs: advancedRuns, failed_runs: failedRuns };
+  }
+
+  /** The clock the daily release reads (a method so tests can set the day). */
+  releaseNow(): Date {
+    return new Date();
+  }
+
+  private releaseStateFile(): string {
+    return path.join(this.dataDir, "release-state.json");
+  }
+
+  private async readReleaseState(): Promise<{ last_release_date?: string }> {
+    try {
+      return JSON.parse(await readFile(this.releaseStateFile(), "utf8")) as { last_release_date?: string };
+    } catch {
+      return {};
+    }
+  }
+
+  private async writeReleaseState(state: { last_release_date: string; run_id: string; released_at: string }): Promise<void> {
+    const file = this.releaseStateFile();
+    await writeFile(`${file}.tmp`, JSON.stringify(state));
+    await rename(`${file}.tmp`, file);
+  }
+
+  /**
+   * Download and check a returned cut. null = not ready yet (still
+   * uploading); throws when it is wrong (geometry, duration) so the caller
+   * alerts and the run stays waiting.
+   */
+  private async validateEditorCut(run: RunView, folderId: string, files: DriveFile[], final: DriveFile): Promise<ValidatedCut | null> {
+    const drive = this.driveProvider!;
+    const bytes = await drive.downloadFile(final.id);
+
+    // Drive lists a file the moment it is created, not when the upload
+    // finishes, so a poll (or a creation-triggered webhook) can hand us a
+    // truncated cut. Re-read the listing and require the size Drive now
+    // reports to match what we actually downloaded; a mid-write file will
+    // differ and simply waits for the next pass. Unsized files cannot be
+    // verified, so they are skipped rather than trusted.
+    const after = (await drive.listFiles(folderId)).find((f) => f.id === final.id);
+    if (after?.size === undefined) {
+      console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: Drive reported no size for final.mp4; cannot confirm the upload finished, leaving it for the next pass`);
+      return null;
+    }
+    if (after.size !== bytes.byteLength) {
+      console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: final.mp4 still changing (${bytes.byteLength} -> ${after.size} bytes); waiting for the upload to settle`);
+      return null;
+    }
+
+    assertYouTubeProductionGeometry(bytes);
+
+    const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
+    const draft = renderId
+      ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
+      : null;
+
+    // The size check above proves the upload finished, not that this is
+    // the right episode. A complete 20-second fragment, or a different
+    // export dropped in this folder, passes every check before this one.
+    // Throwing here lands in the caller's catch: the run stays waiting and
+    // the operator is alerted, rather than the episode going public.
+    const cutDurationSec = assertEditorCutDuration(bytes, draft?.payload.duration_sec);
+    if (cutDurationSec === null) {
+      // Says so out loud, because "we could not verify" and "we verified
+      // and it passed" must not look the same in the logs. The cut still
+      // publishes: some valid containers state no duration, and refusing
+      // those would block real work to catch a rarer fault.
+      console.log(
+        `[editor-watch] run ${run.run_id.slice(4, 12)}: the returned cut states no duration, ` +
+        `so it could not be checked against the ${draft?.payload.duration_sec ?? "unknown"}s draft`,
+      );
+    }
+
+    // Optional: the editor may also return a finished thumbnail. Two
+    // candidates are as unresolvable here as two cuts, so neither is used.
+    const thumbs = files.filter((f) => isEditorThumbnailFilename(f.name));
+    let editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
+    if (thumbs.length === 1) {
+      const picked = thumbs[0]!;
+      const thumbBytes = await drive.downloadFile(picked.id);
+      if (picked.size === thumbBytes.byteLength) {
+        editorThumbnail = { bytes: thumbBytes, media_type: picked.mimeType || "image/png" };
+      } else {
+        console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${picked.name} still uploading; publishing with our own thumbnail`);
+      }
+    } else if (thumbs.length > 1) {
+      console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: ${thumbs.length} candidate thumbnails; publishing with our own`);
+    }
+
+    return {
+      bytes,
+      // Honour what the editor actually exported; .mov and .m4v are valid
+      // YouTube uploads and mislabelling them as mp4 helps nobody.
+      media_type: final.mimeType?.startsWith("video/") ? final.mimeType : "video/mp4",
+      draft: draft?.payload,
+      cutDurationSec,
+      editorThumbnail,
+    };
+  }
+
+  /** Hand a validated cut to finalize -> QA -> publish. */
+  private async releaseEditorCut(run: RunView, final: DriveFile, cut: ValidatedCut): Promise<void> {
+    await this.supplyEditorCut(run.run_id, {
+      bytes: cut.bytes,
+      media_type: cut.media_type,
+      scene_count: cut.draft?.scene_count ?? 1,
+      degraded_scenes: cut.draft?.degraded_scenes ?? 0,
+      // The cut's own duration, or nothing at all. Copying the draft's
+      // made the artifact assert a length the published file did not have
+      // the moment the editor trimmed anything -- and that number is what
+      // downstream measurement reasons about. Falling back to the draft
+      // when the cut states no duration would reintroduce exactly that
+      // bug in the one case where we know least, so an unverifiable
+      // duration is recorded as absent rather than as a confident guess.
+      ...(cut.cutDurationSec !== null ? { duration_sec: cut.cutDurationSec } : {}),
+    }, cut.editorThumbnail);
+    // Written before the approval, not after: a crash between publishing
+    // and recording must not look like a fresh cut on the next pass. The
+    // cost is that a failure in decide() itself makes this run "uncertain"
+    // and needs a human -- the safe side of an irreversible upload.
+    await this.runLog.record({
+      run_id: run.run_id,
+      graph_id: `${this.graph.graph_id}@${this.graph.version}`,
+      node_id: "editor_review",
+      transformation: VidGenService.EDITOR_RETURN_MARKER,
+      transformation_version: "1",
+      inputs: [final.id],
+      output: null,
+      status: "ok",
+      attempt: 1,
+      max_attempts: 1,
+      started_at: new Date().toISOString(),
+      duration_ms: 0,
+    });
+    await this.decide(run.run_id, "editor_review", { result: "approve" });
+    console.log(`[editor-watch] run ${run.run_id.slice(4, 12)}: applied editor cut from Drive and resumed`);
   }
 
   /**
