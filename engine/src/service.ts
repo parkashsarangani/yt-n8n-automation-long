@@ -49,7 +49,7 @@ import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { ffmpegAvailable } from "./ffmpeg-file.ts";
 import { reelCaptions } from "./reel-captions.ts";
-import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
+import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -1094,8 +1094,17 @@ export class VidGenService {
     const drive = this.driveProvider;
     const apiKey = this.beatImagesKey();
     if (!drive || (!opts.generate && !apiKey)) return { checked: 0, delivered: 0 };
-    // Generated at the model's 2:3, delivered at the Short's exact 1080x1920.
-    const generate = opts.generate ?? (async (prompt: string) => fitToShortFrame(await generateBeatImage(prompt, { apiKey: apiKey! })));
+    // The series' fixed character references (assets/series), read once per
+    // pass and only if an image is actually made. Generated at the model's
+    // 2:3, delivered at the Short's exact 1080x1920.
+    let references: Promise<Uint8Array[]> | undefined;
+    const generate = opts.generate ?? (async (prompt: string) => {
+      references ??= loadSeriesReferences().catch((err) => {
+        console.error(`[beat-images] series reference images missing (${err instanceof Error ? err.message : String(err)}); drawing without them`);
+        return [];
+      });
+      return fitToShortFrame(await generateBeatImage(prompt, { apiKey: apiKey!, references: await references }));
+    });
     const node = "beat_images";
     const maxAttempts = 2;
     const cutoff = Date.now() - 3 * 24 * 3600_000;

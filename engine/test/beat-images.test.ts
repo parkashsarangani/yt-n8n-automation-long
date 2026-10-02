@@ -12,7 +12,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FakeDriveProvider } from "../src/providers/fake.ts";
 import { isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
-  BEAT_FRAME, BEAT_IMAGE_MODEL, MAX_BEAT_IMAGES, STYLE, shortFrameArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
+  BEAT_FRAME, BEAT_IMAGE_MODEL, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
 } from "../src/beat-images.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -138,7 +138,7 @@ test("the Images API request: mini, portrait, medium; the key never leaks into a
 
 test("the style is stickman with expressive faces, and never asks for text", async () => {
   assert.match(STYLE, /stick ?(man|figures)/i);
-  assert.match(STYLE, /facial|expressive face/i);
+  assert.match(STYLE, /cartoon faces/i);
   assert.match(STYLE, /no text/i);
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const [plan] = await planBeats("T", SCENES, { provider: null, prompts });
@@ -152,6 +152,28 @@ test("images are delivered at the Short's exact 1080x1920 frame (operator: 'wron
   assert.equal(vf, "scale=-2:1920:flags=lanczos,crop=1080:1920");
   assert.deepEqual(BEAT_FRAME, { width: 1080, height: 1920 });
   assert.match(STYLE, /away from the left and right edges/, "figures stay inside the crop");
+});
+
+test("the series look is fixed: same main character and cast in every image, sent as reference images", async () => {
+  assert.match(STYLE, /mustard-yellow .* hoodie .* signal arcs/);
+  assert.match(STYLE, /LIGHT-GREY head/);
+  assert.match(STYLE, /never a realistic human/);
+  const refs = await loadSeriesReferences();
+  assert.equal(refs.length, 2, "you + other people");
+  for (const r of refs) assert.deepEqual([...r.subarray(1, 4)], [0x50, 0x4e, 0x47], "PNG files shipped with the engine");
+
+  let url = "";
+  let form: FormData | undefined;
+  const fetchImpl = (async (u: string, init: RequestInit) => {
+    url = u;
+    form = init.body as FormData;
+    return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("png").toString("base64") }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  await generateBeatImage("scene", { apiKey: "sk-test", fetchImpl, references: refs });
+  assert.match(url, /\/images\/edits$/, "references go through the edits endpoint");
+  assert.equal(form!.getAll("image[]").length, 2);
+  assert.equal(form!.get("model"), BEAT_IMAGE_MODEL);
+  assert.equal(form!.get("size"), "1024x1536");
 });
 
 test("our beats/ folder is never reported as an unrecognised editor upload", () => {
