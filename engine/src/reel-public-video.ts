@@ -16,12 +16,8 @@
  * deletes leftovers older than STALE_AFTER_MS on every publish.
  */
 
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { promisify } from "node:util";
 import type { PublicVideo } from "./crosspost.ts";
+import { ffmpegTransform } from "./ffmpeg-file.ts";
 
 export const PUBLIC_REELS_FOLDER = "_public-reels-tmp";
 export const STALE_AFTER_MS = 2 * 3600_000;
@@ -39,16 +35,8 @@ export function reelEncodeArgs(input: string, output: string): string[] {
   ];
 }
 
-export async function reelSafeMp4(video: Uint8Array, ffmpeg = process.env["FFMPEG_PATH"] || "ffmpeg"): Promise<Uint8Array> {
-  const dir = await mkdtemp(path.join(tmpdir(), "reel-"));
-  try {
-    const input = path.join(dir, "in.mp4"), output = path.join(dir, "reel.mp4");
-    await writeFile(input, video);
-    await promisify(execFile)(ffmpeg, reelEncodeArgs(input, output), { timeout: 600_000, maxBuffer: 16 * 1024 * 1024 });
-    return new Uint8Array(await readFile(output));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+export async function reelSafeMp4(video: Uint8Array, ffmpeg?: string): Promise<Uint8Array> {
+  return ffmpegTransform(video, { inName: "in.mp4", outName: "reel.mp4", args: reelEncodeArgs, timeoutMs: 600_000, ...(ffmpeg ? { ffmpeg } : {}) });
 }
 
 export interface DrivePublicVideoOptions {

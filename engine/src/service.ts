@@ -37,16 +37,7 @@ import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
 import { DriveProvider, type DriveExchange, type DriveFile } from "./providers/drive.ts";
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { berlinClock, pickRelease, queuePositions, releaseHour, RELEASE_QUEUE_NODE, type QueuedCut } from "./release-schedule.ts";
-
-/** A returned cut that passed every check, ready to hand to publish. */
-interface ValidatedCut {
-  bytes: Uint8Array;
-  media_type: string;
-  draft: { scene_count?: number; degraded_scenes?: number; duration_sec?: number } | undefined;
-  cutDurationSec: number | null;
-  editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
-}
+import { berlinClock, inReleaseOrder, releaseCandidates, releaseHour, RELEASE_QUEUE_NODE, type QueuedCut } from "./release-schedule.ts";
 import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
 import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
@@ -56,6 +47,7 @@ import { FacebookReelsTarget, InstagramReelsTarget, type ReelsTarget } from "./p
 import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspost.ts";
 import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
+import { ffmpegAvailable } from "./ffmpeg-file.ts";
 import { reelCaptions } from "./reel-captions.ts";
 import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry } from "./video-format.ts";
@@ -109,6 +101,18 @@ import {
   credentialsSatisfied,
   type StageStatus,
 } from "./capabilities.ts";
+
+/** The draft render's facts an editor cut is checked against and inherits. */
+type EditorDraft = { scene_count?: number; degraded_scenes?: number; duration_sec?: number };
+
+/** A returned cut that passed every check, ready to hand to publish. */
+interface ValidatedCut {
+  bytes: Uint8Array;
+  media_type: string;
+  draft: EditorDraft | undefined;
+  cutDurationSec: number | null;
+  editorThumbnail: { bytes: Uint8Array; media_type: string } | undefined;
+}
 
 export type NodeState = "pending" | "running" | "done" | "waiting" | "failed" | "blocked";
 
@@ -1097,6 +1101,17 @@ export class VidGenService {
     const cutoff = Date.now() - 3 * 24 * 3600_000;
     let checked = 0, delivered = 0;
     const parked = this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review") && Date.parse(r.created_at) >= cutoff);
+    // Every image is paid for BEFORE it is cropped: without a working ffmpeg
+    // each one would be bought and thrown away, so check first.
+    if (!opts.generate && parked.length > 0 && !(await ffmpegAvailable())) {
+      console.error("[beat-images] ffmpeg is not available; not generating any images");
+      await sendOperatorAlert({
+        run_id: parked[0]!.run_id,
+        reason: "beat images are paused: ffmpeg is not available on the engine",
+        failures: [{ node_id: "beat_images", error: `could not start ${process.env["FFMPEG_PATH"] || "ffmpeg"}` }],
+      });
+      return { checked: 0, delivered: 0 };
+    }
     for (const run of parked) {
       const mine = (await this.runRecords(run.run_id)).filter((r) => r.node_id === node);
       if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
@@ -1127,10 +1142,26 @@ export class VidGenService {
         });
         delivered++;
         console.log(`[beat-images] run ${run.run_id.slice(4, 12)}: ${result.generated} image(s), ~$${result.estimated_cost_usd}${result.failed.length ? `, missing ${result.failed.join(", ")}` : ""}`);
+        if (result.failed.length > 0) {
+          // Recorded ok and never retried (it may already have paid), so the
+          // gap is said out loud once rather than left in a log line.
+          await sendOperatorAlert({
+            run_id: run.run_id,
+            reason: `${result.failed.length} of ${plans.length} beat images could not be made`,
+            failures: [{ node_id: "beat_images", error: `missing: ${result.failed.join(", ")} -- prompts.md in the beats folder has their prompts` }],
+          });
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         await this.runLog.record({ ...base, output: null, status: "failed", error: detail.slice(0, 1000), started_at: started.toISOString() });
         console.log(`[beat-images] run ${run.run_id.slice(4, 12)} failed: ${detail}`);
+        if (failures + 1 >= maxAttempts) {
+          await sendOperatorAlert({
+            run_id: run.run_id,
+            reason: `beat images could not be made after ${maxAttempts} attempts`,
+            failures: [{ node_id: "beat_images", error: detail }],
+          });
+        }
       }
     }
     return { checked, delivered };
@@ -1160,7 +1191,7 @@ export class VidGenService {
     let advanced = 0;
     const advancedRuns: string[] = [];
     const failedRuns: Array<{ run_id: string; error: string }> = [];
-    const fail = async (run: RunView, err: unknown) => {
+    const fail = async (run: RunView, err: unknown, reason = "the editor's returned cut could not be imported") => {
       // Same reasoning as the two report* helpers: the run is waiting rather
       // than failing, so without an alert a cut that throws every pass (bad
       // geometry, a Drive outage) retries unattended forever and nobody
@@ -1171,7 +1202,7 @@ export class VidGenService {
       console.error(`[editor-watch] run ${run.run_id.slice(4, 12)} check failed: ${detail}`);
       await sendOperatorAlert({
         run_id: run.run_id,
-        reason: "the editor's returned cut could not be imported",
+        reason,
         failures: [{ node_id: "editor_review", error: detail }],
       });
     };
@@ -1243,35 +1274,57 @@ export class VidGenService {
           });
           newlyQueued.add(run.run_id);
         }
-        queue.push({ run_id: run.run_id, queued_at: queuedAt, run, folderId, files, final });
+        queue.push({ run_id: run.run_id, queued_at: queuedAt, ...(final.createdTime ? { uploaded_at: final.createdTime } : {}), run, folderId, files, final });
       } catch (err) {
         await fail(run, err);
       }
     }
 
     if (hour !== null && queue.length > 0) {
-      const positions = queuePositions(queue);
+      const ordered = inReleaseOrder(queue);
       for (const id of newlyQueued) {
-        console.log(`[release] run ${id.slice(4, 12)}: cut validated and queued, #${positions.get(id)} of ${queue.length} -- one Short goes out daily at ${hour}:00 Berlin`);
+        const position = ordered.findIndex((q) => q.run_id === id) + 1;
+        console.log(`[release] run ${id.slice(4, 12)}: cut validated and queued, #${position} of ${queue.length} by upload time -- one Short goes out daily at ${hour}:00 Berlin`);
       }
       const now = this.releaseNow();
-      const pick = pickRelease(now, hour, (await this.readReleaseState()).last_release_date, queue);
-      const item = pick ? queue.find((q) => q.run_id === pick.run_id)! : undefined;
-      if (item) {
+      let lastReleaseDate: string | undefined;
+      let stateReadable = true;
+      try {
+        lastReleaseDate = (await this.readReleaseState()).last_release_date;
+      } catch (err) {
+        // Fail closed: without a trustworthy "released today" there is no
+        // release at all, rather than a possible second one.
+        stateReadable = false;
+        console.error(`[release] ${err instanceof Error ? err.message : String(err)}`);
+        await sendOperatorAlert({
+          run_id: ordered[0]!.run_id,
+          reason: "the daily release is paused: its state file cannot be read",
+          failures: [{ node_id: "release_queue", error: `${err instanceof Error ? err.message : String(err)} -- fix or delete ${this.releaseStateFile()}` }],
+        });
+      }
+      // Oldest upload first; a cut that no longer validates (overwritten,
+      // still uploading, broken) is skipped for the next one, so one bad cut
+      // never holds up the rest of the queue.
+      for (const item of stateReadable ? releaseCandidates(now, hour, lastReleaseDate, queue) : []) {
+        let slotSpent = false;
         try {
           // Checked again on its day: the file may have changed since it queued.
           const cut = await this.validateEditorCut(item.run, item.folderId, item.files, item.final);
-          if (cut) {
-            // Today's slot is spent BEFORE the hand-off: a crash in between
-            // delays a Short by a day rather than publishing two at once.
-            await this.writeReleaseState({ last_release_date: berlinClock(now).date, run_id: item.run_id, released_at: now.toISOString() });
-            await this.releaseEditorCut(item.run, item.final, cut);
-            advanced += 1;
-            advancedRuns.push(item.run_id);
-            console.log(`[release] run ${item.run_id.slice(4, 12)}: today's Short released (${queue.length - 1} more queued)`);
-          }
+          if (!cut) continue;
+          // Today's slot is spent BEFORE the hand-off: a crash in between
+          // delays a Short by a day rather than publishing two at once.
+          await this.writeReleaseState({ last_release_date: berlinClock(now).date, run_id: item.run_id, released_at: now.toISOString() });
+          slotSpent = true;
+          await this.releaseEditorCut(item.run, item.final, cut);
+          advanced += 1;
+          advancedRuns.push(item.run_id);
+          console.log(`[release] run ${item.run_id.slice(4, 12)}: today's Short released (${queue.length - 1} more queued)`);
+          break;
         } catch (err) {
-          await fail(item.run, err);
+          await fail(item.run, err, slotSpent
+            ? "today's Short failed while being handed to publish; today's slot is used, it is retried tomorrow"
+            : undefined);
+          if (slotSpent) break;
         }
       }
     }
@@ -1287,12 +1340,29 @@ export class VidGenService {
     return path.join(this.dataDir, "release-state.json");
   }
 
+  /**
+   * What was last released. No file = nothing yet. Anything else unreadable
+   * THROWS: this file is the only thing standing between a corrupt disk and
+   * a second public Short the same day, so it fails closed.
+   */
   private async readReleaseState(): Promise<{ last_release_date?: string }> {
+    let text: string;
     try {
-      return JSON.parse(await readFile(this.releaseStateFile(), "utf8")) as { last_release_date?: string };
-    } catch {
-      return {};
+      text = await readFile(this.releaseStateFile(), "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw new Error(`release state unreadable: ${err instanceof Error ? err.message : String(err)}`);
     }
+    let state: { last_release_date?: unknown };
+    try {
+      state = JSON.parse(text) as { last_release_date?: unknown };
+    } catch {
+      throw new Error("release state is not valid JSON");
+    }
+    if (typeof state.last_release_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(state.last_release_date)) {
+      throw new Error("release state has no valid last_release_date");
+    }
+    return { last_release_date: state.last_release_date };
   }
 
   private async writeReleaseState(state: { last_release_date: string; run_id: string; released_at: string }): Promise<void> {
@@ -1330,7 +1400,7 @@ export class VidGenService {
 
     const renderId = run.nodes.find((n) => n.node_id === "render")?.artifact_id;
     const draft = renderId
-      ? await this.store.get<{ scene_count?: number; degraded_scenes?: number; duration_sec?: number }>(renderId)
+      ? await this.store.get<EditorDraft>(renderId)
       : null;
 
     // The size check above proves the upload finished, not that this is

@@ -93,6 +93,17 @@ test("an empty balance stops at the first failure and the pass reports failure",
   assert.equal(calls, 1);
 });
 
+test("a broken crop stops at the first beat instead of paying for images that would be thrown away", async () => {
+  const drive = new FakeDriveProvider();
+  const episode = await drive.createFolder("ep", "root");
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const plans = await planBeats("T", SCENES, { provider: null, prompts });
+  let calls = 0;
+  const generate = async () => { calls++; throw new Error("frame crop failed: spawn ffmpeg ENOENT"); };
+  await assert.rejects(deliverBeatImages({ episodeFolderId: episode, title: "T", plans }, { drive, generate }), /frame crop failed/);
+  assert.equal(calls, 1);
+});
+
 test("one failed beat does not stop the rest, and prompts.md names it", async () => {
   const drive = new FakeDriveProvider();
   const episode = await drive.createFolder("ep", "root");

@@ -19,6 +19,7 @@
 import type { DriveExchange } from "./providers/drive.ts";
 import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
+import { ffmpegTransform } from "./ffmpeg-file.ts";
 
 export const BEAT_IMAGES_PROMPT = "beat_images@1";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
@@ -159,20 +160,12 @@ export function shortFrameArgs(input: string, output: string): string[] {
   return ["-v", "error", "-y", "-i", input, "-vf", `scale=-2:${height}:flags=lanczos,crop=${width}:${height}`, "-frames:v", "1", output];
 }
 
-export async function fitToShortFrame(png: Uint8Array, ffmpeg = process.env["FFMPEG_PATH"] || "ffmpeg"): Promise<Uint8Array> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
-  const dir = await mkdtemp(path.join(tmpdir(), "beat-"));
+/** Fit one generated image to the Short's frame; a failure says so plainly. */
+export async function fitToShortFrame(png: Uint8Array, ffmpeg?: string): Promise<Uint8Array> {
   try {
-    const input = path.join(dir, "in.png"), output = path.join(dir, "out.png");
-    await writeFile(input, png);
-    await promisify(execFile)(ffmpeg, shortFrameArgs(input, output), { timeout: 60_000 });
-    return new Uint8Array(await readFile(output));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+    return await ffmpegTransform(png, { inName: "in.png", outName: "out.png", args: shortFrameArgs, timeoutMs: 60_000, ...(ffmpeg ? { ffmpeg } : {}) });
+  } catch (err) {
+    throw new Error(`frame crop failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -236,8 +229,9 @@ export async function deliverBeatImages(
       lastError = err instanceof Error ? err.message : String(err);
       failed.push(plan.file);
       deps.log?.(`[beat-images] ${plan.file}: ${lastError}`);
-      // A bad key or an empty balance fails every further call the same way.
-      if (/\((401|429)\b|insufficient_quota|billing/i.test(lastError)) break;
+      // A bad key, an empty balance or a broken crop fails every further
+      // beat the same way -- stop before paying for images that would be lost.
+      if (/\((401|429)\b|insufficient_quota|billing|frame crop failed/i.test(lastError)) break;
     }
   }
   if (generated === 0 && skipped === 0) throw new Error(`no beat image could be generated: ${lastError || "nothing planned"}`);
