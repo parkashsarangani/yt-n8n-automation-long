@@ -5,6 +5,7 @@ import { MAX_ATTEMPTS_BEFORE_ACCEPTING } from "./workers/watchability-release.ts
 import { localHourToUtcHour } from "./timezone-hour.ts";
 import { localParts } from "./delivery-time.ts";
 import { socialSeriesCatalog } from "./social-series.ts";
+import { releaseHour } from "./release-schedule.ts";
 
 /**
  * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
@@ -228,10 +229,15 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
   // sooner. Polling Drive every twenty minutes bought nothing and spent API
   // calls on every parked run each time.
   const requestedWatchHour = Number(process.env["SCHEDULE_EDITOR_WATCH_LOCAL_HOUR"] ?? 18);
-  const editorWatchHour =
+  // One Short per day (release-schedule.ts, 2026-10-02): this daily sweep is
+  // also what releases the next queued Short, so with the queue on it runs AT
+  // the release hour -- otherwise "12:00" would really mean whenever the sweep
+  // happened to run (18:00).
+  const dailyReleaseHour = releaseHour(process.env["DAILY_RELEASE_HOUR"], () => {});
+  const editorWatchHour = dailyReleaseHour ?? (
     Number.isInteger(requestedWatchHour) && requestedWatchHour >= 0 && requestedWatchHour <= 23
       ? requestedWatchHour
-      : 18;
+      : 18);
   // The editor currently publishes straight to YouTube and never drops a
   // final.mp4 back into Drive, so polling for one only wastes Drive API
   // calls and produces "advanced 0" log noise forever. Off by default;
@@ -375,7 +381,9 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       id: "editor_watch", everyHours: 24, enabled: editorHandoffReal && editorReturnWatchEnabled,
       localSchedule: { hour: editorWatchHour, timeZone },
       description: editorReturnWatchEnabled
-        ? `check every run parked at editor_review for a returned cut in its Drive folder, once daily at ${editorWatchHour}:00 ${timeZone}`
+        ? dailyReleaseHour !== null
+          ? `queue returned cuts from Drive and publish the next queued Short (upload order), once daily at ${editorWatchHour}:00 ${timeZone}`
+          : `check every run parked at editor_review for a returned cut in its Drive folder, once daily at ${editorWatchHour}:00 ${timeZone}`
         : "disabled -- editor_review is the pipeline's finish line today; set EDITOR_RETURN_WATCH_ENABLED to resume polling Drive for a returned cut",
       async run() {
         const result = await service.checkEditorReturns();
