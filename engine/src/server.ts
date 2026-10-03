@@ -151,6 +151,11 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    if (route === "GET /api/release-schedule") {
+      json(res, 200, await service.releaseSchedule({ fresh: url.searchParams.get("fresh") === "1" }));
+      return;
+    }
+
     if (route === "POST /api/editor-returns/check-now") {
       json(res, 200, await service.checkEditorReturns());
       return;

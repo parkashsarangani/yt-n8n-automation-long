@@ -120,3 +120,12 @@ test("drafted Shorts: a hook-style picker, a required fact-check tick, and a sou
   assert.match(html, /draftUsed&&!\$\("factCheck"\)\.checked/);
   assert.match(html, /script_source:draftUsed\?"writer_draft":"hand_written"/);
 });
+
+test("the studio shows the release schedule: which finished Short goes out on which day", async () => {
+  const html = await readFile(path.join(ROOT, "ui", "index.html"), "utf8");
+  assert.match(html, /<h2>Release schedule<\/h2><div id="releases"/);
+  assert.match(html, /api\("\/api\/release-schedule"/);
+  assert.match(html, /setInterval\(refreshReleases,60000\)/);
+  assert.doesNotMatch(html, /it's being published now"\:"No finished cut[^"]*";lastRuns/, "the check-my-cut button no longer claims a queued cut is publishing");
+  assert.match(html, /Your cut is in the queue — it goes out/);
+});
