@@ -23,14 +23,18 @@ import { ffmpegTransform } from "./ffmpeg-file.ts";
 
 export const BEAT_IMAGES_PROMPT = "beat_images@2";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
-/** What the model can make: its tallest size is 2:3, there is no 9:16. */
-export const BEAT_IMAGE_SIZE = "1024x1536";
 /**
- * What the editor gets (operator 2026-10-02: "wrong size"): exactly the
- * Short's 1080x1920 frame -- scaled to 1280x1920, centre-cropped to 1080
- * wide, so ~8% of each side is lost and STYLE keeps figures away from it.
+ * The scene is drawn square and laid into the Short's 1080x1920 frame with a
+ * clean caption area on top (operator 2026-10-03: the editor had no room for
+ * big captions; chose this layout over a cropped full frame after a test).
  */
+export const BEAT_IMAGE_SIZE = "1024x1024";
+/** What the editor gets: exactly the Short's frame. */
 export const BEAT_FRAME = { width: 1080, height: 1920 } as const;
+/** Clean area at the top for captions, filled with the scene's own top colour. */
+export const CAPTION_SPACE_PX = 840;
+/** The scene's top edge fades into the caption area over this many px (no visible seam). */
+export const CAPTION_BLEND_PX = 60;
 export const BEAT_IMAGE_QUALITY = "medium";
 /** Hard cap per run -- the cost bound, whatever the script length. */
 export const MAX_BEAT_IMAGES = 10; // hook + up to 9 beats (short_script_writer@2); ~$0.17 per Short
@@ -59,7 +63,8 @@ export const STYLE =
   "Readable cartoon faces with clear eyebrows, eyes and mouth, and natural expressive body language; small emotion marks (sweat drops, blush, motion lines) only where they fit. " +
   "Keep each emotion exactly as described -- subtle means subtle, not angry. " +
   "A detailed, recognisable setting full of the specific props described, drawn in the same flat style. " +
-  "Characters large and central, framed from the knees up, well away from the left and right edges (the sides are cropped). " +
+  "Square composition. The TOP QUARTER is plain, empty background only -- a flat wall or sky in one colour, no objects, lamps, frames or plants, nothing touching the top edge " +
+  "(captions go above it). All characters and props sit in the lower three quarters, large and central, framed from the knees up, away from the left and right edges. " +
   "Absolutely no text, letters, numbers, speech bubbles, signage, logos or watermarks.";
 
 /** The series' fixed character references, shipped with the engine. */
@@ -196,17 +201,33 @@ export async function generateBeatImage(
   return new Uint8Array(Buffer.from(body.data[0].b64_json, "base64"));
 }
 
-/** ffmpeg arguments: model image (2:3) -> exactly the Short's 1080x1920 frame. */
-export function shortFrameArgs(input: string, output: string): string[] {
-  const { width, height } = BEAT_FRAME;
-  // Scale to the frame's height, then centre-crop the width.
-  return ["-v", "error", "-y", "-i", input, "-vf", `scale=-2:${height}:flags=lanczos,crop=${width}:${height}`, "-frames:v", "1", output];
+/** ffmpeg arguments: average colour of the scene's top rows, as 3 raw RGB bytes. */
+export function topColourArgs(input: string, output: string): string[] {
+  return ["-v", "error", "-y", "-i", input, "-vf", "crop=iw:12:0:0,scale=1:1:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", output];
 }
 
-/** Fit one generated image to the Short's frame; a failure says so plainly. */
+/**
+ * ffmpeg arguments: square scene (scaled to 1080 wide) at the bottom of the
+ * 1080x1920 frame; the CAPTION_SPACE_PX above it is filled with `hex`, the
+ * scene's own top colour, and the scene's top CAPTION_BLEND_PX fade into it.
+ */
+export function shortFrameArgs(input: string, output: string, hex: string): string[] {
+  const { width, height } = BEAT_FRAME;
+  const b = CAPTION_BLEND_PX;
+  const filter =
+    `[0:v]scale=${width}:${width}:flags=lanczos,format=rgba,` +
+    `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(Y,${b}),255*Y/${b},255)'[scene];` +
+    `color=c=0x${hex}:s=${width}x${height}:d=1[bg];[bg][scene]overlay=0:${CAPTION_SPACE_PX},format=rgb24`;
+  return ["-v", "error", "-y", "-i", input, "-filter_complex", filter, "-frames:v", "1", output];
+}
+
+/** Lay one generated scene into the Short's frame with the caption area; a failure says so plainly. */
 export async function fitToShortFrame(png: Uint8Array, ffmpeg?: string): Promise<Uint8Array> {
+  const run = { timeoutMs: 60_000, ...(ffmpeg ? { ffmpeg } : {}) };
   try {
-    return await ffmpegTransform(png, { inName: "in.png", outName: "out.png", args: shortFrameArgs, timeoutMs: 60_000, ...(ffmpeg ? { ffmpeg } : {}) });
+    const rgb = await ffmpegTransform(png, { inName: "in.png", outName: "top.rgb", args: topColourArgs, ...run });
+    const hex = [...rgb.subarray(0, 3)].map((v) => v.toString(16).padStart(2, "0")).join("") || "fff4e0";
+    return await ffmpegTransform(png, { inName: "in.png", outName: "out.png", args: (i, o) => shortFrameArgs(i, o, hex), ...run });
   } catch (err) {
     throw new Error(`frame crop failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -217,6 +238,7 @@ export function promptsMarkdown(title: string, plans: BeatPlan[], failed: string
     `# Beat images — ${title}`,
     "",
     `One image per beat, ${BEAT_FRAME.width}x${BEAT_FRAME.height} (9:16, the Short's frame), generated with ${BEAT_IMAGE_MODEL} (${BEAT_IMAGE_QUALITY} quality). Use or ignore any of them.`,
+    `The top ${CAPTION_SPACE_PX} px of every image is clean -- room for big captions.`,
     "To redo one: paste its full prompt below into ChatGPT (or ask the operator) and change the Scene line.",
     ...(failed.length ? ["", `Not generated this time: ${failed.join(", ")}`] : []),
     "",

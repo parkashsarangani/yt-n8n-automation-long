@@ -12,7 +12,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FakeDriveProvider } from "../src/providers/fake.ts";
 import { isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
-  BEAT_FRAME, BEAT_IMAGE_MODEL, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
+  BEAT_FRAME, BEAT_IMAGE_MODEL, CAPTION_SPACE_PX, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, topColourArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
 } from "../src/beat-images.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -129,7 +129,7 @@ test("the Images API request: mini, portrait, medium; the key never leaks into a
   }) as unknown as typeof fetch;
   const bytes = await generateBeatImage("a prompt", { apiKey: "sk-test", fetchImpl: ok });
   assert.equal(new TextDecoder().decode(bytes), "png");
-  assert.deepEqual({ model: sent.model, size: sent.size, quality: sent.quality, n: sent.n }, { model: BEAT_IMAGE_MODEL, size: "1024x1536", quality: "medium", n: 1 });
+  assert.deepEqual({ model: sent.model, size: sent.size, quality: sent.quality, n: sent.n }, { model: BEAT_IMAGE_MODEL, size: "1024x1024", quality: "medium", n: 1 });
   assert.equal(auth, "Bearer sk-test");
 
   const bad = (async () => new Response(JSON.stringify({ error: { message: "Incorrect API key sk-test", code: "invalid_api_key" } }), { status: 401 })) as unknown as typeof fetch;
@@ -145,13 +145,17 @@ test("the style is stickman with expressive faces, and never asks for text", asy
   assert.match(plan!.description, /stick figure.*facial expression/i, "the fallback keeps the style too");
 });
 
-test("images are delivered at the Short's exact 1080x1920 frame (operator: 'wrong size')", () => {
-  const args = shortFrameArgs("in.png", "out.png");
-  const vf = args[args.indexOf("-vf") + 1]!;
-  // 1024x1536 scaled to height 1920 is 1280 wide; the centre 1080 is kept.
-  assert.equal(vf, "scale=-2:1920:flags=lanczos,crop=1080:1920");
+test("1080x1920 frame with a clean 840 px caption area on top, in the scene's own colour (editor: no room for captions)", () => {
+  const args = shortFrameArgs("in.png", "out.png", "bf9962");
+  const graph = args[args.indexOf("-filter_complex") + 1]!;
+  assert.match(graph, /scale=1080:1080/, "square scene, full width -- nothing cropped");
+  assert.match(graph, /color=c=0xbf9962:s=1080x1920/, "caption area filled with the scene's top colour");
+  assert.match(graph, /overlay=0:840/, "scene sits below the 840 px caption area");
+  assert.match(graph, /lt\(Y,60\),255\*Y\/60/, "top 60 px of the scene fade into it -- no seam");
   assert.deepEqual(BEAT_FRAME, { width: 1080, height: 1920 });
-  assert.match(STYLE, /away from the left and right edges/, "figures stay inside the crop");
+  assert.equal(CAPTION_SPACE_PX, 840);
+  assert.match(STYLE, /TOP QUARTER is plain, empty background/, "the scene's own top stays plain so the area continues it");
+  assert.deepEqual(topColourArgs("in.png", "c.rgb").slice(-5), ["-f", "rawvideo", "-pix_fmt", "rgb24", "c.rgb"]);
 });
 
 test("the series look is fixed: same main character and cast in every image, sent as reference images", async () => {
@@ -173,7 +177,7 @@ test("the series look is fixed: same main character and cast in every image, sen
   assert.match(url, /\/images\/edits$/, "references go through the edits endpoint");
   assert.equal(form!.getAll("image[]").length, 2);
   assert.equal(form!.get("model"), BEAT_IMAGE_MODEL);
-  assert.equal(form!.get("size"), "1024x1536");
+  assert.equal(form!.get("size"), "1024x1024");
 });
 
 test("our beats/ folder is never reported as an unrecognised editor upload", () => {
