@@ -23,6 +23,13 @@ export interface FormatSpec {
   maxDurationSec: number | null;
 }
 
+/**
+ * The longest vertical cut still published and cross-posted as a Short
+ * (YouTube's Shorts limit). FORMATS.short's 60-75 s is the GENERATION target
+ * only -- an editor's final cut is never held to it (operator 2026-10-03).
+ */
+export const SHORTS_MAX_PUBLISH_SEC = 180;
+
 export const FORMATS: Record<VideoFormat, FormatSpec> = {
   long: { format: "long", aspect: "16:9", width: 1920, height: 1080, minDurationSec: null, maxDurationSec: null },
   // 60-75 s (operator decision 2026-09-29). 75 s still fits every target
