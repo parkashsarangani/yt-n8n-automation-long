@@ -18,6 +18,12 @@ import { Runner } from "../src/runner.ts";
 import { makePublishWorker } from "../src/workers/index.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/** The old strict QA gate, kept behind QA_ENFORCE (off by default since 2026-10-03). */
+function enforceQa(t: { after: (fn: () => void) => void }): void {
+  process.env["QA_ENFORCE"] = "1";
+  t.after(() => { delete process.env["QA_ENFORCE"]; });
+}
 const silent = () => ({ log: () => { }, warn: () => { }, error: () => { } });
 
 const STORY = {
@@ -203,7 +209,8 @@ test("publish uploads even when the QA verdict is fail — approve_publish alrea
   assert.equal(h.target.published.length, 1);
 });
 
-test("a failing QA verdict publishes private instead of the configured privacy — real production evidence", async () => {
+test("(QA_ENFORCE=1) a failing QA verdict publishes private instead of the configured privacy — real production evidence", async (t) => {
+  enforceQa(t);
   // Confirmed live: a scheduled/unattended run's episode had 3 of 27 scenes
   // missing their asset (qa fail), and went straight to *public* because
   // approve_publish auto-passes and nothing else was watching. Uploading
@@ -243,7 +250,8 @@ test("a passing QA verdict publishes at the configured privacy, unchanged", asyn
   assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
 });
 
-test("a non-clean QA verdict (pass with warnings) publishes private, never public", async () => {
+test("(QA_ENFORCE=1) a non-clean QA verdict (pass with warnings) publishes private, never public", async (t) => {
+  enforceQa(t);
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
@@ -314,7 +322,8 @@ test("a missing editor thumbnail is advisory: the episode still publishes public
   assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
 });
 
-test("a length warning alongside any other warning still publishes private", async () => {
+test("(QA_ENFORCE=1) a length warning alongside any other warning still publishes private", async (t) => {
+  enforceQa(t);
   const h = await harness();
   const video = await h.seed("rendered_video", rendered(h), "render");
   const seo = await seedSeo(h);
@@ -631,4 +640,20 @@ test("the AI-label update does not wipe the other status settings", async () => 
   assert.equal(status.embeddable, false, "embeddable must survive the disclosure update");
   assert.equal(status.selfDeclaredMadeForKids, false);
   assert.ok(status.privacyStatus, "privacy must be restated or the video reverts to private");
+});
+
+test("QA never blocks by default: a failing or warning QA report still publishes at the configured privacy", async () => {
+  // Operator 2026-10-03: "the QA should NEVER block a run ... the editor's cut
+  // is final" -- a 77 s editor cut went up private behind the 75 s target.
+  delete process.env["QA_ENFORCE"];
+  const h = await harness();
+  const video = await h.seed("rendered_video", rendered(h), "render");
+  const seo = await seedSeo(h);
+  const thumb = await seedThumb(h);
+  const qa = await seedQa(h, "fail");
+  const out = await h.runner.run(makePublishWorker({ target: h.target, privacy: "public" }), [
+    video.artifact_id, seo.artifact_id, thumb.artifact_id, qa.artifact_id,
+  ]);
+  assert.equal((out.artifact.payload as { privacy: string }).privacy, "public");
+  assert.equal(h.target.published[0]!.metadata.privacy, "public");
 });

@@ -15,6 +15,7 @@ import type { PublishMetadata, PublishTarget } from "../provider.ts";
 import type { WorkerContext, WorkerDef, WorkerOutput } from "../runner.ts";
 import { assertYouTubeProductionGeometry } from "../media/mp4.ts";
 import { episodeChapters, hasChapterStart } from "../chapters.ts";
+import { qaEnforced } from "./qa.ts";
 
 export interface PublishWorkerOptions {
   target: PublishTarget;
@@ -99,7 +100,9 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
       // Studio. Only a clean "pass" publishes at the configured privacy,
       // unattended.
       const qa = inputs["qa"]!.payload as QaReport;
-      const privacy = qaIsClean(qa) ? (opts.privacy ?? "private") : "private";
+      // QA no longer decides anything unless QA_ENFORCE is on (workers/qa.ts):
+      // a not-clean report used to force private, which hid an editor's cut.
+      const privacy = !qaEnforced() || qaIsClean(qa) ? (opts.privacy ?? "private") : "private";
 
       // Taken wholesale from the SEO artifact. This worker deliberately does no
       // fallback logic: it used to reach into the story and substitute the
@@ -144,7 +147,7 @@ export function makePublishWorker(opts: PublishWorkerOptions): WorkerDef {
         else ctx.logger.warn("measured chapters omitted: description would exceed target limit");
       }
 
-      if (!qaIsClean(qa) && privacy !== (opts.privacy ?? "private")) {
+      if (qaEnforced() && !qaIsClean(qa) && privacy !== (opts.privacy ?? "private")) {
         ctx.logger.warn(
           `[publish] qa_report is not clean (verdict=${qa.verdict}, ${qa.failed} failed, ${qa.warned ?? "?"} warned) -- ` +
             `publishing private instead of ${opts.privacy ?? "private"} so an operator reviews it before it goes public`,

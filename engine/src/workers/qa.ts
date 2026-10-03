@@ -7,6 +7,19 @@ import type { WorkerDef, WorkerOutput } from "../runner.ts";
 
 export interface QaWorkerOptions { version?: string }
 
+/**
+ * QA never blocks publishing (operator 2026-10-03: "the QA should NEVER
+ * block a run. Every video uploaded by the editor should be uploaded because
+ * the editor's cut is the final" -- then "remove QA completely"). A 77 s
+ * editor cut sat unpublished for a day behind the 75 s generation target.
+ * The checks still run and are recorded as information; QA_ENFORCE=1 brings
+ * the old blocking gate (and private-on-fail publishing) back. Disabled, not
+ * deleted.
+ */
+export function qaEnforced(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|on|yes)$/i.test(env["QA_ENFORCE"]?.trim() ?? "");
+}
+
 type CheckStatus = "pass" | "warn" | "fail";
 interface Check { id: string; status: CheckStatus; message: string; measured?: number | null; threshold?: number | null }
 interface ScriptScene { scene_index: number; narration: string }
@@ -156,6 +169,12 @@ export function makeQaWorker(opts: QaWorkerOptions = {}): WorkerDef {
 
       const failed = checks.filter((c) => c.status === "fail").length;
       const warned = checks.filter((c) => c.status === "warn").length;
+      if (!qaEnforced()) {
+        // Advisory only: the checks are kept as information, but the verdict
+        // always lets the Short through -- the editor's cut is final.
+        if (failed > 0) ctx.logger.warn(`[qa] advisory only (QA_ENFORCE off): ${checks.filter((c) => c.status === "fail").map((c) => c.message).join("; ")}`);
+        return { payload: { verdict: "pass", checks, failed, warned } };
+      }
       return { payload: { verdict: failed === 0 ? "pass" : "fail", checks, failed, warned } };
     },
   };

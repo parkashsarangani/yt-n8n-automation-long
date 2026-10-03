@@ -50,7 +50,7 @@ import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { ffmpegAvailable } from "./ffmpeg-file.ts";
 import { reelCaptions } from "./reel-captions.ts";
 import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
-import { FORMATS, formatOfGeometry } from "./video-format.ts";
+import { FORMATS, formatOfGeometry, SHORTS_MAX_PUBLISH_SEC } from "./video-format.ts";
 import {
   FakePublishTarget,
   FakeRenderer,
@@ -1025,7 +1025,11 @@ export class VidGenService {
     const outcomes: Record<string, Record<string, CrosspostOutcome>> = {};
     if (targets.length === 0) return { checked: 0, outcomes };
     let checked = 0;
-    const cap = FORMATS.short.maxDurationSec!;
+    // The 60-75 s range is a GENERATION target (operator 2026-10-03), not a
+    // rule for the editor's final cut: any vertical cut up to YouTube's Shorts
+    // limit is cross-posted (Facebook itself rejects Reels over 90 s, which
+    // then alerts after 3 tries).
+    const cap = SHORTS_MAX_PUBLISH_SEC;
     for (const view of this.listRuns().filter((r) => r.status === "completed")) {
       const nodeArtifact = (id: string) => view.nodes.find((n) => n.node_id === id)?.artifact_id;
       const pubId = nodeArtifact("publish"), videoId = nodeArtifact("finalize_video"), seoId = nodeArtifact("seo");
