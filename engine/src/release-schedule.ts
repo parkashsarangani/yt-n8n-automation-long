@@ -58,6 +58,32 @@ export function inReleaseOrder<T extends QueuedCut>(queue: T[]): T[] {
   return [...queue].sort(byUploadOrder);
 }
 
+/** Calendar arithmetic on YYYY-MM-DD strings (no time zone involved). */
+export function addDays(date: string, days: number): string {
+  return new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)) + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * The Berlin date each waiting cut will go out (studio "Release schedule"),
+ * by the same rules releaseCandidates applies day by day: upload order, one
+ * per day at the slot, a cut uploaded after a day's slot no earlier than the
+ * next day, and not today if today's slot has passed or was already used.
+ * A projection: a cut that fails its release-day check shifts the rest by a day.
+ */
+export function projectReleaseDates<T extends QueuedCut>(now: Date, hour: number, lastReleaseDate: string | undefined, queue: T[]): Map<string, string> {
+  const today = berlinClock(now);
+  let next = today.minutes < hour * 60 && lastReleaseDate !== today.date ? today.date : addDays(today.date, 1);
+  const out = new Map<string, string>();
+  for (const q of inReleaseOrder(queue)) {
+    const up = berlinClock(new Date(orderKey(q)));
+    const earliest = up.minutes < hour * 60 ? up.date : addDays(up.date, 1);
+    const date = earliest > next ? earliest : next;
+    out.set(q.run_id, date);
+    next = addDays(date, 1);
+  }
+  return out;
+}
+
 /**
  * The cuts that may be released now, in order: empty before today's slot or
  * once something was released today; otherwise every cut uploaded before

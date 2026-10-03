@@ -37,7 +37,18 @@ import { YouTubeAnalyticsProvider } from "./providers/youtube-analytics.ts";
 import { youtubeTokenFactory } from "./youtube-auth.ts";
 import { DriveProvider, type DriveExchange, type DriveFile } from "./providers/drive.ts";
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { berlinClock, inReleaseOrder, releaseCandidates, releaseHour, RELEASE_QUEUE_NODE, type QueuedCut } from "./release-schedule.ts";
+import { berlinClock, inReleaseOrder, projectReleaseDates, releaseCandidates, releaseHour, RELEASE_QUEUE_NODE, type QueuedCut } from "./release-schedule.ts";
+
+/** GET /api/release-schedule -- the studio's view of the one-a-day queue. */
+export interface ReleaseSchedule {
+  /** Berlin hour of the daily release; null = cuts publish immediately (DAILY_RELEASE_HOUR=off). */
+  release_hour: number | null;
+  time_zone: string;
+  released_today: boolean;
+  checked_at: string;
+  entries: Array<{ position: number; run_id: string; title: string; file: string; uploaded_at: string; queued: boolean; release_date: string | null }>;
+  problems: Array<{ run_id: string; title: string; problem: string }>;
+}
 import { driveTokenFactory } from "./drive-auth.ts";
 import { summariseViolations, validateScriptStructure, type ScriptValidation, type ScriptViolation, type ViolationRate } from "./script-validator.ts";
 import { cohortByPrompt, joinPerformance, type CohortSummary, type JoinArtifact, type JoinedEpisode } from "./performance-join.ts";
@@ -1342,6 +1353,62 @@ export class VidGenService {
       }
     }
     return { configured: true, checked: runs.length, advanced, advanced_runs: advancedRuns, failed_runs: failedRuns };
+  }
+
+  private releaseScheduleCache: { at: number; value: ReleaseSchedule } | null = null;
+
+  /**
+   * Studio "Release schedule" (operator 2026-10-03): every finished cut
+   * waiting in an episode's Drive folder and the day it will go out. Reads
+   * Drive live -- the returned-cut check itself only runs once a day -- and
+   * projects dates with the queue's own rules (release-schedule.ts). Read
+   * only: it never queues or releases anything. Cached 2 minutes.
+   */
+  async releaseSchedule(opts: { fresh?: boolean } = {}): Promise<ReleaseSchedule> {
+    const nowMs = this.releaseNow().getTime();
+    if (!opts.fresh && this.releaseScheduleCache && nowMs - this.releaseScheduleCache.at < 120_000) return this.releaseScheduleCache.value;
+    const hour = releaseHour(process.env["DAILY_RELEASE_HOUR"], () => {});
+    const drive = this.driveProvider;
+    const waiting: Array<QueuedCut & { title: string; file: string; queued: boolean }> = [];
+    const problems: Array<{ run_id: string; title: string; problem: string }> = [];
+    for (const run of drive ? this.listRuns().filter((r) => r.waiting.some((w) => w.node_id === "editor_review")) : []) {
+      const seoId = run.nodes.find((n) => n.node_id === "seo")?.artifact_id;
+      const title = (seoId ? (await this.store.get<{ title?: string }>(seoId))?.payload?.title : undefined) || run.brief;
+      try {
+        const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
+        const folderId = (await this.store.get<{ drive_folder_id: string }>(handoffId))?.payload.drive_folder_id;
+        if (!folderId) continue;
+        const cuts = (await drive!.listFiles(folderId)).filter((f) => isEditorCutFilename(f.name));
+        if (cuts.length === 0) continue;
+        if (cuts.length > 1) {
+          problems.push({ run_id: run.run_id, title, problem: `${cuts.length} "final" videos in this folder (${cuts.map((c) => c.name).join(", ")}) -- none will be published until only one is left` });
+          continue;
+        }
+        const cut = cuts[0]!;
+        if ((await this.editorReturnState(run.run_id, cut.id)) !== "fresh") continue;
+        const queuedAt = (await this.runRecords(run.run_id)).find((r) => r.node_id === RELEASE_QUEUE_NODE && r.inputs.includes(cut.id))?.started_at;
+        const uploaded = cut.createdTime ?? queuedAt ?? new Date(nowMs).toISOString();
+        waiting.push({ run_id: run.run_id, queued_at: queuedAt ?? uploaded, uploaded_at: uploaded, title, file: cut.name, queued: !!queuedAt });
+      } catch (err) {
+        problems.push({ run_id: run.run_id, title, problem: `could not read its Drive folder: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    }
+    let lastReleaseDate: string | undefined;
+    try { lastReleaseDate = (await this.readReleaseState()).last_release_date; } catch { /* shown as unknown below */ }
+    const dates = hour === null ? new Map<string, string>() : projectReleaseDates(new Date(nowMs), hour, lastReleaseDate, waiting);
+    const value: ReleaseSchedule = {
+      release_hour: hour,
+      time_zone: "Europe/Berlin",
+      released_today: lastReleaseDate === berlinClock(new Date(nowMs)).date,
+      checked_at: new Date(nowMs).toISOString(),
+      entries: inReleaseOrder(waiting).map((w, i) => ({
+        position: i + 1, run_id: w.run_id, title: w.title, file: w.file, uploaded_at: w.uploaded_at!,
+        queued: w.queued, release_date: dates.get(w.run_id) ?? null,
+      })),
+      problems,
+    };
+    this.releaseScheduleCache = { at: nowMs, value };
+    return value;
   }
 
   /** The clock the daily release reads (a method so tests can set the day). */

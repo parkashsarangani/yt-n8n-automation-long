@@ -12,7 +12,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { VidGenService } from "../src/service.ts";
-import { berlinClock, inReleaseOrder, releaseCandidates, releaseHour, RELEASE_QUEUE_NODE } from "../src/release-schedule.ts";
+import { berlinClock, inReleaseOrder, projectReleaseDates, releaseCandidates, releaseHour, RELEASE_QUEUE_NODE } from "../src/release-schedule.ts";
 import { mp4_1080p_lasting } from "./mp4-fixture.ts";
 
 // 2026-10-02 is CEST (UTC+2): 12:00 Berlin = 10:00Z.
@@ -237,4 +237,33 @@ test("a restart does not release a second Short the same day", async () => {
   Object.assign(again, s.service, { editorReturnsInFlight: null });
   await again.checkEditorReturns();
   assert.equal(s.released.length, 1);
+});
+
+test("projected dates: a backlog of cuts takes consecutive days in upload order", () => {
+  const q = (run_id: string, uploaded_at: string) => ({ run_id, queued_at: uploaded_at, uploaded_at });
+  // Sat 3 Oct 16:00 Berlin: today's slot has passed.
+  const now = at("2026-10-03T14:00:00Z");
+  const three = [q("a", "2026-10-04T07:00:00Z"), q("b", "2026-10-04T07:30:00Z"), q("c", "2026-10-04T08:00:00Z")];
+  assert.deepEqual([...projectReleaseDates(now, 12, undefined, three)], [["a", "2026-10-04"], ["b", "2026-10-05"], ["c", "2026-10-06"]]);
+  // Three more on 5 Oct join the back of the line.
+  const six = [...three, q("d", "2026-10-05T15:00:00Z"), q("e", "2026-10-05T15:10:00Z"), q("f", "2026-10-05T15:20:00Z")];
+  assert.deepEqual([...projectReleaseDates(now, 12, undefined, six).values()], ["2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"]);
+  // Uploaded after 12:00 on 4 Oct: the first slot it can take is 5 Oct.
+  assert.deepEqual([...projectReleaseDates(now, 12, undefined, [q("late", "2026-10-04T10:30:00Z")])], [["late", "2026-10-05"]]);
+  // Before today's slot but today's Short already out: tomorrow.
+  assert.deepEqual([...projectReleaseDates(at("2026-10-03T08:00:00Z"), 12, "2026-10-03", [q("x", "2026-10-02T20:00:00Z")])], [["x", "2026-10-04"]]);
+});
+
+test("GET /api/release-schedule lists every waiting cut live from Drive, in upload order, with its day -- and changes nothing", async () => {
+  const s = await makeService(["run_aaaa1111", "run_bbbb2222", "run_cccc3333"]);
+  s.setClock("2026-10-03T14:00:00Z"); // after today's slot
+  s.upload("run_cccc3333", "2026-10-03T13:00:00Z");
+  s.upload("run_aaaa1111", "2026-10-03T13:05:00Z");
+  const sched = await s.service.releaseSchedule({ fresh: true });
+  assert.equal(sched.release_hour, 12);
+  assert.deepEqual(sched.entries.map((e: { run_id: string; release_date: string; position: number; queued: boolean }) => [e.position, e.run_id, e.release_date, e.queued]),
+    [[1, "run_cccc3333", "2026-10-04", false], [2, "run_aaaa1111", "2026-10-05", false]]);
+  assert.equal(s.records.length, 0, "read only: nothing queued, nothing released");
+  assert.equal(s.downloads.length, 0, "read only: no cut downloaded");
+  assert.deepEqual(s.released, []);
 });
