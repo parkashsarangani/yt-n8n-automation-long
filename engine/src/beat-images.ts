@@ -21,7 +21,7 @@ import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
 import { ffmpegTransform } from "./ffmpeg-file.ts";
 
-export const BEAT_IMAGES_PROMPT = "beat_images@2";
+export const BEAT_IMAGES_PROMPT = "beat_images@3";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
 /**
  * The scene is drawn square and laid into the Short's 1080x1920 frame with a
@@ -59,7 +59,9 @@ export const OTHERS =
 export const STYLE =
   "Vertical illustration in the Quiet Signal series style: polished comic-stickman, thick clean black outlines, flat bright high-contrast colours " +
   "from one palette (mustard #F2B630, teal #2EC4B6, coral #FF6B6B, soft cream #FFF4E0, deep navy #22313F, light grey #D9DEE3). " +
-  `"You" is ALWAYS ${YOU} -- exactly the first reference image. Every other person is one of the ${OTHERS} -- exactly like the second reference image, never a realistic human. ` +
+  `When the scene says "you", that is ${YOU} -- exactly the first reference image. ` +
+  "Named characters are drawn in the same series style (round head, thick outline, flat colours) but with the hair and clothing given for them, so their gender and identity read at a glance -- never bald, never in the mustard hoodie. " +
+  `Unnamed background people are ${OTHERS} -- like the second reference image. Never realistic humans. ` +
   "Readable cartoon faces with clear eyebrows, eyes and mouth, and natural expressive body language; small emotion marks (sweat drops, blush, motion lines) only where they fit. " +
   "Keep each emotion exactly as described -- subtle means subtle, not angry. " +
   "A detailed, recognisable setting full of the specific props described, drawn in the same flat style. " +
@@ -92,8 +94,17 @@ export interface BeatPlan {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["images"],
+  required: ["cast", "images"],
   properties: {
+    cast: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "gender", "look"],
+        properties: { name: { type: "string" }, gender: { type: "string", enum: ["woman", "man", "unspecified"] }, look: { type: "string" } },
+      },
+    },
     images: {
       type: "array",
       items: {
@@ -128,6 +139,38 @@ export function fallbackDescription(scene: BeatScene): string {
 }
 
 /** One image description per beat, from the fast model, with a per-beat fallback. */
+/**
+ * A person the story is about, with ONE fixed look (operator 2026-10-05: a
+ * script about "Emma" came out as the series' bald hoodie figure -- gender
+ * and identity must read at a glance, and stay the same across beats).
+ */
+export interface CastMember { name: string; gender: "woman" | "man" | "unspecified"; look: string }
+
+function validCast(raw: unknown): CastMember[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((c) => {
+    const m = c as Partial<CastMember>;
+    const name = String(m?.name ?? "").trim(), look = String(m?.look ?? "").trim();
+    const gender = m?.gender === "woman" || m?.gender === "man" ? m.gender : "unspecified";
+    // The mustard hoodie is "you"'s signature -- a cast member wearing it would read as "you".
+    if (!name || name.length > 60 || look.length < 8 || look.length > 240 || /mustard/i.test(look)) return [];
+    return [{ name, gender, look }];
+  });
+}
+
+/**
+ * The fixed look of every cast member named in a scene, appended to it so the
+ * image model draws the same person -- same hair, same clothes, clear gender
+ * -- in every beat, whatever wording the planner used in that scene.
+ */
+export function castNote(description: string, cast: CastMember[]): string {
+  const present = cast.filter((c) => new RegExp(`\\b${c.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(description));
+  if (present.length === 0) return "";
+  return `\nCharacters in this scene (draw exactly as described, same in every image): ${present
+    .map((c) => `${c.name}${c.gender === "unspecified" ? "" : ` (a ${c.gender})`} -- round-headed series figure with ${c.look}`)
+    .join("; ")}.`;
+}
+
 export async function planBeats(
   title: string,
   scenes: BeatScene[],
@@ -142,9 +185,11 @@ export async function planBeats(
         beats: beats.map((b) => `${b.scene_index}: ${b.narration.trim()}`).join("\n"),
       });
       const res = await deps.provider.complete({ prompt, outputSchema: SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 6000, effort: "low" });
-      for (const item of (res.value as { images?: Array<{ scene_index?: unknown; description?: unknown }> })?.images ?? []) {
+      const value = res.value as { cast?: unknown[]; images?: Array<{ scene_index?: unknown; description?: unknown }> };
+      const cast = validCast(value?.cast);
+      for (const item of value?.images ?? []) {
         const d = String(item.description ?? "").trim();
-        if (typeof item.scene_index === "number" && d.length >= 20 && d.length <= 2000) byIndex.set(item.scene_index, d);
+        if (typeof item.scene_index === "number" && d.length >= 20 && d.length <= 2000) byIndex.set(item.scene_index, `${d}${castNote(d, cast)}`);
       }
     } catch (err) {
       deps.log?.(`[beat-images] planner failed (${err instanceof Error ? err.message : String(err)}); using the narration`);
@@ -159,7 +204,7 @@ export async function planBeats(
 }
 
 export function fullPrompt(description: string): string {
-  return `${STYLE}\n\nReference images: the first is "you", the second is how every other person looks.\n\nScene: ${description}`;
+  return `${STYLE}\n\nReference images (line style and proportions): the first is "you" -- only when the scene says "you"; the second is an unnamed background person.\n\nScene: ${description}`;
 }
 
 /** One image from the OpenAI Images API. The key never appears in an error. */

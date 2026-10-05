@@ -12,7 +12,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FakeDriveProvider } from "../src/providers/fake.ts";
 import { isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
-  BEAT_FRAME, BEAT_IMAGE_MODEL, CAPTION_SPACE_PX, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, topColourArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
+  BEAT_FRAME, BEAT_IMAGE_MODEL, CAPTION_SPACE_PX, castNote, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, topColourArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
 } from "../src/beat-images.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -161,7 +161,7 @@ test("1080x1920 frame with a clean 840 px caption area on top, in the scene's ow
 test("the series look is fixed: same main character and cast in every image, sent as reference images", async () => {
   assert.match(STYLE, /mustard-yellow .* hoodie .* signal arcs/);
   assert.match(STYLE, /LIGHT-GREY head/);
-  assert.match(STYLE, /never a realistic human/);
+  assert.match(STYLE, /Never realistic humans/);
   const refs = await loadSeriesReferences();
   assert.equal(refs.length, 2, "you + other people");
   for (const r of refs) assert.deepEqual([...r.subarray(1, 4)], [0x50, 0x4e, 0x47], "PNG files shipped with the engine");
@@ -182,4 +182,40 @@ test("the series look is fixed: same main character and cast in every image, sen
 
 test("our beats/ folder is never reported as an unrecognised editor upload", () => {
   assert.equal(isPipelineAuthoredFile("beats"), true);
+});
+
+test("named characters keep one gender-clear look in every beat; 'you' is only the viewer (operator: 'Emma' came out as a bald guy)", async () => {
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const emma: BeatScene[] = [
+    { scene_index: 0, narration: "Emma's presentation was interrupted three times.", point: "The interruption" },
+    { scene_index: 1, narration: "Her manager kept cutting in before she finished a sentence.", point: "Cutting in" },
+    { scene_index: 2, narration: "So Emma tried one simple sentence.", point: "The sentence" },
+  ];
+  const m = fakeModel({
+    cast: [
+      { name: "Emma", gender: "woman", look: "long dark-brown hair in a ponytail and a coral blazer" },
+      { name: "Emma's manager", gender: "man", look: "short black hair, light beard and a navy shirt" },
+      { name: "Bob", gender: "man", look: "a mustard-yellow hoodie" }, // rejected: reserved for "you"
+    ],
+    images: [
+      { scene_index: 0, description: "A meeting room with a projector. Emma stands at the screen, mid-sentence, uneasy, while Emma's manager raises a hand." },
+      { scene_index: 1, description: "Close on the table: Emma's manager leans forward talking over Emma, who presses her lips together." },
+      { scene_index: 2, description: "Emma, calm now, holds up one finger and finishes her point; the room listens." },
+    ],
+  });
+  const plans = await planBeats("Why you keep getting interrupted", emma, { provider: m.provider as never, prompts });
+  assert.match(m.prompts[0]!, /FIRST, THE CAST/);
+  for (const p of plans) assert.match(p.description, /Emma \(a woman\) -- round-headed series figure with long dark-brown hair in a ponytail and a coral blazer/, "same look in every beat she is in");
+  assert.match(plans[0]!.description, /Emma's manager \(a man\) -- round-headed series figure with short black hair, light beard/);
+  assert.ok(plans.every((p) => !/mustard/.test(p.description.split("Characters in this scene")[1] ?? "")), "nobody but 'you' wears the mustard hoodie");
+  assert.match(STYLE, /When the scene says "you"/);
+  assert.match(STYLE, /never bald, never in the mustard hoodie/);
+});
+
+test("castNote adds only the cast members actually in the scene, and nothing for a 'you' story", () => {
+  const cast = [{ name: "Emma", gender: "woman" as const, look: "long dark ponytail, coral blazer" }, { name: "Mark", gender: "man" as const, look: "short grey hair, teal sweater" }];
+  assert.match(castNote("Mark waits by the door.", cast), /Mark \(a man\)/);
+  assert.doesNotMatch(castNote("Mark waits by the door.", cast), /Emma/);
+  assert.equal(castNote("You stare at your phone.", cast), "");
+  assert.equal(castNote("You stare at your phone.", []), "");
 });
