@@ -30,7 +30,13 @@ import { SPOKEN_CTA_SHORT } from "./cta.ts";
  * scroll-stopping first sentence, re-hooks, escalation, and a closing line
  * that loops back to the hook. v1 wrote 3-5 paragraphs of ~20 s each.
  */
-export const SHORT_DRAFT_PROMPT = "short_script_writer@2";
+export const SHORT_DRAFT_PROMPT = "short_script_writer@3";
+/**
+ * v3 (operator 2026-10-05): second person only -- "people don't care about
+ * it unless it's about them". A draft about "Emma" or a "he"/"she" main
+ * character is rewritten, not just flagged.
+ */
+export const MIN_YOU_WORDS = 5, MAX_THIRD_PERSON_PRONOUNS = 2;
 /** Beats after the hook, not counting the closing line. */
 export const MIN_BEATS = 6, MAX_BEATS = 9;
 /** Words per beat: the target range, and the point a beat must be split. */
@@ -105,6 +111,14 @@ export function shortDraftChecks(draft: ShortDraft, shape: HookShape = "list"): 
     blocking.push("do not ask viewers to like, subscribe or follow -- a follow line is added automatically");
   }
   if (/\bdark psychology\b/i.test(everything)) blocking.push("do not frame ordinary advice as 'dark psychology'");
+
+  // Second person only (hard): the Short is about the viewer.
+  const spoken = `${hook} ${script}`;
+  const youWords = (spoken.match(/\b(you|your|you're|yours|yourself)\b/gi) ?? []).length;
+  const thirdPerson = (spoken.match(/\b(she|he|her|him|his|hers|herself|himself)\b/gi) ?? []).length;
+  if (youWords < MIN_YOU_WORDS || thirdPerson > MAX_THIRD_PERSON_PRONOUNS || /\b(?:named|called)\s+[A-Z][a-z]+/.test(spoken)) {
+    blocking.push(`write it to the viewer in second person -- every beat is something "you" do or feel; no named characters or "she"/"he" main character (found ${youWords} you-words, ${thirdPerson} third-person pronouns)`);
+  }
 
   // Length and basic form (hard).
   if (title.length < 20 || title.length > 100) blocking.push(`title must be 20-100 characters (is ${title.length})`);

@@ -156,3 +156,24 @@ test("the chosen hook shape reaches the prompt; an unknown one is refused before
   await assert.rejects(draftShort("  ", { provider: none.provider as never, prompts }), /topic must be/);
   assert.equal(none.prompts.length, 0);
 });
+
+test("second person only (operator: people don't care unless it's about them): an 'Emma' story is rewritten", () => {
+  const emma = {
+    ...GOOD,
+    hook: "Emma's brain isn't lazy. It's scared. Three tricks made starting almost automatic for her — the third one felt like cheating.",
+    script: GOOD.script
+      .replace(/\bYou sit down\b/g, "Emma sits down").replace(/\byour\b/gi, "her").replace(/\byou\b/gi, "she"),
+  };
+  const { blocking } = shortDraftChecks(emma, "list");
+  assert.ok(blocking.some((p) => /second person/.test(p)), JSON.stringify(blocking));
+  const named = { ...GOOD, hook: `A woman named Clara froze in a meeting. ${GOOD.hook}` };
+  assert.ok(shortDraftChecks(named, "list").blocking.some((p) => /second person/.test(p)), "a 'named X' character is a story about someone else");
+  assert.ok(!shortDraftChecks(GOOD, "list").blocking.some((p) => /second person/.test(p)), "the approved 'you' Short passes");
+});
+
+test("the v3 prompt tells the writer: second person only, no named characters", async () => {
+  const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
+  const text = prompts.render("short_script_writer@3", { topic: "t", shape_rules: "s", feedback: "" });
+  assert.match(text, /SECOND PERSON ONLY/);
+  assert.match(text, /no named characters/);
+});
