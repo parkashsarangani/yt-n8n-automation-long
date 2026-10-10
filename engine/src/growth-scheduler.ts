@@ -410,6 +410,17 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
       },
     },
     {
+      // Automatic edit from the beat images (auto-edit.ts). Off unless
+      // AUTO_EDIT=ab|all; renders final-auto.mp4 into the episode folder for
+      // the daily release queue to import.
+      id: "auto_edit", everyHours: 10 / 60,
+      enabled: typeof service.autoEditEnabled === "function" && service.autoEditEnabled(),
+      description: "edit Shorts automatically from their beat images (final-auto.mp4 into the episode folder) every 10 minutes",
+      async run() {
+        await service.autoEditPending();
+      },
+    },
+    {
       // The Instagram-login token lasts 60 days; renew it well before that.
       id: "ig_token_refresh", everyHours: 24, enabled: typeof service.igTokenRefresh === "function" && reelsPlatforms.includes("instagram"),
       description: "renew the Instagram access token when it is a week old (it lasts 60 days)",
