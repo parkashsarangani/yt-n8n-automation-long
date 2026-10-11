@@ -70,9 +70,22 @@ test("shots cover the narration to the frame, cut about every 2.6 s, open on the
   assert.equal(shots.at(-1)!.framing.name, "pullOut");
 });
 
-test("the closing line goes back to the hook image; a beat without an image keeps the previous one", () => {
+test("the ending stays on the last image; a beat without an image keeps the previous one", () => {
   const segments = buildSegments(SCENES, new Map([[0, 2], [1, 2], [2, 2], [3, 2]]), new Map([[0, 4], [1, 7]]));
-  assert.deepEqual(segments.map((s) => s.image), [4, 7, 7, 4]);
+  assert.deepEqual(segments.map((s) => s.image), [4, 7, 7, 7]);
+  assert.deepEqual(segments.map((s) => !!s.is_outro), [false, false, false, true]);
+});
+
+test("the spoken CTA (cta.ts '[cta]' scene, not marked is_outro) is the ending: no image of its own, FOLLOW badge while it plays", () => {
+  const withCta: BeatScene[] = [...SCENES.slice(0, 3), { scene_index: 3, narration: "Follow Quiet Signal for more psychology and philosophy.", point: "[cta] Subscribe" }];
+  const segments = buildSegments(withCta, new Map([[0, 2], [1, 2], [2, 2], [3, 3]]), new Map([[0, 0], [1, 1], [2, 2], [3, 3]]));
+  assert.equal(segments.at(-1)!.is_outro, true);
+  assert.equal(segments.at(-1)!.image, 2, "the CTA keeps the story's last image");
+  assert.equal(planShots(segments).at(-1)!.framing.name, "pullOut");
+  const ass = captionsAss(clipWords("Follow Quiet Signal.", 3), { ending: { start: 6, end: 9 } });
+  assert.match(ass, /Style: Badge,.*,3,22,/, "an opaque mustard box");
+  assert.match(ass, /Dialogue: 1,0:00:06\.00,0:00:09\.00,Badge,.*FOLLOW FOR MORE/);
+  assert.doesNotMatch(captionsAss(clipWords("x y", 1)), /Badge,,/, "no badge without an ending");
 });
 
 test("beat images map to scenes by their NN prefix, whatever order Drive lists them", () => {
@@ -197,7 +210,7 @@ test("off does nothing", async () => {
   assert.equal(uploads.length, 0);
 });
 
-test("with beats.json each image is on screen exactly while its words are spoken; the closing line loops to the hook", () => {
+test("with beats.json each image is on screen exactly while its words are spoken; the ending stays on the last image", () => {
   const scenes: BeatScene[] = [
     { scene_index: 0, narration: "one two three four" },
     { scene_index: 1, narration: "five six seven eight" },
@@ -222,9 +235,9 @@ test("with beats.json each image is on screen exactly while its words are spoken
     [0, 0, 4, false],
     [1, 4, 2.5, false], // until "seven" is spoken at 4 + 2.5
     [2, 6.5, 1.5, false],
-    [0, 8, 2, true],
+    [2, 8, 2, true],
   ]);
   // A missing image leaves its time to the one before it.
   const gap = manifestSegments(manifest, scenes, timing, ["01-hook.png", "03-seven.png"]);
-  assert.deepEqual(gap.map((s) => [s.image, +s.start.toFixed(2), +s.duration.toFixed(2)]), [[0, 0, 6.5], [1, 6.5, 1.5], [0, 8, 2]]);
+  assert.deepEqual(gap.map((s) => [s.image, +s.start.toFixed(2), +s.duration.toFixed(2)]), [[0, 0, 6.5], [1, 6.5, 1.5], [1, 8, 2]]);
 });

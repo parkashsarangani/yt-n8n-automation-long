@@ -84,6 +84,12 @@ test("images tile the narration in order, the hook is its own image, and cuts pr
   assert.ok(slots.every((s) => s.end_word - s.start_word >= 5), "no image for a scrap of words");
 });
 
+test("the spoken CTA appended by cta.ts gets no image, even though it is not marked is_outro", () => {
+  const withCta: BeatScene[] = [...SCENES.slice(0, 3), { scene_index: 3, narration: "Follow Quiet Signal for more psychology and philosophy.", point: "[cta] Subscribe" }];
+  assert.deepEqual(selectBeats(withCta).map((s) => s.scene_index), [0, 1, 2]);
+  assert.ok(planImageSlots(withCta).every((s) => !/Follow Quiet Signal/.test(s.text)));
+});
+
 test("a very short script gets fewer images rather than slivers", () => {
   assert.equal(planImageSlots(SCENES).length, Math.floor(29 / 5));
 });

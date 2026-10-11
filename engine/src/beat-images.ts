@@ -138,10 +138,18 @@ const SCHEMA = {
   },
 } as const;
 
+/**
+ * The closing line: a scene marked is_outro, or the spoken CTA that
+ * cta.ts appends (point "[cta] ..." -- it is not marked is_outro).
+ */
+export function isClosingScene(s: BeatScene): boolean {
+  return !!s.is_outro || /^\[cta\]/i.test(s.point ?? "");
+}
+
 /** The beats worth an image: narrated, not the closing follow line, in order. */
 export function selectBeats(scenes: BeatScene[], cap = Infinity): BeatScene[] {
   return scenes
-    .filter((s) => !s.is_outro && s.narration?.trim())
+    .filter((s) => !isClosingScene(s) && s.narration?.trim())
     .sort((a, b) => a.scene_index - b.scene_index)
     .slice(0, cap);
 }

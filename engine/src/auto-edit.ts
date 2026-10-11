@@ -12,7 +12,8 @@
  *   - a hook shot that snaps in and settles over the first beat;
  *   - big word-by-word captions in the clean area above the scene, the word
  *     being spoken highlighted in the series mustard;
- *   - the closing line over the hook image again, so the Short loops.
+ *   - a proper ending: during the spoken CTA the last story image pulls
+ *     out slowly and a "FOLLOW FOR MORE" badge pops in under the captions.
  *
  * The cut lands in Drive as final-auto.mp4 and goes out through the same
  * validated daily release queue as the editor's cuts. Whether a run is
@@ -26,7 +27,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ffmpegBinary } from "./ffmpeg-file.ts";
-import { LEGACY_MAX_BEAT_IMAGES, narrationWords, selectBeats, type BeatScene } from "./beat-images.ts";
+import { isClosingScene, LEGACY_MAX_BEAT_IMAGES, narrationWords, selectBeats, type BeatScene } from "./beat-images.ts";
 
 const run = promisify(execFile);
 
@@ -156,19 +157,17 @@ export function planShots(segments: Segment[]): Shot[] {
 
 /**
  * The timeline: each narration clip back to back, each scene on the image
- * of its beat. A beat without an image keeps the previous one; the closing
- * line goes back to the hook image so the Short loops.
+ * of its beat. A beat without an image keeps the previous one, and so does
+ * the closing line: the ending stays on the story's last image.
  */
 export function buildSegments(scenes: BeatScene[], durations: Map<number, number>, imageOfScene: Map<number, number>): Segment[] {
   let t = 0, last = 0;
-  const firstImage = Math.min(...[...imageOfScene.values()], Infinity);
   return [...scenes].sort((a, b) => a.scene_index - b.scene_index).map((s) => {
     const duration = durations.get(s.scene_index) ?? 0;
-    let image = imageOfScene.get(s.scene_index);
-    if (s.is_outro && Number.isFinite(firstImage)) image = firstImage;
-    if (image === undefined) image = last;
+    const outro = isClosingScene(s);
+    const image = (outro ? undefined : imageOfScene.get(s.scene_index)) ?? last;
     last = image;
-    const seg: Segment = { scene_index: s.scene_index, start: t, duration, image, ...(s.is_outro ? { is_outro: true } : {}) };
+    const seg: Segment = { scene_index: s.scene_index, start: t, duration, image, ...(outro ? { is_outro: true } : {}) };
     t += duration;
     return seg;
   }).filter((s) => s.duration > 0);
@@ -183,8 +182,8 @@ export interface BeatsManifest {
 
 /**
  * The timeline from beats.json: every image on screen exactly while its
- * words are spoken (word times from the narration's own timing), the
- * closing line back on the hook image. An image whose file is missing
+ * words are spoken (word times from the narration's own timing); the
+ * closing line stays on the last image. An image whose file is missing
  * leaves its time to the image before it.
  */
 export function manifestSegments(
@@ -208,20 +207,19 @@ export function manifestSegments(
   }
   const fileIndex = new Map(files.map((f, i) => [f, i]));
   const segments: Segment[] = [];
-  let hook: number | undefined;
   manifest.images.forEach((img, i) => {
     const image = fileIndex.get(img.file);
     if (image === undefined) return;
-    hook ??= image;
     const start = segments.length === 0 ? 0 : wordTimes[img.start_word] ?? narratedEnd;
     const next = manifest.images.slice(i + 1).find((x) => fileIndex.has(x.file));
     const end = next ? wordTimes[next.start_word] ?? narratedEnd : narratedEnd;
     if (end - start > 0.04) segments.push({ scene_index: img.scene_index, start, duration: end - start, image });
   });
-  // The closing line(s): back to the hook, so the Short loops.
+  // The closing line(s): the ending, on the story's last image.
+  const lastImage = segments.at(-1)?.image ?? 0;
   for (const s of [...scenes].sort((a, b) => a.scene_index - b.scene_index)) {
     const t = timing.get(s.scene_index);
-    if (t && t.start >= narratedEnd - 0.001 && t.duration > 0) segments.push({ scene_index: s.scene_index, start: t.start, duration: t.duration, image: hook ?? 0, is_outro: true });
+    if (t && t.start >= narratedEnd - 0.001 && t.duration > 0) segments.push({ scene_index: s.scene_index, start: t.start, duration: t.duration, image: lastImage, is_outro: true });
   }
   return segments;
 }
@@ -336,12 +334,17 @@ export function chunkWords(words: TimedWord[]): TimedWord[][] {
   return chunks;
 }
 
+/** The end badge shown while the spoken CTA plays. */
+export const CTA_BADGE = "FOLLOW FOR MORE";
+const NAVY = "&H003F3122&"; // series deep navy #22313F
+
 /**
  * ASS captions: one event per spoken word showing its whole chunk, the
  * spoken word in mustard; each chunk pops in. A chunk stays up until the
  * next one (no flicker in short pauses), at most 0.6 s past its last word.
+ * `ending` (the spoken CTA's time) adds the FOLLOW badge under the captions.
  */
-export function captionsAss(words: TimedWord[], opts: { font?: string } = {}): string {
+export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: { start: number; end: number } } = {}): string {
   const font = opts.font ?? "DejaVu Sans";
   const chunks = chunkWords(words);
   const events: string[] = [];
@@ -357,6 +360,9 @@ export function captionsAss(words: TimedWord[], opts: { font?: string } = {}): s
       events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Caption,,0,0,0,,{\\pos(${FRAME.width / 2},${CAPTION_Y})}${pop}${text}`);
     });
   });
+  if (opts.ending && opts.ending.end - opts.ending.start > 0.2) {
+    events.push(`Dialogue: 1,${assTime(opts.ending.start)},${assTime(opts.ending.end)},Badge,,0,0,0,,{\\pos(${FRAME.width / 2},${SCENE_Y - 90})\\fscx40\\fscy40\\t(0,180,\\fscx108\\fscy108)\\t(180,300,\\fscx100\\fscy100)}${CTA_BADGE}`);
+  }
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -368,6 +374,8 @@ export function captionsAss(words: TimedWord[], opts: { font?: string } = {}): s
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Caption,${font},108,${WHITE},${WHITE},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,8,4,5,70,70,0,1`,
+    // An opaque mustard box (BorderStyle 3) with navy text.
+    `Style: Badge,${font},70,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -455,7 +463,8 @@ export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string
     await step("narration", audioArgs(clipFiles, audio), 120_000);
 
     const ass = path.join(dir, "captions.ass");
-    await writeFile(ass, captionsAss(words));
+    const outro = segments.filter((s) => s.is_outro);
+    await writeFile(ass, captionsAss(words, outro.length ? { ending: { start: outro[0]!.start, end: outro.at(-1)!.start + outro.at(-1)!.duration } } : {}));
     const out = path.join(dir, "final-auto.mp4");
     await step("captions + encode", finalArgs(video, audio, ass, out), 600_000);
     return { video: new Uint8Array(await readFile(out)), duration_sec: +total.toFixed(3), shots: shots.length };

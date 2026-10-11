@@ -1145,7 +1145,8 @@ export class VidGenService {
       const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
       const folderId = (await this.store.get<{ drive_folder_id?: string }>(handoffId))?.payload?.drive_folder_id;
       const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
-      const scriptId = artifactOf("draft_script"), seoId = artifactOf("seo");
+      // The approved script: what the voice actually speaks.
+      const scriptId = artifactOf("approve_script") ?? artifactOf("draft_script"), seoId = artifactOf("seo");
       const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
       if (!folderId || selectBeats(scenes).length === 0) continue;
       const title = (seoId ? (await this.store.get<{ title?: string }>(seoId))?.payload?.title : undefined) ?? "";
@@ -1263,7 +1264,8 @@ export class VidGenService {
         const manifestFile = beatFiles.find((f) => f.name === BEATS_MANIFEST);
         const manifest = manifestFile ? JSON.parse(new TextDecoder().decode(await drive.downloadFile(manifestFile.id))) as BeatsManifest : undefined;
         const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
-        const scriptId = artifactOf("draft_script"), voiceId = artifactOf("voice");
+        // The approved script: what the voice actually speaks, closing CTA included.
+        const scriptId = artifactOf("approve_script") ?? artifactOf("draft_script"), voiceId = artifactOf("voice");
         const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
         const voice = voiceId ? (await this.store.get<{ clips?: Array<{ scene_index: number; audio_uri: string; alignment_uri?: string; duration_sec: number }> }>(voiceId))?.payload : undefined;
         if (!voice?.clips?.length) throw new Error("no narration clips");
