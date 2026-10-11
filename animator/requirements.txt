@@ -2,3 +2,5 @@ transformers==5.19.0
 opencv-python-headless==5.0.0.93
 numpy==2.5.2
 pillow==12.3.0
+# OWLv2's image processor needs it to resize.
+scipy==1.18.1
