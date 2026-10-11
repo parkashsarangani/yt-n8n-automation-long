@@ -12,7 +12,7 @@ import { VidGenService } from "../src/service.ts";
 import { isEditorCutFilename, isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
   AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NOTE_FILE, FPS, FRAMINGS, SHOT_TARGET_SEC,
-  audioArgs, autoEditMode, buildSegments, captionsAss, chunkWords, clipWords, mapBeatImages, planShots, shotArgs, zoompanFilter,
+  audioArgs, autoEditMode, buildSegments, captionsAss, chunkWords, clipWords, manifestSegments, mapBeatImages, planShots, shotArgs, zoompanFilter,
 } from "../src/auto-edit.ts";
 import type { BeatScene } from "../src/beat-images.ts";
 
@@ -195,4 +195,36 @@ test("off does nothing", async () => {
   const { service, uploads, render } = makeService(["run_a"]);
   assert.deepEqual(await service.autoEditPending({ render }), { checked: 0, rendered: 0 });
   assert.equal(uploads.length, 0);
+});
+
+test("with beats.json each image is on screen exactly while its words are spoken; the closing line loops to the hook", () => {
+  const scenes: BeatScene[] = [
+    { scene_index: 0, narration: "one two three four" },
+    { scene_index: 1, narration: "five six seven eight" },
+    { scene_index: 2, narration: "Follow for more.", is_outro: true },
+  ];
+  const manifest = {
+    version: 1,
+    scenes: [{ scene_index: 0, words: 4 }, { scene_index: 1, words: 4 }],
+    images: [
+      { file: "01-hook.png", scene_index: 0, start_word: 0, end_word: 4 },
+      { file: "02-five.png", scene_index: 1, start_word: 4, end_word: 6 },
+      { file: "03-seven.png", scene_index: 1, start_word: 6, end_word: 8 },
+    ],
+  };
+  const timing = new Map([
+    [0, { start: 0, duration: 4, words: clipWords(scenes[0]!.narration, 4) }],
+    [1, { start: 4, duration: 4, words: [0, 1, 2.5, 3].map((t, k) => ({ text: `w${k}`, start: t, end: t + 0.5 })) }],
+    [2, { start: 8, duration: 2, words: clipWords(scenes[2]!.narration, 2) }],
+  ]);
+  const segs = manifestSegments(manifest, scenes, timing, ["01-hook.png", "02-five.png", "03-seven.png"]);
+  assert.deepEqual(segs.map((s) => [s.image, +s.start.toFixed(2), +s.duration.toFixed(2), !!s.is_outro]), [
+    [0, 0, 4, false],
+    [1, 4, 2.5, false], // until "seven" is spoken at 4 + 2.5
+    [2, 6.5, 1.5, false],
+    [0, 8, 2, true],
+  ]);
+  // A missing image leaves its time to the one before it.
+  const gap = manifestSegments(manifest, scenes, timing, ["01-hook.png", "03-seven.png"]);
+  assert.deepEqual(gap.map((s) => [s.image, +s.start.toFixed(2), +s.duration.toFixed(2)]), [[0, 0, 6.5], [1, 6.5, 1.5], [0, 8, 2]]);
 });

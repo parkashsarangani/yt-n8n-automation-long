@@ -21,7 +21,7 @@ import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
 import { ffmpegTransform } from "./ffmpeg-file.ts";
 
-export const BEAT_IMAGES_PROMPT = "beat_images@3";
+export const BEAT_IMAGES_PROMPT = "beat_images@4";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
 /**
  * The scene is drawn square and laid into the Short's 1080x1920 frame with a
@@ -36,8 +36,25 @@ export const CAPTION_SPACE_PX = 840;
 /** The scene's top edge fades into the caption area over this many px (no visible seam). */
 export const CAPTION_BLEND_PX = 60;
 export const BEAT_IMAGE_QUALITY = "medium";
-/** Hard cap per run -- the cost bound, whatever the script length. */
-export const MAX_BEAT_IMAGES = 10; // hook + up to 9 beats (short_script_writer@2); ~$0.17 per Short
+/**
+ * Images per Short, by length (operator 2026-10-11: "make the default images
+ * 12-15 depending on the length" -- for every Short, written by the AI or by
+ * hand). One image per ~SECONDS_PER_IMAGE of narration, never fewer than 12
+ * or more than 15 (~$0.20-0.26 per Short). Images are planned over the
+ * narration's time, not per scene: a long beat gets several images, a run of
+ * short lines shares one, and the closing line reuses the hook's.
+ */
+export const MIN_BEAT_IMAGES = 12;
+export const MAX_BEAT_IMAGES = 15;
+export const SECONDS_PER_IMAGE = 5.5;
+/** Without recorded narration durations, words are timed at this speaking rate. */
+export const WORDS_PER_SEC = 2.6;
+/** No image for fewer words than this (~2 s): a very short script gets fewer images. */
+export const MIN_WORDS_PER_IMAGE = 5;
+/** Before 2026-10-11 the first 10 beats got one image each; folders made then have no beats.json. */
+export const LEGACY_MAX_BEAT_IMAGES = 10;
+/** Which narration each image covers, written next to the images for the automatic edit. */
+export const BEATS_MANIFEST = "beats.json";
 /** OpenAI list price for one medium 1024x1536 gpt-image-1-mini image (2026-09). */
 export const EST_COST_PER_IMAGE_USD = 0.017; // + two small reference images as input
 export const BEATS_FOLDER = "beats";
@@ -85,10 +102,14 @@ export interface BeatScene {
 }
 
 export interface BeatPlan {
+  /** Scene the image's narration starts in. */
   scene_index: number;
   file: string;
   narration: string;
   description: string;
+  /** The narration words this image covers: [start_word, end_word) over the narrated scenes in order. */
+  start_word: number;
+  end_word: number;
 }
 
 const SCHEMA = {
@@ -110,19 +131,84 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["scene_index", "description"],
-        properties: { scene_index: { type: "integer" }, description: { type: "string" } },
+        required: ["id", "description"],
+        properties: { id: { type: "integer" }, description: { type: "string" } },
       },
     },
   },
 } as const;
 
-/** The beats worth an image: narrated, not the closing follow line, capped. */
-export function selectBeats(scenes: BeatScene[]): BeatScene[] {
+/** The beats worth an image: narrated, not the closing follow line, in order. */
+export function selectBeats(scenes: BeatScene[], cap = Infinity): BeatScene[] {
   return scenes
     .filter((s) => !s.is_outro && s.narration?.trim())
     .sort((a, b) => a.scene_index - b.scene_index)
-    .slice(0, MAX_BEAT_IMAGES);
+    .slice(0, cap);
+}
+
+export function narrationWords(text: string): string[] {
+  return text.trim().split(/\s+/).filter(Boolean);
+}
+
+/** How many images a Short of this length gets. */
+export function imageCount(totalSec: number): number {
+  return Math.min(MAX_BEAT_IMAGES, Math.max(MIN_BEAT_IMAGES, Math.round(totalSec / SECONDS_PER_IMAGE)));
+}
+
+export interface ImageSlot { scene_index: number; start_word: number; end_word: number; text: string }
+
+/**
+ * Split the narration (closing line excluded) into imageCount() stretches of
+ * about equal speaking time. The hook -- the first beat -- is always its own
+ * image. Every other cut moves to the best break near its ideal time -- end
+ * of a beat, else of a sentence, else a clause -- so an image rarely changes
+ * mid-thought.
+ */
+export function planImageSlots(scenes: BeatScene[], durations?: Map<number, number>): ImageSlot[] {
+  const beats = selectBeats(scenes);
+  const words: Array<{ text: string; scene: number; sec: number; boundary: number }> = [];
+  for (const b of beats) {
+    const w = narrationWords(b.narration);
+    const dur = durations?.get(b.scene_index);
+    const per = dur && dur > 0 ? dur / w.length : 1 / WORDS_PER_SEC;
+    w.forEach((text, i) => words.push({
+      text, scene: b.scene_index, sec: per,
+      // How good a cut AFTER this word is: 3 end of beat, 2 sentence, 1 clause.
+      boundary: i === w.length - 1 ? 3 : /[.!?]["')\]]*$/.test(text) ? 2 : /[,;:—]["')\]]*$/.test(text) ? 1 : 0,
+    }));
+  }
+  if (words.length === 0) return [];
+  const endAt: number[] = [];
+  words.reduce((t, w, i) => (endAt[i] = t + w.sec), 0);
+  const total = endAt.at(-1)!;
+  const n = Math.max(1, Math.min(imageCount(total), Math.floor(words.length / MIN_WORDS_PER_IMAGE)));
+  const hookEnd = narrationWords(beats[0]!.narration).length;
+  const cuts: number[] = [];
+  if (n > 1 && hookEnd < words.length) {
+    cuts.push(hookEnd);
+    const t0 = endAt[hookEnd - 1]!, span = total - t0, rest = n - 1;
+    const window = (span / rest) * 0.4;
+    for (let k = 1; k < rest; k++) {
+      const ideal = t0 + (span * k) / rest;
+      let best = -1, bestScore = -Infinity;
+      for (let i = hookEnd; i < words.length - 1; i++) {
+        const d = Math.abs(endAt[i]! - ideal);
+        if (d > window) continue;
+        const score = words[i]!.boundary * window * 0.5 - d;
+        if (score > bestScore) { bestScore = score; best = i; }
+      }
+      if (best < 0) best = endAt.findIndex((t) => t >= ideal);
+      const cut = best + 1;
+      if (cut > cuts.at(-1)! && cut < words.length) cuts.push(cut);
+    }
+  }
+  const bounds = [0, ...cuts, words.length];
+  const slots: ImageSlot[] = [];
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const [from, to] = [bounds[i]!, bounds[i + 1]!];
+    if (to > from) slots.push({ scene_index: words[from]!.scene, start_word: from, end_word: to, text: words.slice(from, to).map((w) => w.text).join(" ") });
+  }
+  return slots;
 }
 
 function slug(text: string): string {
@@ -174,33 +260,47 @@ export function castNote(description: string, cast: CastMember[]): string {
 export async function planBeats(
   title: string,
   scenes: BeatScene[],
-  deps: { provider: ModelProvider | null; prompts: PromptStore; log?: (m: string) => void },
+  deps: { provider: ModelProvider | null; prompts: PromptStore; log?: (m: string) => void; durations?: Map<number, number> },
 ): Promise<BeatPlan[]> {
-  const beats = selectBeats(scenes);
-  const byIndex = new Map<number, string>();
-  if (deps.provider && beats.length) {
+  const slots = planImageSlots(scenes, deps.durations);
+  const byId = new Map<number, string>();
+  if (deps.provider && slots.length) {
     try {
       const prompt = deps.prompts.render(BEAT_IMAGES_PROMPT, {
         title,
-        beats: beats.map((b) => `${b.scene_index}: ${b.narration.trim()}`).join("\n"),
+        moments: slots.map((m, i) => `${i + 1}: ${m.text}`).join("\n"),
       });
-      const res = await deps.provider.complete({ prompt, outputSchema: SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 6000, effort: "low" });
-      const value = res.value as { cast?: unknown[]; images?: Array<{ scene_index?: unknown; description?: unknown }> };
+      const res = await deps.provider.complete({ prompt, outputSchema: SCHEMA as unknown as Record<string, unknown>, maxOutputTokens: 9000, effort: "low" });
+      const value = res.value as { cast?: unknown[]; images?: Array<{ id?: unknown; description?: unknown }> };
       const cast = validCast(value?.cast);
       for (const item of value?.images ?? []) {
         const d = String(item.description ?? "").trim();
-        if (typeof item.scene_index === "number" && d.length >= 20 && d.length <= 2000) byIndex.set(item.scene_index, `${d}${castNote(d, cast)}`);
+        if (typeof item.id === "number" && d.length >= 20 && d.length <= 2000) byId.set(item.id, `${d}${castNote(d, cast)}`);
       }
     } catch (err) {
       deps.log?.(`[beat-images] planner failed (${err instanceof Error ? err.message : String(err)}); using the narration`);
     }
   }
-  return beats.map((b, i) => ({
-    scene_index: b.scene_index,
-    file: `${String(i + 1).padStart(2, "0")}-${i === 0 ? "hook" : slug(b.point || b.narration)}.png`,
-    narration: b.narration.trim(),
-    description: byIndex.get(b.scene_index) ?? fallbackDescription(b),
+  return slots.map((m, i) => ({
+    scene_index: m.scene_index,
+    file: `${String(i + 1).padStart(2, "0")}-${i === 0 ? "hook" : slug(m.text)}.png`,
+    narration: m.text,
+    description: byId.get(i + 1) ?? fallbackDescription({ scene_index: m.scene_index, narration: m.text }),
+    start_word: m.start_word,
+    end_word: m.end_word,
   }));
+}
+
+/**
+ * beats.json: which narration each image covers, so the automatic edit
+ * (auto-edit.ts) shows every image exactly while its words are spoken.
+ */
+export function beatsManifest(scenes: BeatScene[], plans: BeatPlan[]): string {
+  return JSON.stringify({
+    version: 1,
+    scenes: selectBeats(scenes).map((s) => ({ scene_index: s.scene_index, words: narrationWords(s.narration).length })),
+    images: plans.map((p) => ({ file: p.file, scene_index: p.scene_index, start_word: p.start_word, end_word: p.end_word })),
+  }, null, 2);
 }
 
 export function fullPrompt(description: string): string {
@@ -282,7 +382,7 @@ export function promptsMarkdown(title: string, plans: BeatPlan[], failed: string
   return [
     `# Beat images — ${title}`,
     "",
-    `One image per beat, ${BEAT_FRAME.width}x${BEAT_FRAME.height} (9:16, the Short's frame), generated with ${BEAT_IMAGE_MODEL} (${BEAT_IMAGE_QUALITY} quality). Use or ignore any of them.`,
+    `${plans.length} images over the narration, in order (each shows the words under it), ${BEAT_FRAME.width}x${BEAT_FRAME.height} (9:16, the Short's frame), generated with ${BEAT_IMAGE_MODEL} (${BEAT_IMAGE_QUALITY} quality). Use or ignore any of them.`,
     `The top ${CAPTION_SPACE_PX} px of every image is clean -- room for big captions.`,
     "To redo one: paste its full prompt below into ChatGPT (or ask the operator) and change the Scene line.",
     ...(failed.length ? ["", `Not generated this time: ${failed.join(", ")}`] : []),
@@ -317,7 +417,7 @@ export interface DeliverResult {
  * caller records a failure instead of an empty success.
  */
 export async function deliverBeatImages(
-  input: { episodeFolderId: string; title: string; plans: BeatPlan[] },
+  input: { episodeFolderId: string; title: string; plans: BeatPlan[]; scenes?: BeatScene[] },
   deps: { drive: DriveExchange; generate: (prompt: string) => Promise<Uint8Array>; log?: (m: string) => void },
 ): Promise<DeliverResult> {
   const plans = input.plans.slice(0, MAX_BEAT_IMAGES);
@@ -345,6 +445,9 @@ export async function deliverBeatImages(
     }
   }
   if (generated === 0 && skipped === 0) throw new Error(`no beat image could be generated: ${lastError || "nothing planned"}`);
+  if (input.scenes && !present.has(BEATS_MANIFEST)) {
+    await deps.drive.uploadFile(folderId, BEATS_MANIFEST, new TextEncoder().encode(beatsManifest(input.scenes, plans)), "application/json");
+  }
   if (!present.has("prompts.md")) {
     await deps.drive.uploadFile(folderId, "prompts.md", new TextEncoder().encode(promptsMarkdown(input.title, plans, failed)), "text/markdown");
   }

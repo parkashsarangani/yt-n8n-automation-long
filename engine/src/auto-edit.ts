@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ffmpegBinary } from "./ffmpeg-file.ts";
-import { selectBeats, type BeatScene } from "./beat-images.ts";
+import { LEGACY_MAX_BEAT_IMAGES, narrationWords, selectBeats, type BeatScene } from "./beat-images.ts";
 
 const run = promisify(execFile);
 
@@ -174,13 +174,65 @@ export function buildSegments(scenes: BeatScene[], durations: Map<number, number
   }).filter((s) => s.duration > 0);
 }
 
+/** beats.json from beat-images.ts: the narration words each image covers. */
+export interface BeatsManifest {
+  version: number;
+  scenes: Array<{ scene_index: number; words: number }>;
+  images: Array<{ file: string; scene_index: number; start_word: number; end_word: number }>;
+}
+
 /**
- * Which beat image belongs to which scene: beat-images.ts names them
- * NN-<slug>.png in selectBeats() order, so NN-1 indexes that list. Returns
- * scene_index -> position in `files`.
+ * The timeline from beats.json: every image on screen exactly while its
+ * words are spoken (word times from the narration's own timing), the
+ * closing line back on the hook image. An image whose file is missing
+ * leaves its time to the image before it.
+ */
+export function manifestSegments(
+  manifest: BeatsManifest,
+  scenes: BeatScene[],
+  timing: Map<number, { start: number; duration: number; words: TimedWord[] }>,
+  files: string[],
+): Segment[] {
+  // Global word index -> time, over the narrated scenes in manifest order.
+  const wordTimes: number[] = [];
+  let narratedEnd = 0;
+  for (const m of manifest.scenes) {
+    const t = timing.get(m.scene_index);
+    if (!t) continue;
+    const scene = scenes.find((s) => s.scene_index === m.scene_index);
+    const count = m.words;
+    // The voice's own word timing when it has the same words, else even spacing.
+    const timed = !!scene && t.words.length === count && narrationWords(scene.narration).length === count;
+    for (let k = 0; k < count; k++) wordTimes.push(t.start + (timed ? t.words[k]!.start : (t.duration * k) / count));
+    narratedEnd = Math.max(narratedEnd, t.start + t.duration);
+  }
+  const fileIndex = new Map(files.map((f, i) => [f, i]));
+  const segments: Segment[] = [];
+  let hook: number | undefined;
+  manifest.images.forEach((img, i) => {
+    const image = fileIndex.get(img.file);
+    if (image === undefined) return;
+    hook ??= image;
+    const start = segments.length === 0 ? 0 : wordTimes[img.start_word] ?? narratedEnd;
+    const next = manifest.images.slice(i + 1).find((x) => fileIndex.has(x.file));
+    const end = next ? wordTimes[next.start_word] ?? narratedEnd : narratedEnd;
+    if (end - start > 0.04) segments.push({ scene_index: img.scene_index, start, duration: end - start, image });
+  });
+  // The closing line(s): back to the hook, so the Short loops.
+  for (const s of [...scenes].sort((a, b) => a.scene_index - b.scene_index)) {
+    const t = timing.get(s.scene_index);
+    if (t && t.start >= narratedEnd - 0.001 && t.duration > 0) segments.push({ scene_index: s.scene_index, start: t.start, duration: t.duration, image: hook ?? 0, is_outro: true });
+  }
+  return segments;
+}
+
+/**
+ * Before beats.json (images made before 2026-10-11): one image per beat for
+ * the first 10 beats, named NN-<slug>.png in selectBeats() order, so NN-1
+ * indexes that list. Returns scene_index -> position in `files`.
  */
 export function mapBeatImages(scenes: BeatScene[], files: string[]): Map<number, number> {
-  const beats = selectBeats(scenes);
+  const beats = selectBeats(scenes, LEGACY_MAX_BEAT_IMAGES);
   const out = new Map<number, number>();
   files.forEach((name, i) => {
     const m = /^(\d{2})-.*\.png$/i.exec(name.trim());
@@ -333,6 +385,8 @@ export interface AutoCutInput {
   clips: AutoCutClip[];
   /** Beat images as delivered (NN-slug.png, 1080x1920 with the caption area on top). */
   images: Array<{ name: string; bytes: Uint8Array }>;
+  /** beats.json, when the images were planned over the narration's time. */
+  manifest?: BeatsManifest;
 }
 
 export interface AutoCutResult { video: Uint8Array; duration_sec: number; shots: number }
@@ -346,16 +400,23 @@ export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string
   const scenes = [...input.scenes].filter((s) => clipBy.has(s.scene_index)).sort((a, b) => a.scene_index - b.scene_index);
   if (scenes.length === 0) throw new Error("auto edit: no narration clips match the script");
   const durations = new Map(scenes.map((s) => [s.scene_index, clipBy.get(s.scene_index)!.duration_sec]));
-  const segments = buildSegments(scenes, durations, mapBeatImages(input.scenes, images.map((i) => i.name)));
-  const shots = planShots(segments);
-  const total = segments.reduce((n, s) => n + s.duration, 0);
-
+  // Each clip back to back, with its words timed.
+  const timing = new Map<number, { start: number; duration: number; words: TimedWord[] }>();
   const words: TimedWord[] = [];
-  for (const seg of segments) {
-    const scene = scenes.find((s) => s.scene_index === seg.scene_index)!;
-    const clip = clipBy.get(seg.scene_index)!;
-    for (const w of clipWords(scene.narration, seg.duration, clip.alignment)) words.push({ text: w.text, start: seg.start + w.start, end: seg.start + w.end });
+  let at = 0;
+  for (const scene of scenes) {
+    const clip = clipBy.get(scene.scene_index)!;
+    if (!(clip.duration_sec > 0)) continue;
+    const local = clipWords(scene.narration, clip.duration_sec, clip.alignment);
+    timing.set(scene.scene_index, { start: at, duration: clip.duration_sec, words: local });
+    for (const w of local) words.push({ text: w.text, start: at + w.start, end: at + w.end });
+    at += clip.duration_sec;
   }
+  const total = at;
+  const names = images.map((i) => i.name);
+  const fromManifest = input.manifest?.images?.length ? manifestSegments(input.manifest, scenes, timing, names) : [];
+  const segments = fromManifest.length ? fromManifest : buildSegments(scenes, durations, mapBeatImages(input.scenes, names));
+  const shots = planShots(segments);
 
   const dir = await mkdtemp(path.join(tmpdir(), "auto-edit-"));
   const step = async (name: string, args: string[], timeoutMs: number) => {
@@ -384,10 +445,11 @@ export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string
     const video = path.join(dir, "video.mp4");
     await step("join", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", video], 120_000);
 
-    const clipFiles = await Promise.all(segments.map(async (seg, i) => {
+    const narrated = scenes.filter((s) => timing.has(s.scene_index));
+    const clipFiles = await Promise.all(narrated.map(async (scene, i) => {
       const file = path.join(dir, `clip-${i}.mp3`);
-      await writeFile(file, clipBy.get(seg.scene_index)!.audio);
-      return { file, duration: seg.duration };
+      await writeFile(file, clipBy.get(scene.scene_index)!.audio);
+      return { file, duration: timing.get(scene.scene_index)!.duration };
     }));
     const audio = path.join(dir, "narration.wav");
     await step("narration", audioArgs(clipFiles, audio), 120_000);

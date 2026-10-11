@@ -12,7 +12,7 @@ import { PromptStore } from "../src/prompts.ts";
 import { FakeDriveProvider } from "../src/providers/fake.ts";
 import { isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
-  BEAT_FRAME, BEAT_IMAGE_MODEL, CAPTION_SPACE_PX, castNote, MAX_BEAT_IMAGES, STYLE, loadSeriesReferences, shortFrameArgs, topColourArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
+  BEAT_FRAME, BEAT_IMAGE_MODEL, BEATS_MANIFEST, CAPTION_SPACE_PX, castNote, imageCount, MAX_BEAT_IMAGES, MIN_BEAT_IMAGES, STYLE, loadSeriesReferences, narrationWords, planImageSlots, shortFrameArgs, topColourArgs, deliverBeatImages, generateBeatImage, planBeats, selectBeats, type BeatScene,
 } from "../src/beat-images.ts";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -39,24 +39,69 @@ function fakeModel(value: unknown) {
   };
 }
 
-test("the closing follow line gets no image, and a long script is capped", () => {
+test("the closing follow line gets no image", () => {
   assert.deepEqual(selectBeats(SCENES).map((s) => s.scene_index), [0, 1, 2]);
-  const many = Array.from({ length: 12 }, (_, i) => ({ scene_index: i, narration: `beat ${i}` }));
-  assert.equal(selectBeats(many).length, MAX_BEAT_IMAGES);
+  const slots = planImageSlots(SCENES);
+  assert.ok(slots.every((s) => !/Follow Quiet Signal/.test(s.text)));
+});
+
+/** A script of `beats` beats, each `words` words long and `sec` seconds spoken. */
+function script(beats: number, words: number, sec: number) {
+  const scenes: BeatScene[] = Array.from({ length: beats }, (_, i) => ({
+    scene_index: i,
+    narration: Array.from({ length: words }, (_, w) => `w${i}x${w}${w % 7 === 6 ? "." : ""}`).join(" "),
+  }));
+  scenes.push({ scene_index: beats, narration: "Follow Quiet Signal for more.", is_outro: true });
+  return { scenes, durations: new Map(scenes.map((s) => [s.scene_index, sec])) };
+}
+
+test("12-15 images by length, for AI and hand-written scripts alike (operator 2026-10-11)", () => {
+  assert.equal(imageCount(40), MIN_BEAT_IMAGES);
+  assert.equal(imageCount(72), 13);
+  assert.equal(imageCount(85), 15);
+  assert.equal(imageCount(200), MAX_BEAT_IMAGES);
+  // An AI script: 7 beats of ~25 words, 70 s -> 13 images, so beats get 2 each.
+  const ai = script(7, 25, 10);
+  assert.equal(planImageSlots(ai.scenes, ai.durations).length, 13);
+  // A hand-written one: 28 short lines, 85 s -> 15 images covering ALL of it.
+  const hand = script(28, 8, 85 / 28);
+  const slots = planImageSlots(hand.scenes, hand.durations);
+  assert.equal(slots.length, 15);
+  assert.equal(slots.at(-1)!.end_word, 28 * 8, "the last image reaches the end of the narration");
+  assert.ok(slots.at(-1)!.text.includes("w27x"), "the final lines get an image");
+});
+
+test("images tile the narration in order, the hook is its own image, and cuts prefer beat ends", () => {
+  const { scenes, durations } = script(7, 25, 10);
+  const slots = planImageSlots(scenes, durations);
+  assert.equal(slots[0]!.start_word, 0);
+  assert.equal(slots[0]!.end_word, 25, "the hook beat, exactly");
+  slots.forEach((s, i) => { if (i > 0) assert.equal(s.start_word, slots[i - 1]!.end_word, "contiguous"); });
+  const words = selectBeats(scenes).flatMap((b) => narrationWords(b.narration));
+  assert.equal(slots.at(-1)!.end_word, words.length);
+  const atBeatEnd = slots.slice(1).filter((s) => s.start_word % 25 === 0).length;
+  assert.ok(atBeatEnd >= 5, `most cuts land on a beat boundary (${atBeatEnd})`);
+  assert.ok(slots.every((s) => s.end_word - s.start_word >= 5), "no image for a scrap of words");
+});
+
+test("a very short script gets fewer images rather than slivers", () => {
+  assert.equal(planImageSlots(SCENES).length, Math.floor(29 / 5));
 });
 
 test("the fast model describes each beat; a missing description falls back to the beat's own words", async () => {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const m = fakeModel({ images: [
-    { scene_index: 0, description: "A person sits alone at a kitchen table at night, lit by one lamp." },
-    { scene_index: 1, description: "short" },
+    { id: 1, description: "A person sits alone at a kitchen table at night, lit by one lamp." },
+    { id: 2, description: "short" },
   ] });
   const plans = await planBeats("Why You Replay Awkward Moments", SCENES, { provider: m.provider as never, prompts });
-  assert.match(m.prompts[0]!, /1: Your brain treats the moment/);
+  assert.match(m.prompts[0]!, /1: It's 11 p\.m\. You're replaying something you said at lunch\./, "the hook is moment 1");
+  assert.match(m.prompts[0]!, /ALL MOMENTS/);
   assert.doesNotMatch(m.prompts[0]!, /Follow Quiet Signal/, "the outro is not planned");
-  assert.deepEqual(plans.map((p) => p.file), ["01-hook.png", "02-unfinished-loops.png", "03-close-the-loop.png"]);
+  assert.equal(plans[0]!.file, "01-hook.png");
+  assert.match(plans[1]!.file, /^02-your-brain/);
   assert.match(plans[0]!.description, /kitchen table/);
-  assert.match(plans[1]!.description, /Unfinished loops/, "too-short description replaced by the beat's own words");
+  assert.ok(plans[1]!.description.includes(plans[1]!.narration.slice(0, 20)), "too-short description replaced by the moment's own words");
 });
 
 test("images and prompts.md land in beats/; a second pass pays for nothing already there", async () => {
@@ -67,18 +112,22 @@ test("images and prompts.md land in beats/; a second pass pays for nothing alrea
   const calls: string[] = [];
   const generate = async (p: string) => { calls.push(p); return new Uint8Array([1, 2, 3]); };
 
-  const first = await deliverBeatImages({ episodeFolderId: episode, title: "T", plans }, { drive, generate });
-  assert.equal(first.generated, 3);
+  const first = await deliverBeatImages({ episodeFolderId: episode, title: "T", plans, scenes: SCENES }, { drive, generate });
+  assert.equal(first.generated, plans.length);
   assert.ok(calls.every((p) => p.startsWith(STYLE)), "the fixed style leads every prompt");
   const [beats] = (await drive.listFiles(episode)).filter((f) => f.name === "beats");
   assert.ok(beats, "beats/ subfolder created");
   const names = (await drive.listFiles(beats!.id)).map((f) => f.name).sort();
-  assert.deepEqual(names, ["01-hook.png", "02-unfinished-loops.png", "03-close-the-loop.png", "prompts.md"]);
+  assert.deepEqual(names, [...plans.map((p) => p.file), BEATS_MANIFEST, "prompts.md"].sort());
+  const manifestFile = (await drive.listFiles(beats!.id)).find((f) => f.name === BEATS_MANIFEST)!;
+  const manifest = JSON.parse(new TextDecoder().decode(await drive.downloadFile(manifestFile.id)));
+  assert.deepEqual(manifest.scenes, [{ scene_index: 0, words: 10 }, { scene_index: 1, words: 9 }, { scene_index: 2, words: 10 }]);
+  assert.deepEqual(manifest.images.map((i: { file: string }) => i.file), plans.map((p) => p.file));
 
-  const second = await deliverBeatImages({ episodeFolderId: episode, title: "T", plans }, { drive, generate });
+  const second = await deliverBeatImages({ episodeFolderId: episode, title: "T", plans, scenes: SCENES }, { drive, generate });
   assert.equal(second.generated, 0);
-  assert.equal(second.skipped_existing, 3);
-  assert.equal(calls.length, 3, "no second payment");
+  assert.equal(second.skipped_existing, plans.length);
+  assert.equal(calls.length, plans.length, "no second payment");
   assert.equal((await drive.listFiles(episode)).filter((f) => f.name === "beats").length, 1, "one beats folder");
 });
 
@@ -112,11 +161,11 @@ test("one failed beat does not stop the rest, and prompts.md names it", async ()
   let n = 0;
   const generate = async () => { if (++n === 2) throw new Error("image generation failed (400 moderation_blocked): no"); return new Uint8Array([1]); };
   const r = await deliverBeatImages({ episodeFolderId: episode, title: "T", plans }, { drive, generate });
-  assert.equal(r.generated, 2);
-  assert.deepEqual(r.failed, ["02-unfinished-loops.png"]);
+  assert.equal(r.generated, plans.length - 1);
+  assert.deepEqual(r.failed, [plans[1]!.file]);
   const beats = (await drive.listFiles(episode)).find((f) => f.name === "beats")!;
   const md = (await drive.listFiles(beats.id)).find((f) => f.name === "prompts.md")!;
-  assert.match(new TextDecoder().decode(await drive.downloadFile(md.id)), /Not generated this time: 02-unfinished-loops\.png/);
+  assert.match(new TextDecoder().decode(await drive.downloadFile(md.id)), new RegExp(`Not generated this time: ${plans[1]!.file.replace(".", "\\.")}`));
 });
 
 test("the Images API request: mini, portrait, medium; the key never leaks into an error", async () => {
@@ -198,9 +247,10 @@ test("named characters keep one gender-clear look in every beat; 'you' is only t
       { name: "Bob", gender: "man", look: "a mustard-yellow hoodie" }, // rejected: reserved for "you"
     ],
     images: [
-      { scene_index: 0, description: "A meeting room with a projector. Emma stands at the screen, mid-sentence, uneasy, while Emma's manager raises a hand." },
-      { scene_index: 1, description: "Close on the table: Emma's manager leans forward talking over Emma, who presses her lips together." },
-      { scene_index: 2, description: "Emma, calm now, holds up one finger and finishes her point; the room listens." },
+      { id: 1, description: "A meeting room with a projector. Emma stands at the screen, mid-sentence, uneasy, while Emma's manager raises a hand." },
+      { id: 2, description: "Close on the table: Emma's manager leans forward talking over Emma, who presses her lips together." },
+      { id: 3, description: "Emma looks down at her notes, quietly frustrated, as Emma's manager keeps talking." },
+      { id: 4, description: "Emma, calm now, holds up one finger and finishes her point; the room listens." },
     ],
   });
   const plans = await planBeats("Why you keep getting interrupted", emma, { provider: m.provider as never, prompts });

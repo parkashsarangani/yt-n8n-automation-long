@@ -59,9 +59,9 @@ import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspo
 import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { ffmpegAvailable } from "./ffmpeg-file.ts";
-import { AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NODE, EDIT_SOURCE_NODE, AUTO_EDIT_NOTE_FILE, autoEditFailedNote, autoEditMode, autoEditNote, renderAutoCut } from "./auto-edit.ts";
+import { AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NODE, EDIT_SOURCE_NODE, AUTO_EDIT_NOTE_FILE, autoEditFailedNote, autoEditMode, autoEditNote, renderAutoCut, type BeatsManifest } from "./auto-edit.ts";
 import { reelCaptions } from "./reel-captions.ts";
-import { BEAT_IMAGE_MODEL, BEATS_FOLDER, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
+import { BEAT_IMAGE_MODEL, BEATS_FOLDER, BEATS_MANIFEST, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry, SHORTS_MAX_PUBLISH_SEC } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -1158,8 +1158,12 @@ export class VidGenService {
       await this.runLog.record({ ...base, output: null, status: "running", started_at: started.toISOString() });
       const log = (m: string) => console.log(m);
       try {
-        const plans = await planBeats(title, scenes, { provider: this.captionProvider, prompts: this.prompts, log });
-        const result = await deliverBeatImages({ episodeFolderId: folderId, title, plans }, { drive, generate, log });
+        // The narration's real timing spreads the images over it evenly.
+        const voiceId = artifactOf("voice");
+        const clips = voiceId ? (await this.store.get<{ clips?: Array<{ scene_index: number; duration_sec: number }> }>(voiceId))?.payload?.clips ?? [] : [];
+        const durations = new Map(clips.map((c) => [c.scene_index, c.duration_sec]));
+        const plans = await planBeats(title, scenes, { provider: this.captionProvider, prompts: this.prompts, log, durations });
+        const result = await deliverBeatImages({ episodeFolderId: folderId, title, plans, scenes }, { drive, generate, log });
         await this.runLog.record({
           ...base, output: drive.folderUrl(result.folder_id), status: "ok", started_at: started.toISOString(),
           duration_ms: Date.now() - started.getTime(), provider: "openai", model: BEAT_IMAGE_MODEL,
@@ -1253,8 +1257,11 @@ export class VidGenService {
       try {
         const beatsId = files.find((f) => f.name === BEATS_FOLDER && f.mimeType === "application/vnd.google-apps.folder")?.id;
         if (!beatsId) throw new Error("no beats folder");
-        const pngs = (await drive.listFiles(beatsId)).filter((f) => /^\d{2}-.*\.png$/i.test(f.name));
+        const beatFiles = await drive.listFiles(beatsId);
+        const pngs = beatFiles.filter((f) => /^\d{2}-.*\.png$/i.test(f.name));
         const images = await Promise.all(pngs.map(async (f) => ({ name: f.name, bytes: await drive.downloadFile(f.id) })));
+        const manifestFile = beatFiles.find((f) => f.name === BEATS_MANIFEST);
+        const manifest = manifestFile ? JSON.parse(new TextDecoder().decode(await drive.downloadFile(manifestFile.id))) as BeatsManifest : undefined;
         const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
         const scriptId = artifactOf("draft_script"), voiceId = artifactOf("voice");
         const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
@@ -1266,7 +1273,7 @@ export class VidGenService {
           audio: await this.blobs.get(c.audio_uri),
           ...(c.alignment_uri ? { alignment: JSON.parse(new TextDecoder().decode(await this.blobs.get(c.alignment_uri))) as unknown } : {}),
         })));
-        const result = await render({ scenes, clips, images }, { log: (m) => console.log(m) });
+        const result = await render({ scenes, clips, images, ...(manifest ? { manifest } : {}) }, { log: (m) => console.log(m) });
         await drive.uploadFile(folderId, AUTO_CUT_FILE, result.video, "video/mp4");
         await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "ok", { attempt: failures + 1, max_attempts: maxAttempts, duration_ms: Date.now() - started });
         rendered++;
