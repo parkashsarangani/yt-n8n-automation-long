@@ -12,7 +12,7 @@ import { VidGenService } from "../src/service.ts";
 import { isEditorCutFilename, isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
   AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NOTE_FILE, FPS, FRAMINGS, SHOT_TARGET_SEC,
-  audioArgs, autoEditMode, buildSegments, captionsAss, chunkWords, clipWords, manifestSegments, mapBeatImages, planShots, shotArgs, zoompanFilter,
+  animatedShotArgs, audioArgs, autoEditMode, buildSegments, captionsAss, chunkWords, clipWords, manifestSegments, mapBeatImages, planShots, shotArgs, speechEnvelope, zoompanFilter,
 } from "../src/auto-edit.ts";
 import type { BeatScene } from "../src/beat-images.ts";
 
@@ -240,4 +240,44 @@ test("with beats.json each image is on screen exactly while its words are spoken
   // A missing image leaves its time to the one before it.
   const gap = manifestSegments(manifest, scenes, timing, ["01-hook.png", "03-seven.png"]);
   assert.deepEqual(gap.map((s) => [s.image, +s.start.toFixed(2), +s.duration.toFixed(2)]), [[0, 0, 6.5], [1, 6.5, 1.5], [1, 8, 2]]);
+});
+
+/** A 16-bit PCM WAV: `sec` seconds of a 440 Hz tone at `amp` per segment. */
+function wav(segments: Array<{ sec: number; amp: number }>, rate = 48000, channels = 2): Uint8Array {
+  const samples = segments.reduce((n, s) => n + Math.round(s.sec * rate), 0);
+  const buf = new ArrayBuffer(44 + samples * channels * 2);
+  const v = new DataView(buf);
+  const str = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + samples * channels * 2, true); str(8, "WAVE");
+  str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, channels, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * channels * 2, true); v.setUint16(32, channels * 2, true); v.setUint16(34, 16, true);
+  str(36, "data"); v.setUint32(40, samples * channels * 2, true);
+  let i = 0;
+  for (const s of segments) {
+    for (let k = 0; k < Math.round(s.sec * rate); k++, i++) {
+      const x = Math.round(s.amp * 32767 * Math.sin((2 * Math.PI * 440 * i) / rate));
+      for (let c = 0; c < channels; c++) v.setInt16(44 + (i * channels + c) * 2, x, true);
+    }
+  }
+  return new Uint8Array(buf);
+}
+
+test("the mouth follows the narration: open while speaking, closed in silence, one value per frame", () => {
+  const env = speechEnvelope(wav([{ sec: 1, amp: 0.6 }, { sec: 1, amp: 0 }, { sec: 1, amp: 0.6 }]));
+  assert.equal(env.length, 90);
+  const avg = (a: number[]) => a.reduce((n, x) => n + x, 0) / a.length;
+  assert.ok(avg(env.slice(5, 28)) > 0.6, "open while the voice is loud");
+  assert.ok(Math.max(...env.slice(40, 58)) === 0, "closed in silence");
+  assert.ok(avg(env.slice(65, 88)) > 0.6, "opens again");
+  assert.throws(() => speechEnvelope(new Uint8Array(10)), /not a WAV/);
+});
+
+test("an animated shot holds its framing: the characters move, the camera barely does", () => {
+  const shot = { image: 0, startFrame: 0, frames: 75, framing: FRAMINGS["close"]!, scene_index: 1 };
+  const args = animatedShotArgs("/tmp/img.png", "/tmp/anim.mp4", shot, "/tmp/out.mp4");
+  const graph = args[args.indexOf("-filter_complex") + 1]!;
+  assert.match(graph, /zoompan=z='1\.28\*\(1\+0\.015\*\(on\/74\)\)'/);
+  assert.match(graph, /:d=1:s=1080x1080/, "one output frame per input frame of the clip");
+  assert.equal(args[args.indexOf("-frames:v") + 1], "75");
+  assert.deepEqual(args.filter((a) => a === "-i").length, 2);
 });

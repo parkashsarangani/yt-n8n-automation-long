@@ -92,6 +92,7 @@ jobs:
           META_IG_ACCESS_TOKEN: ${{ secrets.META_IG_ACCESS_TOKEN }}
           BEAT_IMAGES: ${{ vars.BEAT_IMAGES || '1' }}
           AUTO_EDIT: ${{ vars.AUTO_EDIT || 'off' }}
+          ANIMATOR_URL: ${{ vars.ANIMATOR_URL || 'http://animator:4100' }}
           DAILY_RELEASE_HOUR: ${{ vars.DAILY_RELEASE_HOUR || '12' }}
           OPENAI_IMAGES_API_KEY: ${{ secrets.OPENAI_IMAGES_API_KEY }}
           META_GRAPH_VERSION: ${{ vars.META_GRAPH_VERSION || 'v25.0' }}
@@ -121,10 +122,10 @@ jobs:
           fi
 
           echo "=== Building ==="
-          docker compose build engine long-compose
+          docker compose build engine long-compose animator
 
           echo "=== Starting ==="
-          docker compose up -d --remove-orphans postgres engine long-compose
+          docker compose up -d --remove-orphans postgres engine long-compose animator
 
           if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
             if [ -z "${UI_PUBLIC_HOSTS:-}" ] || [ -z "${CF_ACCESS_TEAM_DOMAIN:-}" ] || [ -z "${CF_ACCESS_AUD:-}" ]; then
@@ -217,6 +218,7 @@ jobs:
           }
           check long-compose http://127.0.0.1:4001/topic-history
           check engine http://127.0.0.1:4321/api/config "Host: localhost"
+          check animator http://127.0.0.1:4101/health
 
       - name: Report
         run: |

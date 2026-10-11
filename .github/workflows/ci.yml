@@ -18,7 +18,7 @@ jobs:
         run: |
           services=$(docker compose config --services | sort | tr '\n' ' ')
           echo "services: $services"
-          [ "$services" = "engine long-compose postgres " ]
+          [ "$services" = "animator engine long-compose postgres " ]
       - name: Retired visual stack is absent
         run: |
           python3 - <<'PY'
@@ -138,6 +138,16 @@ jobs:
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm run typecheck
       - name: Test engine
         run: docker run --rm engine:pr-${{ github.event.pull_request.number }} npm test
+
+  animator:
+    name: Animator (faces and hands)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build animator image
+        run: docker build -t animator:pr-${{ github.event.pull_request.number }} ./animator
+      - name: Unit tests
+        run: docker run --rm animator:pr-${{ github.event.pull_request.number }} python -m unittest -v test_animate
 
   long-compose:
     name: Audio-first compositor

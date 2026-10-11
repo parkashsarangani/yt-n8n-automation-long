@@ -59,7 +59,7 @@ import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspo
 import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { ffmpegAvailable } from "./ffmpeg-file.ts";
-import { AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NODE, EDIT_SOURCE_NODE, AUTO_EDIT_NOTE_FILE, autoEditFailedNote, autoEditMode, autoEditNote, renderAutoCut, type BeatsManifest } from "./auto-edit.ts";
+import { AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NODE, EDIT_SOURCE_NODE, AUTO_EDIT_NOTE_FILE, autoEditFailedNote, autoEditMode, autoEditNote, renderAutoCut, type AnimateFn, type BeatsManifest } from "./auto-edit.ts";
 import { reelCaptions } from "./reel-captions.ts";
 import { BEAT_IMAGE_MODEL, BEATS_FOLDER, BEATS_MANIFEST, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry, SHORTS_MAX_PUBLISH_SEC } from "./video-format.ts";
@@ -1275,7 +1275,8 @@ export class VidGenService {
           audio: await this.blobs.get(c.audio_uri),
           ...(c.alignment_uri ? { alignment: JSON.parse(new TextDecoder().decode(await this.blobs.get(c.alignment_uri))) as unknown } : {}),
         })));
-        const result = await render({ scenes, clips, images, ...(manifest ? { manifest } : {}) }, { log: (m) => console.log(m) });
+        const animate = this.animatorClient();
+        const result = await render({ scenes, clips, images, ...(manifest ? { manifest } : {}) }, { log: (m) => console.log(m), ...(animate ? { animate } : {}) });
         await drive.uploadFile(folderId, AUTO_CUT_FILE, result.video, "video/mp4");
         await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "ok", { attempt: failures + 1, max_attempts: maxAttempts, duration_ms: Date.now() - started });
         rendered++;
@@ -1296,6 +1297,29 @@ export class VidGenService {
       }
     }
     return { checked, rendered };
+  }
+
+  /**
+   * The animator service (animator/): blinks, and mouth and hand motion for
+   * speaking characters. Off when ANIMATOR_URL is empty; any failure falls
+   * back to the still picture for that shot, inside renderAutoCut.
+   */
+  private animatorClient(): AnimateFn | undefined {
+    const base = process.env["ANIMATOR_URL"]?.trim().replace(/\/+$/, "");
+    if (!base) return undefined;
+    return async (req) => {
+      const res = await fetch(`${base}/animate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: Buffer.from(req.image).toString("base64"), frames: req.frames, start_frame: req.startFrame, envelope: req.envelope, seed: req.seed }),
+        // The first shot of each picture also finds its faces: about a minute and a half on CPU.
+        signal: AbortSignal.timeout(600_000),
+      });
+      if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("video/")) {
+        throw new Error(`animator ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      }
+      return new Uint8Array(await res.arrayBuffer());
+    };
   }
 
   /** The edit source decided most recently for any other run -- "ab" alternates from it. */

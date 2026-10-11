@@ -13,7 +13,12 @@
  *   - big word-by-word captions in the clean area above the scene, the word
  *     being spoken highlighted in the series mustard;
  *   - a proper ending: during the spoken CTA the last story image pulls
- *     out slowly and a "FOLLOW FOR MORE" badge pops in under the captions.
+ *     out slowly and a "FOLLOW FOR MORE" badge pops in under the captions;
+ *   - with the animator service (animator/, ANIMATOR_URL), the pictures come
+ *     alive without the bodies moving (operator 2026-10-11): everyone blinks,
+ *     and a character drawn speaking moves its mouth with the narration and
+ *     gestures with a free hand. The camera then holds still per shot. A shot
+ *     the animator cannot make falls back to the still picture.
  *
  * The cut lands in Drive as final-auto.mp4 and goes out through the same
  * validated daily release queue as the editor's cuts. Whether a run is
@@ -285,6 +290,99 @@ export function shotArgs(image: string, shot: Shot, output: string): string[] {
   ];
 }
 
+// ---------------------------------------------------------------- animation
+
+/** One animated clip of a beat image's scene square, from the animator service. */
+export interface AnimateRequest {
+  /** The 1080x1080 scene square, PNG. */
+  image: Uint8Array;
+  frames: number;
+  /** The shot's first frame on the Short's timeline: blinks stay continuous across shots. */
+  startFrame: number;
+  /** Mouth openness 0..1 per frame of the shot, from the narration's loudness. */
+  envelope: number[];
+  seed: number;
+}
+export type AnimateFn = (req: AnimateRequest) => Promise<Uint8Array>;
+
+/**
+ * Mouth openness per video frame (0..1) from a 16-bit PCM WAV: loudness per
+ * frame, normalised to the 95th percentile, opening fast and closing a little
+ * slower so it reads as syllables; quiet is closed.
+ */
+export function speechEnvelope(wav: Uint8Array, fps = FPS): number[] {
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  const tag = (o: number) => String.fromCharCode(wav[o]!, wav[o + 1]!, wav[o + 2]!, wav[o + 3]!);
+  if (wav.byteLength < 44 || tag(0) !== "RIFF" || tag(8) !== "WAVE") throw new Error("speechEnvelope: not a WAV file");
+  let channels = 1, rate = 48000, bits = 16, dataAt = -1, dataLen = 0;
+  for (let o = 12; o + 8 <= wav.byteLength;) {
+    const id = tag(o), len = view.getUint32(o + 4, true);
+    if (id === "fmt ") { channels = view.getUint16(o + 10, true); rate = view.getUint32(o + 12, true); bits = view.getUint16(o + 22, true); }
+    if (id === "data") { dataAt = o + 8; dataLen = Math.min(len, wav.byteLength - dataAt); break; }
+    o += 8 + len + (len % 2);
+  }
+  if (dataAt < 0 || bits !== 16) throw new Error("speechEnvelope: expected 16-bit PCM data");
+  const samples = Math.floor(dataLen / 2 / channels);
+  const hop = Math.max(1, Math.round(rate / fps));
+  const rms: number[] = [];
+  for (let start = 0; start + hop <= samples; start += hop) {
+    let sum = 0;
+    for (let i = start; i < start + hop; i++) {
+      let v = 0;
+      for (let c = 0; c < channels; c++) v += view.getInt16(dataAt + (i * channels + c) * 2, true);
+      v /= channels;
+      sum += v * v;
+    }
+    rms.push(Math.sqrt(sum / hop));
+  }
+  const sorted = [...rms].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
+  let env = 0;
+  return rms.map((r) => {
+    const v = r / p95;
+    env = v > env ? v : env * 0.55 + v * 0.45;
+    return Math.min(1, Math.max(0, (env - 0.12) / 0.7));
+  });
+}
+
+/**
+ * A shot of an animated picture: the clip (the scene square, already moving)
+ * takes the shot's framing and holds it -- only 1.5% of drift, because what
+ * moves is now the characters, not the camera.
+ */
+export function animatedShotArgs(image: string, clip: string, shot: Shot, output: string): string[] {
+  const f = shot.framing;
+  const p = shot.frames > 1 ? `(on/${shot.frames - 1})` : "0";
+  const z = `${f.z1}*(1+0.015*${p})`;
+  const hold = `zoompan=z='${z}':x='max(0,min(iw-iw/zoom,${f.x1}*iw-iw/zoom/2))':y='max(0,min(ih-ih/zoom,${f.y1}*ih-ih/zoom/2))':d=1:s=${SCENE_PX}x${SCENE_PX}:fps=${FPS}`;
+  const seconds = (shot.frames / FPS + 0.5).toFixed(3);
+  const ramp = (alpha: string) => `crop=${FRAME.width}:${FADE_PX}:0:0,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${alpha}'`;
+  const filter = [
+    `[0:v]split=3[s0][s1][s2]`,
+    `[s0]crop=${FRAME.width}:600:0:0,scale=${FRAME.width}:${FRAME.height},setsar=1[bg]`,
+    `[s1]${ramp(`255*(1-Y/${FADE_PX - 1})`)}[top]`,
+    `[s2]${ramp(`255*Y/${FADE_PX - 1}`)}[bot]`,
+    `[1:v]setpts=PTS-STARTPTS,scale=${SCENE_PX * 2}:${SCENE_PX * 2}:flags=lanczos,${hold},setsar=1[sc]`,
+    `[bg][sc]overlay=0:${SCENE_Y}:eof_action=endall[v1]`,
+    `[v1][top]overlay=0:${SCENE_Y}[v2]`,
+    `[v2][bot]overlay=0:${SCENE_Y + SCENE_PX - FADE_PX},format=yuv420p[v]`,
+  ].join(";");
+  return [
+    "-v", "error", "-y",
+    "-loop", "1", "-framerate", String(FPS), "-t", seconds, "-i", image,
+    "-i", clip,
+    "-filter_complex", filter, "-map", "[v]",
+    "-frames:v", String(shot.frames), "-r", String(FPS),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+    output,
+  ];
+}
+
+/** The scene square of a beat image (beat-images.ts: 1080x1080 at y=840), as PNG. */
+export function sceneSquareArgs(image: string, output: string): string[] {
+  return ["-v", "error", "-y", "-i", image, "-vf", `crop=${SCENE_PX}:${SCENE_PX}:0:${SOURCE_SCENE_Y}`, "-frames:v", "1", output];
+}
+
 /** Narration: every clip padded/trimmed to exactly its recorded duration, then joined. */
 export function audioArgs(clips: Array<{ file: string; duration: number }>, output: string): string[] {
   const inputs = clips.flatMap((c) => ["-i", c.file]);
@@ -397,10 +495,13 @@ export interface AutoCutInput {
   manifest?: BeatsManifest;
 }
 
-export interface AutoCutResult { video: Uint8Array; duration_sec: number; shots: number }
+export interface AutoCutResult { video: Uint8Array; duration_sec: number; shots: number; animated_shots: number }
 
 /** Render the automatic cut. Throws naming the ffmpeg stage that failed. */
-export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string; log?: (m: string) => void } = {}): Promise<AutoCutResult> {
+export async function renderAutoCut(
+  input: AutoCutInput,
+  opts: { ffmpeg?: string; log?: (m: string) => void; animate?: AnimateFn } = {},
+): Promise<AutoCutResult> {
   const ffmpeg = opts.ffmpeg ?? ffmpegBinary();
   const images = [...input.images].sort((a, b) => a.name.localeCompare(b.name));
   if (images.length === 0) throw new Error("auto edit: no beat images to cut from");
@@ -441,18 +542,6 @@ export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string
       await writeFile(file, img.bytes);
       return file;
     }));
-    const shotFiles: string[] = [];
-    for (const [i, shot] of shots.entries()) {
-      const file = path.join(dir, `shot-${String(i).padStart(3, "0")}.mp4`);
-      await step(`shot ${i + 1}/${shots.length}`, shotArgs(imageFiles[shot.image]!, shot, file), 120_000);
-      shotFiles.push(file);
-    }
-    opts.log?.(`[auto-edit] ${shots.length} shots rendered`);
-    const list = path.join(dir, "shots.txt");
-    await writeFile(list, shotFiles.map((f) => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
-    const video = path.join(dir, "video.mp4");
-    await step("join", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", video], 120_000);
-
     const narrated = scenes.filter((s) => timing.has(s.scene_index));
     const clipFiles = await Promise.all(narrated.map(async (scene, i) => {
       const file = path.join(dir, `clip-${i}.mp3`);
@@ -462,12 +551,57 @@ export async function renderAutoCut(input: AutoCutInput, opts: { ffmpeg?: string
     const audio = path.join(dir, "narration.wav");
     await step("narration", audioArgs(clipFiles, audio), 120_000);
 
+    let envelope: number[] = [];
+    const squares = new Map<number, Uint8Array>();
+    if (opts.animate) {
+      envelope = speechEnvelope(new Uint8Array(await readFile(audio)));
+      for (const k of new Set(shots.map((s) => s.image))) {
+        const sq = path.join(dir, `square-${k}.png`);
+        await step("scene square", sceneSquareArgs(imageFiles[k]!, sq), 60_000);
+        squares.set(k, new Uint8Array(await readFile(sq)));
+      }
+    }
+    const shotFiles: string[] = [];
+    let animated = 0, animateFailures = 0;
+    for (const [i, shot] of shots.entries()) {
+      const file = path.join(dir, `shot-${String(i).padStart(3, "0")}.mp4`);
+      let done = false;
+      // Two failures in a row: the animator is down, the rest stay still.
+      if (opts.animate && animateFailures < 2) {
+        try {
+          const clip = await opts.animate({
+            image: squares.get(shot.image)!,
+            frames: shot.frames,
+            startFrame: shot.startFrame,
+            envelope: envelope.slice(shot.startFrame, shot.startFrame + shot.frames),
+            seed: [...images[shot.image]!.name].reduce((n, c) => n + c.charCodeAt(0), 0),
+          });
+          const clipFile = path.join(dir, `anim-${i}.mp4`);
+          await writeFile(clipFile, clip);
+          await step(`animated shot ${i + 1}/${shots.length}`, animatedShotArgs(imageFiles[shot.image]!, clipFile, shot, file), 120_000);
+          done = true;
+          animated++;
+          animateFailures = 0;
+        } catch (err) {
+          animateFailures++;
+          opts.log?.(`[auto-edit] shot ${i + 1}: animation failed (${err instanceof Error ? err.message : String(err)}); using the still picture`);
+        }
+      }
+      if (!done) await step(`shot ${i + 1}/${shots.length}`, shotArgs(imageFiles[shot.image]!, shot, file), 120_000);
+      shotFiles.push(file);
+    }
+    opts.log?.(`[auto-edit] ${shots.length} shots rendered${opts.animate ? `, ${animated} animated` : ""}`);
+    const list = path.join(dir, "shots.txt");
+    await writeFile(list, shotFiles.map((f) => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
+    const video = path.join(dir, "video.mp4");
+    await step("join", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", video], 120_000);
+
     const ass = path.join(dir, "captions.ass");
     const outro = segments.filter((s) => s.is_outro);
     await writeFile(ass, captionsAss(words, outro.length ? { ending: { start: outro[0]!.start, end: outro.at(-1)!.start + outro.at(-1)!.duration } } : {}));
     const out = path.join(dir, "final-auto.mp4");
     await step("captions + encode", finalArgs(video, audio, ass, out), 600_000);
-    return { video: new Uint8Array(await readFile(out)), duration_sec: +total.toFixed(3), shots: shots.length };
+    return { video: new Uint8Array(await readFile(out)), duration_sec: +total.toFixed(3), shots: shots.length, animated_shots: animated };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
