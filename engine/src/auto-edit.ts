@@ -584,13 +584,16 @@ function markEvents(m: EmphasisMark): string[] {
   const tilt = m.x < FRAME.width / 2 ? -10 : 10;
   return [
     // The burst: rays spring out and fade in the first half second.
-    `Dialogue: 2,${t0},${assTime(Math.min(m.end, m.start + 0.55))},Mark,,0,0,0,,{\\an7\\pos(${m.x},${m.y})\\bord0\\shad0\\1c${HIGHLIGHT}\\fscx50\\fscy50\\t(0,160,\\fscx110\\fscy110)\\t(220,550,\\alpha&HFF&)\\p1}${rays(80, 115, 14)}{\\p0}`,
+    `Dialogue: 2,${t0},${assTime(Math.min(m.end, m.start + 0.55))},Mark,,0,0,0,,{\\an7\\pos(${m.x},${m.y})\\bord0\\shad0\\1c${HIGHLIGHT}\\fscx50\\fscy50\\t(0,160,\\fscx110\\fscy110)\\t(220,550,\\alpha&HFF&)\\p1}${rays(92, 128, 15)}{\\p0}`,
     // The mark: pops past full size, settles, rocks gently, fades out.
     `Dialogue: 3,${t0},${t1},Mark,,0,0,0,,{\\an5\\pos(${m.x},${m.y})\\frz${tilt}\\fscx0\\fscy0\\t(0,140,\\fscx125\\fscy125)\\t(140,260,\\fscx100\\fscy100)\\t(260,${Math.round((m.end - m.start) * 1000)},\\frz${-tilt / 2})\\fad(0,180)}${glyph}`,
   ];
 }
 
 // ---------------------------------------------------------------- captions
+
+/** Montserrat's space is narrow at caption size; a hard space after it keeps words apart. */
+const WORD_GAP = " \\h";
 
 /** The chunk's words with the spoken one marked, in the caption style's look. */
 function chunkLine(chunk: TimedWord[], spoken: number, style: CaptionStyle): string {
@@ -599,7 +602,7 @@ function chunkLine(chunk: TimedWord[], spoken: number, style: CaptionStyle): str
     if (xi !== spoken) return t;
     if (style === "pop") return `{\\c${HIGHLIGHT}\\fscx100\\fscy100\\t(0,70,\\fscx118\\fscy118)\\t(70,170,\\fscx108\\fscy108)}${t}{\\c${WHITE}\\fscx100\\fscy100}`;
     return `{\\c${HIGHLIGHT}}${t}{\\c${WHITE}}`;
-  }).join(" ");
+  }).join(WORD_GAP);
 }
 
 /** How a chunk arrives on its first word. */
@@ -652,7 +655,7 @@ export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: 
     // An opaque mustard box (BorderStyle 3) with navy text.
     `Style: Badge,${font},74,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
     // Emphasis marks: a big mustard glyph with a thick navy outline.
-    `Style: Mark,${font},150,${HIGHLIGHT},${HIGHLIGHT},${NAVY},&H64000000&,-1,0,0,0,100,100,0,0,1,10,5,5,0,0,0,1`,
+    `Style: Mark,${font},180,${HIGHLIGHT},${HIGHLIGHT},${NAVY},&H64000000&,-1,0,0,0,100,100,0,0,1,10,5,5,0,0,0,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
