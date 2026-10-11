@@ -33,6 +33,9 @@ export const PIPELINE_AUTHORED_FILES: ReadonlySet<string> = new Set([
   "credits.json",
   // Subfolder of per-beat images (beat-images.ts) -- ours, not an editor upload.
   "beats",
+  // Notes to the editor from the automatic edit (auto-edit.ts).
+  "auto-edited - no edit needed.txt",
+  "auto-edit failed - please edit this one.txt",
 ]);
 
 export function isPipelineAuthoredFile(name: string): boolean {

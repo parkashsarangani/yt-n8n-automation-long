@@ -59,8 +59,9 @@ import { crosspostRun, crosspostSettled, type CrosspostOutcome } from "./crosspo
 import { IgTokenStore } from "./ig-token.ts";
 import { DrivePublicVideoHost, reelSafeMp4 } from "./reel-public-video.ts";
 import { ffmpegAvailable } from "./ffmpeg-file.ts";
+import { AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NODE, EDIT_SOURCE_NODE, AUTO_EDIT_NOTE_FILE, autoEditFailedNote, autoEditMode, autoEditNote, renderAutoCut, type AnimateFn, type BeatsManifest } from "./auto-edit.ts";
 import { reelCaptions } from "./reel-captions.ts";
-import { BEAT_IMAGE_MODEL, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
+import { BEAT_IMAGE_MODEL, BEATS_FOLDER, BEATS_MANIFEST, deliverBeatImages, fitToShortFrame, generateBeatImage, loadSeriesReferences, planBeats, selectBeats, type BeatScene } from "./beat-images.ts";
 import { FORMATS, formatOfGeometry, SHORTS_MAX_PUBLISH_SEC } from "./video-format.ts";
 import {
   FakePublishTarget,
@@ -1144,7 +1145,8 @@ export class VidGenService {
       const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
       const folderId = (await this.store.get<{ drive_folder_id?: string }>(handoffId))?.payload?.drive_folder_id;
       const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
-      const scriptId = artifactOf("draft_script"), seoId = artifactOf("seo");
+      // The approved script: what the voice actually speaks.
+      const scriptId = artifactOf("approve_script") ?? artifactOf("draft_script"), seoId = artifactOf("seo");
       const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
       if (!folderId || selectBeats(scenes).length === 0) continue;
       const title = (seoId ? (await this.store.get<{ title?: string }>(seoId))?.payload?.title : undefined) ?? "";
@@ -1157,8 +1159,12 @@ export class VidGenService {
       await this.runLog.record({ ...base, output: null, status: "running", started_at: started.toISOString() });
       const log = (m: string) => console.log(m);
       try {
-        const plans = await planBeats(title, scenes, { provider: this.captionProvider, prompts: this.prompts, log });
-        const result = await deliverBeatImages({ episodeFolderId: folderId, title, plans }, { drive, generate, log });
+        // The narration's real timing spreads the images over it evenly.
+        const voiceId = artifactOf("voice");
+        const clips = voiceId ? (await this.store.get<{ clips?: Array<{ scene_index: number; duration_sec: number }> }>(voiceId))?.payload?.clips ?? [] : [];
+        const durations = new Map(clips.map((c) => [c.scene_index, c.duration_sec]));
+        const plans = await planBeats(title, scenes, { provider: this.captionProvider, prompts: this.prompts, log, durations });
+        const result = await deliverBeatImages({ episodeFolderId: folderId, title, plans, scenes }, { drive, generate, log });
         await this.runLog.record({
           ...base, output: drive.folderUrl(result.folder_id), status: "ok", started_at: started.toISOString(),
           duration_ms: Date.now() - started.getTime(), provider: "openai", model: BEAT_IMAGE_MODEL,
@@ -1189,6 +1195,141 @@ export class VidGenService {
       }
     }
     return { checked, delivered };
+  }
+
+  /** Automatic edit (auto-edit.ts): on with AUTO_EDIT=ab|all, Drive, and beat images being made. */
+  autoEditEnabled(): boolean {
+    return autoEditMode() !== "off" && this.beatImagesEnabled();
+  }
+
+  /**
+   * For every Short parked at editor_review whose beat images are done:
+   * decide once whether it is auto-edited (tag "edit_source": "auto" or
+   * "editor"; AUTO_EDIT=ab alternates, =all takes every run), and for the
+   * auto ones render final-auto.mp4 from the beat images and narration into
+   * the episode folder, where the daily release queue imports it like any
+   * editor cut. The editor is told by a note in the folder either way the
+   * automatic edit goes; after 2 failed renders the run is handed back to
+   * them. Only runs from the last 3 days.
+   */
+  async autoEditPending(opts: { render?: typeof renderAutoCut } = {}): Promise<{ checked: number; rendered: number }> {
+    const drive = this.driveProvider;
+    const mode = autoEditMode();
+    if (!drive || mode === "off") return { checked: 0, rendered: 0 };
+    const render = opts.render ?? renderAutoCut;
+    const maxAttempts = 2;
+    const cutoff = Date.now() - 3 * 24 * 3600_000;
+    let checked = 0, rendered = 0;
+    const tag = (runId: string, node: string, transformation: string, status: "ok" | "running" | "failed", extra: Record<string, unknown> = {}) =>
+      this.runLog.record({
+        run_id: runId, graph_id: null, node_id: node, transformation, transformation_version: "1",
+        inputs: [], output: null, status, attempt: 1, max_attempts: 1, started_at: new Date().toISOString(), duration_ms: 0, ...extra,
+      } as RunRecord);
+    const parked = this.listRuns()
+      .filter((r) => r.waiting.some((w) => w.node_id === "editor_review") && Date.parse(r.created_at) >= cutoff)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    for (const run of parked) {
+      const records = await this.runRecords(run.run_id);
+      // Images first: without them there is nothing to cut, and the run stays the editor's.
+      if (!records.some((r) => r.node_id === "beat_images" && r.status === "ok")) continue;
+      const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
+      const folderId = (await this.store.get<{ drive_folder_id?: string }>(handoffId))?.payload?.drive_folder_id;
+      if (!folderId) continue;
+
+      let source = records.find((r) => r.node_id === EDIT_SOURCE_NODE)?.transformation;
+      if (!source) {
+        source = mode === "all" ? "auto" : (await this.lastEditSource(run.run_id)) === "auto" ? "editor" : "auto";
+        await tag(run.run_id, EDIT_SOURCE_NODE, source, "ok");
+        console.log(`[auto-edit] run ${run.run_id.slice(4, 12)}: ${source === "auto" ? "edited automatically" : "left to the editor"} (AUTO_EDIT=${mode})`);
+        if (source === "auto") await drive.uploadFile(folderId, AUTO_EDIT_NOTE_FILE, new TextEncoder().encode(autoEditNote()), "text/plain");
+      }
+      if (source !== "auto") continue;
+
+      const mine = records.filter((r) => r.node_id === AUTO_EDIT_NODE);
+      if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
+      const failures = mine.filter((r) => r.status === "failed").length;
+      if (failures >= maxAttempts) continue;
+      const files = await drive.listFiles(folderId);
+      // A final cut already there (the editor's, say) wins: a second one would block both.
+      if (files.some((f) => isEditorCutFilename(f.name))) continue;
+      checked++;
+      const started = Date.now();
+      await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "running", { attempt: failures + 1, max_attempts: maxAttempts });
+      try {
+        const beatsId = files.find((f) => f.name === BEATS_FOLDER && f.mimeType === "application/vnd.google-apps.folder")?.id;
+        if (!beatsId) throw new Error("no beats folder");
+        const beatFiles = await drive.listFiles(beatsId);
+        const pngs = beatFiles.filter((f) => /^\d{2}-.*\.png$/i.test(f.name));
+        const images = await Promise.all(pngs.map(async (f) => ({ name: f.name, bytes: await drive.downloadFile(f.id) })));
+        const manifestFile = beatFiles.find((f) => f.name === BEATS_MANIFEST);
+        const manifest = manifestFile ? JSON.parse(new TextDecoder().decode(await drive.downloadFile(manifestFile.id))) as BeatsManifest : undefined;
+        const artifactOf = (id: string) => run.nodes.find((n) => n.node_id === id)?.artifact_id;
+        // The approved script: what the voice actually speaks, closing CTA included.
+        const scriptId = artifactOf("approve_script") ?? artifactOf("draft_script"), voiceId = artifactOf("voice");
+        const scenes = scriptId ? (await this.store.get<{ scenes?: BeatScene[] }>(scriptId))?.payload?.scenes ?? [] : [];
+        const voice = voiceId ? (await this.store.get<{ clips?: Array<{ scene_index: number; audio_uri: string; alignment_uri?: string; duration_sec: number }> }>(voiceId))?.payload : undefined;
+        if (!voice?.clips?.length) throw new Error("no narration clips");
+        const clips = await Promise.all(voice.clips.map(async (c) => ({
+          scene_index: c.scene_index,
+          duration_sec: c.duration_sec,
+          audio: await this.blobs.get(c.audio_uri),
+          ...(c.alignment_uri ? { alignment: JSON.parse(new TextDecoder().decode(await this.blobs.get(c.alignment_uri))) as unknown } : {}),
+        })));
+        const animate = this.animatorClient();
+        const result = await render({ scenes, clips, images, ...(manifest ? { manifest } : {}) }, { log: (m) => console.log(m), ...(animate ? { animate } : {}) });
+        await drive.uploadFile(folderId, AUTO_CUT_FILE, result.video, "video/mp4");
+        await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "ok", { attempt: failures + 1, max_attempts: maxAttempts, duration_ms: Date.now() - started });
+        rendered++;
+        console.log(`[auto-edit] run ${run.run_id.slice(4, 12)}: ${AUTO_CUT_FILE} uploaded (${result.duration_sec}s, ${result.shots} shots, ${Math.round((Date.now() - started) / 1000)}s to render)`);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "failed", { attempt: failures + 1, max_attempts: maxAttempts, error: detail.slice(0, 1000) });
+        console.error(`[auto-edit] run ${run.run_id.slice(4, 12)} failed: ${detail}`);
+        if (failures + 1 >= maxAttempts) {
+          // Given back to the editor: the note says so in the folder, the operator hears once.
+          await drive.uploadFile(folderId, AUTO_EDIT_FAILED_NOTE_FILE, new TextEncoder().encode(autoEditFailedNote(detail.slice(0, 300))), "text/plain").catch(() => {});
+          await sendOperatorAlert({
+            run_id: run.run_id,
+            reason: `the automatic edit failed ${maxAttempts} times; the editor has been asked to edit this Short`,
+            failures: [{ node_id: AUTO_EDIT_NODE, error: detail }],
+          });
+        }
+      }
+    }
+    return { checked, rendered };
+  }
+
+  /**
+   * The animator service (animator/): blinks, and mouth and hand motion for
+   * speaking characters. Off when ANIMATOR_URL is empty; any failure falls
+   * back to the still picture for that shot, inside renderAutoCut.
+   */
+  private animatorClient(): AnimateFn | undefined {
+    const base = process.env["ANIMATOR_URL"]?.trim().replace(/\/+$/, "");
+    if (!base) return undefined;
+    return async (req) => {
+      const res = await fetch(`${base}/animate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image: Buffer.from(req.image).toString("base64"), frames: req.frames, start_frame: req.startFrame, envelope: req.envelope, seed: req.seed }),
+        // The first shot of each picture also finds its faces: about a minute and a half on CPU.
+        signal: AbortSignal.timeout(600_000),
+      });
+      if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("video/")) {
+        throw new Error(`animator ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      }
+      return new Uint8Array(await res.arrayBuffer());
+    };
+  }
+
+  /** The edit source decided most recently for any other run -- "ab" alternates from it. */
+  private async lastEditSource(exceptRunId: string): Promise<string | undefined> {
+    let latest: { at: string; source: string } | undefined;
+    for (const run of this.listRuns().filter((r) => r.run_id !== exceptRunId).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 40)) {
+      const rec = (await this.runRecords(run.run_id)).find((r) => r.node_id === EDIT_SOURCE_NODE);
+      if (rec && (!latest || rec.started_at > latest.at)) latest = { at: rec.started_at, source: rec.transformation };
+    }
+    return latest?.source;
   }
 
   async checkEditorReturns(): Promise<EditorReturnsResult> {

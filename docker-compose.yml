@@ -70,6 +70,11 @@ services:
       META_IG_ACCESS_TOKEN: ${META_IG_ACCESS_TOKEN:-}
       # Per-beat editor images (gpt-image-1-mini, ~$0.10/Short). 1 = on. Optional own key with its own spend cap.
       BEAT_IMAGES: ${BEAT_IMAGES:-0}
+      # Automatic edit of Shorts from the beat images: off | ab (alternate with the editor) | all.
+      AUTO_EDIT: ${AUTO_EDIT:-off}
+      # Animator for the automatic edit (blinks; mouth + hands for speaking
+      # characters). Empty = still pictures.
+      ANIMATOR_URL: ${ANIMATOR_URL:-http://animator:4100}
       # Returned cuts publish one per day at this hour (Berlin), in upload order; "off" = immediately.
       DAILY_RELEASE_HOUR: ${DAILY_RELEASE_HOUR:-12}
       OPENAI_IMAGES_API_KEY: ${OPENAI_IMAGES_API_KEY:-}
@@ -160,6 +165,21 @@ services:
         reservations:
           memory: 2G
 
+  # Face and hand animation for the automatic Short edit (animator/app.py).
+  # CPU only; its detection models (~1 GB) download once into animator_models.
+  animator:
+    build: ./animator
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4101:4100"
+    volumes:
+      - animator_models:/models
+    deploy:
+      resources:
+        limits:
+          memory: 5G
+          cpus: "4"
+
   # Outbound-only Cloudflare Tunnel that gives the editor the UI at
   # UI_PUBLIC_HOSTS; no port is opened on the host or router. The public
   # hostname -> http://engine:4321 route and the Access login policy live in
@@ -176,6 +196,7 @@ services:
       - engine
 
 volumes:
+  animator_models:
   pg_data:
   vidgen_data:
   long_outputs:
