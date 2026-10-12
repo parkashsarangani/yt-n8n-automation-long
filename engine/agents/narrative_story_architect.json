@@ -22,6 +22,9 @@
   ],
   "produces": "story",
   "prompt": "narrative_story_architect@8",
+  "prompt_by_format": {
+    "short": "narrative_story_architect@9"
+  },
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 6500

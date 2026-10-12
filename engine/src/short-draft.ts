@@ -20,7 +20,7 @@
 
 import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
-import { FORMATS } from "./video-format.ts";
+import { FORMATS, SHORTS_MAX_PUBLISH_SEC } from "./video-format.ts";
 import { SPOKEN_CTA_SHORT } from "./cta.ts";
 
 /**
@@ -30,7 +30,7 @@ import { SPOKEN_CTA_SHORT } from "./cta.ts";
  * scroll-stopping first sentence, re-hooks, escalation, and a closing line
  * that loops back to the hook. v1 wrote 3-5 paragraphs of ~20 s each.
  */
-export const SHORT_DRAFT_PROMPT = "short_script_writer@3";
+export const SHORT_DRAFT_PROMPT = "short_script_writer@4";
 /**
  * v3 (operator 2026-10-05): second person only -- "people don't care about
  * it unless it's about them". A draft about "Emma" or a "he"/"she" main
@@ -38,7 +38,9 @@ export const SHORT_DRAFT_PROMPT = "short_script_writer@3";
  */
 export const MIN_YOU_WORDS = 5, MAX_THIRD_PERSON_PRONOUNS = 2;
 /** Beats after the hook, not counting the closing line. */
-export const MIN_BEATS = 6, MAX_BEATS = 9;
+export const MIN_BEATS = 6, MAX_BEATS = 12;
+/** The usual length to aim for; longer is fine when the message needs it (up to SHORTS_MAX_PUBLISH_SEC). */
+export const SHORT_AIM_MAX_SEC = 90;
 /** Words per beat: the target range, and the point a beat must be split. */
 export const BEAT_WORDS_TARGET = 30, BEAT_WORDS_MAX = 45;
 export const MAX_ATTEMPTS = 3;
@@ -131,16 +133,20 @@ export function shortDraftChecks(draft: ShortDraft, shape: HookShape = "list"): 
   paragraphs.forEach((p, i) => {
     if (words(p) > BEAT_WORDS_MAX) blocking.push(`beat ${i + 1} is ${words(p)} words -- split it into beats of 15-${BEAT_WORDS_TARGET} words`);
   });
+  // Length is a guide, not a cap (operator 2026-10-12: "the time limit isn't
+  // a hard limit. The message should be proper and it should be delivered as
+  // a Short or Reel"): only what cannot publish as a Short/Reel is blocking.
   const seconds = estimateSeconds(hook, script);
   const spec = FORMATS.short;
-  if (seconds < spec.minDurationSec! || seconds > spec.maxDurationSec!) {
-    const over = seconds > spec.maxDurationSec!;
-    blocking.push(`spoken length must be ${spec.minDurationSec}-${spec.maxDurationSec}s; this is about ${seconds}s (${words(hook) + words(script)} words) -- ${over ? "cut" : "add"} roughly ${Math.abs(Math.round((seconds - (over ? 70 : 64)) * WORDS_PER_SECOND))} words`);
+  if (seconds > SHORTS_MAX_PUBLISH_SEC) {
+    blocking.push(`about ${seconds}s (${words(hook) + words(script)} words) is too long to publish as a Short/Reel (max ${SHORTS_MAX_PUBLISH_SEC}s) -- cut roughly ${Math.round((seconds - 90) * WORDS_PER_SECOND)} words`);
+  } else if (seconds < spec.minDurationSec! || seconds > SHORT_AIM_MAX_SEC) {
+    warnings.push(`about ${seconds}s -- Shorts usually land at ${spec.minDurationSec}-${SHORT_AIM_MAX_SEC}s; keep it only if every line is needed for the message`);
   }
 
   // Structure (soft) -- a first guess from one viral Short, not a proven formula.
   const close = paragraphs.at(-1) ?? "";
-  if (!/\?/.test(close) || words(close) > 20) warnings.push("the last paragraph is usually one short question viewers can answer in the comments");
+  if (words(close) > 20) warnings.push("the closing line should be short (20 words or fewer) and loop back to the hook");
   const firstSentence = hook.split(/(?<=[.!?])\s+/)[0] ?? "";
   if (words(firstSentence) > 12) warnings.push(`the hook's first sentence is ${words(firstSentence)} words -- 12 or fewer stops the scroll`);
   const long = paragraphs.slice(0, -1).map((p, i) => [i + 1, words(p)] as const).filter(([, n]) => n > BEAT_WORDS_TARGET && n <= BEAT_WORDS_MAX);

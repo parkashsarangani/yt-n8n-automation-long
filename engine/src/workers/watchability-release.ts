@@ -11,6 +11,7 @@
  * genuinely broken output.
  */
 import { appendSpokenCta } from "../cta.ts";
+import { videoFormat } from "../video-format.ts";
 import type { WorkerDef, WorkerOutput } from "../runner.ts";
 import {
   MATERIAL_WEAKNESS_FLOOR,
@@ -74,7 +75,12 @@ export function enforceContinuationBridge(scriptPayload: unknown, packagePayload
   if (outroIndexes.length > 1) throw new Error("script continuation contract failed: multiple outro scenes");
 
   if (outroIndexes.length === 1) {
-    scenes[outroIndexes[0]!]!.narration = bridge;
+    // A Short ends on the writer's own verdict line (2026-10-12): the
+    // packager writes the bridge before the script exists, so it can only
+    // guess at the payoff -- in every trial its line was the flattest of the
+    // Short ("You are now one step closer..."). Long-form keeps the bridge.
+    const own = typeof scenes[outroIndexes[0]!]!.narration === "string" ? (scenes[outroIndexes[0]!]!.narration as string).trim() : "";
+    if (!(videoFormat() === "short" && own)) scenes[outroIndexes[0]!]!.narration = bridge;
   } else {
     const maxIndex = scenes.reduce((max, scene) => typeof scene.scene_index === "number" ? Math.max(max, scene.scene_index) : max, -1);
     scenes.push({ scene_index: maxIndex + 1, point: "session continuation", narration: bridge, is_outro: true });
