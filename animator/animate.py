@@ -150,15 +150,38 @@ def _reddish(img):
     return ((hsv[..., 0] < 12) | (hsv[..., 0] > 165)) & (hsv[..., 1] > 90) & (hsv[..., 2] > 60)
 
 
+# A drawn mouth is at most this many eye-spacings wide / tall; anything bigger is skin or clothing.
+MOUTH_MAX_W, MOUTH_MAX_H = 1.3, 0.9
+# Lab distance from the face's own skin below which a "red" pixel is just warm skin.
+SKIN_LIKE_DE = 28.0
+# The least OWLv2 confidence for "a phone at the ear" (which makes a character speak).
+PHONE_MIN_SCORE = 0.4
+
+
+def _unlike_skin(img, skin_bgr):
+    """Pixels clearly not the face's own skin colour (perceptual Lab distance)."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.int16)
+    ref = cv2.cvtColor(np.uint8([[np.clip(skin_bgr, 0, 255)]]), cv2.COLOR_BGR2LAB)[0, 0].astype(np.int16)
+    return np.linalg.norm(lab - ref, axis=2) > SKIN_LIKE_DE
+
+
 def find_mouth(img, mask, eyes):
-    """The mouth under the eyes: 'open' (red inside, the series style) or 'line' (a drawn stroke)."""
+    """The mouth under the eyes: 'open' (red inside, the series style) or 'line' (a drawn stroke).
+
+    Warm or brown skin passes the plain red test, so "red" here means red AND
+    clearly unlike this face's own skin (sampled around its eyes), and a mouth
+    is never bigger than a drawn one -- trial 2026-10-12: a brown-skinned
+    background man's whole lower face was taken for an open mouth, and the
+    talking animation painted a huge outlined oval over his chin.
+    """
     c = [(e["box"][0] + e["box"][2] / 2, e["box"][1] + e["box"][3] / 2) for e in eyes]
     ex, ey = (c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2
     sp = abs(c[0][0] - c[1][0])
     x0, x1 = max(0, int(ex - 0.9 * sp)), int(ex + 0.9 * sp)
     y0, y1 = max(0, int(ey + 0.35 * sp)), int(ey + 1.5 * sp)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    reddish = _reddish(img)
+    face_skin = np.median([e["skin"] for e in eyes], axis=0)
+    reddish = _reddish(img) & _unlike_skin(img, face_skin)
     region = np.zeros_like(mask)
     region[y0:y1, x0:x1] = mask[y0:y1, x0:x1]
 
@@ -179,15 +202,17 @@ def find_mouth(img, mask, eyes):
         mm = (grown > 0) & ((gray < 90) | reddish) & (region > 0)
         ys, xs = np.nonzero(mm)
         x, y, w, h = int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)
-        inside = img[(rlab == i)]
-        return {"box": (x, y, w, h), "kind": "open", "cover": cv2.dilate(mm.astype(np.uint8), np.ones((13, 13), np.uint8)),
-                "fill": [float(v) for v in np.median(inside, axis=0)], "skin": skin_around(x, y, w, h), "spacing": float(sp)}
+        if w <= MOUTH_MAX_W * sp and h <= MOUTH_MAX_H * sp:
+            inside = img[(rlab == i)]
+            return {"box": (x, y, w, h), "kind": "open", "cover": cv2.dilate(mm.astype(np.uint8), np.ones((13, 13), np.uint8)),
+                    "fill": [float(v) for v in np.median(inside, axis=0)], "skin": skin_around(x, y, w, h), "spacing": float(sp)}
+        # Too big for a drawn mouth: not an open mouth; look for a drawn line instead.
     cand = (((gray < 90) | reddish) & (region > 0)).astype(np.uint8)
     n, lab, st, cen = cv2.connectedComponentsWithStats(cand, 8)
     best = None
     for i in range(1, n):
         x, y, w, h, a = st[i]
-        if a < 12 or w < 0.15 * sp:
+        if a < 12 or w < 0.15 * sp or w > MOUTH_MAX_W * sp or h > MOUTH_MAX_H * sp:
             continue
         d = abs(cen[i][0] - ex) + 0.3 * abs(cen[i][1] - (ey + 0.9 * sp))
         if best is None or d < best[0]:
@@ -212,7 +237,9 @@ def analyse(sq: np.ndarray) -> dict:
     # One per person: the detector often returns a person as head, torso and
     # torso-plus-furniture. Faces first, tightest first; skip mostly-covered ones.
     cands.sort(key=lambda c: (0 if c[2] else 1, int((c[0] > 0).sum())))
-    phones = [b for b, _ in owl_boxes(pil, ["a telephone handset", "a mobile phone"], 0.2)]
+    # A phone at the ear makes a character a speaker, so only a confident one counts:
+    # trial 2026-10-12, a long orange braid scored 0.25 as "a mobile phone" (a real handset: 0.64).
+    phones = [b for b, s in owl_boxes(pil, ["a telephone handset", "a mobile phone"], 0.2) if s >= PHONE_MIN_SCORE]
     hand_boxes = [b for b, _ in owl_boxes(pil, ["a cartoon hand", "a hand"], 0.12)]
     union = np.zeros(sq.shape[:2], np.uint8)
     chars = []
