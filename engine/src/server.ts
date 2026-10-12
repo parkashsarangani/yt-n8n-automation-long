@@ -151,6 +151,14 @@ export function createUiServer(opts: ServerOptions) {
       return;
     }
 
+    // Operator: publish one finished Short now as today's release (service.releaseRunNow).
+    if (route === "POST /api/release/now") {
+      const body = (await readJson(req)) as { run_id?: unknown };
+      const result = await service.releaseRunNow(String(body.run_id ?? ""));
+      json(res, result.released ? 200 : 409, result);
+      return;
+    }
+
     if (route === "GET /api/release-schedule") {
       json(res, 200, await service.releaseSchedule({ fresh: url.searchParams.get("fresh") === "1" }));
       return;

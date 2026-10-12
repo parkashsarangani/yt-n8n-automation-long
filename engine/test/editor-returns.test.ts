@@ -386,3 +386,39 @@ test("with no Drive configured the pass says so instead of reporting an empty su
   assert.equal(result.configured, false);
   assert.equal(result.advanced, 0);
 });
+
+// Operator "publish this one today" (2026-10-12): the queue's checks, applied to one named run now.
+function releaseNowService(files: FakeFile[], lastReleaseDate?: string) {
+  const made = makeService(files);
+  const written: Array<{ last_release_date: string; run_id: string }> = [];
+  made.service.releaseNow = () => new Date("2026-10-12T13:30:00Z");
+  made.service.readReleaseState = async () => (lastReleaseDate ? { last_release_date: lastReleaseDate } : {});
+  made.service.writeReleaseState = async (s: { last_release_date: string; run_id: string }) => { written.push(s); };
+  return { ...made, written };
+}
+
+test("release now: a fresh cut is validated, today's slot is spent, then it is handed to publish", async () => {
+  const { service, calls, written } = releaseNowService([finalCut(mp4())]);
+  assert.deepEqual(await service.releaseRunNow("run_editor01-aaaa"), { released: true });
+  assert.deepEqual(written.map((w) => [w.last_release_date, w.run_id]), [["2026-10-12", "run_editor01-aaaa"]]);
+  assert.deepEqual(calls, ["download:file-final", "supplyEditorCut", "decide:editor_review"]);
+});
+
+test("release now: never a second Short on a day one already went out, and never without one final cut", async () => {
+  const done = releaseNowService([finalCut(mp4())], "2026-10-12");
+  assert.equal((await done.service.releaseRunNow("run_editor01-aaaa")).reason, "a Short was already released today");
+  assert.ok(!done.calls.includes("supplyEditorCut"));
+
+  const none = releaseNowService([]);
+  assert.equal((await none.service.releaseRunNow("run_editor01-aaaa")).reason, "no final cut yet");
+  const unknown = releaseNowService([finalCut(mp4())]);
+  assert.equal((await unknown.service.releaseRunNow("run_nope")).released, false);
+  assert.equal(unknown.written.length, 0);
+});
+
+test("release now: a cut that does not validate spends no slot and publishes nothing", async () => {
+  const { service, calls, written } = releaseNowService([finalCut(mp4(), 12)]); // still uploading
+  assert.equal((await service.releaseRunNow("run_editor01-aaaa")).released, false);
+  assert.equal(written.length, 0);
+  assert.ok(!calls.includes("supplyEditorCut"));
+});
