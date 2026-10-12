@@ -416,7 +416,9 @@ export function animatedShotArgs(image: string, clip: string, shot: Shot, output
 /** Image-change transition length: quick enough to read as a cut with energy. */
 export const TRANSITION_FRAMES = 7;
 /** Rotated so no two image changes in a row look the same. */
-export const TRANSITIONS = ["smoothleft", "zoomin", "smoothup", "smoothright", "slideleft", "smoothdown"] as const;
+// Not "zoomin": it blows the whole frame up past the scene band and dips to
+// dark grey before the next image (trial 2026-10-12).
+export const TRANSITIONS = ["smoothleft", "smoothup", "smoothright", "slideleft", "smoothdown"] as const;
 
 /** Consecutive shots of one image: hard cuts inside a run, a transition between runs. */
 export interface Run { image: number; startFrame: number; frames: number; shots: number[] }
