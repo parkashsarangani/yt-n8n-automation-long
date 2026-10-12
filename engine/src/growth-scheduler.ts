@@ -6,6 +6,7 @@ import { localHourToUtcHour } from "./timezone-hour.ts";
 import { localParts } from "./delivery-time.ts";
 import { socialSeriesCatalog } from "./social-series.ts";
 import { releaseHour } from "./release-schedule.ts";
+import { formatSpec } from "./video-format.ts";
 
 /**
  * SCHEDULE_PRODUCE_HOUR_UTC, when set, is a literal UTC hour override.
@@ -212,6 +213,15 @@ export function seriesEpisodeStatuses(runs: RunView[]): SeriesEpisodeStatus[] {
   });
 }
 
+/**
+ * How long a scheduled run asks for: the format's own target -- 75 s for
+ * Shorts -- not the 180 s of the long-form days. A Second Thoughts brief that
+ * still said 180 s produced a 2:21 Short on 2026-10-12.
+ */
+export function scheduledDurationSec(): number {
+  return formatSpec().maxDurationSec ?? 180;
+}
+
 export function productionReady(view: RunView | null): boolean {
   return !!view && !view.failures.length && (view.status === "completed" || (view.status === "waiting" && view.waiting.some(w => ["editor_delivery", "editor_review"].includes(w.node_id))));
 }
@@ -294,7 +304,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
             return;
           }
           console.log(`[growth-scheduler] producing Second Thoughts episode ${episode}/8`);
-          const runId = await service.startRun("", 180, { seriesEpisode: episode });
+          const runId = await service.startRun("", scheduledDurationSec(), { seriesEpisode: episode });
           const final = await waitForTerminal(service, runId, opts);
           if (productionReady(final)) return;
           // A series episode cannot switch topic. Settle a creative stop so the
@@ -317,7 +327,7 @@ export function startGrowthScheduler(service: VidGenService, opts: GrowthSchedul
           const candidate = candidates[i]!;
           console.log(`[growth-scheduler] candidate ${i + 1}/${candidates.length} score=${candidateOverallScore(candidate).toFixed(3)}: ${candidate.brief}`);
           const seed = packageSeedOf(candidate);
-          const runId = await service.startRun(candidate.brief!, 180, {
+          const runId = await service.startRun(candidate.brief!, scheduledDurationSec(), {
             niche: "everyday-psychology",
             ...(candidate.genre ? { genre: candidate.genre } : {}),
             ...(seed ? { packageSeed: seed } : {}),
