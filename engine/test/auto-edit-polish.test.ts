@@ -12,14 +12,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   CAPTION_FONT, CAPTION_FONTS_DIR, FPS, FRAME, FRAMINGS, MARK_RAY_OUTER, MARK_Y, SCENE_Y, TRANSITION_FRAMES,
-  autoCutStyle, captionsAss, emphasisMarks, finalArgs, planRuns, shotArgs, xfadeArgs, type Shot,
+  VOICE_SPEED, audioArgs, autoCutStyle, captionsAss, emphasisMarks, finalArgs, planRuns, shotArgs, xfadeArgs, type Shot,
 } from "../src/auto-edit.ts";
 import { mixArgs, normaliseCues, pickMusic, TARGET_LUFS } from "../src/auto-edit-sound.ts";
 
 const shot = (image: number, startFrame: number, frames: number): Shot => ({ image, startFrame, frames, framing: FRAMINGS["wide"]!, scene_index: 0 });
 
 test("polish is on by default; each switch and the caption style come from env", () => {
-  assert.deepEqual(autoCutStyle({}), { transitions: true, sfx: true, music: true, emphasis: true, captions: "pop" });
+  assert.deepEqual(autoCutStyle({}), { transitions: true, sfx: true, music: true, emphasis: false, captions: "pop", voiceSpeed: VOICE_SPEED });
+  assert.equal(autoCutStyle({ AUTO_EDIT_EMPHASIS: "on" }).emphasis, true, "marks only when asked for");
+  assert.equal(autoCutStyle({ AUTO_EDIT_VOICE_SPEED: "1.15" }).voiceSpeed, 1.15);
+  assert.equal(autoCutStyle({ AUTO_EDIT_VOICE_SPEED: "2" }).voiceSpeed, VOICE_SPEED, "out of range: the default");
   const s = autoCutStyle({ AUTO_EDIT_TRANSITIONS: "off", AUTO_EDIT_SFX: "0", AUTO_EDIT_CAPTIONS: "Bounce" });
   assert.equal(s.transitions, false);
   assert.equal(s.sfx, false);
@@ -110,4 +113,12 @@ test("music: one track from the library, the same one for the same Short; none w
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("the narration is sped up with its pitch kept, each clip trimmed to its shortened length", () => {
+  const args = audioArgs([{ file: "a.mp3", duration: 2 / 1.08 }, { file: "b.mp3", duration: 3 / 1.08 }], "n.wav", 1.08);
+  const graph = args[args.indexOf("-filter_complex") + 1]!;
+  assert.equal(graph.match(/atempo=1\.08,/g)?.length, 2);
+  assert.match(graph, /atrim=0:1\.8519/);
+  assert.doesNotMatch(audioArgs([{ file: "a.mp3", duration: 2 }], "n.wav")[6]!, /atempo/, "no tempo filter at normal speed");
 });

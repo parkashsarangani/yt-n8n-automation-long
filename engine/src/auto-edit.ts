@@ -71,18 +71,30 @@ export function autoEditMode(value = process.env["AUTO_EDIT"]): AutoEditMode {
 
 export type CaptionStyle = "pop" | "bounce" | "classic";
 
-/** The polish switches; each defaults on and can be turned off by env for a quick comparison. */
-export interface AutoCutStyle { transitions: boolean; sfx: boolean; music: boolean; emphasis: boolean; captions: CaptionStyle }
+/**
+ * The polish switches, each turned off (or on) by env for a quick comparison.
+ * `voiceSpeed`: the narration is sped up by this much in the cut, pitch kept
+ * (operator 2026-10-12: "the overall pace is a bit slow"); every cut, caption
+ * and mouth movement follows the faster voice.
+ */
+export interface AutoCutStyle { transitions: boolean; sfx: boolean; music: boolean; emphasis: boolean; captions: CaptionStyle; voiceSpeed: number }
+
+/** Default narration speed-up in the auto cut, on top of ELEVENLABS_SPEED. */
+export const VOICE_SPEED = 1.08;
 
 export function autoCutStyle(env: Record<string, string | undefined> = process.env): AutoCutStyle {
   const on = (name: string) => !/^(off|0|false|no)$/i.test(env[name]?.trim() ?? "");
   const c = env["AUTO_EDIT_CAPTIONS"]?.trim().toLowerCase();
+  const speed = Number(env["AUTO_EDIT_VOICE_SPEED"]?.trim() || VOICE_SPEED);
   return {
     transitions: on("AUTO_EDIT_TRANSITIONS"),
     sfx: on("AUTO_EDIT_SFX"),
     music: on("AUTO_EDIT_MUSIC"),
-    emphasis: on("AUTO_EDIT_EMPHASIS"),
+    // Off unless asked for: the operator found the "?" and "!" marks an overdo (2026-10-12).
+    emphasis: /^(on|1|true|yes)$/i.test(env["AUTO_EDIT_EMPHASIS"]?.trim() ?? ""),
     captions: c === "bounce" || c === "classic" ? c : "pop",
+    // atempo keeps speech natural only for small changes; outside 0.8-1.3 falls back to the default.
+    voiceSpeed: Number.isFinite(speed) && speed >= 0.8 && speed <= 1.3 ? speed : VOICE_SPEED,
   };
 }
 
@@ -466,10 +478,15 @@ export function sceneSquareArgs(image: string, output: string): string[] {
   return ["-v", "error", "-y", "-i", image, "-vf", `crop=${SCENE_PX}:${SCENE_PX}:0:${SOURCE_SCENE_Y}`, "-frames:v", "1", output];
 }
 
-/** Narration: every clip padded/trimmed to exactly its recorded duration, then joined. */
-export function audioArgs(clips: Array<{ file: string; duration: number }>, output: string): string[] {
+/**
+ * Narration: every clip sped up by `tempo` (pitch kept), padded/trimmed to
+ * exactly its duration on the cut's timeline (already divided by `tempo`),
+ * then joined.
+ */
+export function audioArgs(clips: Array<{ file: string; duration: number }>, output: string, tempo = 1): string[] {
   const inputs = clips.flatMap((c) => ["-i", c.file]);
-  const parts = clips.map((c, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:${c.duration.toFixed(4)},asetpts=PTS-STARTPTS[a${i}]`);
+  const speed = tempo !== 1 ? `atempo=${tempo},` : "";
+  const parts = clips.map((c, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,${speed}apad,atrim=0:${c.duration.toFixed(4)},asetpts=PTS-STARTPTS[a${i}]`);
   const filter = `${parts.join(";")};${clips.map((_, i) => `[a${i}]`).join("")}concat=n=${clips.length}:v=0:a=1[a]`;
   return ["-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[a]", "-c:a", "pcm_s16le", output];
 }
@@ -695,7 +712,9 @@ export async function renderAutoCut(
   const clipBy = new Map(input.clips.map((c) => [c.scene_index, c]));
   const scenes = [...input.scenes].filter((s) => clipBy.has(s.scene_index)).sort((a, b) => a.scene_index - b.scene_index);
   if (scenes.length === 0) throw new Error("auto edit: no narration clips match the script");
-  const durations = new Map(scenes.map((s) => [s.scene_index, clipBy.get(s.scene_index)!.duration_sec]));
+  // The cut's timeline runs on the sped-up voice: every duration and word time divided by it.
+  const tempo = style.voiceSpeed;
+  const durations = new Map(scenes.map((s) => [s.scene_index, clipBy.get(s.scene_index)!.duration_sec / tempo]));
   // Each clip back to back, with its words timed.
   const timing = new Map<number, { start: number; duration: number; words: TimedWord[] }>();
   const words: TimedWord[] = [];
@@ -703,10 +722,11 @@ export async function renderAutoCut(
   for (const scene of scenes) {
     const clip = clipBy.get(scene.scene_index)!;
     if (!(clip.duration_sec > 0)) continue;
-    const local = clipWords(scene.narration, clip.duration_sec, clip.alignment);
-    timing.set(scene.scene_index, { start: at, duration: clip.duration_sec, words: local });
+    const local = clipWords(scene.narration, clip.duration_sec, clip.alignment).map((w) => ({ text: w.text, start: w.start / tempo, end: w.end / tempo }));
+    const duration = clip.duration_sec / tempo;
+    timing.set(scene.scene_index, { start: at, duration, words: local });
     for (const w of local) words.push({ text: w.text, start: at + w.start, end: at + w.end });
-    at += clip.duration_sec;
+    at += duration;
   }
   const total = at;
   const names = images.map((i) => i.name);
@@ -736,7 +756,7 @@ export async function renderAutoCut(
       return { file, duration: timing.get(scene.scene_index)!.duration };
     }));
     const narration = path.join(dir, "narration.wav");
-    await step("narration", audioArgs(clipFiles, narration), 120_000);
+    await step("narration", audioArgs(clipFiles, narration, tempo), 120_000);
 
     let envelope: number[] = [];
     const squares = new Map<number, Uint8Array>();
