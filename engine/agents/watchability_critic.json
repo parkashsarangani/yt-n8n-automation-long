@@ -29,6 +29,9 @@
   "produces": "watchability_report",
   "produces_version": "2.1.0",
   "prompt": "watchability_critic@12",
+  "prompt_by_format": {
+    "short": "watchability_critic@13"
+  },
   "model": {
     "capability": "reasoning_high",
     "max_output_tokens": 18000,

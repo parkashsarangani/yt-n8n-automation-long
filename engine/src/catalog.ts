@@ -8,12 +8,23 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentDef, WorkerDef, TransformationDef } from "./runner.ts";
+import { videoFormat, type VideoFormat } from "./video-format.ts";
 
 export class CatalogError extends Error {
   override name = "CatalogError";
 }
 
-export async function loadAgentDefs(dir: string): Promise<Map<string, AgentDef>> {
+/**
+ * An agent may pin a different prompt per video format ("prompt_by_format":
+ * {"short": "name@version"}). Shorts got their own script prompts on
+ * 2026-10-12 (expert "you" voice, mirror hook, expectation contract,
+ * psychology + philosophy); long-form keeps "prompt".
+ */
+export function promptForFormat(def: AgentDef, format: VideoFormat): string {
+  return def.prompt_by_format?.[format] ?? def.prompt;
+}
+
+export async function loadAgentDefs(dir: string, format: VideoFormat = videoFormat()): Promise<Map<string, AgentDef>> {
   const out = new Map<string, AgentDef>();
   let files: string[];
   try {
@@ -36,6 +47,10 @@ export async function loadAgentDefs(dir: string): Promise<Map<string, AgentDef>>
     if (!def.prompt?.includes("@")) {
       throw new CatalogError(`${full}: prompt must be pinned as "name@version"`);
     }
+    for (const [f, ref] of Object.entries(def.prompt_by_format ?? {})) {
+      if (!String(ref).includes("@")) throw new CatalogError(`${full}: prompt_by_format.${f} must be pinned as "name@version"`);
+    }
+    def.prompt = promptForFormat(def, format);
     if (!def.model?.capability) {
       throw new CatalogError(
         `${full}: model.capability is required — agents declare capabilities, ` +
@@ -66,6 +81,9 @@ export function validateCatalog(
 ): void {
   const problems: string[] = [];
   for (const def of agents.values()) {
+    for (const ref of Object.values(def.prompt_by_format ?? {})) {
+      if (ref && !checks.hasPrompt(ref)) problems.push(`agent "${def.name}" references missing prompt "${ref}" (prompt_by_format)`);
+    }
     if (!checks.hasPrompt(def.prompt)) {
       problems.push(`agent "${def.name}" references missing prompt "${def.prompt}"`);
     }

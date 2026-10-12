@@ -47,18 +47,22 @@ test("honesty and length are hard rules", () => {
     ["invented statistic", { script: GOOD.script.replace("Suddenly your brain cares.", "It makes you 80% faster.") }, /percentage/],
     ["subscribe ask", { script: GOOD.script.replace("Tell me in the comments.", "Like and subscribe for more.") }, /like, subscribe or follow/],
     ["dark psychology framing", { title: "Dark Psychology Tricks to Control Your Brain Today" }, /dark psychology/],
-    ["too long", { script: GOOD.script.split("\n\n").map((p) => `${p} ${p}`).join("\n\n") }, /spoken length/],
+    ["too long for a Short/Reel", { script: GOOD.script.split("\n\n").map((p) => `${p} ${p} ${p} ${p}`).join("\n\n") }, /too long to publish as a Short\/Reel/],
   ];
   for (const [label, change, expected] of cases) {
     const { blocking } = shortDraftChecks({ ...GOOD, ...change });
     assert.ok(blocking.some((p) => expected.test(p)), `${label}: ${JSON.stringify(blocking)}`);
   }
+  // Length is a guide, not a cap (operator 2026-10-12): a longer complete message is a warning only.
+  const longer = shortDraftChecks({ ...GOOD, script: GOOD.script.split("\n\n").map((p) => `${p} ${p}`).join("\n\n") });
+  assert.ok(!longer.blocking.some((p) => /Short\/Reel|spoken length/.test(p)), JSON.stringify(longer.blocking));
+  assert.ok(longer.warnings.some((w) => /keep it only if every line is needed/.test(w)), JSON.stringify(longer.warnings));
 });
 
 test("v2 beats are a hard rule: a few long paragraphs (the v1 shape) or one giant beat is rewritten", () => {
   const v1Shape = GOOD.script.split("\n\n");
   const fewLong = [v1Shape.slice(0, 3).join(" "), v1Shape.slice(3, 6).join(" "), v1Shape.slice(6, 8).join(" "), v1Shape[8]!].join("\n\n");
-  assert.ok(shortDraftChecks({ ...GOOD, script: fewLong }).blocking.some((p) => /6-9 short beats plus a closing line/.test(p)));
+  assert.ok(shortDraftChecks({ ...GOOD, script: fewLong }).blocking.some((p) => /6-12 short beats plus a closing line/.test(p)));
   const giant = [...v1Shape.slice(0, 6), `${v1Shape[6]} ${v1Shape[7]} Then you finally close the laptop and notice how easy it felt.`, v1Shape[8]!].join("\n\n");
   assert.ok(shortDraftChecks({ ...GOOD, script: giant }).blocking.some((p) => /beat 7 is \d+ words -- split it/.test(p)));
 });
@@ -87,7 +91,7 @@ test("the viral structure is only a suggestion: warnings, never a rewrite", () =
   const cases: Array<[string, Partial<ShortDraft>, RegExp]> = [
     ["no number promise", { hook: "Your brain isn't lazy. It's scared. These psychology tricks make starting automatic, and the last one feels like cheating." }, /promises a number/],
     ["no open loop", { hook: "Your brain isn't lazy. It's scared. These three psychology tricks make starting almost automatic for anyone." }, /teases the last item/],
-    ["no closing question", { script: GOOD.script.replace("Which one are you trying first? Tell me in the comments.", "Try them all today and see.") }, /question/],
+    ["long closing line", { script: GOOD.script.replace("Which one are you trying first? Tell me in the comments.", "Try them all today and see which of the three tricks fits the way your own brain likes to start the work you keep postponing.") }, /closing line should be short/],
   ];
   for (const [label, change, expected] of cases) {
     const { blocking, warnings } = shortDraftChecks({ ...GOOD, ...change }, "list");
@@ -171,9 +175,9 @@ test("second person only (operator: people don't care unless it's about them): a
   assert.ok(!shortDraftChecks(GOOD, "list").blocking.some((p) => /second person/.test(p)), "the approved 'you' Short passes");
 });
 
-test("the v3 prompt tells the writer: second person only, no named characters", async () => {
+test("the studio prompt tells the writer: second person only, no named characters", async () => {
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
-  const text = prompts.render("short_script_writer@3", { topic: "t", shape_rules: "s", feedback: "" });
+  const text = prompts.render("short_script_writer@4", { topic: "t", shape_rules: "s", feedback: "" });
   assert.match(text, /SECOND PERSON ONLY/);
   assert.match(text, /no named characters/);
 });

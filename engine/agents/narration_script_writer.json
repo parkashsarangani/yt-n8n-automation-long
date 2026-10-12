@@ -24,6 +24,9 @@
   ],
   "produces": "script",
   "prompt": "narration_script_writer@19",
+  "prompt_by_format": {
+    "short": "narration_script_writer@20"
+  },
   "model": {
     "capability": "reasoning_script",
     "max_output_tokens": 14000,

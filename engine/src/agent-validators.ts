@@ -1,6 +1,7 @@
 /** Per-agent semantic validation hook. */
 import type { AgentDef } from "./runner.ts";
-import { socialSeriesScriptErrors } from "./social-series.ts";
+import { shortScriptErrors, socialSeriesScriptErrors } from "./social-series.ts";
+import { videoFormat } from "./video-format.ts";
 import type { Artifact } from "./artifact.ts";
 import { validateGrowthPackageReleaseability } from "./growth-package-contract.ts";
 
@@ -20,7 +21,7 @@ const GENERIC_CONTINUATION = /\b(stay tuned|more like this|what happens next|wat
 // flagged it as an unnatural bridge every time, capping otherwise-strong
 // scripts (0.84 raw average) at the release floor. Catch it here rather than
 // hoping the prompt alone holds.
-const GENERIC_RECAP_BRIDGE = /\b(now that you(?:'ve| have)? (?:learned|discovered|seen)|in this (?:video|episode),? you(?:'ve| have)? (?:learned|seen|discovered))\b/i;
+const GENERIC_RECAP_BRIDGE = /\b(now that you(?:'ve| have)? (?:learned|discovered|seen)|in this (?:video|episode),? you(?:'ve| have)? (?:learned|seen|discovered)|you(?:'ve| have) (?:just )?taken the first step|now you know|you now know)\b/i;
 
 export function continuationBridgeErrors(payload: unknown): string[] {
   if (!payload || typeof payload !== "object") return [];
@@ -33,6 +34,13 @@ export function continuationBridgeErrors(payload: unknown): string[] {
   }
   if (GENERIC_CONTINUATION.test(bridge)) {
     errors.push("next_video_bridge must name or imply a specific adjacent story/question instead of generically saying to watch another video");
+  }
+  // The bridge is the Short's spoken last line: it must land as a statement.
+  // Trial 2026-10-12: the packager ignored the prompt and ended on a teaser
+  // ("What if you could turn procrastination into a productivity tool?"),
+  // swapping the verdict ending for an unearned new promise.
+  if (/\?\s*$/.test(bridge) || /^(?:what if|how do you|how can you|ever wondered|whether|but what happens when|have you ever|did you know)\b/i.test(bridge)) {
+    errors.push("next_video_bridge is spoken as the last line and must be a flat declarative statement, not a question or teaser");
   }
   if (GENERIC_RECAP_BRIDGE.test(bridge)) {
     errors.push("next_video_bridge must not open with a recap-then-pivot template like 'now that you've learned X, let's explore Y' -- state the next episode's concrete stakes directly instead of summarizing this one first");
@@ -56,7 +64,9 @@ export function agentSemanticValidationErrors(
     // visuals and the draft renderer can safely fall back to the gradient.
     // Keep these errors soft so the final schema-valid attempt can still be
     // accepted after the configured repair budget.
-    return socialSeriesScriptErrors(payload);
+    // Shorts have their own roles (hook, promise, mechanism, philosophy,
+    // escalation, payoff); the long-form lesson roles stay for long-form.
+    return videoFormat() === "short" ? shortScriptErrors(payload) : socialSeriesScriptErrors(payload);
   }
   if (def.name === "growth_packager") {
     return hard([...continuationBridgeErrors(payload), ...validateGrowthPackageReleaseability(payload)]);

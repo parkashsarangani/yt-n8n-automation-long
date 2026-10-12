@@ -4,7 +4,7 @@ export function hasChapterStart(description: string): boolean {
 }
 
 export function episodeChapters(scenes: Array<{scene_index: number; point?: string}>, clips: Array<{scene_index: number; duration_sec: number}>): string {
-  const labels: Record<string,string> = { scenario: "The situation", response_a: "One response", response_b: "Another response", explanation: "Why it matters", limitations: "Context matters", exercise: "Try this", payoff: "Take this with you" };
+  const labels: Record<string,string> = { scenario: "The situation", response_a: "One response", response_b: "Another response", explanation: "Why it matters", limitations: "Context matters", exercise: "Try this", payoff: "Take this with you", hook: "The pattern", promise: "What you'll get", mechanism: "Why you do it", philosophy: "What the philosophers saw", escalation: "What it really costs" };
   // A partial or duplicated timeline must never produce plausible but wrong timestamps.
   if (!scenes.length || clips.length !== scenes.length
     || new Set(scenes.map(s => s.scene_index)).size !== scenes.length

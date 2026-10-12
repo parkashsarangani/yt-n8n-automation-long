@@ -44,6 +44,8 @@ export interface AgentDef {
   produces: string;
   produces_version?: string;
   prompt: string;
+  /** A different pinned prompt per video format (catalog.ts promptForFormat); "prompt" is the default. */
+  prompt_by_format?: Partial<Record<"long" | "short", string>>;
   /** Optional cross-attempt feedback source; declared in agent data, not hardwired by name. */
   revision_input?: "watchability";
   model: {
