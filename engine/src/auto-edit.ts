@@ -20,6 +20,16 @@
  *     gestures with a free hand. The camera then holds still per shot. A shot
  *     the animator cannot make falls back to the still picture.
  *
+ * Polish (2026-10-11, operator: "implement the recommended order"):
+ *   - a quick transition (slide, zoom) whenever the image changes, hard cuts
+ *     between framings of the same image;
+ *   - sound design (auto-edit-sound.ts): whooshes, pops, a hook hit, an
+ *     optional ducked music bed, the mix normalised to -14 LUFS;
+ *   - emphasis marks: a "?" or "!" with a ray burst pops into the scene's
+ *     empty top corner on questions and strong lines;
+ *   - caption styles (AUTO_EDIT_CAPTIONS=pop|bounce|classic): "pop" bounces
+ *     the spoken word, "bounce" slides each chunk up, "classic" is v1.
+ *
  * The cut lands in Drive as final-auto.mp4 and goes out through the same
  * validated daily release queue as the editor's cuts. Whether a run is
  * auto-edited is decided by AUTO_EDIT (off | ab | all); "ab" alternates runs
@@ -30,9 +40,11 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ffmpegBinary } from "./ffmpeg-file.ts";
 import { isClosingScene, LEGACY_MAX_BEAT_IMAGES, narrationWords, selectBeats, type BeatScene } from "./beat-images.ts";
+import { mixArgs, pickMusic, type SfxCue } from "./auto-edit-sound.ts";
 
 const run = promisify(execFile);
 
@@ -55,6 +67,35 @@ export function autoEditMode(value = process.env["AUTO_EDIT"]): AutoEditMode {
   if (v === "ab" || v === "all") return v;
   if (v && !/^(off|0|false|no)$/.test(v)) console.warn(`[auto-edit] AUTO_EDIT="${value}" is not off|ab|all; treating it as off`);
   return "off";
+}
+
+export type CaptionStyle = "pop" | "bounce" | "classic";
+
+/**
+ * The polish switches, each turned off (or on) by env for a quick comparison.
+ * `voiceSpeed`: the narration is sped up by this much in the cut, pitch kept
+ * (operator 2026-10-12: "the overall pace is a bit slow"); every cut, caption
+ * and mouth movement follows the faster voice.
+ */
+export interface AutoCutStyle { transitions: boolean; sfx: boolean; music: boolean; emphasis: boolean; captions: CaptionStyle; voiceSpeed: number }
+
+/** Default narration speed-up in the auto cut, on top of ELEVENLABS_SPEED. */
+export const VOICE_SPEED = 1.08;
+
+export function autoCutStyle(env: Record<string, string | undefined> = process.env): AutoCutStyle {
+  const on = (name: string) => !/^(off|0|false|no)$/i.test(env[name]?.trim() ?? "");
+  const c = env["AUTO_EDIT_CAPTIONS"]?.trim().toLowerCase();
+  const speed = Number(env["AUTO_EDIT_VOICE_SPEED"]?.trim() || VOICE_SPEED);
+  return {
+    transitions: on("AUTO_EDIT_TRANSITIONS"),
+    sfx: on("AUTO_EDIT_SFX"),
+    music: on("AUTO_EDIT_MUSIC"),
+    // Off unless asked for: the operator found the "?" and "!" marks an overdo (2026-10-12).
+    emphasis: /^(on|1|true|yes)$/i.test(env["AUTO_EDIT_EMPHASIS"]?.trim() ?? ""),
+    captions: c === "bounce" || c === "classic" ? c : "pop",
+    // atempo keeps speech natural only for small changes; outside 0.8-1.3 falls back to the default.
+    voiceSpeed: Number.isFinite(speed) && speed >= 0.8 && speed <= 1.3 ? speed : VOICE_SPEED,
+  };
 }
 
 export const FPS = 30;
@@ -266,15 +307,18 @@ export function zoompanFilter(f: Framing, frames: number): string {
  * moving scene sits at SCENE_Y, and soft strips of that colour hide the
  * scene's top and bottom edges.
  */
-export function shotArgs(image: string, shot: Shot, output: string): string[] {
-  const seconds = (shot.frames / FPS + 0.5).toFixed(3);
+export function shotArgs(image: string, shot: Shot, output: string, tailFrames = 0): string[] {
+  // `tailFrames`: the motion carries on past the shot's end, for the
+  // transition into the next image to blend over.
+  const frames = shot.frames + tailFrames;
+  const seconds = (frames / FPS + 0.5).toFixed(3);
   const ramp = (alpha: string) => `crop=${FRAME.width}:${FADE_PX}:0:0,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${alpha}'`;
   const filter = [
     `[0:v]split=3[s0][s1][s2]`,
     `[s0]crop=${FRAME.width}:600:0:0,scale=${FRAME.width}:${FRAME.height},setsar=1[bg]`,
     `[s1]${ramp(`255*(1-Y/${FADE_PX - 1})`)}[top]`,
     `[s2]${ramp(`255*Y/${FADE_PX - 1}`)}[bot]`,
-    `[1:v]crop=${SCENE_PX}:${SCENE_PX}:0:${SOURCE_SCENE_Y},scale=${SCENE_PX * 2}:${SCENE_PX * 2}:flags=lanczos,${zoompanFilter(shot.framing, shot.frames)},setsar=1[sc]`,
+    `[1:v]crop=${SCENE_PX}:${SCENE_PX}:0:${SOURCE_SCENE_Y},scale=${SCENE_PX * 2}:${SCENE_PX * 2}:flags=lanczos,${zoompanFilter(shot.framing, frames)},setsar=1[sc]`,
     `[bg][sc]overlay=0:${SCENE_Y}:eof_action=endall[v1]`,
     `[v1][top]overlay=0:${SCENE_Y}[v2]`,
     `[v2][bot]overlay=0:${SCENE_Y + SCENE_PX - FADE_PX},format=yuv420p[v]`,
@@ -284,7 +328,7 @@ export function shotArgs(image: string, shot: Shot, output: string): string[] {
     "-loop", "1", "-framerate", String(FPS), "-t", seconds, "-i", image,
     "-i", image,
     "-filter_complex", filter, "-map", "[v]",
-    "-frames:v", String(shot.frames), "-r", String(FPS),
+    "-frames:v", String(frames), "-r", String(FPS),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
     output,
   ];
@@ -350,12 +394,13 @@ export function speechEnvelope(wav: Uint8Array, fps = FPS): number[] {
  * takes the shot's framing and holds it -- only 1.5% of drift, because what
  * moves is now the characters, not the camera.
  */
-export function animatedShotArgs(image: string, clip: string, shot: Shot, output: string): string[] {
+export function animatedShotArgs(image: string, clip: string, shot: Shot, output: string, tailFrames = 0): string[] {
+  const frames = shot.frames + tailFrames;
   const f = shot.framing;
-  const p = shot.frames > 1 ? `(on/${shot.frames - 1})` : "0";
+  const p = frames > 1 ? `(on/${frames - 1})` : "0";
   const z = `${f.z1}*(1+0.015*${p})`;
   const hold = `zoompan=z='${z}':x='max(0,min(iw-iw/zoom,${f.x1}*iw-iw/zoom/2))':y='max(0,min(ih-ih/zoom,${f.y1}*ih-ih/zoom/2))':d=1:s=${SCENE_PX}x${SCENE_PX}:fps=${FPS}`;
-  const seconds = (shot.frames / FPS + 0.5).toFixed(3);
+  const seconds = (frames / FPS + 0.5).toFixed(3);
   const ramp = (alpha: string) => `crop=${FRAME.width}:${FADE_PX}:0:0,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${alpha}'`;
   const filter = [
     `[0:v]split=3[s0][s1][s2]`,
@@ -372,8 +417,58 @@ export function animatedShotArgs(image: string, clip: string, shot: Shot, output
     "-loop", "1", "-framerate", String(FPS), "-t", seconds, "-i", image,
     "-i", clip,
     "-filter_complex", filter, "-map", "[v]",
-    "-frames:v", String(shot.frames), "-r", String(FPS),
+    "-frames:v", String(frames), "-r", String(FPS),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+    output,
+  ];
+}
+
+// ---------------------------------------------------------------- transitions
+
+/** Image-change transition length: quick enough to read as a cut with energy. */
+export const TRANSITION_FRAMES = 7;
+/** Rotated so no two image changes in a row look the same. */
+// Not "zoomin": it blows the whole frame up past the scene band and dips to
+// dark grey before the next image (trial 2026-10-12).
+export const TRANSITIONS = ["smoothleft", "smoothup", "smoothright", "slideleft", "smoothdown"] as const;
+
+/** Consecutive shots of one image: hard cuts inside a run, a transition between runs. */
+export interface Run { image: number; startFrame: number; frames: number; shots: number[] }
+
+export function planRuns(shots: Shot[]): Run[] {
+  const runs: Run[] = [];
+  shots.forEach((s, i) => {
+    const last = runs.at(-1);
+    if (last && last.image === s.image) {
+      last.frames += s.frames;
+      last.shots.push(i);
+    } else {
+      runs.push({ image: s.image, startFrame: s.startFrame, frames: s.frames, shots: [i] });
+    }
+  });
+  return runs;
+}
+
+/**
+ * Join the runs with xfade. Every run but the last carries TRANSITION_FRAMES
+ * of tail, and each transition starts exactly where the next image's words
+ * start, so the timeline (and the captions) stay on the narration's frames.
+ */
+export function xfadeArgs(runFiles: string[], runs: Run[], output: string): string[] {
+  const inputs = runFiles.flatMap((f) => ["-i", f]);
+  const d = (TRANSITION_FRAMES / FPS).toFixed(4);
+  const parts = runFiles.map((_, i) => `[${i}:v]settb=AVTB,setpts=PTS-STARTPTS,fps=${FPS},format=yuv420p[r${i}]`);
+  let prev = "[r0]";
+  for (let k = 1; k < runFiles.length; k++) {
+    const out = k === runFiles.length - 1 ? "[v]" : `[x${k}]`;
+    const offset = (runs[k]!.startFrame / FPS).toFixed(4);
+    parts.push(`${prev}[r${k}]xfade=transition=${TRANSITIONS[(k - 1) % TRANSITIONS.length]}:duration=${d}:offset=${offset}${out}`);
+    prev = out;
+  }
+  return [
+    "-v", "error", "-y", ...inputs,
+    "-filter_complex", parts.join(";"), "-map", "[v]",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", "-r", String(FPS),
     output,
   ];
 }
@@ -383,20 +478,25 @@ export function sceneSquareArgs(image: string, output: string): string[] {
   return ["-v", "error", "-y", "-i", image, "-vf", `crop=${SCENE_PX}:${SCENE_PX}:0:${SOURCE_SCENE_Y}`, "-frames:v", "1", output];
 }
 
-/** Narration: every clip padded/trimmed to exactly its recorded duration, then joined. */
-export function audioArgs(clips: Array<{ file: string; duration: number }>, output: string): string[] {
+/**
+ * Narration: every clip sped up by `tempo` (pitch kept), padded/trimmed to
+ * exactly its duration on the cut's timeline (already divided by `tempo`),
+ * then joined.
+ */
+export function audioArgs(clips: Array<{ file: string; duration: number }>, output: string, tempo = 1): string[] {
   const inputs = clips.flatMap((c) => ["-i", c.file]);
-  const parts = clips.map((c, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:${c.duration.toFixed(4)},asetpts=PTS-STARTPTS[a${i}]`);
+  const speed = tempo !== 1 ? `atempo=${tempo},` : "";
+  const parts = clips.map((c, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,${speed}apad,atrim=0:${c.duration.toFixed(4)},asetpts=PTS-STARTPTS[a${i}]`);
   const filter = `${parts.join(";")};${clips.map((_, i) => `[a${i}]`).join("")}concat=n=${clips.length}:v=0:a=1[a]`;
   return ["-v", "error", "-y", ...inputs, "-filter_complex", filter, "-map", "[a]", "-c:a", "pcm_s16le", output];
 }
 
 export function finalArgs(video: string, audio: string, ass: string, output: string): string[] {
-  // libass; the font is the container's DejaVu Sans Bold.
-  const assPath = ass.replace(/\\/g, "/").replace(/:/g, "\\:");
+  // libass, with the bundled caption font (assets/fonts); DejaVu Sans Bold is the fallback.
+  const esc = (p: string) => p.replace(/\\/g, "/").replace(/:/g, "\\:");
   return [
     "-v", "error", "-y", "-i", video, "-i", audio,
-    "-vf", `ass='${assPath}'`,
+    "-vf", `ass='${esc(ass)}':fontsdir='${esc(CAPTION_FONTS_DIR)}'`,
     "-map", "0:v", "-map", "1:a",
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(FPS),
     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
@@ -405,6 +505,16 @@ export function finalArgs(video: string, audio: string, ass: string, output: str
 }
 
 // ---------------------------------------------------------------- captions
+
+/**
+ * Caption font (operator 2026-10-11: "change the caption font and font size
+ * as well"): Montserrat ExtraBold, the heavy geometric face of most viral
+ * Shorts captions, bundled under SIL OFL 1.1 in assets/fonts so the render
+ * never depends on what the container has installed.
+ */
+export const CAPTION_FONT = "Montserrat ExtraBold";
+export const CAPTION_SIZE = 122;
+export const CAPTION_FONTS_DIR = fileURLToPath(new URL("../assets/fonts/", import.meta.url));
 
 const HIGHLIGHT = "&H0030B6F2&"; // series mustard #F2B630, as ASS BGR
 const WHITE = "&H00FFFFFF&";
@@ -426,7 +536,7 @@ export function chunkWords(words: TimedWord[]): TimedWord[][] {
   for (const w of words) {
     cur.push(w);
     const chars = cur.reduce((n, x) => n + x.text.length + 1, 0);
-    if (cur.length >= 3 || chars >= 16 || /[.,!?;:]["')\]]*$/.test(w.text)) { chunks.push(cur); cur = []; }
+    if (cur.length >= 3 || chars >= 15 || /[.,!?;:]["')\]]*$/.test(w.text)) { chunks.push(cur); cur = []; }
   }
   if (cur.length) chunks.push(cur);
   return chunks;
@@ -436,14 +546,104 @@ export function chunkWords(words: TimedWord[]): TimedWord[][] {
 export const CTA_BADGE = "FOLLOW FOR MORE";
 const NAVY = "&H003F3122&"; // series deep navy #22313F
 
+// ---------------------------------------------------------------- emphasis
+
+/** Words that make a line land: a "!" mark pops when one is spoken. */
+const STRONG = /^(never|always|stop|secret|mistake|worst|best|truth|actually|nobody|everyone|wrong|lie|lies|danger|instantly|immediately|exactly|really|huge|biggest)$/i;
+/** No two marks closer than this; more is clutter. */
+export const EMPHASIS_GAP_SEC = 4;
+const EMPHASIS_HOLD_SEC = 1.3;
+/** The marks' row: below a two-line caption, above the scene's soft top edge. */
+export const MARK_Y = SCENE_Y - 120;
+/** The burst's outer radius: MARK_Y + this stays above the scene. */
+export const MARK_RAY_OUTER = 116;
+
+export interface EmphasisMark { kind: "question" | "exclaim"; start: number; end: number; x: number; y: number }
+
+/**
+ * Where a mark pops: on the last word of a question ("?"), and on an
+ * exclamation or a strong word ("!"), never in the hook's first second or
+ * during the ending, never closer than EMPHASIS_GAP_SEC to the last one.
+ * Marks alternate sides in the plain band between the captions and the
+ * scene, never on the scene itself (trial 2026-10-11: inside the scene's top
+ * corners they landed on a head and a wall clock in older images).
+ */
+export function emphasisMarks(words: TimedWord[], opts: { endBefore?: number } = {}): EmphasisMark[] {
+  const marks: EmphasisMark[] = [];
+  const stop = opts.endBefore ?? Infinity;
+  let lastAt = -Infinity;
+  for (const w of words) {
+    const bare = w.text.replace(/["'()\]\[.,;:]+$/g, "");
+    const kind = /\?["')\]]*$/.test(w.text) ? "question"
+      : /!["')\]]*$/.test(w.text) || STRONG.test(bare.replace(/[^a-z]/gi, "")) ? "exclaim"
+      : undefined;
+    if (!kind || w.start < 1 || w.start - lastAt < EMPHASIS_GAP_SEC) continue;
+    const end = Math.min(w.start + EMPHASIS_HOLD_SEC, stop);
+    if (end - w.start < 0.5) continue;
+    const left = marks.length % 2 === 1;
+    marks.push({ kind, start: w.start, end, x: left ? 150 : FRAME.width - 150, y: MARK_Y });
+    lastAt = w.start;
+  }
+  return marks;
+}
+
+/** Eight rays around the mark (an ASS vector drawing, centred on 0,0). */
+function rays(inner: number, outer: number, width: number, count = 8): string {
+  const pt = (r: number, a: number) => `${Math.round(r * Math.cos(a))} ${Math.round(r * Math.sin(a))}`;
+  const half = Math.atan2(width / 2, inner);
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i * 2 * Math.PI) / count - Math.PI / 2;
+    out.push(`m ${pt(inner, a - half)} l ${pt(outer, a - half * 0.6)} ${pt(outer, a + half * 0.6)} ${pt(inner, a + half)}`);
+  }
+  return out.join(" ");
+}
+
+function markEvents(m: EmphasisMark): string[] {
+  const t0 = assTime(m.start), t1 = assTime(m.end);
+  const glyph = m.kind === "question" ? "?" : "!";
+  const tilt = m.x < FRAME.width / 2 ? -10 : 10;
+  return [
+    // The burst: rays spring out and fade in the first half second.
+    `Dialogue: 2,${t0},${assTime(Math.min(m.end, m.start + 0.55))},Mark,,0,0,0,,{\\an7\\pos(${m.x},${m.y})\\bord0\\shad0\\1c${HIGHLIGHT}\\fscx50\\fscy50\\t(0,160,\\fscx100\\fscy100)\\t(220,550,\\alpha&HFF&)\\p1}${rays(86, MARK_RAY_OUTER, 15)}{\\p0}`,
+    // The mark: pops past full size, settles, rocks gently, fades out.
+    `Dialogue: 3,${t0},${t1},Mark,,0,0,0,,{\\an5\\pos(${m.x},${m.y})\\frz${tilt}\\fscx0\\fscy0\\t(0,140,\\fscx125\\fscy125)\\t(140,260,\\fscx100\\fscy100)\\t(260,${Math.round((m.end - m.start) * 1000)},\\frz${-tilt / 2})\\fad(0,180)}${glyph}`,
+  ];
+}
+
+// ---------------------------------------------------------------- captions
+
+/** Montserrat's space is narrow at caption size; a hard space after it keeps words apart. */
+const WORD_GAP = " \\h";
+
+/** The chunk's words with the spoken one marked, in the caption style's look. */
+function chunkLine(chunk: TimedWord[], spoken: number, style: CaptionStyle): string {
+  return chunk.map((x, xi) => {
+    const t = captionText(x.text);
+    if (xi !== spoken) return t;
+    if (style === "pop") return `{\\c${HIGHLIGHT}\\fscx100\\fscy100\\t(0,70,\\fscx118\\fscy118)\\t(70,170,\\fscx108\\fscy108)}${t}{\\c${WHITE}\\fscx100\\fscy100}`;
+    return `{\\c${HIGHLIGHT}}${t}{\\c${WHITE}}`;
+  }).join(WORD_GAP);
+}
+
+/** How a chunk arrives on its first word. */
+function chunkEntrance(style: CaptionStyle): { pos: string; tags: string } {
+  const x = FRAME.width / 2;
+  if (style === "bounce") return { pos: `\\move(${x},${CAPTION_Y + 46},${x},${CAPTION_Y},0,130)`, tags: "\\fad(70,0)" };
+  if (style === "pop") return { pos: `\\pos(${x},${CAPTION_Y})`, tags: "\\fscx70\\fscy70\\t(0,90,\\fscx106\\fscy106)\\t(90,150,\\fscx100\\fscy100)" };
+  return { pos: `\\pos(${x},${CAPTION_Y})`, tags: "\\fscx70\\fscy70\\t(0,90,\\fscx100\\fscy100)" };
+}
+
 /**
  * ASS captions: one event per spoken word showing its whole chunk, the
  * spoken word in mustard; each chunk pops in. A chunk stays up until the
  * next one (no flicker in short pauses), at most 0.6 s past its last word.
- * `ending` (the spoken CTA's time) adds the FOLLOW badge under the captions.
+ * `ending` (the spoken CTA's time) adds the FOLLOW badge under the captions;
+ * `marks` adds the emphasis marks; `style` picks the caption look.
  */
-export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: { start: number; end: number } } = {}): string {
-  const font = opts.font ?? "DejaVu Sans";
+export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: { start: number; end: number }; style?: CaptionStyle; marks?: EmphasisMark[] } = {}): string {
+  const font = opts.font ?? CAPTION_FONT;
+  const style = opts.style ?? "classic";
   const chunks = chunkWords(words);
   const events: string[] = [];
   chunks.forEach((chunk, ci) => {
@@ -453,11 +653,12 @@ export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: 
       const start = w.start;
       const end = wi + 1 < chunk.length ? chunk[wi + 1]!.start : chunkEnd;
       if (end - start < 0.02) return;
-      const pop = wi === 0 ? "{\\fscx70\\fscy70\\t(0,90,\\fscx100\\fscy100)}" : "";
-      const text = chunk.map((x, xi) => xi === wi ? `{\\c${HIGHLIGHT}}${captionText(x.text)}{\\c${WHITE}}` : captionText(x.text)).join(" ");
-      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Caption,,0,0,0,,{\\pos(${FRAME.width / 2},${CAPTION_Y})}${pop}${text}`);
+      const entrance = chunkEntrance(style);
+      const head = wi === 0 ? `{${entrance.pos}${entrance.tags}}` : `{\\pos(${FRAME.width / 2},${CAPTION_Y})}`;
+      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Caption,,0,0,0,,${head}${chunkLine(chunk, wi, style)}`);
     });
   });
+  for (const m of opts.marks ?? []) events.push(...markEvents(m));
   if (opts.ending && opts.ending.end - opts.ending.start > 0.2) {
     events.push(`Dialogue: 1,${assTime(opts.ending.start)},${assTime(opts.ending.end)},Badge,,0,0,0,,{\\pos(${FRAME.width / 2},${SCENE_Y - 90})\\fscx40\\fscy40\\t(0,180,\\fscx108\\fscy108)\\t(180,300,\\fscx100\\fscy100)}${CTA_BADGE}`);
   }
@@ -471,9 +672,11 @@ export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: 
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Caption,${font},108,${WHITE},${WHITE},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,8,4,5,70,70,0,1`,
+    `Style: Caption,${font},${CAPTION_SIZE},${WHITE},${WHITE},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,9,5,5,60,60,0,1`,
     // An opaque mustard box (BorderStyle 3) with navy text.
-    `Style: Badge,${font},70,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
+    `Style: Badge,${font},74,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
+    // Emphasis marks: a big mustard glyph with a thick navy outline.
+    `Style: Mark,${font},180,${HIGHLIGHT},${HIGHLIGHT},${NAVY},&H64000000&,-1,0,0,0,100,100,0,0,1,10,5,5,0,0,0,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -500,15 +703,18 @@ export interface AutoCutResult { video: Uint8Array; duration_sec: number; shots:
 /** Render the automatic cut. Throws naming the ffmpeg stage that failed. */
 export async function renderAutoCut(
   input: AutoCutInput,
-  opts: { ffmpeg?: string; log?: (m: string) => void; animate?: AnimateFn } = {},
+  opts: { ffmpeg?: string; log?: (m: string) => void; animate?: AnimateFn; style?: AutoCutStyle; musicDir?: string } = {},
 ): Promise<AutoCutResult> {
   const ffmpeg = opts.ffmpeg ?? ffmpegBinary();
+  const style = opts.style ?? autoCutStyle();
   const images = [...input.images].sort((a, b) => a.name.localeCompare(b.name));
   if (images.length === 0) throw new Error("auto edit: no beat images to cut from");
   const clipBy = new Map(input.clips.map((c) => [c.scene_index, c]));
   const scenes = [...input.scenes].filter((s) => clipBy.has(s.scene_index)).sort((a, b) => a.scene_index - b.scene_index);
   if (scenes.length === 0) throw new Error("auto edit: no narration clips match the script");
-  const durations = new Map(scenes.map((s) => [s.scene_index, clipBy.get(s.scene_index)!.duration_sec]));
+  // The cut's timeline runs on the sped-up voice: every duration and word time divided by it.
+  const tempo = style.voiceSpeed;
+  const durations = new Map(scenes.map((s) => [s.scene_index, clipBy.get(s.scene_index)!.duration_sec / tempo]));
   // Each clip back to back, with its words timed.
   const timing = new Map<number, { start: number; duration: number; words: TimedWord[] }>();
   const words: TimedWord[] = [];
@@ -516,10 +722,11 @@ export async function renderAutoCut(
   for (const scene of scenes) {
     const clip = clipBy.get(scene.scene_index)!;
     if (!(clip.duration_sec > 0)) continue;
-    const local = clipWords(scene.narration, clip.duration_sec, clip.alignment);
-    timing.set(scene.scene_index, { start: at, duration: clip.duration_sec, words: local });
+    const local = clipWords(scene.narration, clip.duration_sec, clip.alignment).map((w) => ({ text: w.text, start: w.start / tempo, end: w.end / tempo }));
+    const duration = clip.duration_sec / tempo;
+    timing.set(scene.scene_index, { start: at, duration, words: local });
     for (const w of local) words.push({ text: w.text, start: at + w.start, end: at + w.end });
-    at += clip.duration_sec;
+    at += duration;
   }
   const total = at;
   const names = images.map((i) => i.name);
@@ -548,37 +755,42 @@ export async function renderAutoCut(
       await writeFile(file, clipBy.get(scene.scene_index)!.audio);
       return { file, duration: timing.get(scene.scene_index)!.duration };
     }));
-    const audio = path.join(dir, "narration.wav");
-    await step("narration", audioArgs(clipFiles, audio), 120_000);
+    const narration = path.join(dir, "narration.wav");
+    await step("narration", audioArgs(clipFiles, narration, tempo), 120_000);
 
     let envelope: number[] = [];
     const squares = new Map<number, Uint8Array>();
     if (opts.animate) {
-      envelope = speechEnvelope(new Uint8Array(await readFile(audio)));
+      envelope = speechEnvelope(new Uint8Array(await readFile(narration)));
       for (const k of new Set(shots.map((s) => s.image))) {
         const sq = path.join(dir, `square-${k}.png`);
         await step("scene square", sceneSquareArgs(imageFiles[k]!, sq), 60_000);
         squares.set(k, new Uint8Array(await readFile(sq)));
       }
     }
+    const runs = planRuns(shots);
+    const transitions = style.transitions && runs.length > 1;
+    // The last shot of every run but the final one carries the transition's tail.
+    const tailOf = new Set(transitions ? runs.slice(0, -1).map((r) => r.shots.at(-1)!) : []);
     const shotFiles: string[] = [];
     let animated = 0, animateFailures = 0;
     for (const [i, shot] of shots.entries()) {
       const file = path.join(dir, `shot-${String(i).padStart(3, "0")}.mp4`);
+      const tail = tailOf.has(i) ? TRANSITION_FRAMES : 0;
       let done = false;
       // Two failures in a row: the animator is down, the rest stay still.
       if (opts.animate && animateFailures < 2) {
         try {
           const clip = await opts.animate({
             image: squares.get(shot.image)!,
-            frames: shot.frames,
+            frames: shot.frames + tail,
             startFrame: shot.startFrame,
-            envelope: envelope.slice(shot.startFrame, shot.startFrame + shot.frames),
+            envelope: envelope.slice(shot.startFrame, shot.startFrame + shot.frames + tail),
             seed: [...images[shot.image]!.name].reduce((n, c) => n + c.charCodeAt(0), 0),
           });
           const clipFile = path.join(dir, `anim-${i}.mp4`);
           await writeFile(clipFile, clip);
-          await step(`animated shot ${i + 1}/${shots.length}`, animatedShotArgs(imageFiles[shot.image]!, clipFile, shot, file), 120_000);
+          await step(`animated shot ${i + 1}/${shots.length}`, animatedShotArgs(imageFiles[shot.image]!, clipFile, shot, file, tail), 120_000);
           done = true;
           animated++;
           animateFailures = 0;
@@ -587,18 +799,47 @@ export async function renderAutoCut(
           opts.log?.(`[auto-edit] shot ${i + 1}: animation failed (${err instanceof Error ? err.message : String(err)}); using the still picture`);
         }
       }
-      if (!done) await step(`shot ${i + 1}/${shots.length}`, shotArgs(imageFiles[shot.image]!, shot, file), 120_000);
+      if (!done) await step(`shot ${i + 1}/${shots.length}`, shotArgs(imageFiles[shot.image]!, shot, file, tail), 120_000);
       shotFiles.push(file);
     }
     opts.log?.(`[auto-edit] ${shots.length} shots rendered${opts.animate ? `, ${animated} animated` : ""}`);
-    const list = path.join(dir, "shots.txt");
-    await writeFile(list, shotFiles.map((f) => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
+    const concat = async (name: string, files: string[], output: string) => {
+      const list = path.join(dir, `${name}.txt`);
+      await writeFile(list, files.map((f) => `file '${f.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
+      await step(`join ${name}`, ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", output], 120_000);
+    };
     const video = path.join(dir, "video.mp4");
-    await step("join", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", video], 120_000);
+    if (transitions) {
+      const runFiles: string[] = [];
+      for (const [k, r] of runs.entries()) {
+        const file = path.join(dir, `run-${String(k).padStart(3, "0")}.mp4`);
+        await concat(`run-${k}`, r.shots.map((i) => shotFiles[i]!), file);
+        runFiles.push(file);
+      }
+      await step("transitions", xfadeArgs(runFiles, runs, video), 600_000);
+    } else {
+      await concat("shots", shotFiles, video);
+    }
+
+    const outro = segments.filter((s) => s.is_outro);
+    const ending = outro.length ? { start: outro[0]!.start, end: outro.at(-1)!.start + outro.at(-1)!.duration } : undefined;
+    const marks = style.emphasis ? emphasisMarks(words, { endBefore: ending?.start ?? total }) : [];
+
+    // Sound design: a whoosh into every new image, a hit under the hook, a
+    // pop for every mark and for the FOLLOW badge; music when the library has any.
+    const cues: SfxCue[] = style.sfx ? [
+      { kind: "hit", at: 0 },
+      ...runs.slice(1).map((r) => ({ kind: "whoosh" as const, at: r.startFrame / FPS - 0.12 })),
+      ...marks.map((m) => ({ kind: "pop" as const, at: m.start })),
+      ...(ending ? [{ kind: "pop" as const, at: ending.start }] : []),
+    ] : [];
+    const music = style.music ? await pickMusic(scenes.map((s) => s.narration).join(" ").slice(0, 400), opts.musicDir) : undefined;
+    const audio = path.join(dir, "mix.wav");
+    await step("mix", mixArgs({ narration, total, cues, ...(music ? { music } : {}), output: audio }), 300_000);
+    opts.log?.(`[auto-edit] mix: ${cues.length} effects, ${marks.length} marks, music ${music ? path.basename(music) : "none"}, captions ${style.captions}${transitions ? `, ${runs.length - 1} transitions` : ""}`);
 
     const ass = path.join(dir, "captions.ass");
-    const outro = segments.filter((s) => s.is_outro);
-    await writeFile(ass, captionsAss(words, outro.length ? { ending: { start: outro[0]!.start, end: outro.at(-1)!.start + outro.at(-1)!.duration } } : {}));
+    await writeFile(ass, captionsAss(words, { style: style.captions, marks, ...(ending ? { ending } : {}) }));
     const out = path.join(dir, "final-auto.mp4");
     await step("captions + encode", finalArgs(video, audio, ass, out), 600_000);
     return { video: new Uint8Array(await readFile(out)), duration_sec: +total.toFixed(3), shots: shots.length, animated_shots: animated };

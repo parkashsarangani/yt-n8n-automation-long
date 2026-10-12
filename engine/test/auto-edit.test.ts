@@ -101,7 +101,7 @@ test("captions: up to 3 words, broken at punctuation, the spoken word highlighte
   assert.match(ass, /PlayResX: 1080/);
   const lines = ass.split("\n").filter((l) => l.startsWith("Dialogue:"));
   assert.equal(lines.length, words.length, "one event per spoken word");
-  assert.match(lines[1]!, /YOU \{\\c&H0030B6F2&\}SAID\{\\c&H00FFFFFF&\} YES\./);
+  assert.match(lines[1]!, /YOU \\h\{\\c&H0030B6F2&\}SAID\{\\c&H00FFFFFF&\} \\hYES\./);
   assert.match(lines[0]!, /\\fscx70/, "a new caption pops in");
   assert.doesNotMatch(lines[1]!, /\\fscx70/, "the next word in it does not");
 });
