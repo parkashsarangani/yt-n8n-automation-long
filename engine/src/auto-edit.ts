@@ -535,7 +535,9 @@ const STRONG = /^(never|always|stop|secret|mistake|worst|best|truth|actually|nob
 export const EMPHASIS_GAP_SEC = 4;
 const EMPHASIS_HOLD_SEC = 1.3;
 /** The marks' row: below a two-line caption, above the scene's soft top edge. */
-export const MARK_Y = SCENE_Y - 105;
+export const MARK_Y = SCENE_Y - 120;
+/** The burst's outer radius: MARK_Y + this stays above the scene. */
+export const MARK_RAY_OUTER = 116;
 
 export interface EmphasisMark { kind: "question" | "exclaim"; start: number; end: number; x: number; y: number }
 
@@ -584,7 +586,7 @@ function markEvents(m: EmphasisMark): string[] {
   const tilt = m.x < FRAME.width / 2 ? -10 : 10;
   return [
     // The burst: rays spring out and fade in the first half second.
-    `Dialogue: 2,${t0},${assTime(Math.min(m.end, m.start + 0.55))},Mark,,0,0,0,,{\\an7\\pos(${m.x},${m.y})\\bord0\\shad0\\1c${HIGHLIGHT}\\fscx50\\fscy50\\t(0,160,\\fscx110\\fscy110)\\t(220,550,\\alpha&HFF&)\\p1}${rays(92, 128, 15)}{\\p0}`,
+    `Dialogue: 2,${t0},${assTime(Math.min(m.end, m.start + 0.55))},Mark,,0,0,0,,{\\an7\\pos(${m.x},${m.y})\\bord0\\shad0\\1c${HIGHLIGHT}\\fscx50\\fscy50\\t(0,160,\\fscx100\\fscy100)\\t(220,550,\\alpha&HFF&)\\p1}${rays(86, MARK_RAY_OUTER, 15)}{\\p0}`,
     // The mark: pops past full size, settles, rocks gently, fades out.
     `Dialogue: 3,${t0},${t1},Mark,,0,0,0,,{\\an5\\pos(${m.x},${m.y})\\frz${tilt}\\fscx0\\fscy0\\t(0,140,\\fscx125\\fscy125)\\t(140,260,\\fscx100\\fscy100)\\t(260,${Math.round((m.end - m.start) * 1000)},\\frz${-tilt / 2})\\fad(0,180)}${glyph}`,
   ];

@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  CAPTION_FONT, CAPTION_FONTS_DIR, FPS, FRAME, FRAMINGS, MARK_Y, SCENE_Y, TRANSITION_FRAMES,
+  CAPTION_FONT, CAPTION_FONTS_DIR, FPS, FRAME, FRAMINGS, MARK_RAY_OUTER, MARK_Y, SCENE_Y, TRANSITION_FRAMES,
   autoCutStyle, captionsAss, emphasisMarks, finalArgs, planRuns, shotArgs, xfadeArgs, type Shot,
 } from "../src/auto-edit.ts";
 import { mixArgs, normaliseCues, pickMusic, TARGET_LUFS } from "../src/auto-edit-sound.ts";
@@ -54,8 +54,8 @@ test("emphasis marks: questions and strong lines, spaced out, never in the hook'
   assert.notEqual(marks[0]!.x, marks[1]!.x, "marks alternate sides");
   for (const m of marks) {
     assert.equal(m.y, MARK_Y);
-    assert.ok(m.y + 130 <= SCENE_Y + 10, "the mark's burst stays above the scene");
-    assert.ok(m.x - 130 >= 0 && m.x + 130 <= FRAME.width, "and inside the frame");
+    assert.ok(m.y + MARK_RAY_OUTER <= SCENE_Y, "the mark's burst stays above the scene");
+    assert.ok(m.x - MARK_RAY_OUTER >= 0 && m.x + MARK_RAY_OUTER <= FRAME.width, "and inside the frame");
   }
   const ass = captionsAss(words, { marks, style: "pop" });
   assert.equal(ass.split("\n").filter((l) => /^Dialogue: [23],.*Mark/.test(l)).length, marks.length * 2, "a burst and a glyph per mark");
