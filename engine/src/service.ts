@@ -255,6 +255,20 @@ export interface EditorReturnsResult {
   failed_runs: Array<{ run_id: string; error: string }>;
 }
 
+/** When this engine process started: a "running" record from before it belongs to a process that died. */
+const PROCESS_STARTED_MS = Date.now();
+
+/**
+ * Whether a background job's last record is an attempt still in progress.
+ * A deploy restarts the engine, and a beat-image or auto-edit pass killed
+ * halfway leaves its "running" record behind; treating that as live would
+ * skip the Short forever (2026-10-12, no editor to notice). Only attempts
+ * started by this process count as running.
+ */
+export function liveAttempt(rec: { status?: string; started_at?: string } | undefined, startedMs = PROCESS_STARTED_MS): boolean {
+  return rec?.status === "running" && Date.parse(rec.started_at ?? "") >= startedMs;
+}
+
 export class VidGenService {
   private registry!: SchemaRegistry;
   private prompts!: PromptStore;
@@ -1139,7 +1153,7 @@ export class VidGenService {
     }
     for (const run of parked) {
       const mine = (await this.runRecords(run.run_id)).filter((r) => r.node_id === node);
-      if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
+      if (mine.some((r) => r.status === "ok") || liveAttempt(mine.at(-1))) continue;
       const failures = mine.filter((r) => r.status === "failed").length;
       if (failures >= maxAttempts) continue;
       const handoffId = run.waiting.find((w) => w.node_id === "editor_review")!.artifact_id;
@@ -1252,7 +1266,7 @@ export class VidGenService {
       if (source !== "auto" && !editorless) continue;
 
       const mine = records.filter((r) => r.node_id === AUTO_EDIT_NODE);
-      if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
+      if (mine.some((r) => r.status === "ok") || liveAttempt(mine.at(-1))) continue;
       const failures = mine.filter((r) => r.status === "failed").length;
       if (failures >= maxAttempts) continue;
       const files = await drive.listFiles(folderId);
@@ -1339,6 +1353,42 @@ export class VidGenService {
       if (rec && (!latest || rec.started_at > latest.at)) latest = { at: rec.started_at, source: rec.transformation };
     }
     return latest?.source;
+  }
+
+  /**
+   * Operator "publish this one today" (2026-10-12, no editor any more): the
+   * daily queue only releases cuts uploaded before the slot, so a Short
+   * finished in the afternoon would wait a day. This releases one run's
+   * finished cut now, as today's Short, with the queue's own checks: exactly
+   * one final cut in its folder, never a cut already handed to publish, and
+   * never a second Short on a day one already went out. It does not run
+   * while a returned-cut pass is in flight, so the two can never race.
+   */
+  async releaseRunNow(runId: string): Promise<{ released: boolean; reason?: string }> {
+    if (this.editorReturnsInFlight) return { released: false, reason: "a release check is running; try again in a minute" };
+    const drive = this.driveProvider;
+    if (!drive) return { released: false, reason: "Drive is not configured" };
+    const run = this.listRuns().find((r) => r.run_id === runId);
+    const waiting = run?.waiting.find((w) => w.node_id === "editor_review");
+    if (!run || !waiting) return { released: false, reason: "that run is not waiting for its final cut" };
+    const folderId = (await this.store.get<{ drive_folder_id?: string }>(waiting.artifact_id))?.payload?.drive_folder_id;
+    if (!folderId) return { released: false, reason: "the run has no episode folder" };
+    const files = await drive.listFiles(folderId);
+    const candidates = files.filter((f) => isEditorCutFilename(f.name));
+    if (candidates.length !== 1) return { released: false, reason: candidates.length ? "more than one final cut in the folder" : "no final cut yet" };
+    const final = candidates[0]!;
+    const state = await this.editorReturnState(run.run_id, final.id);
+    if (state !== "fresh") return { released: false, reason: state === "published" ? "already published" : "an earlier hand-off is uncertain -- check the channel before releasing again" };
+    const now = this.releaseNow();
+    const today = berlinClock(now).date;
+    if ((await this.readReleaseState()).last_release_date === today) return { released: false, reason: "a Short was already released today" };
+    const cut = await this.validateEditorCut(run, folderId, files, final);
+    if (!cut) return { released: false, reason: "the cut did not validate (the operator alert says why)" };
+    // Today's slot is spent before the hand-off, as in the daily queue.
+    await this.writeReleaseState({ last_release_date: today, run_id: run.run_id, released_at: now.toISOString() });
+    await this.releaseEditorCut(run, final, cut);
+    console.log(`[release] run ${run.run_id.slice(4, 12)}: released now by the operator as today's Short`);
+    return { released: true };
   }
 
   async checkEditorReturns(): Promise<EditorReturnsResult> {

@@ -8,7 +8,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { VidGenService } from "../src/service.ts";
+import { VidGenService, liveAttempt } from "../src/service.ts";
 import { isEditorCutFilename, isPipelineAuthoredFile } from "../src/workers/editor-package.ts";
 import {
   AUTO_CUT_FILE, AUTO_EDIT_FAILED_NOTE_FILE, AUTO_EDIT_NOTE_FILE, FPS, FRAMINGS, SHOT_TARGET_SEC,
@@ -297,4 +297,16 @@ test("an animated shot holds its framing: the characters move, the camera barely
   assert.match(graph, /:d=1:s=1080x1080/, "one output frame per input frame of the clip");
   assert.equal(args[args.indexOf("-frames:v") + 1], "75");
   assert.deepEqual(args.filter((a) => a === "-i").length, 2);
+});
+
+test("an attempt left 'running' by a process that died (a deploy restart) is retried, a live one is not", async () => {
+  assert.equal(liveAttempt({ status: "running", started_at: "2026-10-12T10:00:00Z" }, Date.parse("2026-10-12T11:00:00Z")), false);
+  assert.equal(liveAttempt({ status: "running", started_at: "2026-10-12T12:00:00Z" }, Date.parse("2026-10-12T11:00:00Z")), true);
+  assert.equal(liveAttempt({ status: "failed", started_at: "2026-10-12T12:00:00Z" }, 0), false);
+
+  process.env["AUTO_EDIT"] = "all";
+  const { service, records, render } = makeService(["run_a"]);
+  records.push({ run_id: "run_a", node_id: "edit_source", status: "ok", transformation: "auto", started_at: "2020-01-01T00:00:00Z" });
+  records.push({ run_id: "run_a", node_id: "auto_edit", status: "running", transformation: "auto_edit", started_at: "2020-01-01T00:00:00Z" });
+  assert.equal((await service.autoEditPending({ render })).rendered, 1, "the dead attempt does not block the Short");
 });
