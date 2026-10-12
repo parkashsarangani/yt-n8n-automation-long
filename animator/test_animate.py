@@ -9,10 +9,10 @@ import animate
 SKIN = (200, 225, 245)  # BGR
 
 
-def face(mouth: str):
-    """A round cartoon head: two dot eyes, and either a red open mouth or a black frown line."""
+def face(mouth: str, skin=SKIN):
+    """A round cartoon head: two dot eyes, and either a red open mouth, a black frown line, or (big) a red patch far larger than any mouth."""
     img = np.full((animate.S, animate.S, 3), (120, 180, 230), np.uint8)
-    cv2.circle(img, (540, 400), 160, SKIN, -1)
+    cv2.circle(img, (540, 400), 160, skin, -1)
     cv2.circle(img, (540, 400), 160, (20, 20, 20), 8)
     cv2.rectangle(img, (440, 560), (640, 1000), (160, 140, 40), -1)  # body
     for x in (490, 590):
@@ -20,6 +20,8 @@ def face(mouth: str):
     if mouth == "open":
         cv2.ellipse(img, (540, 470), (34, 16), 0, 0, 360, (40, 40, 190), -1)
         cv2.ellipse(img, (540, 470), (34, 16), 0, 0, 360, (20, 20, 20), 6)
+    elif mouth == "big":
+        cv2.ellipse(img, (540, 500), (130, 50), 0, 0, 360, (40, 40, 190), -1)
     else:
         cv2.ellipse(img, (540, 485), (30, 12), 0, 200, 340, (20, 20, 20), 6)
     mask = np.zeros(img.shape[:2], np.uint8)
@@ -43,6 +45,23 @@ class FaceTests(unittest.TestCase):
             mouth = animate.find_mouth(img, mask, animate.find_eyes(img, mask, box))
             self.assertIsNotNone(mouth)
             self.assertEqual(mouth["kind"], kind)
+
+    def test_warm_brown_skin_is_not_an_open_mouth(self):
+        # Trial 2026-10-12: a brown-skinned man's lower face (BGR ~77,114,218) read as a red open
+        # mouth, so he "talked" and a huge outlined oval was painted over his chin.
+        brown = (77, 114, 218)
+        img, mask, box = face("line", skin=brown)
+        mouth = animate.find_mouth(img, mask, animate.find_eyes(img, mask, box))
+        self.assertIsNotNone(mouth)
+        self.assertEqual(mouth["kind"], "line", "his drawn frown, not his skin")
+        self.assertLess(mouth["box"][2], 80, "the mouth is mouth-sized")
+        img, mask, box = face("open", skin=brown)
+        self.assertEqual(animate.find_mouth(img, mask, animate.find_eyes(img, mask, box))["kind"], "open", "a real red mouth still counts on brown skin")
+
+    def test_a_red_patch_bigger_than_a_mouth_is_not_an_open_mouth(self):
+        img, mask, box = face("big")
+        mouth = animate.find_mouth(img, mask, animate.find_eyes(img, mask, box))
+        self.assertTrue(mouth is None or mouth["kind"] != "open")
 
     def test_blinks_close_the_eyes_then_open_them(self):
         img, mask, box = face("line")
