@@ -70,8 +70,8 @@ services:
       META_IG_ACCESS_TOKEN: ${META_IG_ACCESS_TOKEN:-}
       # Per-beat editor images (gpt-image-1-mini, ~$0.10/Short). 1 = on. Optional own key with its own spend cap.
       BEAT_IMAGES: ${BEAT_IMAGES:-0}
-      # Automatic edit of Shorts from the beat images: off | ab (alternate with the editor) | all.
-      AUTO_EDIT: ${AUTO_EDIT:-off}
+      # Automatic edit of Shorts from the beat images: off | ab (alternate with the editor) | all (no editor; default since 2026-10-12).
+      AUTO_EDIT: ${AUTO_EDIT:-all}
       # Animator for the automatic edit (blinks; mouth + hands for speaking
       # characters). Empty = still pictures.
       ANIMATOR_URL: ${ANIMATOR_URL:-http://animator:4100}

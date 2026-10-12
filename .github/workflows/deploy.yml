@@ -77,11 +77,10 @@ jobs:
           UI_PUBLIC_HOSTS: ${{ vars.UI_PUBLIC_HOSTS || '' }}
           CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN || '' }}
           CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD || '' }}
-          # Paused 2026-09-28 (operator): the editor now makes custom episodes
-          # only, so no scheduled daily draft. "0" disables just the produce job;
-          # Drive delivery, cut pickup (editor_watch) and measurement keep
-          # running for custom episodes. Set back to "24" to resume the season.
-          SCHEDULE_PRODUCE_HOURS: "0"
+          # Resumed 2026-10-12 (operator): no editor any more -- a new Short is
+          # produced every day and auto-edited (AUTO_EDIT=all), one release a day
+          # at DAILY_RELEASE_HOUR. vars.SCHEDULE_PRODUCE_HOURS="0" pauses it.
+          SCHEDULE_PRODUCE_HOURS: ${{ vars.SCHEDULE_PRODUCE_HOURS || '24' }}
           # Shorts/Reels since 2026-09-29: new drafts are vertical 1080x1920,
           # <=60 s. Long-form is dormant, not deleted -- set "long" to go back.
           VIDEO_FORMAT: "short"
@@ -91,7 +90,8 @@ jobs:
           META_IG_USER_ID: ${{ vars.META_IG_USER_ID || '' }}
           META_IG_ACCESS_TOKEN: ${{ secrets.META_IG_ACCESS_TOKEN }}
           BEAT_IMAGES: ${{ vars.BEAT_IMAGES || '1' }}
-          AUTO_EDIT: ${{ vars.AUTO_EDIT || 'off' }}
+          # No editor since 2026-10-12: every Short is auto-edited. vars.AUTO_EDIT overrides (off | ab | all).
+          AUTO_EDIT: ${{ vars.AUTO_EDIT || 'all' }}
           ANIMATOR_URL: ${{ vars.ANIMATOR_URL || 'http://animator:4100' }}
           DAILY_RELEASE_HOUR: ${{ vars.DAILY_RELEASE_HOUR || '12' }}
           OPENAI_IMAGES_API_KEY: ${{ secrets.OPENAI_IMAGES_API_KEY }}
