@@ -190,8 +190,8 @@ test("never adds a second final cut to a folder", async () => {
   assert.ok(!uploads.some((u) => u.name === AUTO_EDIT_FAILED_NOTE_FILE), "stepping aside is not a failure");
 });
 
-test("after two failed renders the Short goes back to the editor, with a note", async () => {
-  process.env["AUTO_EDIT"] = "all";
+test("ab: after two failed renders the Short goes back to the editor, with a note", async () => {
+  process.env["AUTO_EDIT"] = "ab";
   let calls = 0;
   const { service, uploads } = makeService(["run_a"]);
   const failing = async () => { calls++; throw new Error("auto edit shot 1/4 failed: boom"); };
@@ -201,6 +201,23 @@ test("after two failed renders the Short goes back to the editor, with a note", 
   assert.ok(uploads.some((u) => u.name === AUTO_EDIT_FAILED_NOTE_FILE));
   await service.autoEditPending({ render: failing });
   assert.equal(calls, 2, "never a third attempt");
+});
+
+test("all (no editor): no notes in the folder, three attempts, and a Short once left to the editor is cut too", async () => {
+  process.env["AUTO_EDIT"] = "all";
+  const { service, records, uploads, render } = makeService(["run_a", "run_b"]);
+  // run_b was left to the editor under "ab" before the editor went away.
+  records.push({ run_id: "run_b", node_id: "edit_source", status: "ok", transformation: "editor", started_at: "2026-10-11T10:00:00Z" });
+  const result = await service.autoEditPending({ render });
+  assert.equal(result.rendered, 2);
+  assert.deepEqual(uploads.map((u) => u.name).sort(), [AUTO_CUT_FILE, AUTO_CUT_FILE], "only the cuts, no editor notes");
+
+  let calls = 0;
+  const failing = makeService(["run_c"]);
+  const boom = async () => { calls++; throw new Error("auto edit shot 1/4 failed: boom"); };
+  for (let i = 0; i < 4; i++) await failing.service.autoEditPending({ render: boom });
+  assert.equal(calls, 3, "three attempts, then it stops");
+  assert.ok(!failing.uploads.some((u) => u.name === AUTO_EDIT_FAILED_NOTE_FILE), "no note for an editor who is not there");
 });
 
 test("off does nothing", async () => {

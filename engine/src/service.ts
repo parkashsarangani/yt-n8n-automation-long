@@ -1208,16 +1208,21 @@ export class VidGenService {
    * "editor"; AUTO_EDIT=ab alternates, =all takes every run), and for the
    * auto ones render final-auto.mp4 from the beat images and narration into
    * the episode folder, where the daily release queue imports it like any
-   * editor cut. The editor is told by a note in the folder either way the
-   * automatic edit goes; after 2 failed renders the run is handed back to
-   * them. Only runs from the last 3 days.
+   * editor cut. With "ab" the editor is told by a note in the folder either
+   * way the automatic edit goes, and after 2 failed renders the run is handed
+   * back to them. "all" means there is no editor (operator 2026-10-12: "the
+   * editor is no more available"): no notes, every parked Short is the auto
+   * edit's, 3 attempts, and a final failure only alerts the operator -- the
+   * Drive folder is internal storage nobody looks at. Only runs from the last
+   * 3 days.
    */
   async autoEditPending(opts: { render?: typeof renderAutoCut } = {}): Promise<{ checked: number; rendered: number }> {
     const drive = this.driveProvider;
     const mode = autoEditMode();
     if (!drive || mode === "off") return { checked: 0, rendered: 0 };
     const render = opts.render ?? renderAutoCut;
-    const maxAttempts = 2;
+    const editorless = mode === "all";
+    const maxAttempts = editorless ? 3 : 2;
     const cutoff = Date.now() - 3 * 24 * 3600_000;
     let checked = 0, rendered = 0;
     const tag = (runId: string, node: string, transformation: string, status: "ok" | "running" | "failed", extra: Record<string, unknown> = {}) =>
@@ -1241,9 +1246,10 @@ export class VidGenService {
         source = mode === "all" ? "auto" : (await this.lastEditSource(run.run_id)) === "auto" ? "editor" : "auto";
         await tag(run.run_id, EDIT_SOURCE_NODE, source, "ok");
         console.log(`[auto-edit] run ${run.run_id.slice(4, 12)}: ${source === "auto" ? "edited automatically" : "left to the editor"} (AUTO_EDIT=${mode})`);
-        if (source === "auto") await drive.uploadFile(folderId, AUTO_EDIT_NOTE_FILE, new TextEncoder().encode(autoEditNote()), "text/plain");
+        if (source === "auto" && !editorless) await drive.uploadFile(folderId, AUTO_EDIT_NOTE_FILE, new TextEncoder().encode(autoEditNote()), "text/plain");
       }
-      if (source !== "auto") continue;
+      // With no editor, a Short once left to them is the auto edit's too.
+      if (source !== "auto" && !editorless) continue;
 
       const mine = records.filter((r) => r.node_id === AUTO_EDIT_NODE);
       if (mine.some((r) => r.status === "ok") || mine.at(-1)?.status === "running") continue;
@@ -1286,11 +1292,14 @@ export class VidGenService {
         await tag(run.run_id, AUTO_EDIT_NODE, AUTO_EDIT_NODE, "failed", { attempt: failures + 1, max_attempts: maxAttempts, error: detail.slice(0, 1000) });
         console.error(`[auto-edit] run ${run.run_id.slice(4, 12)} failed: ${detail}`);
         if (failures + 1 >= maxAttempts) {
-          // Given back to the editor: the note says so in the folder, the operator hears once.
-          await drive.uploadFile(folderId, AUTO_EDIT_FAILED_NOTE_FILE, new TextEncoder().encode(autoEditFailedNote(detail.slice(0, 300))), "text/plain").catch(() => {});
+          // "ab": given back to the editor, the note says so in the folder. "all":
+          // nobody else will cut it, so the operator hears it will not publish.
+          if (!editorless) await drive.uploadFile(folderId, AUTO_EDIT_FAILED_NOTE_FILE, new TextEncoder().encode(autoEditFailedNote(detail.slice(0, 300))), "text/plain").catch(() => {});
           await sendOperatorAlert({
             run_id: run.run_id,
-            reason: `the automatic edit failed ${maxAttempts} times; the editor has been asked to edit this Short`,
+            reason: editorless
+              ? `the automatic edit failed ${maxAttempts} times; there is no editor, so this Short will not publish until it is fixed and re-rendered`
+              : `the automatic edit failed ${maxAttempts} times; the editor has been asked to edit this Short`,
             failures: [{ node_id: AUTO_EDIT_NODE, error: detail }],
           });
         }
