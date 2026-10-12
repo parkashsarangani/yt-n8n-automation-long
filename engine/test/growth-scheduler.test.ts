@@ -320,3 +320,16 @@ test("episode status is the one definition of made, shared by the daily job and 
   // The daily job's next episode is exactly the first one the studio shows as not made.
   assert.equal(nextSeriesEpisode([seriesRun(titles[0]!), withEditor, rendering, blocked]), 3);
 });
+
+test("scheduled runs ask for the format's length: 75 s as Shorts, 180 s long-form", async () => {
+  const { scheduledDurationSec } = await import("../src/growth-scheduler.ts");
+  const previous = process.env["VIDEO_FORMAT"];
+  try {
+    process.env["VIDEO_FORMAT"] = "short";
+    assert.equal(scheduledDurationSec(), 75);
+    process.env["VIDEO_FORMAT"] = "long";
+    assert.equal(scheduledDurationSec(), 180);
+  } finally {
+    if (previous === undefined) delete process.env["VIDEO_FORMAT"]; else process.env["VIDEO_FORMAT"] = previous;
+  }
+});
