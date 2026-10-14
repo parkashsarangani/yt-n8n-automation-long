@@ -19,3 +19,17 @@ test("an editor cut retains original stock credits, without attaching stale draf
   assert.deepEqual(stored.blobs[1],credits);
   assert.equal((state.presetOutputs as any).finalize_video,"edited");
 });
+
+test("the automatic edit's cut carries no stock credits: it never shows the draft's footage", async () => {
+  const service = Object.create(VidGenService.prototype);
+  const state = {completedOutputs:new Map([["render","draft"]]),presetOutputs:{}};
+  service.runs = new Map([["run-test",state]]);
+  service.blobs = new MemoryBlobStore();
+  let stored: any;
+  service.store = {
+    get: async () => ({blobs:[{role:"footage_credits",uri:"credits",media_type:"application/json"}]}),
+    put: async (input: unknown) => { stored=input; return {artifact:{artifact_id:"edited"}}; },
+  };
+  await service.supplyEditorCut("run-test",{bytes:new Uint8Array([1]),media_type:"video/mp4",scene_count:3,degraded_scenes:0},undefined,{carryDraftCredits:false});
+  assert.deepEqual(stored.blobs.map((b: any)=>b.role),["video"]);
+});

@@ -58,7 +58,7 @@ test("without timing, words are spread over the clip by length", () => {
   assert.ok(words[2]!.end - words[2]!.start > words[0]!.end - words[0]!.start);
 });
 
-test("shots cover the narration to the frame, cut about every 2.6 s, open on the hook", () => {
+test("shots cover the narration to the frame, cut about every SHOT_TARGET_SEC, open on the hook", () => {
   const segments = buildSegments(SCENES, new Map([[0, 2.2], [1, 7.9], [2, 5.3], [3, 2.1]]), new Map([[0, 0], [1, 1], [2, 2]]));
   const shots = planShots(segments);
   const total = 2.2 + 7.9 + 5.3 + 2.1;

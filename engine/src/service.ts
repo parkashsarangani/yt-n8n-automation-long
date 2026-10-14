@@ -982,6 +982,7 @@ export class VidGenService {
     runId: string,
     video: { bytes: Uint8Array; media_type: string; scene_count: number; degraded_scenes: number; duration_sec?: number },
     thumbnail?: { bytes: Uint8Array; media_type: string },
+    opts: { carryDraftCredits?: boolean } = {},
   ): Promise<void> {
     const state = this.runs.get(runId);
     if (!state) throw new Error(`unknown run ${runId}`);
@@ -995,9 +996,13 @@ export class VidGenService {
       : null;
     const draftId = state.completedOutputs.get("render");
     const draft = draftId ? await this.store.get(draftId) : null;
-    // The editor may retain suggested stock. Preserve its attribution through
-    // the replacement video artifact instead of dropping it on final.mp4 import.
-    const credits = draft?.blobs?.filter(blob => blob.role === "footage_credits") ?? [];
+    // A human editor may retain suggested stock. Preserve its attribution
+    // through the replacement video artifact instead of dropping it on
+    // final.mp4 import. The automatic edit is built only from the beat images
+    // and never contains the draft's stock, so its cut carries no credits --
+    // otherwise every description listed footage the Short does not show
+    // (operator 2026-10-14).
+    const credits = (opts.carryDraftCredits ?? true) ? draft?.blobs?.filter(blob => blob.role === "footage_credits") ?? [] : [];
     const artifact = await this.store.put({
       schema_id: "rendered_video",
       payload: {
@@ -1742,7 +1747,7 @@ export class VidGenService {
       // bug in the one case where we know least, so an unverifiable
       // duration is recorded as absent rather than as a confident guess.
       ...(cut.cutDurationSec !== null ? { duration_sec: cut.cutDurationSec } : {}),
-    }, cut.editorThumbnail);
+    }, cut.editorThumbnail, { carryDraftCredits: final.name !== AUTO_CUT_FILE });
     // Written before the approval, not after: a crash between publishing
     // and recording must not look like a fresh cut on the next pass. The
     // cost is that a failure in decide() itself makes this run "uncertain"

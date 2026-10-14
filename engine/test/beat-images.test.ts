@@ -191,10 +191,12 @@ test("the Images API request: mini, portrait, medium; the key never leaks into a
   await assert.rejects(generateBeatImage("p", { apiKey: "sk-test", fetchImpl: bad }), (e: Error) => /\(401 invalid_api_key\)/.test(e.message) && !e.message.includes("sk-test"));
 });
 
-test("the style is stickman with expressive faces, and never asks for text", async () => {
+test("the style is stickman with expressive faces; words only where the scene has them, never captions or logos", async () => {
   assert.match(STYLE, /stick ?(man|figures)/i);
   assert.match(STYLE, /cartoon faces/i);
-  assert.match(STYLE, /no text/i);
+  // Since 2026-10-14 (operator): in-scene text and blur are fine when they make sense in the context.
+  assert.match(STYLE, /Words appear only where the scene naturally has them/);
+  assert.match(STYLE, /No captions, speech bubbles, logos or watermarks/);
   const prompts = await PromptStore.load(path.join(ROOT, "prompts"));
   const [plan] = await planBeats("T", SCENES, { provider: null, prompts });
   assert.match(plan!.description, /stick figure.*facial expression/i, "the fallback keeps the style too");
@@ -209,7 +211,11 @@ test("1080x1920 frame with a clean 840 px caption area on top, in the scene's ow
   assert.match(graph, /lt\(Y,60\),255\*Y\/60/, "top 60 px of the scene fade into it -- no seam");
   assert.deepEqual(BEAT_FRAME, { width: 1080, height: 1920 });
   assert.equal(CAPTION_SPACE_PX, 840);
-  assert.match(STYLE, /TOP QUARTER is plain, empty background/, "the scene's own top stays plain so the area continues it");
+  // Since 2026-10-14 the whole square is scene (captions sit in their own band above it): cinematic, wide, environment shown.
+  assert.doesNotMatch(STYLE, /TOP QUARTER is plain/);
+  assert.match(STYLE, /still from an animated film/);
+  assert.match(STYLE, /whole environment the characters are in/);
+  assert.match(STYLE, /Cinematic lighting/);
   assert.deepEqual(topColourArgs("in.png", "c.rgb").slice(-5), ["-f", "rawvideo", "-pix_fmt", "rgb24", "c.rgb"]);
 });
 
