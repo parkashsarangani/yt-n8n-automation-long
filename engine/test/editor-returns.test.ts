@@ -422,3 +422,13 @@ test("release now: a cut that does not validate spends no slot and publishes not
   assert.equal(written.length, 0);
   assert.ok(!calls.includes("supplyEditorCut"));
 });
+
+test("the auto-edit's cut carries no stock credits from the draft; a human editor's cut still does", async () => {
+  for (const [name, carry] of [["final-auto.mp4", false], ["final.mp4", true]] as const) {
+    const { service } = releaseNowService([{ ...finalCut(mp4()), name }]);
+    let passed: { carryDraftCredits?: boolean } | undefined;
+    service.supplyEditorCut = async (_id: string, _video: unknown, _thumb: unknown, opts: { carryDraftCredits?: boolean }) => { passed = opts; };
+    assert.deepEqual(await service.releaseRunNow("run_editor01-aaaa"), { released: true }, name);
+    assert.equal(passed?.carryDraftCredits, carry, name);
+  }
+});

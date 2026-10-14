@@ -122,3 +122,19 @@ test("the narration is sped up with its pitch kept, each clip trimmed to its sho
   assert.match(graph, /atrim=0:1\.8519/);
   assert.doesNotMatch(audioArgs([{ file: "a.mp3", duration: 2 }], "n.wav")[6]!, /atempo/, "no tempo filter at normal speed");
 });
+
+test("the FOLLOW badge shows only while the spoken CTA plays -- never over the verdict before it", async () => {
+  const { ctaBadgeWindow } = await import("../src/auto-edit.ts");
+  const scenes = [
+    { scene_index: 7, narration: "Fear doesn't have to leave. It just loses the deciding vote.", is_outro: true, point: "[outro] verdict" },
+    { scene_index: 8, narration: "Follow Quiet Signal for more psychology and philosophy.", point: "[cta] Subscribe" },
+  ];
+  const segments = [
+    { scene_index: 6, start: 0, duration: 50, image: 3 },
+    { scene_index: 7, start: 50, duration: 4, image: 3, is_outro: true },
+    { scene_index: 8, start: 54, duration: 3, image: 3, is_outro: true },
+  ];
+  assert.deepEqual(ctaBadgeWindow(segments, scenes), { start: 54, end: 57 }, "starts with the spoken CTA, not the verdict");
+  assert.deepEqual(ctaBadgeWindow(segments.slice(0, 2), scenes.slice(0, 1)), { start: 50, end: 54 }, "no CTA scene: the last closing scene");
+  assert.equal(ctaBadgeWindow(segments.slice(0, 1), []), undefined);
+});

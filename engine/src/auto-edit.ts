@@ -7,7 +7,7 @@
  * (with ElevenLabs word timing) and one series-style image per beat in the
  * episode's Drive beats/ folder. What makes it an edit rather than a
  * slideshow:
- *   - a cut every ~2.6 s, cycling framings of the beat's image (wide push-in,
+ *   - a cut every ~2.2 s (operator 2026-10-14: "increase the pace"), cycling framings of the beat's image (wide push-in,
  *     close-up on the faces, slow pans, pull-out), never a still frame;
  *   - a hook shot that snaps in and settles over the first beat;
  *   - big word-by-word captions in the clean area above the scene, the word
@@ -79,8 +79,8 @@ export type CaptionStyle = "pop" | "bounce" | "classic";
  */
 export interface AutoCutStyle { transitions: boolean; sfx: boolean; music: boolean; emphasis: boolean; captions: CaptionStyle; voiceSpeed: number }
 
-/** Default narration speed-up in the auto cut, on top of ELEVENLABS_SPEED. */
-export const VOICE_SPEED = 1.08;
+/** Default narration speed-up in the auto cut, on top of ELEVENLABS_SPEED (1.08 until 2026-10-14; "increase the pace"). */
+export const VOICE_SPEED = 1.15;
 
 export function autoCutStyle(env: Record<string, string | undefined> = process.env): AutoCutStyle {
   const on = (name: string) => !/^(off|0|false|no)$/i.test(env[name]?.trim() ?? "");
@@ -113,8 +113,8 @@ const FADE_PX = 90;
 /** Captions: centred in the clean area above the scene. */
 export const CAPTION_Y = 340;
 /** One cut roughly this often. */
-export const SHOT_TARGET_SEC = 2.6;
-const MAX_SHOTS_PER_SCENE = 4;
+export const SHOT_TARGET_SEC = 2.2;
+const MAX_SHOTS_PER_SCENE = 5;
 
 // ---------------------------------------------------------------- timing
 
@@ -217,6 +217,20 @@ export function buildSegments(scenes: BeatScene[], durations: Map<number, number
     t += duration;
     return seg;
   }).filter((s) => s.duration > 0);
+}
+
+/**
+ * When the FOLLOW badge shows: while the spoken CTA plays, and never before
+ * it (cta.ts "[cta]" scene). Since Shorts end on the writer's own verdict line
+ * -- also a closing scene -- the badge popped in over the verdict before the
+ * CTA was spoken (operator 2026-10-14). Without a CTA scene: the last closing
+ * scene only.
+ */
+export function ctaBadgeWindow(segments: Segment[], scenes: BeatScene[]): { start: number; end: number } | undefined {
+  const outro = segments.filter((s) => s.is_outro);
+  const cta = new Set(scenes.filter((s) => /^\[cta\]/i.test(s.point ?? "")).map((s) => s.scene_index));
+  const badge = outro.some((s) => cta.has(s.scene_index)) ? outro.filter((s) => cta.has(s.scene_index)) : outro.slice(-1);
+  return badge.length ? { start: badge[0]!.start, end: badge.at(-1)!.start + badge.at(-1)!.duration } : undefined;
 }
 
 /** beats.json from beat-images.ts: the narration words each image covers. */
@@ -513,7 +527,8 @@ export function finalArgs(video: string, audio: string, ass: string, output: str
  * never depends on what the container has installed.
  */
 export const CAPTION_FONT = "Montserrat ExtraBold";
-export const CAPTION_SIZE = 122;
+// 122 until 2026-10-14 (operator: "decrease font size as it's too big").
+export const CAPTION_SIZE = 98;
 export const CAPTION_FONTS_DIR = fileURLToPath(new URL("../assets/fonts/", import.meta.url));
 
 const HIGHLIGHT = "&H0030B6F2&"; // series mustard #F2B630, as ASS BGR
@@ -674,7 +689,7 @@ export function captionsAss(words: TimedWord[], opts: { font?: string; ending?: 
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Caption,${font},${CAPTION_SIZE},${WHITE},${WHITE},&H00000000&,&H64000000&,-1,0,0,0,100,100,0,0,1,9,5,5,60,60,0,1`,
     // An opaque mustard box (BorderStyle 3) with navy text.
-    `Style: Badge,${font},74,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
+    `Style: Badge,${font},64,${NAVY},${NAVY},${HIGHLIGHT},${HIGHLIGHT},-1,0,0,0,100,100,2,0,3,22,0,5,70,70,0,1`,
     // Emphasis marks: a big mustard glyph with a thick navy outline.
     `Style: Mark,${font},180,${HIGHLIGHT},${HIGHLIGHT},${NAVY},&H64000000&,-1,0,0,0,100,100,0,0,1,10,5,5,0,0,0,1`,
     "",
@@ -821,8 +836,7 @@ export async function renderAutoCut(
       await concat("shots", shotFiles, video);
     }
 
-    const outro = segments.filter((s) => s.is_outro);
-    const ending = outro.length ? { start: outro[0]!.start, end: outro.at(-1)!.start + outro.at(-1)!.duration } : undefined;
+    const ending = ctaBadgeWindow(segments, scenes);
     const marks = style.emphasis ? emphasisMarks(words, { endBefore: ending?.start ?? total }) : [];
 
     // Sound design: a whoosh into every new image, a hit under the hook, a

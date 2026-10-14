@@ -21,7 +21,7 @@ import type { ModelProvider } from "./provider.ts";
 import type { PromptStore } from "./prompts.ts";
 import { ffmpegTransform } from "./ffmpeg-file.ts";
 
-export const BEAT_IMAGES_PROMPT = "beat_images@4";
+export const BEAT_IMAGES_PROMPT = "beat_images@5";
 export const BEAT_IMAGE_MODEL = "gpt-image-1-mini";
 /**
  * The scene is drawn square and laid into the Short's 1080x1920 frame with a
@@ -81,10 +81,19 @@ export const STYLE =
   `Unnamed background people are ${OTHERS} -- like the second reference image. Never realistic humans. ` +
   "Readable cartoon faces with clear eyebrows, eyes and mouth, and natural expressive body language; small emotion marks (sweat drops, blush, motion lines) only where they fit. " +
   "Keep each emotion exactly as described -- subtle means subtle, not angry. " +
-  "A detailed, recognisable setting full of the specific props described, drawn in the same flat style. " +
-  "Square composition. The TOP QUARTER is plain, empty background only -- a flat wall or sky in one colour, no objects, lamps, frames or plants, nothing touching the top edge " +
-  "(captions go above it). All characters and props sit in the lower three quarters, large and central, framed from the knees up, away from the left and right edges. " +
-  "Absolutely no text, letters, numbers, speech bubbles, signage, logos or watermarks.";
+  // Cinematic, with the world around the characters (operator 2026-10-14:
+  // "make them cinematic style within the same style, and show more
+  // environment"). The old "plain empty top quarter, characters large from
+  // the knees up" rule was for an editor's captions inside the picture; the
+  // auto-edit now puts captions in their own band above the scene.
+  "Compose it like a still from an animated film, in exactly this flat comic style: the camera shot given in the scene (usually a wide or medium-wide shot) " +
+  "shows the whole environment the characters are in -- the room, street or place with its walls, furniture, windows and depth -- with the characters filling about a third to a half of the frame height, never cropped at the head. " +
+  "Layered depth: a foreground element at one edge (a doorframe, a plant, a chair back, a counter), the characters in the midground, a detailed recognisable background full of the specific props described. " +
+  "Cinematic lighting motivated by the scene (warm window light, a pool of lamp light, cool screen glow at night, golden-hour sun) with soft cel-shaded shadows, gentle rim light on the characters and a cohesive colour grade within the palette -- still flat colours and thick clean outlines, never painterly or realistic. " +
+  "Depth of field and soft focus are welcome where they suit the shot. " +
+  "Square composition, everything inside the frame, characters away from the left and right edges. " +
+  // Text only when the scene naturally has it (operator 2026-10-14: "text, blur, etc are looking good if they make sense in the context").
+  "Words appear only where the scene naturally has them and the description gives them (a short notification on a phone, a word on a form or sign), spelled exactly, a few words at most. No captions, speech bubbles, logos or watermarks.";
 
 /** The series' fixed character references, shipped with the engine. */
 export const SERIES_REFERENCE_FILES = ["you.png", "others.png"] as const;
