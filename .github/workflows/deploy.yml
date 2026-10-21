@@ -81,6 +81,9 @@ jobs:
           # produced every day and auto-edited (AUTO_EDIT=all), one release a day
           # at DAILY_RELEASE_HOUR. vars.SCHEDULE_PRODUCE_HOURS="0" pauses it.
           SCHEDULE_PRODUCE_HOURS: ${{ vars.SCHEDULE_PRODUCE_HOURS || '24' }}
+          # Second Thoughts finished 8/8 on 2026-10-15 and production stopped;
+          # since 2026-10-21 the daily topic comes from discovery. "series" restores it.
+          SCHEDULE_PRODUCE_SOURCE: ${{ vars.SCHEDULE_PRODUCE_SOURCE || 'discovery' }}
           # Shorts/Reels since 2026-09-29: new drafts are vertical 1080x1920,
           # <=60 s. Long-form is dormant, not deleted -- set "long" to go back.
           VIDEO_FORMAT: "short"
