@@ -58,6 +58,8 @@ services:
       TTS_MODERATION_TIMEOUT_MS: ${TTS_MODERATION_TIMEOUT_MS:-30000}
 
       SCHEDULE_PRODUCE_HOURS: ${SCHEDULE_PRODUCE_HOURS:-}
+      # series (Second Thoughts in order, then stop) | discovery (daily topic tournament).
+      SCHEDULE_PRODUCE_SOURCE: ${SCHEDULE_PRODUCE_SOURCE:-}
       # long (16:9, dormant) | short (vertical 9:16 Shorts/Reels, <=60 s).
       # Unset = long. See engine/src/video-format.ts.
       VIDEO_FORMAT: ${VIDEO_FORMAT:-}
