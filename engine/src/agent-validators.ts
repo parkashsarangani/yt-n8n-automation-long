@@ -64,8 +64,8 @@ export function agentSemanticValidationErrors(
     // visuals and the draft renderer can safely fall back to the gradient.
     // Keep these errors soft so the final schema-valid attempt can still be
     // accepted after the configured repair budget.
-    // Shorts have their own roles (hook, promise, mechanism, philosophy,
-    // escalation, payoff); the long-form lesson roles stay for long-form.
+    // Shorts have their own rules ([hook] first, "you" throughout, a named
+    // thinker, the verdict outro); the long-form lesson roles stay for long-form.
     return videoFormat() === "short" ? shortScriptErrors(payload) : socialSeriesScriptErrors(payload);
   }
   if (def.name === "growth_packager") {

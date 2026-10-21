@@ -30,7 +30,7 @@
   "produces_version": "2.1.0",
   "prompt": "watchability_critic@12",
   "prompt_by_format": {
-    "short": "watchability_critic@13"
+    "short": "watchability_critic@14"
   },
   "model": {
     "capability": "reasoning_high",
