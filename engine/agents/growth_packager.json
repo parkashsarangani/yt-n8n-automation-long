@@ -18,7 +18,7 @@
   "produces_version": "1.2.0",
   "prompt": "growth_packager@12",
   "prompt_by_format": {
-    "short": "growth_packager@13"
+    "short": "growth_packager@14"
   },
   "model": {
     "capability": "reasoning_fast",

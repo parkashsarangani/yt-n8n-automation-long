@@ -23,7 +23,7 @@
   "produces": "story",
   "prompt": "narrative_story_architect@8",
   "prompt_by_format": {
-    "short": "narrative_story_architect@9"
+    "short": "narrative_story_architect@10"
   },
   "model": {
     "capability": "reasoning_high",

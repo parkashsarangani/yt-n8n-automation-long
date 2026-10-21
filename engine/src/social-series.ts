@@ -68,19 +68,18 @@ export function socialSeriesScriptErrors(payload: unknown): string[] {
 }
 
 /**
- * The Short's roles, in order (2026-10-12, operator: philosophy behind the
- * psychology, an expert speaking to "you", a hook the viewer recognises as
- * their own life, expectations built and then delivered precisely). Replaces
- * the long-form lesson roles for Shorts: no [limitations] or [exercise] scene
- * may be demanded -- they flattened every Short.
+ * What a Short script must do (2026-10-21, operator: the scripts were bland --
+ * start by relating the topic to the viewer, keep "you" throughout, make the
+ * viewer feel the issue, full drama, and remove any gate that stands in the
+ * way). The 2026-10-12 fixed role order and "contract by word 45" made every
+ * Short an announced syllabus, so only the opening [hook], the verdict outro,
+ * second person throughout, and a named thinker somewhere are checked; the
+ * writer orders the beats for drama.
  */
-export const SHORT_SCRIPT_ROLES = ["hook", "promise", "mechanism", "philosophy", "escalation", "payoff"] as const;
-/** The contract has to be audible early: words spoken before the [promise] scene starts. */
-export const SHORT_PROMISE_BY_WORD = 45;
 /** Above this a script no longer publishes as a Short/Reel (about 3 minutes). Length is otherwise a guide. */
 export const SHORT_MAX_WORDS = 450;
-/** Share of substantive scenes that must speak to "you" (the viewer is the only character). */
-export const SHORT_SECOND_PERSON_COVERAGE = 0.7;
+/** Third-person pronouns allowed across the script before it reads as somebody else's story ("your friend... she" is fine). */
+export const SHORT_MAX_THIRD_PERSON = 3;
 const THINKER = /\b(Seneca|Epictetus|Marcus Aurelius|Stoic(?:s|ism)?|Aristotle|Plato|Socrates|Kierkegaard|Nietzsche|Camus|Sartre|Schopenhauer|Spinoza|Hume|Kant|Buddha|Buddhis[mt]|Lao ?Tzu|Laozi|Zhuangzi|Taois[mt]|Confucius|Montaigne|Pascal|Heraclitus|Diogenes|Epicurus|Epicurean|Beauvoir|Simone Weil|Wittgenstein|Arendt|William James|Thoreau|Emerson|Cicero|Plutarch|Rousseau|Descartes|Hobbes|Locke|Mill|Machiavelli|Zen)\b/;
 
 /** Mechanical structure of a Short script; the critic judges quality. All errors are soft (bounded repair loop). */
@@ -91,23 +90,16 @@ export function shortScriptErrors(payload: unknown): string[] {
   const roles = scenes.map(role);
   const spoken = scenes.map((s) => String(s?.narration ?? "").trim());
   const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
-  const errors = SHORT_SCRIPT_ROLES.filter((r) => !roles.includes(r)).map((r) => `Short script requires a [${r}] scene point`);
+  const errors: string[] = [];
+  const isYou = (t: string) => /\b(you|your|you're|yours|yourself|you've|you'll|you'd)\b/i.test(t);
   if (roles[0] !== "hook") errors.push("a Short opens on the [hook]: the viewer's own recognisable moment");
   if (spoken.some((s) => !s)) errors.push("every scene needs spoken narration");
-  if (spoken.some((s) => /\[(hook|promise|mechanism|philosophy|escalation|payoff)\]/i.test(s))) errors.push("planning labels must not leak into narration");
+  if (spoken.some((s) => /\[[a-z_-]+\]/i.test(s))) errors.push("planning labels must not leak into narration");
   if (/^(?:hello everyone|hey (?:everyone|guys)|welcome (?:back|to)|in (?:this|today's) (?:video|episode)|imagine\b)/i.test(spoken[0] ?? "")) {
     errors.push("the hook opens on a greeting, an introduction or 'Imagine' instead of the viewer's own moment");
   }
-  const promise = roles.indexOf("promise");
-  if (promise > 0 && words(spoken.slice(0, promise).join(" ")) > SHORT_PROMISE_BY_WORD) {
-    errors.push(`the expectation contract starts after word ${SHORT_PROMISE_BY_WORD}; state what the viewer will get earlier`);
-  }
-  for (const later of ["mechanism", "philosophy", "payoff"] as const) {
-    const i = roles.indexOf(later);
-    if (promise >= 0 && i >= 0 && i < promise) errors.push(`[${later}] comes before the [promise]: build the expectation first, then deliver it`);
-  }
-  const philosophy = scenes.filter((_, i) => roles[i] === "philosophy").map((s) => String(s?.narration ?? ""));
-  if (philosophy.length && !philosophy.some((t) => THINKER.test(t))) errors.push("the [philosophy] scene must name the real philosopher or tradition whose idea it uses");
+  if (spoken[0] && !isYou(spoken[0])) errors.push("the hook relates the topic to the viewer: put 'you' inside the moment in the first scene");
+  if (!THINKER.test(spoken.join(" "))) errors.push("name the real philosopher or tradition whose idea twists the psychology");
   const outro = scenes.findIndex((s) => s?.is_outro === true);
   if (outro < 0 || outro !== scenes.length - 1 || scenes.filter((s) => s?.is_outro).length !== 1) errors.push("a Short ends with exactly one separate final outro");
   // The outro is kept as written for Shorts: it must land as the verdict.
@@ -116,9 +108,10 @@ export function shortScriptErrors(payload: unknown): string[] {
   if (verdict && /\b(you(?:'ve| have) (?:just )?taken the first step|now you know|you now know|(?:one|a) step closer)\b/i.test(verdict)) errors.push("the final line is the verdict: never a progress recap");
   if (verdict && words(verdict) > 25) errors.push("the final verdict line is one or two short sentences (about 20 words at most)");
   const body = scenes.map((s, i) => ({ s, i })).filter(({ s }) => !s?.is_outro);
-  if (body.length && roles[body.at(-1)!.i] !== "payoff") errors.push("the [payoff] is the last substantive scene: deliver the contract's final item, then the outro");
-  const you = body.filter(({ s }) => /\b(you|your|you're|yours|yourself)\b/i.test(String(s?.narration ?? ""))).length;
-  if (body.length && you / body.length < SHORT_SECOND_PERSON_COVERAGE) errors.push("speak to the viewer: most scenes must be about what 'you' do, feel or notice");
+  const away = body.filter(({ s }) => !isYou(String(s?.narration ?? ""))).map(({ i }) => i);
+  if (away.length) errors.push(`keep "you" throughout: scene(s) ${away.join(", ")} stop speaking to the viewer -- show what you see, feel, think or do`);
+  const thirdPerson = spoken.join(" ").match(/\b(he|she|him|her|his|hers|himself|herself)\b/gi)?.length ?? 0;
+  if (thirdPerson > SHORT_MAX_THIRD_PERSON) errors.push(`${thirdPerson} he/she pronouns read as somebody else's story: the viewer is the only character; others are 'your friend', 'your boss'`);
   if (/\b(?:named|called)\s+[A-Z][a-z]+/.test(spoken.join(" "))) errors.push("no named characters: the viewer is the only character");
   const total = words(spoken.join(" "));
   if (total > SHORT_MAX_WORDS) errors.push(`${total} words no longer fits a Short/Reel; cut to the complete message (usually 150-230 words)`);
